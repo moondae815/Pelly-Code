@@ -488,3 +488,4 @@ spikes/**/vocab.json
 spikes/**/merges.txt
 eval/corpus/Sql/.env
 .superpowers/
+eval/corpus/Legacy/packages/

@@ -41,6 +41,9 @@ jobs:
         run: dotnet build -warnaserror
       - name: Windows tests
         run: dotnet test --no-build -- --filter-trait "Env=Windows"
+      - name: Legacy corpus build and tests
+        shell: pwsh
+        run: ./eval/corpus/Legacy/build.ps1
 
   sql-integration:
     runs-on: ubuntu-latest

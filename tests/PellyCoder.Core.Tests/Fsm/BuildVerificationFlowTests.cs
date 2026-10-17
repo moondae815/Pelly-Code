@@ -414,4 +414,65 @@ public sealed class BuildVerificationFlowTests : IDisposable
         Assert.Contains("CS0168", prompt);
         Assert.Equal("-clp:NoSummary", _processes.Calls[1].Arguments[^1]);
     }
+
+    private const string CommonTargets = "/usr/local/share/dotnet/sdk/10.0.302/Microsoft.Common.CurrentVersion.targets";
+    private const string LockMessage =
+        "Could not copy \"obj/Debug/net8.0/Demo.dll\" to \"bin/Debug/net8.0/Demo.dll\". Exceeded retry count of 10. Failed. The file is locked by: \"Demo (1234)\"";
+
+    [Fact]
+    public async Task VerifyBuildLockedOutput_Msb3027_Exit4_Restored_NoSecondModelCall()
+    {
+        var originalBytes = File.ReadAllBytes(CalcPath);
+        _processes.Enqueue(Ok()); // baseline
+        _processes.Enqueue(Failing(Line(CommonTargets, 4697, "error", "MSB3027", LockMessage)));
+        _backend.Enqueue(Block(Original, Guarded));
+
+        var exit = await Run(Req(CalcPath));
+
+        Assert.Equal(4, exit);
+        Assert.Single(_backend.Requests);
+        Assert.Equal(originalBytes, File.ReadAllBytes(CalcPath));
+        Assert.Equal(2, _processes.Calls.Count);
+        Assert.Contains($"빌드 출력 파일이 잠겨 있어 빌드 검증을 할 수 없습니다: MSB3027 {LockMessage}. 실행 중인 프로그램(디버거 포함)을 닫고 다시 시도하세요",
+            _ui.Warnings);
+        Assert.Equal("BuildUnverifiable", Summary().GetProperty("failureKind").GetString());
+    }
+
+    [Fact]
+    public async Task VerifyBuildNonCsError_Exit4_Restored()
+    {
+        var originalBytes = File.ReadAllBytes(CalcPath);
+        const string Message = "The reference assemblies for .NETFramework,Version=v4.8 were not found.";
+        _processes.Enqueue(Ok()); // baseline
+        _processes.Enqueue(Failing(
+            Line(CalcPath, 7, "error", "CS0103", "The name 'c' does not exist in the current context"),
+            Line(CommonTargets, 1259, "error", "MSB3644", Message)));
+        _backend.Enqueue(Block(Original, Undefined));
+
+        var exit = await Run(Req(CalcPath));
+
+        Assert.Equal(4, exit);
+        Assert.Single(_backend.Requests);
+        Assert.Equal(originalBytes, File.ReadAllBytes(CalcPath));
+        Assert.Contains($"빌드 검증을 할 수 없습니다: MSB3644 {Message}. 프로젝트가 빌드되는지 먼저 확인하세요", _ui.Warnings);
+        Assert.Equal("BuildUnverifiable", Summary().GetProperty("failureKind").GetString());
+    }
+
+    [Fact]
+    public async Task BaselineLockedOutput_ShowsLockHint()
+    {
+        var originalBytes = File.ReadAllBytes(CalcPath);
+        _processes.Enqueue(Failing(Line(CommonTargets, 4697, "error", "MSB3021", LockMessage)));
+        _backend.Enqueue(Block(Original, Guarded));
+
+        var exit = await Run(Req(CalcPath));
+
+        Assert.Equal(4, exit);
+        Assert.Equal(originalBytes, File.ReadAllBytes(CalcPath));
+        Assert.False(HasBackup());
+        Assert.Contains($"빌드 출력 파일이 잠겨 있어 빌드 검증을 할 수 없습니다: MSB3021 {LockMessage}. 실행 중인 프로그램(디버거 포함)을 닫고 다시 시도하세요",
+            _ui.Warnings);
+        Assert.DoesNotContain(_ui.Warnings, w => w.Contains("dotnet restore", StringComparison.Ordinal));
+        Assert.Equal("BuildUnverifiable", Summary().GetProperty("failureKind").GetString());
+    }
 }

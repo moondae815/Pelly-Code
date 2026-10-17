@@ -15,6 +15,7 @@ public sealed class VerifyPhase(IReadOnlyList<IVerifierStep> steps) : IPhase
             if (result.EnvironmentFailure)
             {
                 if (result.Message is not null) ctx.Messages.Add(result.Message);
+                if (result.FailureKind is not null) ctx.FailureKind = result.FailureKind;
                 return PhaseOutcome.EnvError;
             }
             if (result.Passed) continue;

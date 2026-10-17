@@ -22,12 +22,14 @@ public sealed record StepResult(
     IReadOnlyList<Diagnostic> NewErrors,
     IReadOnlyList<Diagnostic> NewWarnings,
     bool EnvironmentFailure,
-    string? Message)
+    string? Message,
+    string? FailureKind = null)
 {
     public static readonly StepResult Pass = new(true, null, [], [], false, null);
 
     public static StepResult Fail(Feedback feedback, IReadOnlyList<Diagnostic> newErrors, IReadOnlyList<Diagnostic> newWarnings) =>
         new(false, feedback, newErrors, newWarnings, false, null);
 
-    public static StepResult Environment(string message) => new(false, null, [], [], true, message);
+    /// <param name="failureKind">The summary label; null leaves the outcome's default (EnvError).</param>
+    public static StepResult Environment(string message, string? failureKind = null) => new(false, null, [], [], true, message, failureKind);
 }

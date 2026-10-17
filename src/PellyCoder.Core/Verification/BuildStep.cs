@@ -35,6 +35,11 @@ public sealed class BuildStep(BuildVerifier builds, FeedbackBuilder feedback, Bu
             return StepResult.Environment($"빌드가 {options.TimeoutSeconds}초 안에 끝나지 않았습니다 (build.timeoutSeconds)");
 
         var newErrors = BaselineDiff.New(baseline.Run.Errors, run.Errors);
+        // A new non-compiler error (MSB3027 locked output, MSB*, NETSDK*, NU*, the synthetic BUILD) is not something the
+        // model can fix by editing the member: end the run as an environment error (the orchestrator restores the file).
+        if (newErrors.FirstOrDefault(e => !BuildMessages.IsCompilerError(e)) is { } blocker)
+            return StepResult.Environment(BuildMessages.Unverifiable(blocker, "프로젝트가 빌드되는지 먼저 확인하세요"), "BuildUnverifiable");
+
         var newWarnings = BaselineDiff.New(baseline.Run.Warnings, run.Warnings);
         IReadOnlyList<Diagnostic> failing = newErrors;
         if (options.WarnAsError)
@@ -54,6 +59,20 @@ public sealed class BuildStep(BuildVerifier builds, FeedbackBuilder feedback, Bu
 /// <summary>User-facing build messages shared by APPLY (baseline) and the build step.</summary>
 public static class BuildMessages
 {
+    /// <summary>MSBuild copy failures caused by a locked output file (a running program or debugger holds the dll).</summary>
+    private static readonly HashSet<string> LockCodes = new(StringComparer.Ordinal) { "MSB3021", "MSB3026", "MSB3027" };
+
+    public static bool IsCompilerError(Diagnostic d) => d.Code.StartsWith("CS", StringComparison.Ordinal);
+
+    /// <summary>
+    /// The message for an error that keeps the build from verifying the edit. Locked outputs get their own hint;
+    /// <paramref name="otherwiseHint"/> ends the message for every other code.
+    /// </summary>
+    public static string Unverifiable(Diagnostic blocker, string otherwiseHint) =>
+        LockCodes.Contains(blocker.Code)
+            ? $"빌드 출력 파일이 잠겨 있어 빌드 검증을 할 수 없습니다: {blocker.Code} {blocker.Message}. 실행 중인 프로그램(디버거 포함)을 닫고 다시 시도하세요"
+            : $"빌드 검증을 할 수 없습니다: {blocker.Code} {blocker.Message}. {otherwiseHint}";
+
     public static string CannotStart(BuildTool tool, Exception ex) =>
         $"빌드 도구를 실행할 수 없습니다: {tool.Executable} ({ex.InnerException?.Message ?? ex.Message}). pelly doctor로 확인하세요";
 }

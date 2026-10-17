@@ -124,10 +124,9 @@ public sealed class ApplyPhase(FileGuard fileGuard, FeedbackBuilder feedback, IU
 
         // A non-compiler error (NETSDK1004 missing restore, MSB*, NU*, the synthetic BUILD) means the compiler never ran:
         // every later build would fail the same way and each edit would pass vacuously. Checked regardless of --strict-baseline.
-        if (run.Errors.FirstOrDefault(e => !e.Code.StartsWith("CS", StringComparison.Ordinal)) is { } blocker)
+        if (run.Errors.FirstOrDefault(e => !BuildMessages.IsCompilerError(e)) is { } blocker)
         {
-            ctx.Messages.Add($"빌드 검증을 할 수 없습니다: {blocker.Code} {blocker.Message}. "
-                + "프로젝트를 복원(dotnet restore 또는 Visual Studio 복원)하고 빌드되는지 먼저 확인하세요");
+            ctx.Messages.Add(BuildMessages.Unverifiable(blocker, "프로젝트를 복원(dotnet restore 또는 Visual Studio 복원)하고 빌드되는지 먼저 확인하세요"));
             ctx.FailureKind = "BuildUnverifiable";
             return PhaseOutcome.EnvError;
         }

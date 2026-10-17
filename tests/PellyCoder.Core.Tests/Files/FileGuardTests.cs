@@ -96,6 +96,22 @@ public sealed class FileGuardTests : IDisposable
     }
 
     [Fact]
+    public async Task Backup_CalledAgainAfterWrite_KeepsFirstOriginal()
+    {
+        byte[] original = Cp949Crlf("한글", "x");
+        string path = Put(original);
+        var snap = _guard.Read(path);
+        string first = _guard.Backup(Ws, "run1", snap);
+        var written = await _guard.WriteAsync(snap, "바뀜\nx\n", TestContext.Current.CancellationToken);
+
+        string second = _guard.Backup(Ws, "run1", written.Snapshot!);
+
+        Assert.Equal(first, second);
+        Assert.Equal(original, File.ReadAllBytes(first));
+        Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(first)!, "*.pelly-tmp"));
+    }
+
+    [Fact]
     public async Task Backup_OfMixedNewlineFile_IsByteExact()
     {
         byte[] original = "a\r\nb\nc\r\n"u8.ToArray();

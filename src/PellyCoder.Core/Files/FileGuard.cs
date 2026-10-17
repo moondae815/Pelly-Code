@@ -22,13 +22,26 @@ public sealed class FileGuard(IFileSystem fs, TimeProvider time)
         if (fs.Path.IsPathRooted(rel) || rel == ".." || rel.StartsWith(".." + fs.Path.DirectorySeparatorChar, StringComparison.Ordinal))
             throw new ArgumentException($"File is outside the workspace root: {original.Path}", nameof(original));
 
+        string dest = fs.Path.Combine(ws.PellyDir, "backup", runId, rel);
+        // 첫 백업이 이긴다: 같은 실행에서 두 번째 호출이 원본을 pelly의 수정본으로 덮으면 롤백이 원본을 잃는다.
+        if (fs.File.Exists(dest)) return dest;
+
         byte[] bytes = fs.File.ReadAllBytes(original.Path);
         if (TextFileCodec.HashHex(bytes) != original.Sha256)
             throw new InvalidOperationException($"File changed before backup: {original.Path}");
 
-        string dest = fs.Path.Combine(ws.PellyDir, "backup", runId, rel);
         fs.Directory.CreateDirectory(fs.Path.GetDirectoryName(dest)!);
-        fs.File.WriteAllBytes(dest, bytes);
+        // 임시 파일 + 이동: 중단돼도 잘린 파일이 「원본」으로 남지 않는다.
+        string tmp = dest + ".pelly-tmp";
+        try
+        {
+            fs.File.WriteAllBytes(tmp, bytes);
+            fs.File.Move(tmp, dest);
+        }
+        finally
+        {
+            if (fs.File.Exists(tmp)) fs.File.Delete(tmp);
+        }
         return dest;
     }
 

@@ -293,6 +293,7 @@ public async Task<int> RunAsync(RunRequest req, CancellationToken ct)
     "numCtx": 8192,
     "headers": {},                       // 인증 프록시용
     "connectTimeoutSeconds": 3,
+    "firstTokenTimeoutSeconds": 120,
     "streamIdleTimeoutSeconds": 10,
     "template": null,                    // null이면 내장 template.json 사용
     "thinkMode": "retry"                 // D21: off | retry | always
@@ -327,7 +328,7 @@ public async Task<int> RunAsync(RunRequest req, CancellationToken ct)
 * 응답은 NDJSON. 줄마다 `response`(텍스트), `done`, 마지막 줄의 `prompt_eval_count`, `prompt_eval_cached_count`, `eval_count`, `prompt_eval_duration`, `done_reason`을 `LlmChunk`로 변환합니다. 알 수 없는 필드는 무시합니다(버전 차이 대비). raw 모드에서는 생각 텍스트도 `response`로 옵니다(S1 확인 — `thinking` 필드는 오지 않음).
 * 로그에는 "새로 처리한 입력 토큰 = `prompt_eval_count` − `prompt_eval_cached_count`"를 함께 기록합니다(S2).
 * `HttpClient`는 `HttpCompletionOption.ResponseHeadersRead`로 스트림을 읽습니다. 취소 토큰이 취소되면 응답 스트림을 닫습니다. 단, 서버는 끊긴 요청을 바로 멈추지 않아 다음 요청이 약 2초 늦어지므로(S2), **취소는 사용자 Ctrl+C에만** 쓰고 길이 제한은 `num_predict`로 합니다(D22).
-* 첫 바이트까지 `connectTimeoutSeconds`, 이후 줄 사이 무응답 `streamIdleTimeoutSeconds`. 무응답 시 1회 재요청 후 실패하면 EnvError.
+* `generate`는 첫 NDJSON 줄까지 `firstTokenTimeoutSeconds`(기본 120초)를 기다리고(무응답 시 1회 재요청, 그래도 실패하면 EnvError), 이후 줄 사이 무응답은 `streamIdleTimeoutSeconds`로 끊습니다. `connectTimeoutSeconds`는 상태 조회(`GetStatusAsync`) 호출의 타임아웃이자 TCP 연결 타임아웃입니다. Ollama는 모델이 로드될 때까지 응답 헤더를 보내지 않으므로(S1 콜드 로드 25.7초) 첫 줄 대기에 별도 값이 필요합니다.
 * `GetStatusAsync`: `/api/version`, `/api/tags`(모델 존재), `/api/ps`(로드 여부), `/api/show`(Modelfile의 `RENDERER`/`PARSER` 이름, 기본 파라미터). 이 모델은 Go 템플릿 대신 내장 렌더러(`qwen3.5`)를 써서 `template`이 `{{ .Prompt }}`뿐이므로 템플릿 문자열 비교는 하지 않습니다(S1).
 * 서버 대기(공용 서버) 시간: 요청 전송부터 첫 청크까지 시간 중 `prompt_eval_duration`을 뺀 값을 "대기"로 로그에 기록.
 

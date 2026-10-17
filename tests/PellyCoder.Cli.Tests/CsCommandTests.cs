@@ -36,7 +36,7 @@ public class CsCommandTests
             Task.FromResult<IReadOnlyList<DoctorCheck>>(checks);
     }
 
-    private sealed record Harness(CommandAppTester App, FakeRunner Runner);
+    private sealed record Harness(CommandAppTester App, FakeRunner Runner, IFileSystem Fs);
 
     private static Harness Build(int exitCode = 0, string? workspaceConfig = null, DoctorCheck[]? doctor = null)
     {
@@ -56,7 +56,7 @@ public class CsCommandTests
 
         var app = new CommandAppTester(new DiTypeRegistrar(services));
         app.Configure(CliApp.Configure);
-        return new Harness(app, runner);
+        return new Harness(app, runner, fs);
     }
 
     [Fact]
@@ -102,7 +102,8 @@ public class CsCommandTests
 
         Assert.Equal(0, result.ExitCode);
         var r = h.Runner.Request!;
-        Assert.Equal(File, r.FilePath.Replace('\\', '/'));
+        // The command normalizes through the same file system, so a drive letter on Windows is expected too.
+        Assert.Equal(h.Fs.Path.GetFullPath(File), r.FilePath);
         Assert.Equal("add null check", r.Request);
         Assert.Equal("C", r.ClassName);
         Assert.Equal("M", r.MethodName);

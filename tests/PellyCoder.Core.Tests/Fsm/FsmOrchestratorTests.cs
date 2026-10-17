@@ -417,4 +417,34 @@ public sealed class FsmOrchestratorTests : IDisposable
         Assert.Contains(_ui.Warnings, w => w.Contains("server went away"));
         Assert.Equal("EnvError", Summary().GetProperty("failureKind").GetString());
     }
+
+    [Fact]
+    public async Task WarnThrows_StillReturnsExitCode_RestoresAndReleasesLock()
+    {
+        var originalBytes = File.ReadAllBytes(CalcPath);
+        _ui.IsInteractive = false;
+        _ui.WarnThrows = new InvalidOperationException("markup error");
+        _backend.Enqueue(Block(Original, Guarded));
+
+        var exit = await Run(Req(CalcPath, yes: false));
+
+        Assert.Equal(2, exit);
+        Assert.Equal(originalBytes, File.ReadAllBytes(CalcPath));
+        using var next = WorkspaceLock.TryAcquire(_fs, new Workspace(_root, Path.Combine(_root, ".pelly")));
+        Assert.NotNull(next);
+    }
+
+    [Fact]
+    public async Task LoggerFailure_DoesNotUndoApprovedEdit()
+    {
+        _backend.Enqueue(Block(Original, Guarded));
+
+        var exit = await FsmOrchestratorFactory.Create(new LogFailingFileSystem(), _backend, _ui, _options, TimeProvider.System)
+            .RunAsync(Req(CalcPath), TestContext.Current.CancellationToken)
+            .WaitAsync(WallClock, CancellationToken.None);
+
+        Assert.Equal(0, exit);
+        Assert.Equal(CalcSource.Replace(Original, Guarded), File.ReadAllText(CalcPath));
+        Assert.Contains(_ui.Warnings, w => w.Contains("scripted log failure"));
+    }
 }

@@ -19,7 +19,7 @@ public sealed record RunSummary(
 
 /// <summary>
 /// Writes <c>.pelly/runs/&lt;runId&gt;/</c>: <c>events.jsonl</c>, <c>attempt-&lt;n&gt;/*.txt</c>, <c>summary.json</c>.
-/// Logging is best effort: an I/O failure is recorded in <see cref="RunContext.Messages"/> and never fails the run.
+/// Logging is best effort: any failure (except cancellation) is recorded in <see cref="RunContext.Messages"/> and never fails the run.
 /// </summary>
 public sealed class RunLogger(IFileSystem fs, TimeProvider time)
 {
@@ -110,7 +110,7 @@ public sealed class RunLogger(IFileSystem fs, TimeProvider time)
         {
             write();
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             if (_failed) return;
             _failed = true; // one note per run is enough

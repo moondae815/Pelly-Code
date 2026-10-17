@@ -19,14 +19,14 @@ public sealed class FsmOrchestrator(
     public async Task<int> RunAsync(RunRequest request, CancellationToken ct)
     {
         var ctx = new RunContext(RunLogger.NewRunId(time), request, options);
-        var shown = 0;
+        var messages = new MessageSink(ui, ctx);
         var logStarted = false;
         try
         {
             while (!Transitions.IsTerminal(ctx.Phase))
             {
                 var phase = ctx.Phase;
-                ui.ShowStatus(phase, phase == RunPhase.Edit ? ctx.Attempt + 1 : ctx.Attempt, Describe(ctx, phase));
+                BestEffort(ctx, () => ui.ShowStatus(phase, phase == RunPhase.Edit ? ctx.Attempt + 1 : ctx.Attempt, Describe(ctx, phase)));
 
                 var prior = ctx.FailureKind;
                 ctx.FailureKind = null;
@@ -36,17 +36,18 @@ public sealed class FsmOrchestrator(
                 ctx.FailureKind ??= LabelOf(outcome) ?? prior;
                 ctx.PhaseSeconds[phase] = ctx.PhaseSeconds.GetValueOrDefault(phase) + elapsed.TotalSeconds;
 
+                // Logging and display are best effort: they must never turn a phase result into Crashed.
                 if (!logStarted && ctx.Workspace is not null)
                 {
-                    logger.Start(ctx);
+                    BestEffort(ctx, () => logger.Start(ctx));
                     logStarted = true;
                 }
-                logger.Phase(ctx, outcome, elapsed);
+                BestEffort(ctx, () => logger.Phase(ctx, outcome, elapsed));
 
                 var next = Transitions.Next(phase, outcome, ctx.Attempt, ctx.MaxRetries);
                 ctx.Phase = next.Next;
                 if (next.ExitCode is { } code) ctx.ExitCode = code;
-                shown = Flush(ctx, shown);
+                messages.Flush();
             }
         }
         catch (Exception ex)
@@ -59,15 +60,35 @@ public sealed class FsmOrchestrator(
         }
         finally
         {
-            if (ctx.Phase == RunPhase.Failed) await RollbackAsync(ctx);
-            else ctx.FailureKind = null;
+            try
+            {
+                if (ctx.Phase == RunPhase.Failed) await RollbackAsync(ctx);
+                else ctx.FailureKind = null;
 
-            if (!logStarted && ctx.Workspace is not null) logger.Start(ctx);
-            logger.Complete(ctx);
-            Flush(ctx, shown);
-            ctx.Lock?.Dispose();
+                messages.Flush(); // before Complete, so a display failure is still recorded in messages.txt
+                if (!logStarted && ctx.Workspace is not null) BestEffort(ctx, () => logger.Start(ctx));
+                BestEffort(ctx, () => logger.Complete(ctx));
+                messages.Flush();
+            }
+            finally
+            {
+                ctx.Lock?.Dispose();
+            }
         }
         return ctx.ExitCode;
+    }
+
+    /// <summary>Runs a logging or display call; a failure is noted in the messages and never changes the outcome.</summary>
+    private static void BestEffort(RunContext ctx, Action action)
+    {
+        try
+        {
+            action();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            ctx.Messages.Add($"로그·화면 출력에 실패했습니다: {ex.GetType().Name}: {ex.Message}");
+        }
     }
 
     private static async Task<PhaseOutcome> ExecuteAsync(RunContext ctx, IPhase phase, CancellationToken ct)
@@ -116,12 +137,6 @@ public sealed class FsmOrchestrator(
         }
     }
 
-    private int Flush(RunContext ctx, int shown)
-    {
-        for (; shown < ctx.Messages.Count; shown++) ui.Warn(ctx.Messages[shown]);
-        return shown;
-    }
-
     /// <summary>Failure label for outcomes the phase itself does not label (patch failures carry their own kind).</summary>
     private static string? LabelOf(PhaseOutcome outcome) => outcome switch
     {
@@ -149,5 +164,32 @@ public sealed class FsmOrchestrator(
             RunPhase.Review => "변경 검토",
             _ => phase.ToString(),
         };
+    }
+
+    /// <summary>
+    /// Shows each run message once. Once <see cref="IUserInteraction.Warn"/> throws, display stops for this run
+    /// (retrying would throw again) and the failure is kept in the messages for <c>messages.txt</c>.
+    /// </summary>
+    private sealed class MessageSink(IUserInteraction ui, RunContext ctx)
+    {
+        private int _shown;
+        private bool _broken;
+
+        public void Flush()
+        {
+            while (!_broken && _shown < ctx.Messages.Count)
+            {
+                var message = ctx.Messages[_shown++];
+                try
+                {
+                    ui.Warn(message);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    _broken = true;
+                    ctx.Messages.Add($"메시지를 화면에 표시하지 못했습니다: {ex.GetType().Name}: {ex.Message}");
+                }
+            }
+        }
     }
 }

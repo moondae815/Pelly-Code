@@ -17,6 +17,9 @@ public sealed class ScriptedUserInteraction : IUserInteraction
     /// <summary>Runs on every status update (e.g. to simulate an external edit between phases).</summary>
     public Action<RunPhase, int>? OnStatus { get; set; }
 
+    /// <summary>When set, <see cref="Warn"/> records the message and then throws this (e.g. a console markup error).</summary>
+    public Exception? WarnThrows { get; set; }
+
     public List<string> ConfirmMessages { get; } = [];
     public List<IReadOnlyList<string>> SelectLabels { get; } = [];
     public List<(string Path, string Before, string After)> Diffs { get; } = [];
@@ -50,5 +53,9 @@ public sealed class ScriptedUserInteraction : IUserInteraction
         OnStatus?.Invoke(phase, attempt);
     }
 
-    public void Warn(string message) => Warnings.Add(message);
+    public void Warn(string message)
+    {
+        Warnings.Add(message);
+        if (WarnThrows is not null) throw WarnThrows;
+    }
 }

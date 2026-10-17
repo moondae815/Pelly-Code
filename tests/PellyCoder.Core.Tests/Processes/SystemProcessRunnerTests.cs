@@ -120,6 +120,20 @@ public sealed class SystemProcessRunnerTests
     }
 
     [Fact]
+    public async Task OrphanedDescendantHoldingPipe_DoesNotHangAfterParentExit()
+    {
+        // Windows 미확인: no reliable inherited-handle equivalent, so this is Unix-only.
+        Assert.SkipWhen(OperatingSystem.IsWindows(), "Unix-only (Windows 미확인)");
+        var r = await Runner.RunAsync(
+            new ProcessSpec("/bin/sh", ["-c", "sleep 30 & echo done"], Path.GetTempPath(), TimeSpan.FromSeconds(20)),
+            CancellationToken.None);
+        Assert.Equal(0, r.ExitCode);
+        Assert.False(r.TimedOut);
+        Assert.Contains("done", r.StdOut);
+        Assert.True(r.Duration < TimeSpan.FromSeconds(10), $"took {r.Duration}");
+    }
+
+    [Fact]
     public async Task ScriptedRunner_WhenEmpty_ReturnsFallbackOrThrows()
     {
         var fake = new ScriptedProcessRunner();

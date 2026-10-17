@@ -42,10 +42,12 @@ public sealed class SystemProcessRunner(TimeProvider time) : IProcessRunner
             throw new ProcessStartException(spec.FileName, ex);
         }
 
-        // Read both streams concurrently to avoid pipe-buffer deadlocks.
-        var outBuffer = new MemoryStream();
-        var outTask = Task.Run(() => process.StandardOutput.BaseStream.CopyToAsync(outBuffer, CancellationToken.None));
-        var errTask = Task.Run(() => process.StandardError.ReadToEndAsync(CancellationToken.None));
+        // Read both streams concurrently to avoid pipe-buffer deadlocks. Buffers are lock-guarded so a
+        // snapshot can be taken even if a reader is abandoned (a descendant may keep the pipe open).
+        var outBuf = new LockedBuffer();
+        var errBuf = new LockedBuffer();
+        var outTask = PumpAsync(process.StandardOutput.BaseStream, outBuf);
+        var errTask = PumpAsync(process.StandardError.BaseStream, errBuf);
 
         using var timeoutCts = new CancellationTokenSource(spec.Timeout, time);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
@@ -54,6 +56,12 @@ public sealed class SystemProcessRunner(TimeProvider time) : IProcessRunner
         try
         {
             await process.WaitForExitAsync(linked.Token);
+            // The process is gone; wait for EOF only briefly, since an orphaned descendant can hold the pipes open.
+            try
+            {
+                await Task.WhenAll(outTask, errTask).WaitAsync(DrainGrace, time, linked.Token);
+            }
+            catch (TimeoutException) { /* abandon readers; return what was read so far */ }
         }
         catch (OperationCanceledException)
         {
@@ -63,21 +71,33 @@ public sealed class SystemProcessRunner(TimeProvider time) : IProcessRunner
             timedOut = true;
         }
 
-        if (!timedOut)
-        {
-            await outTask;
-            await errTask;
-        }
-
-        var bytes = outBuffer.ToArray();
-        var stdErr = errTask.IsCompletedSuccessfully ? errTask.Result : "";
+        var bytes = outBuf.Snapshot();
         return new ProcessResult(
             timedOut ? -1 : process.ExitCode,
             Encoding.UTF8.GetString(bytes),
-            stdErr,
+            Encoding.UTF8.GetString(errBuf.Snapshot()),
             bytes,
             time.GetElapsedTime(started),
             timedOut);
+    }
+
+    private static Task PumpAsync(Stream stream, LockedBuffer sink) => Task.Run(async () =>
+    {
+        var chunk = new byte[16 * 1024];
+        try
+        {
+            int n;
+            while ((n = await stream.ReadAsync(chunk)) > 0) sink.Append(chunk, n);
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException) { }
+    });
+
+    private sealed class LockedBuffer
+    {
+        private readonly object _gate = new();
+        private readonly MemoryStream _ms = new();
+        public void Append(byte[] data, int count) { lock (_gate) _ms.Write(data, 0, count); }
+        public byte[] Snapshot() { lock (_gate) return _ms.ToArray(); }
     }
 
     private static void KillTree(Process process)

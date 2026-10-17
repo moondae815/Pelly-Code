@@ -1,4 +1,5 @@
 using PellyCoder.Core.Abstractions;
+using PellyCoder.Core.CSharp;
 
 namespace PellyCoder.Core.Fsm.Phases;
 
@@ -9,6 +10,11 @@ public sealed class ReviewPhase(IUserInteraction ui) : IPhase
 
     public async Task<PhaseOutcome> ExecuteAsync(RunContext ctx, CancellationToken ct)
     {
+        // Informational, so it also shows with --yes: the build cannot check SQL text.
+        if (ctx.Candidate is { } member && ctx.Language is { } language
+            && InlineSqlDetector.ChangedSqlLiteral(ctx.Original.Text, ctx.Current.Text, member.Display, language.Version))
+            ui.Warn("인라인 SQL이 바뀌었습니다 — 빌드는 통과했지만 DB로 검증되지 않았습니다 (설계 §8.15)");
+
         ui.ShowDiff(ctx.FilePath, ctx.Original.Text, ctx.Current.Text);
         if (ctx.Request.Yes)
             return PhaseOutcome.Approved;

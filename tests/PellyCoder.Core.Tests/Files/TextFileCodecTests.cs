@@ -101,4 +101,15 @@ public sealed class TextFileCodecTests : IDisposable
         var ex = Assert.Throws<UnencodableTextException>(() => TextFileCodec.Encode(snapshot, "한글\nx = \"😀\";\n"));
         Assert.Equal(2, ex.Line);
     }
+
+    [Fact]
+    public void MixedNewLines_Detected()
+    {
+        var mixed = TextFileCodec.Read(_fs, Write("a\r\nb\r\nc\nd\r\n"u8.ToArray()));
+        Assert.True(mixed.MixedNewLines);
+        Assert.Equal("\r\n", mixed.NewLine);
+
+        Assert.False(TextFileCodec.Read(_fs, Write("a\r\nb\r\n"u8.ToArray(), "crlf.txt")).MixedNewLines);
+        Assert.False(TextFileCodec.Read(_fs, Write("a\nb\n"u8.ToArray(), "lf.txt")).MixedNewLines);
+    }
 }

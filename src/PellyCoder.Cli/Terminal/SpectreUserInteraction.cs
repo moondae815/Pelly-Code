@@ -37,7 +37,9 @@ public sealed class SpectreUserInteraction(IAnsiConsole console) : IUserInteract
     }
 
     public void ShowStatus(RunPhase phase, int attempt, string message) =>
-        console.MarkupLine($"[grey]{phase} (시도 {attempt})[/] {Markup.Escape(message)}");
+        console.MarkupLine(attempt == 0
+            ? $"[grey]{phase}[/] {Markup.Escape(message)}"
+            : $"[grey]{phase} (시도 {attempt})[/] {Markup.Escape(message)}");
 
     public void Warn(string message) => console.MarkupLine($"[yellow]{Markup.Escape(message)}[/]");
 }

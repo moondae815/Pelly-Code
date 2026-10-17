@@ -42,6 +42,11 @@ public sealed class PreflightPhase(IFileSystem fs, FileGuard fileGuard, ILlmBack
         }
         ctx.Current = ctx.Original;
 
+        // A notice, not a failure: the write unifies newlines to the majority style (FileSnapshot.NewLine).
+        if (ctx.Original.MixedNewLines)
+            ctx.Messages.Add("파일에 CRLF와 LF가 섞여 있습니다 — 수정하면 줄바꿈이 "
+                + (ctx.Original.NewLine == "\n" ? "LF" : "CRLF") + "로 통일됩니다");
+
         if (MarkerScanner.HasConflictMarkers(ctx.Original.Text))
             return Env(ctx, $"파일에 병합 충돌 표시(<<<<<<<, =======, >>>>>>>)가 있습니다. 충돌을 먼저 해결하세요: {path}");
 
@@ -57,6 +62,8 @@ public sealed class PreflightPhase(IFileSystem fs, FileGuard fileGuard, ILlmBack
         if (!status.Reachable)
             return Env(ctx, $"LLM 서버 {llm.Endpoint}에 연결할 수 없습니다 ({status.Error ?? "응답 없음"}). "
                 + "Ollama가 실행 중인지, llm.endpoint 설정이 맞는지 `pelly doctor`로 확인하세요.");
+        if (!status.ModelInstalled && status.Error is not null)
+            return Env(ctx, $"서버에서 모델 목록을 확인하지 못했습니다: {status.Error} (pelly doctor)");
         if (!status.ModelInstalled)
             return Env(ctx, $"모델 '{llm.Model}'이(가) 서버 {llm.Endpoint}에 없습니다. "
                 + $"`ollama pull {llm.Model}`로 받거나 llm.model 설정을 확인하세요 (`pelly doctor`).");

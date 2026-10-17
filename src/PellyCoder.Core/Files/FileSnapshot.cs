@@ -7,6 +7,7 @@ namespace PellyCoder.Core.Files;
 /// <summary>
 /// 디스크 파일의 읽은 시점 상태. <see cref="Text"/>는 <c>\n</c>으로 정규화된 본문이고,
 /// <see cref="Sha256"/>은 디스크 바이트(정규화 전)의 소문자 hex 해시입니다.
+/// <see cref="MixedNewLines"/>는 CRLF와 단독 LF가 함께 있을 때 true이며, 쓸 때는 <see cref="NewLine"/>(다수 쪽)으로 통일됩니다.
 /// <see cref="Encoding"/>은 BOM을 스스로 내보내지 않으며 BOM 여부는 <see cref="HasBom"/>만 결정합니다.
 /// </summary>
 public sealed record FileSnapshot(
@@ -16,7 +17,8 @@ public sealed record FileSnapshot(
     string NewLine,
     bool EndsWithNewLine,
     string Sha256,
-    string Text);
+    string Text,
+    bool MixedNewLines = false);
 
 /// <summary>수정 텍스트에 파일 인코딩으로 표현할 수 없는 문자가 있을 때 던집니다. <see cref="Line"/>은 1부터 시작합니다.</summary>
 public sealed class UnencodableTextException(int line, char character, string encodingName)
@@ -75,7 +77,7 @@ public static class TextFileCodec
         string text = raw.Replace(Crlf, "\n");
         bool endsWithNewLine = text.EndsWith('\n');
         string sha = HashHex(bytes);
-        return new FileSnapshot(path, encoding, hasBom, newLine, endsWithNewLine, sha, text);
+        return new FileSnapshot(path, encoding, hasBom, newLine, endsWithNewLine, sha, text, MixedNewLines: crlf > 0 && lf > 0);
     }
 
     /// <summary>스냅샷의 인코딩·BOM·줄바꿈·끝 줄바꿈 유무로 <paramref name="textLf"/>를 바이트로 만듭니다.</summary>

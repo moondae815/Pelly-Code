@@ -21,6 +21,11 @@ public sealed partial class OllamaBackend : ILlmBackend, IOllamaDiagnostics
     private readonly LlmOptions _options;
     private readonly TimeProvider _time;
 
+    /// <remarks>
+    /// The composition root should set <c>HttpClient.Timeout = Timeout.InfiniteTimeSpan</c>: this class enforces its own
+    /// timers, and the default 100 s client timeout would fire before <c>FirstTokenTimeoutSeconds</c>. If it fires
+    /// anyway it is treated as a timeout (never as a user cancellation).
+    /// </remarks>
     public OllamaBackend(HttpClient http, LlmOptions options, TimeProvider time)
     {
         _http = http;
@@ -72,7 +77,7 @@ public sealed partial class OllamaBackend : ILlmBackend, IOllamaDiagnostics
         string? version;
         try
         {
-            using var v = await SendJsonAsync(HttpMethod.Get, "api/version", null, ct);
+            using var v = await SendJsonAsync(HttpMethod.Get, "api/version", null, StatusTimeout, ct);
             version = v.RootElement.TryGetProperty("version", out var ver) ? ver.GetString() : null;
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
@@ -88,7 +93,7 @@ public sealed partial class OllamaBackend : ILlmBackend, IOllamaDiagnostics
 
         try
         {
-            using var tags = await SendJsonAsync(HttpMethod.Get, "api/tags", null, ct);
+            using var tags = await SendJsonAsync(HttpMethod.Get, "api/tags", null, StatusTimeout, ct);
             installed = ListContainsModel(tags.RootElement);
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
@@ -98,7 +103,7 @@ public sealed partial class OllamaBackend : ILlmBackend, IOllamaDiagnostics
 
         try
         {
-            using var ps = await SendJsonAsync(HttpMethod.Get, "api/ps", null, ct);
+            using var ps = await SendJsonAsync(HttpMethod.Get, "api/ps", null, StatusTimeout, ct);
             loaded = ListContainsModel(ps.RootElement);
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
@@ -109,7 +114,7 @@ public sealed partial class OllamaBackend : ILlmBackend, IOllamaDiagnostics
         try
         {
             var showBody = new JsonObject { ["model"] = _options.Model }.ToJsonString();
-            using var show = await SendJsonAsync(HttpMethod.Post, "api/show", showBody, ct);
+            using var show = await SendJsonAsync(HttpMethod.Post, "api/show", showBody, StatusTimeout, ct);
             if (show.RootElement.TryGetProperty("modelfile", out var mf) && mf.ValueKind == JsonValueKind.String)
             {
                 var m = RendererLine().Match(mf.GetString()!);
@@ -138,9 +143,12 @@ public sealed partial class OllamaBackend : ILlmBackend, IOllamaDiagnostics
             ["keep_alive"] = _options.KeepAlive,
             ["options"] = new JsonObject { ["num_ctx"] = _options.NumCtx, ["num_predict"] = 1 },
         };
-        using var doc = await SendJsonAsync(HttpMethod.Post, "api/chat", body.ToJsonString(), ct);
+        using var doc = await SendJsonAsync(HttpMethod.Post, "api/chat", body.ToJsonString(),
+            TimeSpan.FromSeconds(_options.FirstTokenTimeoutSeconds), ct);
         return GetInt(doc.RootElement, "prompt_eval_count");
     }
+
+    private TimeSpan StatusTimeout => TimeSpan.FromSeconds(_options.ConnectTimeoutSeconds);
 
     // ---------------------------------------------------------------- generate helpers
 
@@ -212,13 +220,18 @@ public sealed partial class OllamaBackend : ILlmBackend, IOllamaDiagnostics
                 reader = null;
                 return result;
             }
-            catch (OperationCanceledException) when (!ct.IsCancellationRequested && timer.IsCancellationRequested)
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
             {
+                // our timer, or HttpClient.Timeout: either way the server gave us nothing in time
                 return null;
             }
             catch (HttpRequestException ex)
             {
                 throw new LlmUnavailableException($"Cannot reach Ollama at {_http.BaseAddress}: {ex.Message}", ex);
+            }
+            catch (IOException ex)
+            {
+                throw new LlmUnavailableException($"Ollama connection failed before the first data: {ex.Message}", ex);
             }
         }
         finally
@@ -244,7 +257,7 @@ public sealed partial class OllamaBackend : ILlmBackend, IOllamaDiagnostics
                     return line;
             }
         }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested && timer.IsCancellationRequested)
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
             return null;
         }
@@ -282,10 +295,10 @@ public sealed partial class OllamaBackend : ILlmBackend, IOllamaDiagnostics
 
     // ---------------------------------------------------------------- status helpers
 
-    /// <summary>Whole-request call with the ConnectTimeoutSeconds timer; failures become LlmUnavailableException.</summary>
-    private async Task<JsonDocument> SendJsonAsync(HttpMethod method, string path, string? json, CancellationToken ct)
+    /// <summary>Whole-request call with the given timeout; failures become LlmUnavailableException.</summary>
+    private async Task<JsonDocument> SendJsonAsync(HttpMethod method, string path, string? json, TimeSpan timeout, CancellationToken ct)
     {
-        using var timer = new CancellationTokenSource(TimeSpan.FromSeconds(_options.ConnectTimeoutSeconds), _time);
+        using var timer = new CancellationTokenSource(timeout, _time);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timer.Token);
         try
         {
@@ -296,10 +309,10 @@ public sealed partial class OllamaBackend : ILlmBackend, IOllamaDiagnostics
             await using var stream = await response.Content.ReadAsStreamAsync(linked.Token);
             return await JsonDocument.ParseAsync(stream, cancellationToken: linked.Token);
         }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested && timer.IsCancellationRequested)
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
             throw new LlmUnavailableException(
-                $"Ollama did not answer {path} within {_options.ConnectTimeoutSeconds}s.");
+                $"Ollama did not answer {path} within {timeout.TotalSeconds:0}s.");
         }
         catch (HttpRequestException ex)
         {

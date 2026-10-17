@@ -26,10 +26,11 @@ public class OllamaBackendTests
         throw new DirectoryNotFoundException("PellyCoder.sln not found above test binaries.");
     }
 
-    private static (OllamaBackend Backend, FakeTimeProvider Time) Create(StubHttpHandler handler, LlmOptions? options = null)
+    private static (OllamaBackend Backend, FakeTimeProvider Time) Create(
+        StubHttpHandler handler, LlmOptions? options = null, FakeTimeProvider? fakeTime = null)
     {
         options ??= new LlmOptions { Endpoint = "http://ollama.test:11434", Model = Model };
-        var time = new FakeTimeProvider();
+        var time = fakeTime ?? new FakeTimeProvider();
         var http = new HttpClient(handler);
         return (new OllamaBackend(http, options, time), time);
     }
@@ -49,8 +50,37 @@ public class OllamaBackendTests
         {
             if (DateTime.UtcNow > deadline)
                 throw new TimeoutException("Condition not reached.");
-            await Task.Delay(5);
+            await Task.Delay(5, TestContext.Current.CancellationToken);
         }
+    }
+
+    private static readonly TimeSpan Guard = TimeSpan.FromSeconds(10);
+
+    /// <summary>Advances fake time in steps until the task finishes; fails (never hangs) after a bounded number of tries.</summary>
+    private static async Task AdvanceUntilDone(Task task, FakeTimeProvider time, TimeSpan step, int maxSteps = 200)
+    {
+        for (var i = 0; i < maxSteps && !task.IsCompleted; i++)
+        {
+            time.Advance(step);
+            await Task.Delay(10, TestContext.Current.CancellationToken);
+        }
+
+        Assert.True(task.IsCompleted, "Task did not complete after advancing fake time.");
+    }
+
+    private sealed class ThrowingStream(Exception toThrow) : Stream
+    {
+        public override int Read(byte[] buffer, int offset, int count) => throw toThrow;
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken ct = default) => throw toThrow;
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 
     private static HttpResponseMessage Ndjson(string text) =>
@@ -152,7 +182,7 @@ public class OllamaBackendTests
         await WaitUntil(() => handler.CountFor("/api/generate") == 2);
         time.Advance(TimeSpan.FromSeconds(120));
 
-        await Assert.ThrowsAsync<LlmUnavailableException>(() => run);
+        await Assert.ThrowsAsync<LlmUnavailableException>(() => run.WaitAsync(Guard, TestContext.Current.CancellationToken));
         Assert.Equal(2, handler.CountFor("/api/generate"));
     }
 
@@ -171,7 +201,7 @@ public class OllamaBackendTests
         pipe.WriteLine("""{"response":"ok","done":true,"done_reason":"stop"}""");
         pipe.Complete();
 
-        var chunks = await run;
+        var chunks = await run.WaitAsync(Guard, TestContext.Current.CancellationToken);
         Assert.Equal("ok", Assert.Single(chunks).Text);
         Assert.Equal(1, handler.CountFor("/api/generate"));
     }
@@ -183,18 +213,18 @@ public class OllamaBackendTests
         var handler = new StubHttpHandler().On("/api/generate", (_, _) =>
             Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(pipe) }));
         var (backend, time) = Create(handler);
-        var received = new List<LlmChunk>();
+        var received = new System.Collections.Concurrent.ConcurrentQueue<LlmChunk>();
 
         var run = Task.Run(async () =>
         {
             await foreach (var c in backend.GenerateAsync(Request, CancellationToken.None))
-                received.Add(c);
+                received.Enqueue(c);
         }, TestContext.Current.CancellationToken);
         pipe.WriteLine("""{"response":"a","done":false}""");
         await WaitUntil(() => received.Count == 1);
-        time.Advance(TimeSpan.FromSeconds(10));
+        await AdvanceUntilDone(run, time, TimeSpan.FromSeconds(10));
 
-        await Assert.ThrowsAsync<LlmUnavailableException>(() => run);
+        await Assert.ThrowsAsync<LlmUnavailableException>(() => run.WaitAsync(Guard, TestContext.Current.CancellationToken));
         Assert.Equal(1, handler.CountFor("/api/generate")); // no re-send mid-stream
     }
 
@@ -206,18 +236,18 @@ public class OllamaBackendTests
             Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(pipe) }));
         var (backend, _) = Create(handler);
         using var cts = new CancellationTokenSource();
-        var received = new List<LlmChunk>();
+        var received = new System.Collections.Concurrent.ConcurrentQueue<LlmChunk>();
 
         var run = Task.Run(async () =>
         {
             await foreach (var c in backend.GenerateAsync(Request, cts.Token))
-                received.Add(c);
+                received.Enqueue(c);
         }, TestContext.Current.CancellationToken);
         pipe.WriteLine("""{"response":"a","done":false}""");
         await WaitUntil(() => received.Count == 1);
         cts.Cancel();
 
-        var ex = await Record.ExceptionAsync(() => run);
+        var ex = await Record.ExceptionAsync(() => run.WaitAsync(Guard, TestContext.Current.CancellationToken));
         Assert.IsAssignableFrom<OperationCanceledException>(ex);
         Assert.IsNotType<LlmUnavailableException>(ex);
     }
@@ -312,8 +342,8 @@ public class OllamaBackendTests
 
         var run = backend.GetStatusAsync(CancellationToken.None);
         await WaitUntil(() => handler.CountFor("/api/version") == 1);
-        time.Advance(TimeSpan.FromSeconds(3));
-        var s = await run;
+        await AdvanceUntilDone(run, time, TimeSpan.FromSeconds(3));
+        var s = await run.WaitAsync(Guard, TestContext.Current.CancellationToken);
 
         Assert.False(s.Reachable);
         Assert.NotNull(s.Error);
@@ -377,5 +407,73 @@ public class OllamaBackendTests
         Assert.Equal("SYS", messages[0].GetProperty("content").GetString());
         Assert.Equal("user", messages[1].GetProperty("role").GetString());
         Assert.Equal("USER", messages[1].GetProperty("content").GetString());
+    }
+
+    [Fact]
+    public async Task Generate_HttpClientTimeout_IsUnavailableNotCancellation()
+    {
+        // HttpClient.Timeout surfaces as TaskCanceledException while the caller's token is NOT cancelled.
+        var handler = new StubHttpHandler().On("/api/generate", (_, _) => throw new TaskCanceledException("HttpClient.Timeout"));
+        var (backend, _) = Create(handler);
+
+        await Assert.ThrowsAsync<LlmUnavailableException>(
+            () => Collect(backend.GenerateAsync(Request, CancellationToken.None)).WaitAsync(Guard, TestContext.Current.CancellationToken));
+        Assert.Equal(2, handler.CountFor("/api/generate")); // first-token rule: one re-send
+    }
+
+    [Fact]
+    public async Task Status_HttpClientTimeout_ReturnsUnreachable()
+    {
+        var handler = new StubHttpHandler().On("/api/version", (_, _) => throw new TaskCanceledException("HttpClient.Timeout"));
+        var (backend, _) = Create(handler);
+
+        var s = await backend.GetStatusAsync(CancellationToken.None).WaitAsync(Guard, TestContext.Current.CancellationToken);
+
+        Assert.False(s.Reachable);
+        Assert.NotNull(s.Error);
+    }
+
+    [Fact]
+    public async Task ChatPromptTokenCount_HttpClientTimeout_ThrowsLlmUnavailable()
+    {
+        var handler = new StubHttpHandler().On("/api/chat", (_, _) => throw new TaskCanceledException("HttpClient.Timeout"));
+        var (backend, _) = Create(handler);
+
+        await Assert.ThrowsAsync<LlmUnavailableException>(
+            () => backend.ChatPromptTokenCountAsync("s", "u", CancellationToken.None).WaitAsync(Guard, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task Generate_IOExceptionBeforeFirstLine_ThrowsLlmUnavailableWithoutResend()
+    {
+        var handler = new StubHttpHandler().On("/api/generate", (_, _) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(new ThrowingStream(new IOException("connection reset")))
+            }));
+        var (backend, _) = Create(handler);
+
+        var ex = await Assert.ThrowsAsync<LlmUnavailableException>(
+            () => Collect(backend.GenerateAsync(Request, CancellationToken.None)).WaitAsync(Guard, TestContext.Current.CancellationToken));
+        Assert.Contains("connection reset", ex.Message + ex.InnerException?.Message);
+        Assert.Equal(1, handler.CountFor("/api/generate"));
+    }
+
+    [Fact]
+    public async Task ChatPromptTokenCount_SlowResponseWithinFirstTokenTimeout_Succeeds()
+    {
+        var time = new FakeTimeProvider();
+        var handler = new StubHttpHandler().On("/api/chat", async (_, ct) =>
+        {
+            await Task.Delay(TimeSpan.FromSeconds(30), time, ct);
+            return StubHttpHandler.JsonResponse("""{"prompt_eval_count":7}""");
+        });
+        var (backend, _) = Create(handler, fakeTime: time);
+
+        var run = backend.ChatPromptTokenCountAsync("s", "u", CancellationToken.None);
+        await WaitUntil(() => handler.CountFor("/api/chat") == 1);
+        await AdvanceUntilDone(run, time, TimeSpan.FromSeconds(10), maxSteps: 8); // 30 s < 120 s, > 3 s
+
+        Assert.Equal(7, await run.WaitAsync(Guard, TestContext.Current.CancellationToken));
     }
 }

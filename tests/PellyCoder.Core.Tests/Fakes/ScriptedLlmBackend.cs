@@ -44,7 +44,13 @@ public sealed class ScriptedLlmBackend : ILlmBackend
         yield return new LlmChunk("", true, s.PromptEvalCount, s.PromptEvalCachedCount, s.EvalCount, null, s.DoneReason);
     }
 
-    public Task<LlmServerStatus> GetStatusAsync(CancellationToken ct) => Task.FromResult(Status);
+    public int StatusCalls { get; private set; }
+
+    public Task<LlmServerStatus> GetStatusAsync(CancellationToken ct)
+    {
+        StatusCalls++;
+        return Task.FromResult(Status);
+    }
 
     private static IEnumerable<string> Split(string text, int parts)
     {

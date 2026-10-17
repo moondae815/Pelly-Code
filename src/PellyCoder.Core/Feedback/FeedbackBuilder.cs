@@ -20,27 +20,25 @@ public sealed class FeedbackBuilder(ITokenCounter tokens, int budget)
         if (lines.Count > 1 && lines[^1].Length == 0) lines.RemoveAt(lines.Count - 1);
         var head = $"{header} ({unique.Count} {(unique.Count == 1 ? "error" : "errors")})";
 
-        string Compose(int count, int radius, string? firstMessage)
+        string Compose(int count, int radius, Shrink shrink = default)
         {
             var entries = new List<string>();
             for (var i = 0; i < count; i++)
-                entries.Add(Entry(unique[i], lines, i == 0 ? radius : MaxRadius, i == 0 ? firstMessage : null));
+                entries.Add(Entry(unique[i], lines, i == 0 ? radius : MaxRadius, i == 0 ? shrink : default));
             return head + "\n" + string.Join("\n\n", entries);
         }
 
         for (var count = unique.Count; count >= 1; count--)
         {
-            var text = Compose(count, MaxRadius, null);
+            var text = Compose(count, MaxRadius);
             if (Fits(text)) return Done(text);
         }
         for (var radius = MaxRadius - 1; radius >= 0; radius--)
         {
-            var text = Compose(1, radius, null);
+            var text = Compose(1, radius);
             if (Fits(text)) return Done(text);
         }
-        var msg = unique[0].Message;
-        var cut = Truncate(msg, m => Compose(1, 0, m));
-        return Done(Compose(1, 0, cut));
+        return Done(FitFirstEntry(unique[0].Message, s => Compose(1, 0, s)));
     }
 
     /// <summary>
@@ -61,39 +59,73 @@ public sealed class FeedbackBuilder(ITokenCounter tokens, int budget)
         var lines = targetTextLf.Split('\n').ToList();
         if (lines.Count > 1 && lines[^1].Length == 0) lines.RemoveAt(lines.Count - 1);
 
-        string Compose(int count, int radius, string? firstMessage)
+        string Compose(int count, int radius, Shrink shrink = default)
         {
             var sb = new StringBuilder(head);
             for (var i = 0; i < count; i++)
             {
                 var e = ordered[i];
-                var message = i == 0 ? firstMessage : null;
+                var s = i == 0 ? shrink : default;
                 if (IsTarget(e))
-                    sb.Append(i == 0 ? "\n" : "\n\n").Append(Entry(e, lines, i == 0 ? radius : MaxRadius, message));
+                    sb.Append(i == 0 ? "\n" : "\n\n").Append(Entry(e, lines, i == 0 ? radius : MaxRadius, s));
                 else
-                    sb.Append(i > 0 && IsTarget(ordered[i - 1]) ? "\n\n" : "\n").Append(OneLine(e, message));
+                    sb.Append(i > 0 && IsTarget(ordered[i - 1]) ? "\n\n" : "\n").Append(OneLine(e, s));
             }
             return sb.ToString();
         }
 
         for (var count = ordered.Count; count >= 1; count--)
         {
-            var text = Compose(count, MaxRadius, null);
+            var text = Compose(count, MaxRadius);
             if (Fits(text)) return Done(text);
         }
         for (var radius = MaxRadius - 1; radius >= 0; radius--)
         {
-            var text = Compose(1, radius, null);
+            var text = Compose(1, radius);
             if (Fits(text)) return Done(text);
         }
-        var cut = Truncate(ordered[0].Message, m => Compose(1, 0, m));
-        return Done(Compose(1, 0, cut));
+        return Done(FitFirstEntry(ordered[0].Message, s => Compose(1, 0, s)));
     }
 
-    private static string OneLine(Diagnostic e, string? messageOverride) =>
-        e.File.Length == 0
-            ? $"{e.Code} {messageOverride ?? e.Message}"
-            : $"{e.File}({e.Line}): {e.Code} {messageOverride ?? e.Message}";
+    /// <summary>How the first (only remaining) entry is cut once dropping entries and context lines was not enough.</summary>
+    private readonly record struct Shrink(string? Message = null, int? LineCap = null, bool ShortPath = false);
+
+    private static string OneLine(Diagnostic e, Shrink s)
+    {
+        var file = s.ShortPath ? FileNameOf(e.File) : e.File;
+        var message = s.Message ?? e.Message;
+        return file.Length == 0 ? $"{e.Code} {message}" : $"{file}({e.Line}): {e.Code} {message}";
+    }
+
+    private static string FileNameOf(string file)
+    {
+        var cut = file.LastIndexOfAny(['/', '\\']);
+        return cut < 0 ? file : file[(cut + 1)..];
+    }
+
+    /// <summary>
+    /// Last-resort shrink of a single entry, in order: cut the context lines (error line included) from their end keeping the
+    /// full message, then use the bare file name, then cut the message. A message cut alone is tried first because it keeps the file path and context. The caller's <see cref="Done"/> still guarantees the budget.
+    /// </summary>
+    private string FitFirstEntry(string message, Func<Shrink, string> compose)
+    {
+        var cutMessage = Truncate(message, m => compose(new Shrink(m)));
+        var byMessage = compose(new Shrink(cutMessage));
+        if (Fits(byMessage)) return byMessage;
+        foreach (var shortPath in new[] { false, true })
+        {
+            if (!Fits(compose(new Shrink(null, 0, shortPath)))) continue;
+            int lo = 0, hi = 1 << 20;
+            while (lo < hi)
+            {
+                var mid = lo + (hi - lo + 1) / 2;
+                if (Fits(compose(new Shrink(null, mid, shortPath)))) lo = mid; else hi = mid - 1;
+            }
+            return compose(new Shrink(null, lo, shortPath));
+        }
+        var cut = Truncate(message, m => compose(new Shrink(m, 0, true)));
+        return compose(new Shrink(cut, 0, true));
+    }
 
     public Feedback ForPatchFailure(PatchFailure failure)
     {
@@ -101,15 +133,15 @@ public sealed class FeedbackBuilder(ITokenCounter tokens, int budget)
         {
             case PatchFailureKinds.NotFound:
                 const string Prefix = "SEARCH NOT FOUND: the SEARCH block does not match the [EDITABLE] text exactly.";
-                if (failure.NearestOriginal is null) return Fit(Prefix);
+                if (failure.NearestOriginal is null) return Done(Prefix);
                 var near = Truncate(failure.NearestOriginal, n => Prefix + " Nearest original lines:\n" + n);
                 return Done(Prefix + " Nearest original lines:\n" + near);
             case PatchFailureKinds.Ambiguous:
-                return Fit("SEARCH AMBIGUOUS: the SEARCH block matches more than one place. Include more surrounding lines.");
+                return Done("SEARCH AMBIGUOUS: the SEARCH block matches more than one place. Include more surrounding lines.");
             case PatchFailureKinds.OutsideRegion:
-                return Fit("SEARCH OUTSIDE EDITABLE REGION: copy SEARCH lines only from [EDITABLE: target], [EDITABLE: usings] or [EDITABLE: helper].");
+                return Done("SEARCH OUTSIDE EDITABLE REGION: copy SEARCH lines only from [EDITABLE: target], [EDITABLE: usings] or [EDITABLE: helper].");
             case PatchFailureKinds.Overlap:
-                return Fit("BLOCKS OVERLAP: each SEARCH must refer to original lines not changed by an earlier block.");
+                return Done("BLOCKS OVERLAP: each SEARCH must refer to original lines not changed by an earlier block.");
             case PatchFailureKinds.Parse:
                 return Done("FORMAT ERROR: " + Truncate(failure.Detail, d => $"FORMAT ERROR: {d}. Output only SEARCH/REPLACE blocks.")
                     + ". Output only SEARCH/REPLACE blocks.");
@@ -128,24 +160,34 @@ public sealed class FeedbackBuilder(ITokenCounter tokens, int budget)
         return Done(Prefix + Truncate(reason, r => Prefix + r));
     }
 
-    private static string Entry(Diagnostic e, List<string> lines, int radius, string? messageOverride)
+    private static string Entry(Diagnostic e, List<string> lines, int radius, Shrink shrink)
     {
         var sb = new StringBuilder();
-        sb.Append(e.File).Append('(').Append(e.Line).Append("): ").Append(e.Code).Append(' ').Append(messageOverride ?? e.Message);
+        sb.Append(shrink.ShortPath ? FileNameOf(e.File) : e.File).Append('(').Append(e.Line).Append("): ").Append(e.Code).Append(' ').Append(shrink.Message ?? e.Message);
         var first = Math.Max(1, e.Line - radius);
         var last = Math.Min(lines.Count, e.Line + radius);
         if (first > last) return sb.ToString();
         var width = last.ToString().Length;
         for (var n = first; n <= last; n++)
-            sb.Append('\n').Append(n == e.Line ? "> " : "  ").Append(n.ToString().PadLeft(width)).Append(" | ").Append(lines[n - 1]);
+            sb.Append('\n').Append(n == e.Line ? "> " : "  ").Append(n.ToString().PadLeft(width)).Append(" | ").Append(CapLine(lines[n - 1], shrink.LineCap));
         return sb.ToString();
     }
 
+    private static string CapLine(string line, int? cap)
+    {
+        if (cap is null || line.Length <= cap) return line;
+        return CutPrefix(line, cap.Value).TrimEnd() + Ellipsis;
+    }
+
+    /// <summary>First <paramref name="length"/> chars, never ending between the halves of a surrogate pair.</summary>
+    private static string CutPrefix(string text, int length)
+    {
+        if (length >= text.Length) return text;
+        if (length > 0 && char.IsHighSurrogate(text[length - 1]) && char.IsLowSurrogate(text[length])) length--;
+        return text[..length];
+    }
+
     private bool Fits(string text) => tokens.Count(text) <= budget;
-
-    private Feedback Fit(string text) => Done(Fits(text) ? text : TruncateWhole(text));
-
-    private string TruncateWhole(string text) => Truncate(text, s => s);
 
     /// <summary>Longest prefix of <paramref name="part"/> (plus an ellipsis when cut) whose composed text fits the budget.</summary>
     private string Truncate(string part, Func<string, string> compose)
@@ -155,10 +197,23 @@ public sealed class FeedbackBuilder(ITokenCounter tokens, int budget)
         while (lo < hi)
         {
             var mid = (lo + hi + 1) / 2;
-            if (Fits(compose(part[..mid].TrimEnd() + Ellipsis))) lo = mid; else hi = mid - 1;
+            if (Fits(compose(CutPrefix(part, mid).TrimEnd() + Ellipsis))) lo = mid; else hi = mid - 1;
         }
-        return part[..lo].TrimEnd() + Ellipsis;
+        return CutPrefix(part, lo).TrimEnd() + Ellipsis;
     }
 
-    private Feedback Done(string text) => new(text, tokens.Count(text));
+    /// <summary>
+    /// The one place every public method ends in, so <c>Tokens &lt;= budget</c> holds for any input: text that still does
+    /// not fit is cut as a whole and ends with an ellipsis (empty only when even the ellipsis exceeds the budget).
+    /// </summary>
+    private Feedback Done(string text)
+    {
+        var count = tokens.Count(text);
+        if (count <= budget) return new(text, count);
+        var cut = Truncate(text, s => s);
+        count = tokens.Count(cut);
+        if (count <= budget) return new(cut, count);
+        count = tokens.Count(Ellipsis);
+        return count <= budget ? new(Ellipsis, count) : new("", 0);
+    }
 }

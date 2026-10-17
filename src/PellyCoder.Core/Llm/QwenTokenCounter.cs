@@ -18,12 +18,17 @@ public sealed class QwenTokenCounter : ITokenCounter
 
     private readonly BpeTokenizer _tokenizer;
 
+    /// <summary>The model's control token strings (tokenizer-meta.json). Ollama raw mode reads these as real control tokens.</summary>
+    public IReadOnlyCollection<string> SpecialTokens { get; }
+
     public static QwenTokenCounter Shared => SharedInstance.Value;
 
     private QwenTokenCounter()
     {
         var meta = JsonSerializer.Deserialize<Meta>(ReadAllText("tokenizer-meta.json"), new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
             ?? throw new InvalidOperationException("tokenizer-meta.json is empty.");
+
+        SpecialTokens = meta.SpecialTokens.Keys.ToArray();
 
         Dictionary<string, int> vocab;
         using (var vocabStream = OpenResource("vocab.json"))

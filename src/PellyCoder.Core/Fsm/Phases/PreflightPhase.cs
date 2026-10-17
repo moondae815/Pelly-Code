@@ -2,18 +2,24 @@ using System.IO.Abstractions;
 using PellyCoder.Core.Abstractions;
 using PellyCoder.Core.Config;
 using PellyCoder.Core.Files;
+using PellyCoder.Core.Llm;
 using PellyCoder.Core.Patchers;
 using PellyCoder.Core.Workspaces;
 
 namespace PellyCoder.Core.Fsm.Phases;
 
 /// <summary>Workspace, lock, file and LLM server checks. Nothing on disk is changed except <c>.pelly</c>.</summary>
-public sealed class PreflightPhase(IFileSystem fs, FileGuard fileGuard, ILlmBackend backend, LlmOptions llm) : IPhase
+public sealed class PreflightPhase(IFileSystem fs, FileGuard fileGuard, ILlmBackend backend, LlmOptions llm,
+    IReadOnlyCollection<string> specialTokens) : IPhase
 {
     public RunPhase Phase => RunPhase.Preflight;
 
     public async Task<PhaseOutcome> ExecuteAsync(RunContext ctx, CancellationToken ct)
     {
+        // Before anything is touched: raw mode would let the server read this string as a control token.
+        if (SpecialTokenGuard.FindIn(ctx.Request.Request, specialTokens) is { } requestToken)
+            return Env(ctx, $"요청문에 모델 제어 토큰 '{requestToken}'이(가) 있어 실행할 수 없습니다");
+
         var path = fs.Path.GetFullPath(ctx.Request.FilePath);
         ctx.FilePath = path;
         if (!fs.File.Exists(path))
@@ -38,6 +44,13 @@ public sealed class PreflightPhase(IFileSystem fs, FileGuard fileGuard, ILlmBack
 
         if (MarkerScanner.HasConflictMarkers(ctx.Original.Text))
             return Env(ctx, $"파일에 병합 충돌 표시(<<<<<<<, =======, >>>>>>>)가 있습니다. 충돌을 먼저 해결하세요: {path}");
+
+        if (SpecialTokenGuard.FindIn(ctx.Original.Text, specialTokens) is { } fileToken)
+        {
+            var index = ctx.Original.Text.IndexOf(fileToken, StringComparison.Ordinal);
+            var line = 1 + ctx.Original.Text.AsSpan(0, index).Count('\n');
+            return Env(ctx, $"파일에 모델 제어 토큰 문자열 '{fileToken}'이(가) 있어 안전하게 편집할 수 없습니다 (줄 {line})");
+        }
 
         var status = await backend.GetStatusAsync(ct);
         ctx.ServerStatus = status;

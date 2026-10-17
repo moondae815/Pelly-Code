@@ -29,7 +29,7 @@ public static class FsmOrchestratorFactory
 
         IPhase[] phases =
         [
-            new PreflightPhase(fs, fileGuard, backend, options.Llm),
+            new PreflightPhase(fs, fileGuard, backend, options.Llm, tokens.SpecialTokens),
             new LocatePhase(fs, ui, new BuildToolResolver(fs, processes, options.Build, isWindows), builds,
                 new ModelMemberPicker(backend, template, resources, options.Llm, options.Sampling), isWindows),
             new SlicePhase(fileGuard, tokens, options.Budget),

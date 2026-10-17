@@ -1,0 +1,10 @@
+{
+  "systemStart": "<|im_start|>system\n",
+  "systemEnd": "<|im_end|>\n",
+  "userStart": "<|im_start|>user\n",
+  "userEnd": "<|im_end|>\n",
+  "assistantStart": "<|im_start|>assistant\n",
+  "thinkOpen": "<think>\n",
+  "thinkClose": "\n</think>\n\n",
+  "endOfTurn": "<|im_end|>"
+}

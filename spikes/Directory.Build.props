@@ -1,0 +1,9 @@
+<Project>
+  <!-- 스파이크(일회성 실험 코드)는 루트 빌드 설정을 상속하지 않는다. -->
+  <PropertyGroup>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <PublishAot>false</PublishAot>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,83 @@
+===== chat think=true
+fields: created_at, done, done_reason, eval_count, eval_duration, load_duration, message, message.content, message.role, message.thinking, model, prompt_eval_cached_count, prompt_eval_count, prompt_eval_duration, total_duration
+prompt_eval_count=50 eval_count=393 done_reason=stop ttft=25657ms
+--- thinking field (1264 chars):
+Here's a thinking process:
+
+1.  **Analyze User Input:**
+   - **Task:** Write a C# method that adds two integers.
+   - **Constraint:** "설명 없이 코드만." (No explanation, just the code.)
+   - **Language:** C#
+   - **Input Language:** Korean
+
+2.  **Identify Key Requirements:**
+   - Method signature: Should take two integers and return an integer.
+   - Lang
+...
+tandard version.)
+
+   Let's output exactly what's requested.
+
+   ```csharp
+   public int Add(int a, int b)
+   {
+       return a + b;
+   }
+   ```
+
+   Wait, the prompt says "설명 없이 코드만." (No explanation, just code.) I will provide only the code block.
+
+   Final check: The code is correct, concise, and matches all constraints. I'll output it directly.✅
+--- response field (52 chars):
+```csharp
+public int Add(int a, int b) => a + b;
+```
+response contains '</think>' at index -1; '<think>' at -1
+===== generate raw ChatML+<think>
+fields: created_at, done, done_reason, eval_count, eval_duration, load_duration, model, prompt_eval_cached_count, prompt_eval_count, prompt_eval_duration, response, total_duration
+prompt_eval_count=50 eval_count=400 done_reason=length ttft=81ms
+--- thinking field (0 chars):
+
+--- response field (1350 chars):
+Here's a thinking process:
+
+1.  **Analyze User Input:**
+   - **Task:** Write a C# method that adds two integers.
+   - **Constraint:** "설명 없이 코드만." (Only code, no explanation.)
+   - **Language:** C#
+   - **Input Language:** Korean
+
+2.  **Identify Key Requirements:**
+   - Method signature: Should take two integers and return an integer.
+   - Language
+...
+d one for clarity, or the concise one. Both are fine. I'll use the standard one.)
+
+   Actually, the prompt says "설명 없이 코드만." so I will just output the code block.
+
+   Let's produce exactly that.
+
+   ```csharp
+   public int Add(int a, int b)
+   {
+       return a + b;
+   }
+   ```
+
+   No extra text. Ready.✅
+   I will output just the code block.👇🏼
+  
+response contains '</think>' at index -1; '<think>' at -1
+===== generate raw empty-think
+fields: created_at, done, done_reason, eval_count, eval_duration, load_duration, model, prompt_eval_cached_count, prompt_eval_count, prompt_eval_duration, response, total_duration
+prompt_eval_count=52 eval_count=26 done_reason=stop ttft=110ms
+--- thinking field (0 chars):
+
+--- response field (64 chars):
+```csharp
+public int Add(int a, int b)
+{
+    return a + b;
+}
+```
+response contains '</think>' at index -1; '<think>' at -1

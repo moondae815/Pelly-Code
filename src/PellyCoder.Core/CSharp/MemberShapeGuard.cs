@@ -9,6 +9,13 @@ namespace PellyCoder.Core.CSharp;
 /// <param name="AddedPrivateMethods">Displays (MemberLocator format) of private methods present after but not before.</param>
 public sealed record ShapeCheck(bool Ok, string? Reason, IReadOnlyList<string> AddedPrivateMethods);
 
+/// <summary>The target display passed to <see cref="MemberShapeGuard.Check"/> is not a member of the original text.</summary>
+public sealed class ShapeTargetNotFoundException(string targetDisplay)
+    : ArgumentException($"Target '{targetDisplay}' is not in the original text.", nameof(targetDisplay))
+{
+    public string TargetDisplay { get; } = targetDisplay;
+}
+
 /// <summary>
 /// Rejects edits that change the target's signature or attributes, change or remove any other member, add anything but
 /// private methods to the target's type, or remove usings (design §8.7.1, D14). The build checks only the target project,
@@ -24,6 +31,7 @@ public static class MemberShapeGuard
     /// <param name="beforeLf">The file before the edit. APPLY passes the run's original text, so helpers added by earlier
     /// attempts count as added (and stay editable) rather than as existing members.</param>
     /// <param name="targetDisplay">The target's display in <paramref name="beforeLf"/> (e.g. <c>Calc.Add(int, int)</c>).</param>
+    /// <exception cref="ShapeTargetNotFoundException">No method, constructor or property with that display in <paramref name="beforeLf"/>.</exception>
     public static ShapeCheck Check(string beforeLf, string afterLf, string targetDisplay, LanguageVersion version)
     {
         var options = new CSharpParseOptions(version);
@@ -34,7 +42,7 @@ public static class MemberShapeGuard
         var afterEntries = Entries(after);
 
         var target = beforeEntries.FirstOrDefault(e => e.Display == targetDisplay && IsLocatorKind(e.Node))
-            ?? throw new ArgumentException($"Target '{targetDisplay}' is not in the original text.", nameof(targetDisplay));
+            ?? throw new ShapeTargetNotFoundException(targetDisplay);
 
         // The edited target: same key, else a member that did not exist before with the same name, kind and type.
         var beforeKeys = beforeEntries.Select(e => e.Key).ToHashSet(StringComparer.Ordinal);
@@ -45,7 +53,12 @@ public static class MemberShapeGuard
         if (newTarget is null)
             return Fail($"member {target.Display} was removed or changed. Only the target member may change.");
         if (SignatureOf(target.Node) != SignatureOf(newTarget.Node))
-            return Fail($"signature of {target.Display} changed to {newTarget.Display}. Signature changes are not allowed.");
+        {
+            // Same display (return type, modifiers, defaults, ref/out, constraints): name what changed.
+            return Fail(target.Display == newTarget.Display
+                ? $"signature of {target.Display} changed from `{HeaderOf(target.Node)}` to `{HeaderOf(newTarget.Node)}`. Signature changes are not allowed."
+                : $"signature of {target.Display} changed to {newTarget.Display}. Signature changes are not allowed.");
+        }
         if (AttributesOf(target.Node) != AttributesOf(newTarget.Node))
             return Fail($"attributes of {target.Display} changed. Attribute changes are not allowed.");
 
@@ -82,10 +95,41 @@ public static class MemberShapeGuard
     private static bool IsLocatorKind(MemberDeclarationSyntax m) =>
         m is MethodDeclarationSyntax or ConstructorDeclarationSyntax or PropertyDeclarationSyntax;
 
-    private static bool IsPrivateMethod(MemberDeclarationSyntax m) =>
-        m is MethodDeclarationSyntax method
-        && method.Modifiers.Any(SyntaxKind.PrivateKeyword)
-        && !method.Modifiers.Any(SyntaxKind.ProtectedKeyword);
+    /// <summary>
+    /// <c>private</c> (not <c>private protected</c>), or no access modifier in a class, struct or record, where the
+    /// default is private. Interface members default to public; explicit interface implementations are not helpers.
+    /// </summary>
+    private static bool IsPrivateMethod(MemberDeclarationSyntax m)
+    {
+        if (m is not MethodDeclarationSyntax { ExplicitInterfaceSpecifier: null } method) return false;
+        if (method.Modifiers.Any(SyntaxKind.PrivateKeyword)) return !method.Modifiers.Any(SyntaxKind.ProtectedKeyword);
+        var hasAccess = method.Modifiers.Any(t => t.Kind() is SyntaxKind.PublicKeyword or SyntaxKind.ProtectedKeyword
+            or SyntaxKind.InternalKeyword or SyntaxKind.FileKeyword);
+        return !hasAccess && method.Parent is ClassDeclarationSyntax or StructDeclarationSyntax or RecordDeclarationSyntax;
+    }
+
+    /// <summary>
+    /// The declaration up to (not including) its body, <c>=&gt;</c> or <c>;</c> (constructor: also before <c>: base(...)</c>),
+    /// without attributes, whitespace collapsed. Properties also show their accessor keywords, since those are signature.
+    /// </summary>
+    private static string HeaderOf(MemberDeclarationSyntax member)
+    {
+        var start = member.AttributeLists.Count > 0 ? member.AttributeLists[^1].GetLastToken().GetNextToken().SpanStart : member.SpanStart;
+        var end = member switch
+        {
+            ConstructorDeclarationSyntax c => (SyntaxNode?)c.Initializer ?? (SyntaxNode?)c.Body ?? c.ExpressionBody,
+            BaseMethodDeclarationSyntax m => (SyntaxNode?)m.Body ?? m.ExpressionBody,
+            PropertyDeclarationSyntax p => (SyntaxNode?)p.AccessorList ?? p.ExpressionBody,
+            _ => null,
+        } is { } stop ? stop.SpanStart : member.Span.End;
+        var text = member.SyntaxTree.GetText().ToString(new Microsoft.CodeAnalysis.Text.TextSpan(start, end - start));
+        var header = Normalize(text).TrimEnd(';').TrimEnd();
+        if (member is not PropertyDeclarationSyntax property) return header;
+        var accessors = property.ExpressionBody is not null
+            ? ["get;"]
+            : (property.AccessorList?.Accessors ?? default).Select(a => string.Join(' ', a.Modifiers.Select(m => m.Text).Append(a.Keyword.Text)) + ";");
+        return header + " { " + string.Join(' ', accessors) + " }";
+    }
 
     /// <summary>Every member inside a type (and every type), keyed by containing namespace/type path, kind and display.</summary>
     private static List<Entry> Entries(CompilationUnitSyntax root)

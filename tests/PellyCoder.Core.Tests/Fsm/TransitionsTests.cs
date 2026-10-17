@@ -23,6 +23,7 @@ public class TransitionsTests
     [InlineData(RunPhase.Apply, PhaseOutcome.MatchFailed, 4, RunPhase.Failed, 1)]
     [InlineData(RunPhase.Apply, PhaseOutcome.SafetyRejected, 4, RunPhase.Failed, 5)]
     [InlineData(RunPhase.Apply, PhaseOutcome.ShapeRejected, 4, RunPhase.Failed, 1)]
+    [InlineData(RunPhase.Apply, PhaseOutcome.NotFound, 1, RunPhase.Failed, 3)] // shape guard: target not in the original
     [InlineData(RunPhase.Apply, PhaseOutcome.FileChangedExternally, 1, RunPhase.Failed, 4)]
     [InlineData(RunPhase.Apply, PhaseOutcome.EnvError, 1, RunPhase.Failed, 4)]
     [InlineData(RunPhase.Apply, PhaseOutcome.DryRunCompleted, 1, RunPhase.Done, 0)]

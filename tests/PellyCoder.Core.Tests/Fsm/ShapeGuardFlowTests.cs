@@ -3,7 +3,14 @@ using System.Text;
 using System.Text.Json;
 using PellyCoder.Core.Abstractions;
 using PellyCoder.Core.Config;
+using Microsoft.CodeAnalysis.CSharp;
+using PellyCoder.Core.CSharp;
+using PellyCoder.Core.Feedbacks;
+using PellyCoder.Core.Files;
 using PellyCoder.Core.Fsm;
+using PellyCoder.Core.Fsm.Phases;
+using PellyCoder.Core.Llm;
+using PellyCoder.Core.Models;
 using PellyCoder.Core.Tests.Fakes;
 
 namespace PellyCoder.Core.Tests.Fsm;
@@ -138,6 +145,33 @@ public sealed class ShapeGuardFlowTests : IDisposable
         Assert.Equal(0, WritesTo(CalcPath));
         Assert.Equal(originalBytes, File.ReadAllBytes(CalcPath));
         Assert.Equal("ShapeRejected", Summary().GetProperty("failureKind").GetString());
+    }
+
+    [Fact]
+    public async Task TargetMissingFromOriginal_IsNotFound_NothingWritten()
+    {
+        var guard = new FileGuard(_fs, TimeProvider.System);
+        var snapshot = guard.Read(CalcPath);
+        var ctx = new RunContext("run", Req(CalcPath), _options)
+        {
+            FilePath = CalcPath,
+            Original = snapshot,
+            Current = snapshot,
+            Candidate = new MemberCandidate("Calc.Missing()", "Calc", new TextSpanInfo(5, 8)),
+            Language = new LanguageTarget(LanguageVersion.CSharp12, "C# 12"),
+            Blocks = [new PatchBlock(Original, Guarded)],
+            SliceResult = new SliceResult(new Slice([], [], "C# 12"), [new EditableRegion(new TextSpanInfo(5, 8), "target")], false),
+        };
+        var phase = new ApplyPhase(guard, new FeedbackBuilder(QwenTokenCounter.Shared, 296), _ui, _options.Build);
+
+        var outcome = await phase.ExecuteAsync(ctx, TestContext.Current.CancellationToken);
+
+        Assert.Equal(PhaseOutcome.NotFound, outcome);
+        Assert.Equal("TargetNotFound", ctx.FailureKind);
+        Assert.Equal(["대상 멤버 'Calc.Missing()'을(를) 원본에서 찾을 수 없습니다"], ctx.Messages);
+        Assert.Equal(0, WritesTo(CalcPath));
+        Assert.Equal(CalcSource, File.ReadAllText(CalcPath));
+        Assert.Equal(new Transition(RunPhase.Failed, 3), Transitions.Next(RunPhase.Apply, outcome, 1, 3));
     }
 
     /// <summary>Real file system that records the destination of every atomic replace (FileGuard's write path).</summary>

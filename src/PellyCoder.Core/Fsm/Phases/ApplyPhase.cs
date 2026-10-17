@@ -26,7 +26,17 @@ public sealed class ApplyPhase(FileGuard fileGuard, FeedbackBuilder feedback, IU
 
         // Before the dry-run branch and the baseline wait: a rejected shape must not wait for or touch anything.
         // Compared with the original (not the last write) so helpers added by earlier attempts stay editable.
-        var shape = MemberShapeGuard.Check(ctx.Original.Text, patch.NewText!, ctx.Candidate!.Display, ctx.Language!.Version);
+        ShapeCheck shape;
+        try
+        {
+            shape = MemberShapeGuard.Check(ctx.Original.Text, patch.NewText!, ctx.Candidate!.Display, ctx.Language!.Version);
+        }
+        catch (ShapeTargetNotFoundException ex)
+        {
+            ctx.Messages.Add($"대상 멤버 '{ex.TargetDisplay}'을(를) 원본에서 찾을 수 없습니다");
+            ctx.FailureKind = "TargetNotFound";
+            return PhaseOutcome.NotFound;
+        }
         if (!shape.Ok)
         {
             ctx.Feedback = feedback.ForShapeRejection(shape.Reason!);

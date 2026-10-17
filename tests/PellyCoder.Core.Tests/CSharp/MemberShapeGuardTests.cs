@@ -99,7 +99,7 @@ public sealed class MemberShapeGuardTests
         var r = MemberShapeGuard.Check(before, after, target, V);
 
         Assert.False(r.Ok);
-        Assert.StartsWith("signature of " + target + " changed to ", r.Reason);
+        Assert.StartsWith("signature of " + target + " changed ", r.Reason);
         Assert.EndsWith(". Signature changes are not allowed.", r.Reason);
     }
 
@@ -122,7 +122,7 @@ public sealed class MemberShapeGuardTests
         var r = MemberShapeGuard.Check(before, after, "S.Get()", V);
 
         Assert.False(r.Ok);
-        Assert.Equal("signature of S.Get() changed to S.Get(). Signature changes are not allowed.", r.Reason);
+        Assert.Equal("signature of S.Get() changed from `public int Get()` to `public async Task<int> Get()`. Signature changes are not allowed.", r.Reason);
     }
 
     [Fact]
@@ -174,6 +174,57 @@ public sealed class MemberShapeGuardTests
 
         Assert.True(r.Ok, r.Reason);
         Assert.Equal(["Calc.Add(int)"], r.AddedPrivateMethods);
+    }
+
+    [Fact]
+    public void AddedImplicitlyPrivateMethod_InClass_IsOk_AndListed()
+    {
+        var r = Check(AfterTarget("\n    static int Plus(int a, int b) => a + b;\n"));
+
+        Assert.True(r.Ok, r.Reason);
+        Assert.Equal(["Calc.Plus(int, int)"], r.AddedPrivateMethods);
+    }
+
+    [Fact]
+    public void AddedMethodWithoutModifier_InInterface_IsRejected()
+    {
+        const string before = "interface IShape\n{\n    int Area();\n}\n\nclass Sq\n{\n    public int Run() { return 1; }\n}\n";
+        var after = before.Replace("    int Area();\n", "    int Area();\n    int Twice() => 2;\n");
+
+        var r = MemberShapeGuard.Check(before, after, "Sq.Run()", V);
+
+        Assert.False(r.Ok);
+        Assert.Equal("added method IShape.Twice(). Only private helper methods may be added.", r.Reason);
+    }
+
+    [Fact]
+    public void AddedMethodWithoutModifier_InTargetInterface_IsRejected()
+    {
+        const string before = "interface IShape\n{\n    int Area() { return 1; }\n}\n";
+        var after = before.Replace("    int Area() { return 1; }\n", "    int Area() { return Twice(); }\n    int Twice() => 2;\n");
+
+        var r = MemberShapeGuard.Check(before, after, "IShape.Area()", V);
+
+        Assert.False(r.Ok);
+        Assert.Equal("added method IShape.Twice(). Only private helper methods may be added.", r.Reason);
+    }
+
+    [Fact]
+    public void ReturnTypeChange_ReasonShowsHeaders()
+    {
+        var r = Check(Replace(AddHeader, "    public long Add(int a, int b)\n"));
+
+        Assert.Equal("signature of Calc.Add(int, int) changed from `public int Add(int a, int b)` to `public long Add(int a, int b)`. Signature changes are not allowed.",
+            r.Reason);
+    }
+
+    [Fact]
+    public void SameDisplayHeaders_ExcludeAttributesAndBody()
+    {
+        var r = Check(Replace(AddHeader + "    {\n" + AddEnd, "    public static int Add(int a, int b = 2) => a + b;\n"));
+
+        Assert.Equal("signature of Calc.Add(int, int) changed from `public int Add(int a, int b)` to `public static int Add(int a, int b = 2)`. Signature changes are not allowed.",
+            r.Reason);
     }
 
     [Fact]
@@ -279,8 +330,10 @@ public sealed class MemberShapeGuardTests
         var setter = before.Replace("get { return _v; }", "get { return _v; }\n        set { _v = value; }");
 
         Assert.True(MemberShapeGuard.Check(before, body, "S.V", V).Ok);
-        Assert.Equal("signature of S.V changed to S.V. Signature changes are not allowed.", MemberShapeGuard.Check(before, type, "S.V", V).Reason);
-        Assert.False(MemberShapeGuard.Check(before, setter, "S.V", V).Ok);
+        Assert.Equal("signature of S.V changed from `public int V { get; }` to `public long V { get; }`. Signature changes are not allowed.",
+            MemberShapeGuard.Check(before, type, "S.V", V).Reason);
+        Assert.Equal("signature of S.V changed from `public int V { get; }` to `public int V { get; set; }`. Signature changes are not allowed.",
+            MemberShapeGuard.Check(before, setter, "S.V", V).Reason);
     }
 
     [Fact]

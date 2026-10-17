@@ -30,6 +30,8 @@ public static class Transitions
             (RunPhase.Apply, PhaseOutcome.Ok) => new(RunPhase.Verify, null),
             (RunPhase.Apply, PhaseOutcome.MatchFailed or PhaseOutcome.ShapeRejected) => Retry(ExitCodes.VerifyFailed),
             (RunPhase.Apply, PhaseOutcome.SafetyRejected) => Retry(ExitCodes.SafetyRejected),
+            // The shape guard cannot find the target in the original text: nothing safe to compare against.
+            (RunPhase.Apply, PhaseOutcome.NotFound) => Fail(ExitCodes.LocateFailed),
             (RunPhase.Apply, PhaseOutcome.FileChangedExternally) => Fail(ExitCodes.EnvError),
             (RunPhase.Apply, PhaseOutcome.DryRunCompleted) => new(RunPhase.Done, ExitCodes.Success),
             (RunPhase.Verify, PhaseOutcome.Ok) => new(RunPhase.Review, null),

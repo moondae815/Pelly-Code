@@ -1,6 +1,7 @@
 using PellyCoder.Core.Abstractions;
 using PellyCoder.Core.Builds;
 using PellyCoder.Core.Config;
+using PellyCoder.Core.CSharp;
 using PellyCoder.Core.Feedbacks;
 using PellyCoder.Core.Files;
 using PellyCoder.Core.Models;
@@ -10,7 +11,7 @@ using PellyCoder.Core.Verification;
 namespace PellyCoder.Core.Fsm.Phases;
 
 /// <summary>
-/// Applies the blocks in memory, then (unless dry run) waits for the baseline build, backs up once and writes atomically
+/// Applies the blocks in memory, checks the member shape against the original file, then (unless dry run) waits for the baseline build, backs up once and writes atomically
 /// with external-change detection.
 /// </summary>
 public sealed class ApplyPhase(FileGuard fileGuard, FeedbackBuilder feedback, IUserInteraction ui, BuildOptions build) : IPhase
@@ -22,6 +23,20 @@ public sealed class ApplyPhase(FileGuard fileGuard, FeedbackBuilder feedback, IU
         var patch = SearchReplacePatcher.Apply(ctx.Current.Text, ctx.Blocks, ctx.SliceResult.Regions);
         if (!patch.Success)
             return Mismatch(ctx, patch.Failure!);
+
+        // Before the dry-run branch and the baseline wait: a rejected shape must not wait for or touch anything.
+        // Compared with the original (not the last write) so helpers added by earlier attempts stay editable.
+        var shape = MemberShapeGuard.Check(ctx.Original.Text, patch.NewText!, ctx.Candidate!.Display, ctx.Language!.Version);
+        if (!shape.Ok)
+        {
+            ctx.Feedback = feedback.ForShapeRejection(shape.Reason!);
+            ctx.FailureKind = "ShapeRejected";
+            return PhaseOutcome.ShapeRejected;
+        }
+        foreach (var helper in shape.AddedPrivateMethods)
+        {
+            if (!ctx.AddedHelpers.Contains(helper)) ctx.AddedHelpers.Add(helper);
+        }
 
         if (ctx.Request.DryRun)
         {

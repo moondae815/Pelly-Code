@@ -107,7 +107,7 @@ public sealed class FeedbackBuilder(ITokenCounter tokens, int budget)
             case PatchFailureKinds.Ambiguous:
                 return Fit("SEARCH AMBIGUOUS: the SEARCH block matches more than one place. Include more surrounding lines.");
             case PatchFailureKinds.OutsideRegion:
-                return Fit("SEARCH OUTSIDE EDITABLE REGION: copy SEARCH lines only from [EDITABLE: target] or [EDITABLE: usings].");
+                return Fit("SEARCH OUTSIDE EDITABLE REGION: copy SEARCH lines only from [EDITABLE: target], [EDITABLE: usings] or [EDITABLE: helper].");
             case PatchFailureKinds.Overlap:
                 return Fit("BLOCKS OVERLAP: each SEARCH must refer to original lines not changed by an earlier block.");
             case PatchFailureKinds.Parse:
@@ -119,6 +119,13 @@ public sealed class FeedbackBuilder(ITokenCounter tokens, int budget)
             default:
                 throw new ArgumentOutOfRangeException(nameof(failure), failure.Kind, "Unknown patch failure kind.");
         }
+    }
+
+    /// <summary><c>SHAPE REJECTED: </c> and the guard's reason, cut to the budget.</summary>
+    public Feedback ForShapeRejection(string reason)
+    {
+        const string Prefix = "SHAPE REJECTED: ";
+        return Done(Prefix + Truncate(reason, r => Prefix + r));
     }
 
     private static string Entry(Diagnostic e, List<string> lines, int radius, string? messageOverride)

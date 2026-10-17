@@ -36,7 +36,7 @@ public sealed class SlicePhase(FileGuard fileGuard, ITokenCounter tokens, Budget
         ctx.Candidate = candidate;
         ctx.Target = ctx.Target! with { SymbolDisplay = candidate.Display, MemberSpan = candidate.Span };
 
-        var slice = RoslynSlicer.Build(current.Text, candidate, language, tokens, budget.Context);
+        var slice = RoslynSlicer.Build(current.Text, candidate, language, tokens, budget.Context, ctx.AddedHelpers);
         ctx.SliceResult = slice;
         if (slice.TargetTooLarge)
         {

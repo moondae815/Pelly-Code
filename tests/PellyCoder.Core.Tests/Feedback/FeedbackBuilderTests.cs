@@ -87,7 +87,7 @@ public sealed class FeedbackBuilderTests
     [Theory]
     [InlineData("NotFound", "SEARCH NOT FOUND: the SEARCH block does not match the [EDITABLE] text exactly. Nearest original lines:\nNEAR")]
     [InlineData("Ambiguous", "SEARCH AMBIGUOUS: the SEARCH block matches more than one place. Include more surrounding lines.")]
-    [InlineData("OutsideRegion", "SEARCH OUTSIDE EDITABLE REGION: copy SEARCH lines only from [EDITABLE: target] or [EDITABLE: usings].")]
+    [InlineData("OutsideRegion", "SEARCH OUTSIDE EDITABLE REGION: copy SEARCH lines only from [EDITABLE: target], [EDITABLE: usings] or [EDITABLE: helper].")]
     [InlineData("Overlap", "BLOCKS OVERLAP: each SEARCH must refer to original lines not changed by an earlier block.")]
     [InlineData("Parse", "FORMAT ERROR: DETAIL. Output only SEARCH/REPLACE blocks.")]
     [InlineData("Unencodable", "ENCODING ERROR: DETAIL. The file encoding cannot store this character; use only characters it supports.")]
@@ -118,4 +118,25 @@ public sealed class FeedbackBuilderTests
     public void PatchFailure_UnknownKind_Throws() =>
         Assert.Throws<ArgumentOutOfRangeException>(() =>
             new FeedbackBuilder(Counter, 296).ForPatchFailure(new PatchFailure("Bogus", "", null)));
+
+    [Fact]
+    public void ShapeRejection_IsPrefixed()
+    {
+        var fb = new FeedbackBuilder(Counter, 296).ForShapeRejection("using System was removed. Usings may only be added.");
+
+        Assert.Equal("SHAPE REJECTED: using System was removed. Usings may only be added.", fb.Text);
+        Assert.Equal(Counter.Count(fb.Text), fb.Tokens);
+    }
+
+    [Fact]
+    public void ShapeRejection_OverBudget_IsTruncated()
+    {
+        var reason = "member " + string.Join(", ", Enumerable.Range(0, 200).Select(i => "M" + i)) + " was removed or changed.";
+
+        var fb = new FeedbackBuilder(Counter, 20).ForShapeRejection(reason);
+
+        Assert.StartsWith("SHAPE REJECTED: member M0", fb.Text);
+        Assert.EndsWith("\u2026", fb.Text);
+        Assert.True(fb.Tokens <= 20);
+    }
 }

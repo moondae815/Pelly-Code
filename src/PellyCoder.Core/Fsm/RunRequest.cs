@@ -89,6 +89,12 @@ public sealed class RunContext(string runId, RunRequest request, PellyOptions op
     /// <summary>Match stages of the last successful patch.</summary>
     public List<MatchStage> MatchStages { get; } = [];
 
+    /// <summary>
+    /// Displays of private helpers the run's patches added, in first-seen order (no duplicates). SLICE shows those still in
+    /// the file as <c>[EDITABLE: helper]</c> so later attempts can fix them.
+    /// </summary>
+    public List<string> AddedHelpers { get; } = [];
+
     /// <summary>Distinct diagnostic codes seen across attempts, in first-seen order.</summary>
     public List<string> ErrorCodes { get; } = [];
 

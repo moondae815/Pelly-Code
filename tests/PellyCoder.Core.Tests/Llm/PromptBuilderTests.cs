@@ -26,6 +26,7 @@ public sealed class PromptBuilderTests
             Part("usings", "using System;"),
             Part("fields", "private int _x;"),
             Part("signatures", "public int Sub(int a, int b);"),
+            Part("helpers", "private int Twice(int v)\n{\n    return v * 2;\n}"),
         },
         Array.Empty<SlicePart>(), hint);
 
@@ -44,12 +45,19 @@ public sealed class PromptBuilderTests
     }
 
     [Fact]
-    public void Resources_VersionIsCsV1_AndHintReplaced()
+    public void Resources_VersionIsCsV2_AndHintReplaced()
     {
-        Assert.Equal("cs-v1", Resources.Version);
+        Assert.Equal("cs-v2", Resources.Version);
         Assert.DoesNotContain("# version", Resources.SystemCs);
         Assert.DoesNotContain("# version", Resources.FewShotCs);
         Assert.Contains("{LanguageHint}", Resources.SystemCs);
+    }
+
+    [Fact]
+    public void SystemPrompt_Rule3_NamesHelperRegion()
+    {
+        Assert.Contains("3. SEARCH must copy contiguous lines verbatim from [EDITABLE: target], [EDITABLE: usings] or [EDITABLE: helper]. Never copy from [READ-ONLY] sections.",
+            Resources.SystemCs.Split('\n'));
     }
 
     [Fact]
@@ -83,6 +91,8 @@ public sealed class PromptBuilderTests
             "public int Sub(int a, int b);",
             "[EDITABLE: usings]",
             "using System;",
+            "[EDITABLE: helper]",
+            "private int Twice(int v)\n{\n    return v * 2;\n}",
             "[EDITABLE: target]",
             "public int Add(int a, int b)\n{\n    return a + b;\n}",
             "### REQUEST",
@@ -122,6 +132,7 @@ public sealed class PromptBuilderTests
         Assert.DoesNotContain("_omittedField", u);
         Assert.DoesNotContain("[READ-ONLY: fields]", u);
         Assert.DoesNotContain("[EDITABLE: usings]", u);
+        Assert.DoesNotContain("[EDITABLE: helper]", u);
         Assert.Contains("[EDITABLE: target]", u);
     }
 

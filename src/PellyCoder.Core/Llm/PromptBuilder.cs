@@ -22,6 +22,7 @@ public sealed class PromptBuilder(QwenChatTemplate template, PromptResources res
         ("fields", "[READ-ONLY: fields]"),
         ("signatures", "[READ-ONLY: signatures]"),
         ("usings", "[EDITABLE: usings]"),
+        ("helpers", "[EDITABLE: helper]"),
         ("target", "[EDITABLE: target]"),
     };
 

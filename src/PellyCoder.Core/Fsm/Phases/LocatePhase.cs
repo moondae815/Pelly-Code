@@ -115,7 +115,12 @@ public sealed class LocatePhase(
             .ToList();
         var identifiers = IdentifierExtractor.Candidates(ctx.Request.Request).ToHashSet(StringComparer.Ordinal);
         var named = members.Where(m => identifiers.Contains(MemberLocator.NameOf(m.Display))).ToList();
-        if (named.Count > 0)
+        if (named.Count == 1)
+        {
+            ctx.Messages.Add($"대상: {named[0].Display} (요청문에서 찾음)");
+            return (PhaseOutcome.Ok, named[0]);
+        }
+        if (named.Count > 1)
             return await ChooseAsync(ctx, named, string.Join(", ", named.Select(m => MemberLocator.NameOf(m.Display)).Distinct()), ct);
 
         if (members.Count > MaxPickMembers)

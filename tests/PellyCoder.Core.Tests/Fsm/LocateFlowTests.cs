@@ -174,6 +174,7 @@ public sealed class LocateFlowTests : IDisposable
         var edit = Assert.Single(_backend.Requests); // EDIT only
         Assert.NotEqual(32, edit.NumPredict);
         Assert.Equal(CalcSource.Replace(Original, Guarded), File.ReadAllText(CalcPath));
+        Assert.Contains("대상: Calc.Divide(int, int) (요청문에서 찾음)", _ui.Warnings);
     }
 
     [Fact]

@@ -23,7 +23,7 @@ public sealed class SystemProcessRunner(TimeProvider time) : IProcessRunner
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
-            RedirectStandardInput = false,
+            RedirectStandardInput = true, // closed right after start: a child that reads stdin sees EOF, not our console
             CreateNoWindow = true,
             StandardErrorEncoding = Encoding.UTF8,
         };
@@ -41,6 +41,9 @@ public sealed class SystemProcessRunner(TimeProvider time) : IProcessRunner
         {
             throw new ProcessStartException(spec.FileName, ex);
         }
+
+        try { process.StandardInput.Close(); }
+        catch (IOException) { /* the child already exited and closed its end */ }
 
         // Read both streams concurrently to avoid pipe-buffer deadlocks. Buffers are lock-guarded so a
         // snapshot can be taken even if a reader is abandoned (a descendant may keep the pipe open).

@@ -113,5 +113,53 @@ public sealed class FileGuardLinkAndModeTests : IDisposable
         Assert.Equal("int external;\n", File.ReadAllText(target));
         Assert.NotNull(new FileInfo(link).LinkTarget);
     }
+    [Fact]
+    public async Task Write_TempFileNeverBroaderThanOriginalMode()
+    {
+        UnixOnly();
+        string path = Put("secret.cs", "int a;\n");
+        File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite); // 0600
+        var spy = new TempModeSpyFileSystem();
+        var guard = new FileGuard(spy, TimeProvider.System);
+        var snap = guard.Read(path);
+
+        var r = await guard.WriteAsync(snap, "int b;\n", TestContext.Current.CancellationToken);
+
+        Assert.Equal(FileWriteStatus.Written, r.Status);
+        Assert.NotEmpty(spy.ObservedTempModes);
+        Assert.All(spy.ObservedTempModes, m => Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, m));
+        Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, File.GetUnixFileMode(path));
+    }
+
+    /// <summary>Records the temp file's mode whenever FileGuard touches it after creating it (mode change, move).</summary>
+    private sealed class TempModeSpyFileSystem : FileSystem
+    {
+        public List<UnixFileMode> ObservedTempModes { get; } = [];
+
+        public TempModeSpyFileSystem() => File = new SpyFile(this);
+
+        public override IFile File { get; }
+
+        private sealed class SpyFile(TempModeSpyFileSystem owner) : FileWrapper(owner)
+        {
+            private void Observe(string path)
+            {
+                if (path.EndsWith(".pelly-tmp", StringComparison.Ordinal) && System.IO.File.Exists(path))
+                    owner.ObservedTempModes.Add(System.IO.File.GetUnixFileMode(path));
+            }
+
+            public override void SetUnixFileMode(string path, UnixFileMode mode)
+            {
+                Observe(path);
+                base.SetUnixFileMode(path, mode);
+            }
+
+            public override void Move(string sourceFileName, string destFileName, bool overwrite)
+            {
+                Observe(sourceFileName);
+                base.Move(sourceFileName, destFileName, overwrite);
+            }
+        }
+    }
 #pragma warning restore CA1416
 }

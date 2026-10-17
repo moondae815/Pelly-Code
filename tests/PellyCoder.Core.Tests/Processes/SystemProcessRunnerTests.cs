@@ -72,6 +72,17 @@ public sealed class SystemProcessRunnerTests
     }
 
     [Fact]
+    public async Task ChildReadingStdin_GetsEofImmediately()
+    {
+        // A build tool that prompts (or a script that reads stdin) must not wait on the parent's console until the timeout.
+        var r = await Runner.RunAsync(Helper(TimeSpan.FromSeconds(20), "readstdin"), CancellationToken.None);
+
+        Assert.False(r.TimedOut, $"the child waited on stdin; took {r.Duration}");
+        Assert.Equal(0, r.ExitCode);
+        Assert.Equal("eof 0", r.StdOut.Trim());
+    }
+
+    [Fact]
     public async Task ArgumentsWithSpacesAndKorean_RoundTrip()
     {
         const string arg = "공백 있는 인자 [x]";

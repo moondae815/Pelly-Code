@@ -105,7 +105,9 @@ public sealed class FileGuard(IFileSystem fs, TimeProvider time)
             {
                 changed = !fs.File.Exists(path) || TextFileCodec.HashHex(fs.File.ReadAllBytes(path)) != expectedSha;
                 if (changed) return;
-                fs.File.WriteAllBytes(tmp, bytes);
+                WriteTemp(path, tmp, bytes);
+                // Fallback and exact copy: the create mode above is reduced by the umask (and ignored by file systems
+                // without modes), so the original's bits are set again before the swap.
                 if (!OperatingSystem.IsWindows()) CopyUnixMode(path, tmp);
                 if (OperatingSystem.IsWindows()) fs.File.Replace(tmp, path, null);
                 else fs.File.Move(tmp, path, overwrite: true);
@@ -121,6 +123,23 @@ public sealed class FileGuard(IFileSystem fs, TimeProvider time)
             catch (IOException) { /* 정리 실패는 쓰기 결과를 바꾸지 않는다 */ }
             catch (UnauthorizedAccessException) { }
         }
+    }
+
+    /// <summary>
+    /// Writes the temp file. On Unix it is created with the original's mode from the start, so a 0600 file never
+    /// exists as 0644 under the temp name.
+    /// </summary>
+    private void WriteTemp(string original, string tmp, byte[] bytes)
+    {
+        if (fs.File.Exists(tmp)) fs.File.Delete(tmp); // a leftover keeps its old mode; the create mode applies only to a new file
+        var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write, Share = FileShare.None };
+        if (!OperatingSystem.IsWindows())
+        {
+            try { options.UnixCreateMode = fs.File.GetUnixFileMode(original); }
+            catch (PlatformNotSupportedException) { /* no modes: the default create mode */ }
+        }
+        using var stream = fs.FileStream.New(tmp, options);
+        stream.Write(bytes, 0, bytes.Length);
     }
 
     // Unix 전용: 교체 전에 원래 파일의 모드를 임시 파일에 옮겨 실행 비트 등이 사라지지 않게 한다.

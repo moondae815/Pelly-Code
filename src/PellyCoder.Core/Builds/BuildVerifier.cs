@@ -101,8 +101,8 @@ public sealed class BuildVerifier(IProcessRunner processes, BuildOptions options
     // Legacy toolchains on Korean Windows may emit CP949 even with VSLANG=1033 for file paths / messages.
     private static string DecodeStdOut(ProcessResult r)
     {
-        if (!r.StdOut.Contains('�')) return r.StdOut;
+        if (!r.StdOut.Contains('\uFFFD')) return r.StdOut;
         var cp949 = Cp949.GetString(r.StdOutBytes);
-        return cp949.Contains('�') ? r.StdOut : cp949;
+        return cp949.Contains('\uFFFD') ? r.StdOut : cp949;
     }
 }

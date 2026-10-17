@@ -23,11 +23,14 @@ public static partial class LanguageVersionDetector
             return new LanguageTarget(LanguageVersion.Default, NoProjectHint);
 
         var isLegacy = root.Attribute("Sdk") is null && root.Elements().All(e => e.Name.LocalName != "Sdk");
-        var explicitVersion = ParseLangVersion(Property(root, "LangVersion"));
+        var props = LoadNearestProps(fs, csprojPath);
+        string? Effective(string name) => Property(root, name) ?? PropsProperty(props, name);
+
+        var explicitVersion = ParseLangVersion(Effective("LangVersion"));
 
         var frameworks = isLegacy
-            ? LegacyFramework(Property(root, "TargetFrameworkVersion"))
-            : (Property(root, "TargetFrameworks") ?? Property(root, "TargetFramework"))
+            ? LegacyFramework(Effective("TargetFrameworkVersion"))
+            : (Effective("TargetFrameworks") ?? Effective("TargetFramework"))
                 ?.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList()
               ?? [];
 
@@ -48,6 +51,39 @@ public static partial class LanguageVersionDetector
             : $"C# {versionText}, {FrameworkText(hintFramework)}";
         return new LanguageTarget(version, hint);
     }
+
+    /// <summary>First Directory.Build.props from the csproj folder upwards (MSBuild: nearest wins, no chaining).</summary>
+    private static (string Path, XElement Root)? LoadNearestProps(IFileSystem fs, string csprojPath)
+    {
+        var dir = fs.Path.GetDirectoryName(fs.Path.GetFullPath(csprojPath));
+        while (dir is not null)
+        {
+            var candidate = fs.Path.Combine(dir, "Directory.Build.props");
+            if (fs.File.Exists(candidate))
+            {
+                try
+                {
+                    var root = XDocument.Parse(fs.File.ReadAllText(candidate)).Root;
+                    return root is null ? null : (candidate, root);
+                }
+                catch (System.Xml.XmlException ex)
+                {
+                    throw new System.Xml.XmlException($"{candidate}: {ex.Message}", ex);
+                }
+            }
+
+            dir = fs.Path.GetDirectoryName(dir);
+        }
+
+        return null;
+    }
+
+    /// <summary>Unconditioned property directly inside an unconditioned PropertyGroup; last one wins.</summary>
+    private static string? PropsProperty((string Path, XElement Root)? props, string name) =>
+        props?.Root.Elements().Where(g => g.Name.LocalName == "PropertyGroup" && g.Attribute("Condition") is null)
+            .SelectMany(g => g.Elements())
+            .LastOrDefault(e => e.Name.LocalName == name && e.Attribute("Condition") is null && !e.HasElements)
+            ?.Value.Trim();
 
     private static string? Property(XElement root, string name) =>
         root.Descendants().FirstOrDefault(e => e.Name.LocalName == name && !e.HasElements)?.Value.Trim();

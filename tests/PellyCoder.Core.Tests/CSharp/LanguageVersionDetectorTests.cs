@@ -96,4 +96,95 @@ public sealed class LanguageVersionDetectorTests
         Assert.Equal(LanguageVersion.Default, target.Version);
         Assert.Equal("C# (latest), net99.0", target.Hint);
     }
+
+    private static string Props(string inner) => $"<Project>{inner}</Project>";
+
+    private static LanguageTarget DetectWith(string csproj, params (string Path, string Content)[] files)
+    {
+        var fs = new MockFileSystem();
+        var csprojPath = TestPaths.P(@"C:\r\src\App\App.csproj");
+        fs.AddFile(csprojPath, new MockFileData(csproj));
+        foreach (var (path, content) in files)
+            fs.AddFile(TestPaths.P(path), new MockFileData(content));
+        return LanguageVersionDetector.Detect(fs, csprojPath);
+    }
+
+    [Fact]
+    public void DirectoryBuildProps_LangVersion_Applies()
+    {
+        var t = DetectWith(Sdk("<TargetFramework>net48</TargetFramework>"),
+            (@"C:\r\Directory.Build.props", Props("<PropertyGroup><LangVersion>10</LangVersion></PropertyGroup>")));
+
+        Assert.Equal(LanguageVersion.CSharp10, t.Version);
+        Assert.Equal("C# 10, .NET Framework 4.8", t.Hint);
+    }
+
+    [Fact]
+    public void Csproj_Overrides_DirectoryBuildProps()
+    {
+        var t = DetectWith(Sdk("<LangVersion>9</LangVersion><TargetFramework>net48</TargetFramework>"),
+            (@"C:\r\Directory.Build.props", Props("<PropertyGroup><LangVersion>10</LangVersion></PropertyGroup>")));
+
+        Assert.Equal(LanguageVersion.CSharp9, t.Version);
+    }
+
+    [Fact]
+    public void NearestPropsOnly()
+    {
+        var t = DetectWith(Sdk("<TargetFramework>net48</TargetFramework>"),
+            (@"C:\r\Directory.Build.props", Props("<PropertyGroup><LangVersion>11</LangVersion></PropertyGroup>")),
+            (@"C:\r\src\Directory.Build.props", Props("<PropertyGroup><LangVersion>10</LangVersion></PropertyGroup>")));
+
+        Assert.Equal(LanguageVersion.CSharp10, t.Version);
+    }
+
+    [Fact]
+    public void ConditionedPropertyGroup_IsIgnored()
+    {
+        var t = DetectWith(Sdk("<TargetFramework>net8.0</TargetFramework>"),
+            (@"C:\r\Directory.Build.props",
+                Props("<PropertyGroup Condition=\"'$(Configuration)'=='Debug'\"><LangVersion>7.3</LangVersion></PropertyGroup>")));
+
+        Assert.Equal(LanguageVersion.CSharp12, t.Version);
+        Assert.Equal("C# 12, net8.0", t.Hint);
+    }
+
+    [Fact]
+    public void ConditionedProperty_IsIgnored()
+    {
+        var t = DetectWith(Sdk("<TargetFramework>net8.0</TargetFramework>"),
+            (@"C:\r\Directory.Build.props",
+                Props("<PropertyGroup><LangVersion Condition=\"'$(X)'=='1'\">7.3</LangVersion></PropertyGroup>")));
+
+        Assert.Equal(LanguageVersion.CSharp12, t.Version);
+    }
+
+    [Fact]
+    public void PropertyOutsidePropertyGroup_IsIgnored()
+    {
+        var t = DetectWith(Sdk("<TargetFramework>net8.0</TargetFramework>"),
+            (@"C:\r\Directory.Build.props", Props("<ItemGroup><LangVersion>7.3</LangVersion></ItemGroup>")));
+
+        Assert.Equal(LanguageVersion.CSharp12, t.Version);
+    }
+
+    [Fact]
+    public void LegacyCsproj_WithPropsLangVersion_Applies()
+    {
+        const string legacy = "<Project ToolsVersion=\"15.0\"><PropertyGroup><TargetFrameworkVersion>v4.8</TargetFrameworkVersion></PropertyGroup></Project>";
+        var t = DetectWith(legacy,
+            (@"C:\r\Directory.Build.props", Props("<PropertyGroup><LangVersion>8</LangVersion></PropertyGroup>")));
+
+        Assert.Equal(LanguageVersion.CSharp8, t.Version);
+        Assert.Equal("C# 8, .NET Framework 4.8", t.Hint);
+    }
+
+    [Fact]
+    public void MalformedProps_Throws_NamingThePath()
+    {
+        var ex = Assert.Throws<System.Xml.XmlException>(() => DetectWith(Sdk("<TargetFramework>net8.0</TargetFramework>"),
+            (@"C:\r\Directory.Build.props", "<Project><PropertyGroup>")));
+
+        Assert.Contains("Directory.Build.props", ex.Message);
+    }
 }

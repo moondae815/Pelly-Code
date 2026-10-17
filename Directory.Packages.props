@@ -7,7 +7,13 @@
   <ItemGroup>
     <PackageVersion Include="Dapper" Version="2.1.89" />
     <PackageVersion Include="Microsoft.Data.SqlClient" Version="7.1.1" />
+    <PackageVersion Include="Microsoft.Extensions.Configuration" Version="10.0.13" />
+    <PackageVersion Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.13" />
+    <PackageVersion Include="Microsoft.Extensions.Configuration.Json" Version="10.0.13" />
+    <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.11.0" />
     <PackageVersion Include="Spectre.Console.Cli" Version="0.57.2" />
+    <PackageVersion Include="System.IO.Abstractions" Version="22.3.0" />
+    <PackageVersion Include="System.IO.Abstractions.TestingHelpers" Version="22.3.0" />
     <PackageVersion Include="xunit.v3.mtp-v2" Version="4.0.2" />
     <!-- Microsoft.Data.SqlClient 7.1.1의 간접 의존(9.0.18)에 알려진 취약성이 있어 패치 버전으로 고정 -->
     <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />

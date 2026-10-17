@@ -166,8 +166,9 @@ public sealed class CsEndToEndTests(ITestOutputHelper output) : IDisposable
 
     /// <summary>
     /// Restores a corpus copy so pelly's <c>--no-restore</c> build can compile it (otherwise NETSDK1004 stops the run).
-    /// <c>--disable-parallel</c>: on macOS the temp copy is reached both as <c>/var/...</c> and <c>/private/var/...</c>, so a
-    /// parallel restore once restored Shop.Api twice at the same time and failed with "project.assets.json already exists".
+    /// <c>--disable-parallel</c>: one restore failed with "project.assets.json already exists" while the log showed Shop.Api
+    /// restored as both <c>/var/...</c> and <c>/private/var/...</c> (macOS temp alias). A parallel double restore is the
+    /// inferred cause, not reproduced; serializing the restore removes that possibility.
     /// </summary>
     internal static async Task RestoreAsync(string solution)
     {

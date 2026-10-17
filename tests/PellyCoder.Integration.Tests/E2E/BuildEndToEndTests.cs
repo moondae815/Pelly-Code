@@ -4,7 +4,11 @@ using System.Text.Json;
 using Microsoft.CodeAnalysis.CSharp;
 using PellyCoder.Core.Abstractions;
 using PellyCoder.Core.Config;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using PellyCoder.Core.CSharp;
+using PellyCoder.Core.Models;
+using PellyCoder.Core.Patchers;
 using PellyCoder.Core.Fsm;
 using PellyCoder.Core.Llm;
 using PellyCoder.Core.Processes;
@@ -26,7 +30,7 @@ public sealed class BuildEndToEndTests(ITestOutputHelper output) : IDisposable
     private const string UndefinedStatement = "undefinedVar++;";
 
     private static readonly System.Text.RegularExpressions.Regex ShippedThrow =
-        new(@"OrderStatus\.Shipped\s*\)\s*\{?\s*throw\s+new\s+InvalidOperationException", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+        new(@"(==|is|or)\s*OrderStatus\.Shipped\s*\)\s*\{?\s*throw\s+new\s+InvalidOperationException", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
     private static readonly System.Text.RegularExpressions.Regex DeliveredThrow =
         new(@"OrderStatus\.Delivered[^{;]*\)\s*\{?\s*throw\s+new\s+InvalidOperationException", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
@@ -74,7 +78,7 @@ public sealed class BuildEndToEndTests(ITestOutputHelper output) : IDisposable
         CorruptingBackend? corrupting = null;
         var run = await RunAsync(copy, new RunRequest(copy.File, null, "CancelAsync", null, Request, Yes: true, DryRun: false, MaxRetries: null),
             inner => corrupting = new CorruptingBackend(inner, (n, req, text) =>
-                IsFirstCodeRequest(corrupting!, n, req) ? InsertBeforeLastReplaceLine(text) : text));
+                IsFirstCodeRequest(corrupting!, n, req) ? InjectUndefinedVar(text, CsEndToEndTests.Lf(copy.Before)) : text));
 
         Assert.Equal(ExitCodes.Success, run.Exit);
         Assert.Equal(1, corrupting!.RewrittenCount);
@@ -133,7 +137,7 @@ public sealed class BuildEndToEndTests(ITestOutputHelper output) : IDisposable
 
     /// <summary>
     /// The request's meaning, not a token count: CancelAsync changed and nothing else did, it still parses, it now throws
-    /// <c>InvalidOperationException</c> under a condition ending in <c>OrderStatus.Shipped</c>, and the existing Delivered
+    /// <c>InvalidOperationException</c> under a condition ending in <c>== / is / or OrderStatus.Shipped</c>, and the existing Delivered
     /// guard still throws (alone or or-ed with Shipped). Counting tokens (the benchmark's mustAdd) misjudged two correct
     /// edits on 2026-10-18 — dropping the dead <c>|| Shipped</c> refund branch, and merging the guard into Delivered's —
     /// while the one real defect seen (the Shipped guard replacing the Delivered guard) fails the Delivered check.
@@ -177,9 +181,35 @@ public sealed class BuildEndToEndTests(ITestOutputHelper output) : IDisposable
 
     /// <summary>
     /// R7: inserts <c>undefinedVar++;</c> as a new line just before the last line of the first REPLACE block, with that
-    /// line's indentation, so it stays inside the method body and fails the build with CS0103.
+    /// line's indentation. When that does not leave it as a statement inside CancelAsync's body (the REPLACE ends in an
+    /// expression, in an added helper, or past the method), the fallback inserts it before the method's last <c>}</c>
+    /// instead: one block replacing the whole method with the model's edited version plus the statement.
     /// </summary>
-    internal static string InsertBeforeLastReplaceLine(string text)
+    internal static string InjectUndefinedVar(string response, string originalLf)
+    {
+        var primary = InsertBeforeLastReplaceLine(response);
+        if (TryPatch(originalLf, primary) is null || InjectedInsideCancelAsyncBody(originalLf, primary)) return primary;
+
+        var patched = TryPatch(originalLf, response);
+        Assert.True(patched is not null, "모델 응답이 원본에 적용되지 않아 대체 삽입을 할 수 없습니다:\n" + response);
+        var span = Assert.Single(MemberLocator.FindByName(originalLf, LanguageVersion.Latest, null, "CancelAsync")).Span;
+        var orig = originalLf.Split('\n');
+        var edited = patched!.Split('\n');
+        var head = span.StartLine - 1;              // lines before the method
+        var tail = orig.Length - span.EndLine;      // lines after the method
+        Assert.True(orig[..head].SequenceEqual(edited[..head]) && orig[^tail..].SequenceEqual(edited[^tail..]),
+            "모델 응답이 CancelAsync 밖의 줄을 바꿔 대체 삽입을 할 수 없습니다:\n" + response);
+
+        var method = CSharpSyntaxTree.ParseText(patched).GetRoot().DescendantNodes().OfType<MethodDeclarationSyntax>()
+            .Single(m => m.Identifier.Text == "CancelAsync");
+        var close = method.Body!.CloseBraceToken.GetLocation().GetLineSpan().StartLinePosition.Line; // 0-based
+        var region = edited[head..(edited.Length - tail)].ToList();
+        var braceLine = region[close - head];
+        region.Insert(close - head, braceLine[..(braceLine.Length - braceLine.TrimStart().Length)] + "    " + UndefinedStatement);
+        return string.Join('\n', orig[head..(orig.Length - tail)]) + "\n=======\n" + string.Join('\n', region) + "\n>>>>>>> REPLACE";
+    }
+
+    private static string InsertBeforeLastReplaceLine(string text)
     {
         var lines = text.Split('\n').ToList();
         var separator = lines.FindIndex(l => l.TrimEnd('\r') == "=======");
@@ -191,6 +221,32 @@ public sealed class BuildEndToEndTests(ITestOutputHelper output) : IDisposable
         var cr = last.EndsWith('\r') ? "\r" : "";
         lines.Insert(end - 1, indent + UndefinedStatement + cr);
         return string.Join('\n', lines);
+    }
+
+    /// <summary>True when the patched file parses and <c>undefinedVar++;</c> is a statement inside CancelAsync's body.</summary>
+    internal static bool InjectedInsideCancelAsyncBody(string originalLf, string response)
+    {
+        var tree = CSharpSyntaxTree.ParseText(Patch(originalLf, response));
+        if (tree.GetDiagnostics().Any(d => d.Severity == DiagnosticSeverity.Error)) return false;
+        var method = tree.GetRoot().DescendantNodes().OfType<MethodDeclarationSyntax>().Single(m => m.Identifier.Text == "CancelAsync");
+        return method.Body!.DescendantNodes().OfType<ExpressionStatementSyntax>().Any(st => st.ToString() == UndefinedStatement);
+    }
+
+    /// <summary>Applies a code response (text after the prefilled SEARCH marker) with pelly's own parser and patcher.</summary>
+    internal static string Patch(string originalLf, string response)
+    {
+        var patched = TryPatch(originalLf, response);
+        Assert.True(patched is not null, "응답을 원본에 적용할 수 없습니다:\n" + response);
+        return patched!;
+    }
+
+    private static string? TryPatch(string originalLf, string response)
+    {
+        var parsed = SearchReplaceParser.Parse("<<<<<<< SEARCH\n" + response);
+        if (parsed.Failure is not null) return null;
+        var whole = new EditableRegion(new TextSpanInfo(1, originalLf.Split('\n').Length), "test");
+        var outcome = SearchReplacePatcher.Apply(originalLf, parsed.Blocks, [whole]);
+        return outcome.Success ? outcome.NewText : null;
     }
 
     // ---- run plumbing ----

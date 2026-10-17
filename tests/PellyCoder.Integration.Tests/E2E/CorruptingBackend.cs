@@ -6,9 +6,11 @@ namespace PellyCoder.Integration.Tests.E2E;
 
 /// <summary>
 /// Test decorator over a real backend: the n-th generate request (1-based, in send order — THINK, code and the LOCATE
-/// pick all count) has its response text replaced by <c>rewrite(n, request, text)</c>. A response the rewrite leaves
-/// unchanged streams through as the inner backend sent it; a changed one is sent as one text chunk followed by the
-/// inner done chunk (counters kept, text emptied). <see cref="GetStatusAsync"/> is delegated untouched.
+/// pick all count) has its response text replaced by <c>rewrite(n, request, text)</c>. Every response is buffered to its
+/// done chunk first (so nothing reaches the caller while the model is still generating): one the rewrite leaves unchanged
+/// is then replayed chunk by chunk as the inner backend sent it; a changed one is sent as one text chunk followed by the
+/// inner done chunk (counters kept, text emptied). Client-measured TTFT therefore includes the whole generation.
+/// <see cref="GetStatusAsync"/> is delegated untouched.
 /// </summary>
 public sealed class CorruptingBackend : ILlmBackend
 {

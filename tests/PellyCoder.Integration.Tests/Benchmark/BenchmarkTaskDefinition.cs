@@ -30,5 +30,6 @@ public sealed class BenchmarkJudge
     public bool? SqlCompile { get; set; }
     public List<string>? Tests { get; set; }
     public List<string>? MustContain { get; set; }
+    public List<string>? MustAdd { get; set; }
     public List<string>? MustNotContain { get; set; }
 }

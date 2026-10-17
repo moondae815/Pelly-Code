@@ -5,4 +5,4 @@ method: CancelAsync
 request: "배송 중(Shipped)인 주문을 취소하려고 하면 InvalidOperationException을 던지도록 수정해줘"
 judge:
   build: true
-  mustContain: ["OrderStatus.Shipped"]
+  mustAdd: ["OrderStatus.Shipped"]

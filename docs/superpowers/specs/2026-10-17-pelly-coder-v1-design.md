@@ -720,8 +720,10 @@ S1~S5는 M0, S6·S7은 M3에 수행합니다.
   judge:
     build: true
     tests: ["Shop.Orders.Tests.OrderServiceTests.Cancel_WhenShipped_Throws"]   # 선택
-    mustContain: ["InvalidOperationException"]                                  # 선택
+    mustContain: ["InvalidOperationException"]                                  # 선택 — 원본 대상에 없어야 함
+    mustAdd: ["OrderStatus.Shipped"]                                            # 선택 — 원본보다 많이 나와야 함
   ```
+* 공통 규칙: 대상이 원본과 같으면 실패(아무것도 안 고친 패치 차단). 정의 형식과 규칙은 `eval/benchmark/README.md`.
 * `PellyCoder.Eval`은 코퍼스를 임시 폴더로 복사 → 작업마다 `FsmOrchestrator.RunAsync`(`--yes`) 실행 → 판정 → `summary.json`과 판정 결과를 모아 KPI 표 출력.
 * 작업 비율: C# 30건 = Legacy 18건(MVC 컨트롤러·서비스 8, ADO.NET 배치 5, Dapper 리포지토리 5) + Modern 12건. SQL 20건.
 * Legacy 작업은 Mac에서 빌드 판정을 할 수 없으므로, 로컬 Mac에서는 "빌드 판정 생략" 모드(패치 적용·모양 검사까지만)로 측정합니다. 전체 판정은 Windows 환경에서 실행합니다(CI 수동 워크플로 `benchmark-legacy`. LLM이 필요하므로 셀프 호스티드 러너가 생기기 전까지는 미실행). 폐쇄망 벤치마크는 같은 실행기로 M4에서 작성합니다.

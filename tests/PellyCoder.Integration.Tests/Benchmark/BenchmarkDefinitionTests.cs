@@ -85,6 +85,43 @@ public class BenchmarkDefinitionTests
         Assert.Contains(tasks, t => t.Line is not null);
     }
 
+    /// <summary>
+    /// 아무것도 고치지 않은 패치가 판정을 통과하면 안 된다:
+    /// mustContain은 원본 대상에 없어야 하고, mustNotContain은 원본 대상에 있어야 한다.
+    /// 대상 범위: method 지정이면 그 멤버, 그 외(line·sql)는 파일 전체.
+    /// </summary>
+    [Fact]
+    public void Judges_RejectUnmodifiedTarget()
+    {
+        var problems = new List<string>();
+        foreach (var (_, t) in LoadAll())
+        {
+            var text = ReadSource(Path.Combine(EvalRoot, t.File.Replace('/', Path.DirectorySeparatorChar)));
+            var scope = t.Method is not null ? MemberText(text, t.Method) : text;
+            foreach (var s in t.Judge!.MustContain ?? [])
+                if (scope.Contains(s, StringComparison.Ordinal))
+                    problems.Add($"{t.Id}: mustContain '{s}'가 원본에 이미 있음");
+            foreach (var s in t.Judge.MustNotContain ?? [])
+                if (!scope.Contains(s, StringComparison.Ordinal))
+                    problems.Add($"{t.Id}: mustNotContain '{s}'가 원본에 없음");
+        }
+
+        Assert.Empty(problems);
+    }
+
+    /// <summary>메서드 선언 줄부터 같은 들여쓰기의 닫는 중괄호까지.</summary>
+    private static string MemberText(string text, string method)
+    {
+        var lines = text.Replace("\r\n", "\n").Split('\n');
+        var decl = new Regex($@"^\s*(public|private|protected|internal)\b.*\b{Regex.Escape(method)}\s*\(");
+        var start = Array.FindIndex(lines, l => decl.IsMatch(l));
+        Assert.True(start >= 0, $"{method} 선언 없음");
+        var closing = new string(' ', lines[start].Length - lines[start].TrimStart().Length) + "}";
+        var end = Array.FindIndex(lines, start + 1, l => l == closing);
+        Assert.True(end > start, $"{method} 끝 없음");
+        return string.Join("\n", lines[start..(end + 1)]);
+    }
+
     /// <summary>UTF-8로 읽고, 올바른 UTF-8이 아니면 CP949로 읽는다.</summary>
     private static string ReadSource(string path)
     {

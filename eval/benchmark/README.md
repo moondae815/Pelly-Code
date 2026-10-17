@@ -17,8 +17,14 @@
 | `judge.build` | bool | `cs` 전용. 빌드 통과 필요 |
 | `judge.sqlCompile` | bool | `sql` 전용. NOEXEC 컴파일 통과 필요 |
 | `judge.tests` | 문자열 목록 (선택) | 통과해야 하는 테스트 전체 이름 |
-| `judge.mustContain` | 문자열 목록 (선택) | 수정된 대상 멤버(또는 객체)에 있어야 하는 문자열 |
-| `judge.mustNotContain` | 문자열 목록 (선택) | 수정된 대상 멤버에 없어야 하는 문자열 |
+| `judge.mustContain` | 문자열 목록 (선택) | 수정된 대상에 있어야 하는 문자열. **원본 대상에는 없어야 함** |
+| `judge.mustAdd` | 문자열 목록 (선택) | 수정된 대상에서 원본보다 **더 많이** 나와야 하는 문자열 (원본에 이미 있는 문자열을 새로 추가했는지 확인) |
+| `judge.mustNotContain` | 문자열 목록 (선택) | 수정된 대상에 없어야 하는 문자열. **원본 대상에는 있어야 함** |
+
+## 공통 판정 규칙
+* **대상(멤버 또는 SQL 객체 배치)이 원본과 같으면 실패**입니다. 아무것도 고치지 않은 패치가 성공으로 집계되지 않게 하기 위함입니다.
+* 대상 범위: `method` 지정이면 그 멤버, `line` 지정이면 그 줄을 감싸는 멤버, `sql`이면 대상 객체 배치.
+* 정의의 `mustContain`·`mustNotContain`이 원본 기준으로 의미가 있는지는 `BenchmarkDefinitionTests.Judges_RejectUnmodifiedTarget`이 검사합니다.
 
 ## 주의
 * 코퍼스의 `*_CurrentlyCancels` 테스트는 **수정 전** 동작을 고정한 것입니다. 해당 벤치마크 작업이 성공하면 이 테스트는 실패하는 것이 정상이므로 `judge.tests`에 넣지 않습니다.

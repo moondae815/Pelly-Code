@@ -1,13 +1,19 @@
 using PellyCoder.Core.Abstractions;
+using PellyCoder.Core.Builds;
+using PellyCoder.Core.Config;
 using PellyCoder.Core.Feedbacks;
 using PellyCoder.Core.Files;
 using PellyCoder.Core.Models;
 using PellyCoder.Core.Patchers;
+using PellyCoder.Core.Verification;
 
 namespace PellyCoder.Core.Fsm.Phases;
 
-/// <summary>Applies the blocks in memory, then (unless dry run) backs up once and writes atomically with external-change detection.</summary>
-public sealed class ApplyPhase(FileGuard fileGuard, FeedbackBuilder feedback, IUserInteraction ui) : IPhase
+/// <summary>
+/// Applies the blocks in memory, then (unless dry run) waits for the baseline build, backs up once and writes atomically
+/// with external-change detection.
+/// </summary>
+public sealed class ApplyPhase(FileGuard fileGuard, FeedbackBuilder feedback, IUserInteraction ui, BuildOptions build) : IPhase
 {
     public RunPhase Phase => RunPhase.Apply;
 
@@ -23,6 +29,10 @@ public sealed class ApplyPhase(FileGuard fileGuard, FeedbackBuilder feedback, IU
             ui.ShowDiff(ctx.FilePath, ctx.Original.Text, patch.NewText!);
             return PhaseOutcome.DryRunCompleted;
         }
+
+        // The baseline must describe the untouched project, so it has to finish before the first write.
+        if (await AwaitBaselineAsync(ctx, ct) is { } failed)
+            return failed;
 
         if (ctx.BackupPath is null)
         {
@@ -54,6 +64,52 @@ public sealed class ApplyPhase(FileGuard fileGuard, FeedbackBuilder feedback, IU
             default:
                 throw new InvalidOperationException($"Unknown write status {write.Status}.");
         }
+    }
+
+    /// <summary>Null when the run may write; otherwise the outcome to end it with. Runs the checks once per run.</summary>
+    private async Task<PhaseOutcome?> AwaitBaselineAsync(RunContext ctx, CancellationToken ct)
+    {
+        if (ctx.Baseline is null || ctx.BaselineSnapshot is not null) return null;
+
+        BuildRun run;
+        try
+        {
+            run = await ctx.Baseline.WaitAsync(ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw; // user cancel: the orchestrator maps it to exit 2
+        }
+        catch (ProcessStartException ex)
+        {
+            ctx.Messages.Add(BuildMessages.CannotStart(ctx.BuildTool!, ex));
+            return PhaseOutcome.EnvError;
+        }
+        catch (Exception ex)
+        {
+            ctx.Messages.Add($"원본 상태 빌드에 실패했습니다 ({ctx.BuildTool!.Executable}): {ex.GetType().Name}: {ex.Message}");
+            return PhaseOutcome.EnvError;
+        }
+
+        if (run.TimedOut)
+        {
+            ctx.Messages.Add($"원본 상태 빌드가 {build.TimeoutSeconds}초 안에 끝나지 않았습니다 (build.timeoutSeconds)");
+            return PhaseOutcome.EnvError;
+        }
+
+        if (run.Errors.Count > 0)
+        {
+            if (build.StrictBaseline)
+            {
+                ctx.Messages.Add($"원본 상태에서 이미 빌드 오류가 {run.Errors.Count}개 있습니다 (--strict-baseline)");
+                ctx.FailureKind = "BaselineErrors";
+                return PhaseOutcome.EnvError;
+            }
+            ctx.Messages.Add($"원본 상태에서 이미 빌드 오류가 {run.Errors.Count}개 있습니다 — 새로 생긴 오류만 검사합니다");
+        }
+
+        ctx.BaselineSnapshot = new BaselineSnapshot(run);
+        return null;
     }
 
     private PhaseOutcome Mismatch(RunContext ctx, PatchFailure failure)

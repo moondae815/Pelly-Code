@@ -37,7 +37,7 @@ public sealed class BuildVerifier(IProcessRunner processes, BuildOptions options
             return new BuildRun([], [], result.ExitCode, true, result.Duration);
 
         var output = DecodeStdOut(result) + "\n" + result.StdErr;
-        var all = BuildErrorParser.Parse(output, workspaceRoot, OperatingSystem.IsWindows());
+        var all = BuildErrorParser.Parse(output, [workspaceRoot, PhysicalPath(workspaceRoot)], OperatingSystem.IsWindows());
         var errors = all.Where(d => d.Severity == "error").ToList();
         var warnings = all.Where(d => d.Severity == "warning").ToList();
 
@@ -46,6 +46,45 @@ public sealed class BuildVerifier(IProcessRunner processes, BuildOptions options
             errors.Add(new Diagnostic("", 0, 0, "error", "BUILD", $"build failed with exit code {result.ExitCode}"));
 
         return new BuildRun(errors, warnings, result.ExitCode, false, result.Duration);
+    }
+
+    /// <summary>
+    /// <paramref name="path"/> with every symbolic link (or junction) along it resolved, because the compiler prints real
+    /// paths (macOS <c>/var</c> → <c>/private/var</c>). Segments that do not exist are kept as given; any failure returns
+    /// <paramref name="path"/> unchanged. Windows 미확인(실기): junction 경로와 subst 드라이브(링크가 아니라 해석하지 않음).
+    /// </summary>
+    internal static string PhysicalPath(string path)
+    {
+        try
+        {
+            return Resolve(Path.GetFullPath(path), depth: 0);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            return path;
+        }
+    }
+
+    private static string Resolve(string full, int depth)
+    {
+        const int MaxLinkHops = 32;
+        var root = Path.GetPathRoot(full) ?? "";
+        var segments = full[root.Length..].Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries);
+        var current = root;
+        for (var i = 0; i < segments.Length; i++)
+        {
+            var next = Path.Combine(current, segments[i]);
+            var info = new DirectoryInfo(next);
+            if (!info.Exists) return Path.Combine([next, .. segments[(i + 1)..]]);
+            if (info.LinkTarget is { } target && depth < MaxLinkHops)
+            {
+                // The target may itself sit under links, so resolve it again from its root.
+                var absolute = Path.GetFullPath(target, current);
+                return Resolve(Path.Combine([absolute, .. segments[(i + 1)..]]), depth + 1);
+            }
+            current = next;
+        }
+        return current;
     }
 
     private IReadOnlyList<string> ArgumentsFor(BuildTool tool, string csproj) => tool.Kind switch

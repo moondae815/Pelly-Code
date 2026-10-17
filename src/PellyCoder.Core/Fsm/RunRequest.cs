@@ -1,4 +1,5 @@
 using PellyCoder.Core.Abstractions;
+using PellyCoder.Core.Builds;
 using PellyCoder.Core.Config;
 using PellyCoder.Core.CSharp;
 using PellyCoder.Core.Files;
@@ -59,6 +60,21 @@ public sealed class RunContext(string runId, RunRequest request, PellyOptions op
 
     /// <summary><c>Sdk</c>, <c>Legacy</c> or <c>None</c> (no csproj, or LOCATE not reached).</summary>
     public string ProjectStyle { get; set; } = "None";
+
+    /// <summary>Build tool for the project (set by Locate); null means no build verification (no csproj).</summary>
+    public BuildTool? BuildTool { get; set; }
+
+    /// <summary>
+    /// Build of the untouched project, started by Locate and awaited by Apply before the first write (design §7.3).
+    /// Null when there is nothing to build or in a dry run.
+    /// </summary>
+    public Task<BuildRun>? Baseline { get; set; }
+
+    /// <summary>Cancels <see cref="Baseline"/>; linked to the run token. The orchestrator cancels and disposes it at the end.</summary>
+    public CancellationTokenSource? BaselineCancellation { get; set; }
+
+    /// <summary>Finished <see cref="Baseline"/> (set by the first Apply that awaited it).</summary>
+    public BaselineSnapshot? BaselineSnapshot { get; set; }
 
     public SliceResult SliceResult { get; set; } = null!;
     public PromptBuildResult? Prompt { get; set; }

@@ -34,9 +34,12 @@ public sealed class FsmOrchestratorTests : IDisposable
     private readonly ScriptedLlmBackend _backend = new();
     private readonly ScriptedUserInteraction _ui = new();
     private readonly PellyOptions _options = new();
+    private readonly ScriptedProcessRunner _processes = new();
 
     public FsmOrchestratorTests()
     {
+        // These runs are about the M1 flow: every build (baseline and verification) succeeds without output.
+        _processes.WhenEmpty(new ProcessResult(0, "", "", [], TimeSpan.Zero, false));
         Directory.CreateDirectory(Path.Combine(_root, "Demo"));
         File.WriteAllText(Path.Combine(_root, "Demo.sln"), ""); // pins the workspace root
         File.WriteAllText(Path.Combine(_root, "Demo", "Demo.csproj"),
@@ -63,7 +66,7 @@ public sealed class FsmOrchestratorTests : IDisposable
     private Task<int> Run(RunRequest request) => RunAsync(request, TestContext.Current.CancellationToken);
 
     private Task<int> RunAsync(RunRequest request, CancellationToken ct) =>
-        FsmOrchestratorFactory.Create(_fs, _backend, _ui, _options, TimeProvider.System)
+        FsmOrchestratorFactory.Create(_fs, _backend, _ui, _options, TimeProvider.System, _processes)
             .RunAsync(request, ct)
             .WaitAsync(WallClock, CancellationToken.None);
 
@@ -230,10 +233,10 @@ public sealed class FsmOrchestratorTests : IDisposable
         var cp949 = Encoding.GetEncoding(949);
         var project = Path.Combine(_root, "Shop.Web");
         Directory.CreateDirectory(Path.Combine(project, "Services"));
+        // SDK style so the build tool resolves on every OS; legacy resolution is covered by BuildVerificationFlowTests.
         File.WriteAllText(Path.Combine(project, "Shop.Web.csproj"),
-            "<?xml version=\"1.0\" encoding=\"utf-8\"?>\r\n" +
-            "<Project ToolsVersion=\"15.0\" xmlns=\"http://schemas.microsoft.com/developer/msbuild/2003\">\r\n" +
-            "  <PropertyGroup>\r\n    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>\r\n  </PropertyGroup>\r\n" +
+            "<Project Sdk=\"Microsoft.NET.Sdk\">\r\n" +
+            "  <PropertyGroup>\r\n    <TargetFramework>net48</TargetFramework>\r\n    <LangVersion>7.3</LangVersion>\r\n  </PropertyGroup>\r\n" +
             "</Project>\r\n");
         var path = Path.Combine(project, "Services", "OrderService.cs");
         File.Copy(CorpusLocation.Get("Legacy/Shop.Web/Services/OrderService.cs"), path);
@@ -248,7 +251,7 @@ public sealed class FsmOrchestratorTests : IDisposable
         var expected = cp949.GetBytes(cp949.GetString(originalBytes).Replace(oldLine, newLine));
         Assert.Equal(expected, File.ReadAllBytes(path));
         Assert.Throws<DecoderFallbackException>(() => new UTF8Encoding(false, true).GetString(File.ReadAllBytes(path)));
-        Assert.Equal("Legacy", Summary().GetProperty("projectStyle").GetString());
+        Assert.Equal("Sdk", Summary().GetProperty("projectStyle").GetString());
     }
 
     [Fact]
@@ -439,7 +442,7 @@ public sealed class FsmOrchestratorTests : IDisposable
     {
         _backend.Enqueue(Block(Original, Guarded));
 
-        var exit = await FsmOrchestratorFactory.Create(new LogFailingFileSystem(), _backend, _ui, _options, TimeProvider.System)
+        var exit = await FsmOrchestratorFactory.Create(new LogFailingFileSystem(), _backend, _ui, _options, TimeProvider.System, _processes)
             .RunAsync(Req(CalcPath), TestContext.Current.CancellationToken)
             .WaitAsync(WallClock, CancellationToken.None);
 

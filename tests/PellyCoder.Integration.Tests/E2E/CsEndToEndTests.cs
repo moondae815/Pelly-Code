@@ -5,6 +5,7 @@ using PellyCoder.Core.Config;
 using PellyCoder.Core.CSharp;
 using PellyCoder.Core.Fsm;
 using PellyCoder.Core.Llm;
+using PellyCoder.Core.Processes;
 using PellyCoder.Integration.Tests.Corpus;
 using PellyCoder.Integration.Tests.Infrastructure;
 using Xunit.Sdk;
@@ -59,6 +60,14 @@ public sealed class CsEndToEndTests(ITestOutputHelper output) : IDisposable
         DumpRun(root, ui);
 
         var afterBytes = File.ReadAllBytes(file);
+        if (!OperatingSystem.IsWindows())
+        {
+            // Legacy projects are build-verified only on Windows (design §8.9): the run stops before touching the file.
+            Assert.Equal(ExitCodes.EnvError, exit);
+            Assert.Equal(beforeBytes, afterBytes);
+            Assert.Contains("warn: 레거시 .NET Framework 프로젝트는 Windows에서만 빌드 검증할 수 있습니다", ui.Lines);
+            return;
+        }
         Assert.Equal(ExitCodes.Success, exit);
         Assert.Throws<DecoderFallbackException>(() => new UTF8Encoding(false, true).GetString(afterBytes));
         var after = cp949.GetString(afterBytes);
@@ -101,7 +110,7 @@ public sealed class CsEndToEndTests(ITestOutputHelper output) : IDisposable
         using var http = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
         var backend = new OllamaBackend(http, options.Llm, TimeProvider.System);
         var ui = new RecordingUserInteraction();
-        var orchestrator = FsmOrchestratorFactory.Create(fs, backend, ui, options, TimeProvider.System);
+        var orchestrator = FsmOrchestratorFactory.Create(fs, backend, ui, options, TimeProvider.System, new SystemProcessRunner(TimeProvider.System));
 
         using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(10));
         var exit = await orchestrator.RunAsync(new RunRequest(file, null, method, request, Yes: true, DryRun: dryRun, MaxRetries: null), cts.Token);

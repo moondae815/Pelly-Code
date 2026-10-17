@@ -115,4 +115,41 @@ public sealed class BuildVerifierTests
 
         Assert.Equal("MSB1009", Assert.Single(run.Errors).Code);
     }
+    [Fact]
+    public async Task SymlinkedWorkspaceRoot_RelativizesCompilerRealPaths()
+    {
+        if (OperatingSystem.IsWindows())
+            Assert.Skip("Symbolic links need extra privileges on Windows; junction/subst handling is Windows 미확인.");
+        var ct = TestContext.Current.CancellationToken;
+        var temp = Directory.CreateTempSubdirectory("pelly-link-");
+        try
+        {
+            var real = Directory.CreateDirectory(Path.Combine(temp.FullName, "real"));
+            Directory.CreateDirectory(Path.Combine(real.FullName, "App"));
+            var alias = Path.Combine(temp.FullName, "alias");
+            Directory.CreateSymbolicLink(alias, real.FullName);
+            var physical = await PhysicalPathAsync(alias, ct);
+            Assert.NotEqual(alias, physical);
+            var runner = new ScriptedProcessRunner();
+            runner.Enqueue(Result($"{physical}/App/A.cs(3,5): error CS0103: The name 'x' does not exist [{physical}/App/App.csproj]", exit: 1));
+
+            var run = await new BuildVerifier(runner, new BuildOptions())
+                .BuildAsync(Dotnet, Path.Combine(alias, "App", "App.csproj"), alias, ct);
+
+            Assert.Equal("App/A.cs", Assert.Single(run.Errors).File);
+        }
+        finally
+        {
+            temp.Delete(recursive: true);
+        }
+    }
+
+    /// <summary>The path as the OS reports it with every link resolved (<c>pwd -P</c>), independent of the code under test.</summary>
+    private static async Task<string> PhysicalPathAsync(string dir, CancellationToken ct)
+    {
+        var result = await new PellyCoder.Core.Processes.SystemProcessRunner(TimeProvider.System).RunAsync(
+            new ProcessSpec("/bin/sh", ["-c", "cd \"$1\" && pwd -P", "sh", dir], dir, TimeSpan.FromSeconds(10)), ct);
+        Assert.Equal(0, result.ExitCode);
+        return result.StdOut.Trim();
+    }
 }

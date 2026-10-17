@@ -8,12 +8,9 @@ internal static class CorpusCopy
         var source = Corpus.CorpusPaths.Get(corpusRelative);
         var target = Path.Combine(Path.GetTempPath(), "pelly-build-" + Guid.NewGuid().ToString("N")[..8]);
         Copy(new DirectoryInfo(source), new DirectoryInfo(target), includeBuildOutput);
-        return RealPath(target);
+        // Returned as given (macOS: /var/..., a link to /private/var): BuildVerifier also matches the resolved path.
+        return target;
     }
-
-    // macOS 임시 폴더(/var/...)는 /private/var 로 가는 심볼릭 링크이고 컴파일러는 실제 경로를 출력한다.
-    private static string RealPath(string path) =>
-        OperatingSystem.IsMacOS() && path.StartsWith("/var/", StringComparison.Ordinal) ? "/private" + path : path;
 
     public static void Delete(string path)
     {

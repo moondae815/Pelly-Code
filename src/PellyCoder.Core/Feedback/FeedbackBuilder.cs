@@ -43,6 +43,58 @@ public sealed class FeedbackBuilder(ITokenCounter tokens, int budget)
         return Done(Compose(1, 0, cut));
     }
 
+    /// <summary>
+    /// <c>BUILD FAILED (n new errors)</c>: errors in the edited file first, each with ±3 lines of context, then errors in
+    /// other files one line each. Over budget: drop entries from the back, then shrink the first entry's context, then
+    /// cut its message.
+    /// </summary>
+    public Feedback ForBuild(IReadOnlyList<Diagnostic> newErrors, string targetRelativePath, string targetTextLf)
+    {
+        var pathComparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        bool IsTarget(Diagnostic e) => e.File.Length > 0 && string.Equals(e.File, targetRelativePath, pathComparison);
+
+        var unique = newErrors.DistinctBy(e => (e.File, e.Line, e.Code, e.Message)).ToList();
+        var ordered = unique.Where(IsTarget).Concat(unique.Where(e => !IsTarget(e))).ToList();
+        var head = $"BUILD FAILED ({ordered.Count} new {(ordered.Count == 1 ? "error" : "errors")})";
+        if (ordered.Count == 0) return Done(head);
+
+        var lines = targetTextLf.Split('\n').ToList();
+        if (lines.Count > 1 && lines[^1].Length == 0) lines.RemoveAt(lines.Count - 1);
+
+        string Compose(int count, int radius, string? firstMessage)
+        {
+            var sb = new StringBuilder(head);
+            for (var i = 0; i < count; i++)
+            {
+                var e = ordered[i];
+                var message = i == 0 ? firstMessage : null;
+                if (IsTarget(e))
+                    sb.Append(i == 0 ? "\n" : "\n\n").Append(Entry(e, lines, i == 0 ? radius : MaxRadius, message));
+                else
+                    sb.Append(i > 0 && IsTarget(ordered[i - 1]) ? "\n\n" : "\n").Append(OneLine(e, message));
+            }
+            return sb.ToString();
+        }
+
+        for (var count = ordered.Count; count >= 1; count--)
+        {
+            var text = Compose(count, MaxRadius, null);
+            if (Fits(text)) return Done(text);
+        }
+        for (var radius = MaxRadius - 1; radius >= 0; radius--)
+        {
+            var text = Compose(1, radius, null);
+            if (Fits(text)) return Done(text);
+        }
+        var cut = Truncate(ordered[0].Message, m => Compose(1, 0, m));
+        return Done(Compose(1, 0, cut));
+    }
+
+    private static string OneLine(Diagnostic e, string? messageOverride) =>
+        e.File.Length == 0
+            ? $"{e.Code} {messageOverride ?? e.Message}"
+            : $"{e.File}({e.Line}): {e.Code} {messageOverride ?? e.Message}";
+
     public Feedback ForPatchFailure(PatchFailure failure)
     {
         switch (failure.Kind)

@@ -14,10 +14,17 @@ public static partial class BuildErrorParser
     [GeneratedRegex(@"^\s*(?<tool>[^:(]+?)\s*:\s*(?<sev>error|warning)\s+(?<code>[A-Z]{2,}\d+)\s*:\s*(?<msg>.*?)(?:\s+\[(?<proj>[^\]]+)\])?\s*$")]
     private static partial Regex Fileless();
 
-    public static IReadOnlyList<Diagnostic> Parse(string output, string workspaceRoot, bool caseInsensitivePaths)
+    public static IReadOnlyList<Diagnostic> Parse(string output, string workspaceRoot, bool caseInsensitivePaths) =>
+        Parse(output, [workspaceRoot], caseInsensitivePaths);
+
+    /// <summary>
+    /// Like <see cref="Parse(string, string, bool)"/>, with several spellings of the same root (e.g. as given and with
+    /// links resolved); a path is made relative to the first root it is under.
+    /// </summary>
+    public static IReadOnlyList<Diagnostic> Parse(string output, IReadOnlyList<string> workspaceRoots, bool caseInsensitivePaths)
     {
         var comparison = caseInsensitivePaths ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-        var root = Normalize(workspaceRoot).TrimEnd('/');
+        var roots = workspaceRoots.Select(r => Normalize(r).TrimEnd('/')).Distinct().ToList();
         var result = new List<Diagnostic>();
         var seen = new HashSet<(string, int, int, string, string)>(
             caseInsensitivePaths ? KeyComparer.IgnoreCase : KeyComparer.Ordinal);
@@ -30,7 +37,7 @@ public static partial class BuildErrorParser
             int ln = 0, col = 0;
             if (m.Success)
             {
-                file = Relativize(Normalize(m.Groups["file"].Value.Trim()), root, comparison);
+                file = Relativize(Normalize(m.Groups["file"].Value.Trim()), roots, comparison);
                 ln = int.Parse(m.Groups["line"].Value);
                 col = int.Parse(m.Groups["col"].Value);
             }
@@ -50,10 +57,13 @@ public static partial class BuildErrorParser
 
     private static string Normalize(string path) => path.Replace('\\', '/');
 
-    private static string Relativize(string file, string root, StringComparison comparison)
+    private static string Relativize(string file, IReadOnlyList<string> roots, StringComparison comparison)
     {
-        if (root.Length > 0 && file.Length > root.Length && file[root.Length] == '/' && file.StartsWith(root, comparison))
-            return file[(root.Length + 1)..];
+        foreach (var root in roots)
+        {
+            if (root.Length > 0 && file.Length > root.Length && file[root.Length] == '/' && file.StartsWith(root, comparison))
+                return file[(root.Length + 1)..];
+        }
         return file;
     }
 

@@ -9,11 +9,14 @@ namespace PellyCoder.Core.Fsm;
 /// <summary>
 /// Runs the phases through <see cref="Transitions"/> until Done or Failed (design §7.2). On Failed it restores the
 /// original bytes from the backup unless the file changed outside pelly; the restore ignores cancellation.
+/// A baseline build still running at the end is cancelled and awaited first, so no build process outlives the run.
 /// </summary>
 public sealed class FsmOrchestrator(
     IEnumerable<IPhase> phases, FileGuard fileGuard, RunLogger logger, IFileSystem fs,
     PellyOptions options, IUserInteraction ui, TimeProvider time)
 {
+    private static readonly TimeSpan BaselineStopWait = TimeSpan.FromSeconds(10);
+
     private readonly Dictionary<RunPhase, IPhase> _phases = phases.ToDictionary(p => p.Phase);
 
     public async Task<int> RunAsync(RunRequest request, CancellationToken ct)
@@ -62,6 +65,7 @@ public sealed class FsmOrchestrator(
         {
             try
             {
+                await StopBaselineAsync(ctx);
                 if (ctx.Phase == RunPhase.Failed) await RollbackAsync(ctx);
                 else ctx.FailureKind = null;
 
@@ -107,6 +111,46 @@ public sealed class FsmOrchestrator(
         {
             ctx.Messages.Add($"예기치 않은 오류로 중단합니다: {ex.GetType().Name}: {ex.Message}");
             return PhaseOutcome.Crashed;
+        }
+    }
+
+    /// <summary>
+    /// Cancels the baseline build (killing its process tree) and waits up to <see cref="BaselineStopWait"/> for it.
+    /// Runs before rollback and before the lock is released; its own failures are irrelevant at this point.
+    /// </summary>
+    private async Task StopBaselineAsync(RunContext ctx)
+    {
+        if (ctx.BaselineCancellation is not { } cts) return;
+        try
+        {
+            try
+            {
+                cts.Cancel();
+            }
+            catch (AggregateException)
+            {
+                // A cancellation callback threw; the build is still being stopped.
+            }
+            if (ctx.Baseline is { } baseline)
+            {
+                try
+                {
+                    await baseline.WaitAsync(BaselineStopWait, time, CancellationToken.None);
+                }
+                catch (TimeoutException)
+                {
+                    ctx.Messages.Add($"원본 상태 빌드가 {BaselineStopWait.TotalSeconds:0}초 안에 멈추지 않았습니다. 남은 빌드 프로세스가 있는지 확인하세요");
+                }
+                catch (Exception)
+                {
+                    // Cancelled or failed: the result is no longer used.
+                }
+            }
+        }
+        finally
+        {
+            cts.Dispose();
+            ctx.BaselineCancellation = null;
         }
     }
 
@@ -160,7 +204,7 @@ public sealed class FsmOrchestrator(
             RunPhase.Slice => "문맥 구성",
             RunPhase.Edit => $"수정 생성 (시도 {ctx.Attempt + 1}/{1 + ctx.MaxRetries})",
             RunPhase.Apply => ctx.Request.DryRun ? "패치 미리 보기" : "패치 적용",
-            RunPhase.Verify => "구문 검사",
+            RunPhase.Verify => ctx.BuildTool is null ? "구문 검사" : "구문 검사·빌드",
             RunPhase.Review => "변경 검토",
             _ => phase.ToString(),
         };

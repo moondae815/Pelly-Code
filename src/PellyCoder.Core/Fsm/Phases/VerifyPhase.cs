@@ -1,27 +1,32 @@
-using System.IO.Abstractions;
-using PellyCoder.Core.CSharp;
-using PellyCoder.Core.Feedbacks;
+using PellyCoder.Core.Verification;
 
 namespace PellyCoder.Core.Fsm.Phases;
 
-/// <summary>M1 verification: Roslyn syntax check of the written file against the original's errors (build verification is M2).</summary>
-public sealed class VerifyPhase(IFileSystem fs, FeedbackBuilder feedback) : IPhase
+/// <summary>Runs the verifier steps (syntax, then build) in order and stops at the first one that fails.</summary>
+public sealed class VerifyPhase(IReadOnlyList<IVerifierStep> steps) : IPhase
 {
-    private const string Header = "SYNTAX CHECK FAILED";
-
     public RunPhase Phase => RunPhase.Verify;
 
-    public Task<PhaseOutcome> ExecuteAsync(RunContext ctx, CancellationToken ct)
+    public async Task<PhaseOutcome> ExecuteAsync(RunContext ctx, CancellationToken ct)
     {
-        var result = SyntaxVerifier.Verify(ctx.Current.Text, ctx.Language!.Version, fs.Path.GetFileName(ctx.FilePath), ctx.OriginalSyntax);
-        if (result.Passed)
-            return Task.FromResult(PhaseOutcome.Ok);
-
-        foreach (var code in result.NewErrors.Select(e => e.Code))
+        foreach (var step in steps)
         {
-            if (!ctx.ErrorCodes.Contains(code)) ctx.ErrorCodes.Add(code);
+            var result = await step.VerifyAsync(ctx, ct);
+            if (result.EnvironmentFailure)
+            {
+                if (result.Message is not null) ctx.Messages.Add(result.Message);
+                return PhaseOutcome.EnvError;
+            }
+            if (result.Passed) continue;
+
+            foreach (var code in result.NewErrors.Select(e => e.Code))
+            {
+                if (!ctx.ErrorCodes.Contains(code)) ctx.ErrorCodes.Add(code);
+            }
+            ctx.Feedback = result.Feedback;
+            ctx.FailureKind = $"{step.Name}Errors";
+            return PhaseOutcome.NewErrors;
         }
-        ctx.Feedback = feedback.ForDiagnostics(Header, result.NewErrors, ctx.Current.Text);
-        return Task.FromResult(PhaseOutcome.NewErrors);
+        return PhaseOutcome.Ok;
     }
 }

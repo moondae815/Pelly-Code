@@ -5,11 +5,12 @@ using PellyCoder.Core.Config;
 using PellyCoder.Core.Doctor;
 using PellyCoder.Core.Fsm;
 using PellyCoder.Core.Llm;
+using PellyCoder.Core.Processes;
 using Spectre.Console;
 
 namespace PellyCoder.Cli;
 
-/// <summary>Composition root: the only place that creates the real file system, <see cref="HttpClient"/> and backend.</summary>
+/// <summary>Composition root: the only place that creates the real file system, process runner, <see cref="HttpClient"/> and backend.</summary>
 public static class Composition
 {
     public static IServiceCollection Services(IUserInteraction ui, IAnsiConsole console, CancellationToken ct)
@@ -17,6 +18,7 @@ public static class Composition
         var services = new ServiceCollection();
         services.AddSingleton<IFileSystem>(new FileSystem());
         services.AddSingleton(TimeProvider.System);
+        services.AddSingleton<IProcessRunner>(new SystemProcessRunner(TimeProvider.System));
         services.AddSingleton(ui);
         services.AddSingleton(console);
         services.AddSingleton(typeof(CancellationToken), ct);
@@ -43,12 +45,13 @@ public static class Composition
         public void Dispose() => _client?.Dispose();
     }
 
-    private sealed class OrchestratorRunner(IFileSystem fs, IUserInteraction ui, TimeProvider time, HttpClientHolder http) : IRunner
+    private sealed class OrchestratorRunner(
+        IFileSystem fs, IUserInteraction ui, TimeProvider time, HttpClientHolder http, IProcessRunner processes) : IRunner
     {
         public Task<int> RunAsync(RunRequest request, PellyOptions options, CancellationToken ct)
         {
             var backend = new OllamaBackend(http.Get(options.Llm), options.Llm, time);
-            return FsmOrchestratorFactory.Create(fs, backend, ui, options, time).RunAsync(request, ct);
+            return FsmOrchestratorFactory.Create(fs, backend, ui, options, time, processes).RunAsync(request, ct);
         }
     }
 

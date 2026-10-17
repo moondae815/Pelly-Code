@@ -7,8 +7,11 @@ using PellyCoder.Core.Models;
 
 namespace PellyCoder.Core.Fsm.Phases;
 
-/// <summary>Resolves the project, its C# version and the single member to edit.</summary>
-public sealed class LocatePhase(IFileSystem fs, IUserInteraction ui) : IPhase
+/// <summary>
+/// Resolves the project, its C# version and the single member to edit, then the build tool. Unless this is a dry run
+/// it starts the baseline build of the untouched project, which runs while SLICE and EDIT proceed (design §7.3).
+/// </summary>
+public sealed class LocatePhase(IFileSystem fs, IUserInteraction ui, BuildToolResolver tools, BuildVerifier builds) : IPhase
 {
     public RunPhase Phase => RunPhase.Locate;
 
@@ -57,6 +60,33 @@ public sealed class LocatePhase(IFileSystem fs, IUserInteraction ui) : IPhase
 
         ctx.Candidate = chosen;
         ctx.Target = new EditTarget(EditKind.CSharp, ctx.FilePath, chosen.Display, chosen.Span, csproj);
+        return await StartBaselineAsync(ctx, csproj, ct);
+    }
+
+    private async Task<PhaseOutcome> StartBaselineAsync(RunContext ctx, string? csproj, CancellationToken ct)
+    {
+        var style = Enum.Parse<ProjectStyle>(ctx.ProjectStyle);
+        if (style == ProjectStyle.None || csproj is null)
+        {
+            ctx.Messages.Add("csproj가 없어 빌드 검증을 건너뜁니다 (구문 검사만 합니다)");
+            return PhaseOutcome.Ok;
+        }
+
+        var resolution = await tools.ResolveAsync(style, ct);
+        if (resolution.Tool is not { } tool)
+        {
+            ctx.Messages.Add(resolution.Error!);
+            ctx.FailureKind = "BuildToolUnavailable";
+            return PhaseOutcome.EnvError;
+        }
+
+        ctx.BuildTool = tool;
+        if (ctx.Request.DryRun) return PhaseOutcome.Ok; // a dry run never builds
+
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        ctx.BaselineCancellation = cts;
+        // Started only; APPLY awaits it. The orchestrator cancels it and waits for it when the run ends.
+        ctx.Baseline = Task.Run(() => builds.BuildAsync(tool, csproj, ctx.Workspace!.Root, cts.Token), CancellationToken.None);
         return PhaseOutcome.Ok;
     }
 

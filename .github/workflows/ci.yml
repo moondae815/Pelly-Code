@@ -1,0 +1,66 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+env:
+  DOTNET_NOLOGO: "1"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+
+jobs:
+  unit:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Build
+        run: dotnet build -warnaserror
+      - name: Unit tests (no Env trait)
+        run: dotnet test --no-build -- --filter-not-trait "Env=Windows" --filter-not-trait "Env=SqlServer" --filter-not-trait "Env=Ollama"
+
+  windows-integration:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Build
+        run: dotnet build -warnaserror
+      - name: Windows tests
+        run: dotnet test --no-build -- --filter-trait "Env=Windows"
+
+  sql-integration:
+    runs-on: ubuntu-latest
+    services:
+      mssql:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: "Pelly_Test_2026!"
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P 'Pelly_Test_2026!' -Q 'SELECT 1' -b"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PELLY_TEST_SQL: "Server=localhost,1433;Database=PellyCorpus;User Id=sa;Password=Pelly_Test_2026!;TrustServerCertificate=True"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Build
+        run: dotnet build -warnaserror
+      - name: SQL Server tests
+        run: dotnet test --no-build -- --filter-trait "Env=SqlServer"

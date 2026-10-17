@@ -1,0 +1,55 @@
+using PellyCoder.Core.Abstractions;
+using PellyCoder.Core.Feedbacks;
+using PellyCoder.Core.Llm;
+using PellyCoder.Core.Logging;
+using PellyCoder.Core.Patchers;
+
+namespace PellyCoder.Core.Fsm.Phases;
+
+/// <summary>One attempt: builds the prompt (with the latest feedback), generates, and parses the SEARCH/REPLACE blocks.</summary>
+public sealed class EditPhase(PromptBuilder prompts, QwenStreamClient client, FeedbackBuilder feedback, RunLogger logger) : IPhase
+{
+    public RunPhase Phase => RunPhase.Edit;
+
+    public async Task<PhaseOutcome> ExecuteAsync(RunContext ctx, CancellationToken ct)
+    {
+        ctx.Attempt++;
+        ctx.Generation = null;
+        ctx.ModelOutput = null;
+        ctx.Blocks = [];
+
+        var used = ctx.Feedback;
+        var prompt = prompts.BuildCSharp(ctx.Target!, ctx.SliceResult.Slice, ctx.Request.Request, used);
+        ctx.Prompt = prompt;
+        if (prompt.Error != PromptBudgetError.None)
+        {
+            ctx.Messages.Add($"프롬프트가 입력 예산을 넘습니다: {prompt.Detail}");
+            return PhaseOutcome.BudgetExceeded;
+        }
+        ctx.Feedback = null; // consumed by this attempt
+
+        GenerationResult gen;
+        try
+        {
+            gen = await client.GenerateEditAsync(prompt.BasePrompt, ctx.Attempt, ct);
+        }
+        catch (LlmUnavailableException ex)
+        {
+            ctx.Messages.Add($"LLM 서버를 사용할 수 없습니다: {ex.Message} (`pelly doctor`로 확인하세요)");
+            return PhaseOutcome.EnvError;
+        }
+        ctx.Generation = gen;
+        ctx.ModelOutput = gen.Output;
+        logger.Attempt(ctx, prompt.BasePrompt, gen, used);
+
+        var parsed = SearchReplaceParser.Parse(gen.Output);
+        if (parsed.Failure is not null)
+        {
+            ctx.Feedback = feedback.ForPatchFailure(parsed.Failure);
+            ctx.FailureKind = parsed.Failure.Kind;
+            return PhaseOutcome.FormatError;
+        }
+        ctx.Blocks = parsed.Blocks;
+        return PhaseOutcome.Ok;
+    }
+}

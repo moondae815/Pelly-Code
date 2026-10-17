@@ -12,6 +12,7 @@ public class TransitionsTests
     [InlineData(RunPhase.Locate, PhaseOutcome.Ambiguous, 0, RunPhase.Failed, 3)]
     [InlineData(RunPhase.Slice, PhaseOutcome.Ok, 0, RunPhase.Edit, null)]
     [InlineData(RunPhase.Slice, PhaseOutcome.BudgetExceeded, 0, RunPhase.Failed, 4)]
+    [InlineData(RunPhase.Slice, PhaseOutcome.NotFound, 2, RunPhase.Failed, 3)] // member no longer found on a retry
     [InlineData(RunPhase.Edit, PhaseOutcome.Ok, 1, RunPhase.Apply, null)]
     [InlineData(RunPhase.Edit, PhaseOutcome.BudgetExceeded, 1, RunPhase.Failed, 4)]
     [InlineData(RunPhase.Edit, PhaseOutcome.EnvError, 1, RunPhase.Failed, 4)] // LLM server dropped

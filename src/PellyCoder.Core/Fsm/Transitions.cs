@@ -22,6 +22,8 @@ public static class Transitions
             (RunPhase.Locate, PhaseOutcome.Ok) => new(RunPhase.Slice, null),
             (RunPhase.Locate, PhaseOutcome.NotFound or PhaseOutcome.Ambiguous) => Fail(ExitCodes.LocateFailed),
             (RunPhase.Slice, PhaseOutcome.Ok) => new(RunPhase.Edit, null),
+            // A retry re-finds the member; a patch that renamed or broke it leaves no target.
+            (RunPhase.Slice, PhaseOutcome.NotFound) => Fail(ExitCodes.LocateFailed),
             (RunPhase.Slice or RunPhase.Edit, PhaseOutcome.BudgetExceeded) => Fail(ExitCodes.EnvError),
             (RunPhase.Edit, PhaseOutcome.Ok) => new(RunPhase.Apply, null),
             (RunPhase.Edit, PhaseOutcome.FormatError) => Retry(ExitCodes.VerifyFailed),

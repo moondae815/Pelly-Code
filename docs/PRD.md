@@ -3,7 +3,7 @@
 > **타겟 런타임:** .NET 10 (LTS) CLI  
 > **운영 환경:** 폐쇄망 Windows 11 x64 개발 PC + 폐쇄망 내부 원격 Ollama 서버  
 > **개발 환경:** 외부 개발 노트북(macOS) → 검증 후 폐쇄망으로 이관  
-> **문서 버전:** v1.5 (2026-10-17)
+> **문서 버전:** v1.6 (2026-10-17)
 
 ### 변경 이력
 | 버전 | 날짜 | 주요 변경 |
@@ -14,6 +14,7 @@
 | v1.3 | 2026-10-17 | 폐쇄망 운영·외부 개발 후 이관 구조 반영: 원격 Ollama 서버(관리자 관리), 완전 오프라인 동작, self-contained 배포 패키지, 이관 절차(§11), 외부 개발 환경 구성(§8.5), 로그 반출용 비식별 리포트. 레거시 .NET Framework 프로젝트 빌드 검증을 v1에 포함(`MSBuild.exe` + `vswhere`, Q8 해소). 로드맵에 M4(폐쇄망 이관·현장 검증) 추가, 미결 사항 Q9~Q13 갱신 |
 | v1.4 | 2026-10-17 | §12 v2 로드맵 추가: 작업 명세 파일과 순차 실행(`pelly apply`), 테스트 우선 검증, 프로젝트 규칙 파일. 진입 조건·v2 KPI·v2에서도 하지 않을 것 명시 |
 | v1.5 | 2026-10-17 | IDE 연동(Visual Studio·Rider External Tools, `--line`, `--pause-on-exit`) 추가, v2 로드맵에 V2-0 GUI 승인 창 추가 |
+| v1.6 | 2026-10-17 | M0 스파이크 결과 반영: think 단계를 교정 시도부터 사용(`llm.thinkMode`), think 예산은 서버 `num_predict`로 제한, SQL 최소 권한 `VIEW DEFINITION`, 토크나이저 확정, 미결 사항 Q1~Q4 해소 |
 
 ---
 
@@ -63,7 +64,7 @@
 | 지표 항목 | 목표 수치 (Target) | 측정 기준 및 달성 전략 |
 | :--- | :--- | :--- |
 | **검증 불변 조건** | **100% (예외 없음)** | 최종 승인된 패치는 항상 빌드/SQL 검증을 통과함. 통과하지 못하면 자동 롤백 (성공률 지표가 아닌 시스템 보장 사항) |
-| **초기 응답 지연 (TTFT)** | **< 1.0초** | 입력 4,096 토큰 이내 제한 + 프롬프트 캐시 사용. 네트워크 왕복 포함 |
+| **초기 응답 지연 (TTFT)** | **< 1.0초** | 입력 4,096 토큰 이내 제한 + 프롬프트 캐시 사용. 네트워크 왕복 포함. 참고: 외부 Mac(M5 Pro)에서 캐시 없는 4,300토큰 입력은 1.56초(S2) — 폐쇄망 서버 사양(Q9) 확인 후 목표 재검토 |
 | **추론 예산 제어 (Thinking)** | **≤ 512 토큰** | think 블록이 512 토큰에 도달하면 스트림 중단 후 2단계 생성으로 전환 (FR-05) |
 | **패치 포맷 파싱 성공률** | **> 99.5%** | JSON Tool Calling 대신 `SEARCH/REPLACE` 텍스트 블록 파서 사용 |
 | **최종 작업 성공률** | **≥ 85% (잠정)** | 최초 시도 1회 + 자가 교정 최대 3회 안에 검증 통과 및 판정 기준 충족. 폐쇄망 기준선 측정 후 확정 (Q6) |
@@ -207,11 +208,12 @@ Ollama에는 공개된 토큰화 전용 엔드포인트가 없으므로 다음�
 
 ### FR-05. 추론 예산 제어기 (Thinking Budget Controller)
 **2단계 생성** 방식을 사용합니다.
-1. **THINK 단계:** think 전용 샘플링 값(§7.2)으로 스트리밍합니다. `</think>`가 나오거나 think 토큰이 **512**에 도달하면 스트림을 즉시 중단합니다.
-2. 512에 도달해 중단한 경우, think 내용을 마지막 완결 줄까지만 남기고 자릅니다.
-3. **CODE 단계:** `[원래 프롬프트] + <think>[think 내용]</think>\n<<<<<<< SEARCH\n`을 프리필(Prefill)로 붙여 code 전용 샘플링 값으로 재요청합니다.
+* **사용 시점 (`llm.thinkMode`, 기본 `retry`):** 첫 시도는 생각 없이(빈 think 프리필) 바로 코드를 만들고, 빌드·매칭 실패로 교정할 때부터 THINK 단계를 켭니다. `always`(매 시도), `off`(사용 안 함)로 바꿀 수 있습니다. 근거: M0 S3 — 이 모델은 512토큰 안에 생각을 끝내지 못했고(30/30), 생략해도 10건 결과가 같았으며 평균 9.0초 → 1.7초.
+1. **THINK 단계:** think 전용 샘플링 값(§7.2)으로 `num_predict = 512`, stop `</think>`로 요청합니다. 서버가 512토큰에서 멈추면(`done_reason = length`) 잘린 것으로 봅니다. 클라이언트가 스트림을 끊으면 다음 요청이 약 2초 늦어지므로 끊지 않습니다(S2).
+2. 잘린 경우 think 내용을 마지막 완결 줄까지만 남깁니다.
+3. **CODE 단계:** `[원래 프롬프트] + <think>[think 내용]</think>\n<<<<<<< SEARCH\n`(생각을 생략하면 빈 think)을 프리필(Prefill)로 붙여 code 전용 샘플링 값으로 요청합니다.
 * Ollama `/api/generate`를 **`raw: true`** 로 호출합니다. 이 모드에서는 Ollama가 템플릿을 적용하지 않으므로, `QwenChatTemplate`이 chat template을 직접 조립하고 프리필 문자열을 끝에 붙입니다. `/api/chat`과 `think` 파라미터는 프리필을 제어할 수 없어 쓰지 않습니다.
-* 재요청은 앞부분 프롬프트가 같으므로 Ollama의 KV 캐시 접두사 재사용으로 새로 붙인 부분만 처리될 것으로 기대합니다(M0 검증 — Q3). 모델 언로드로 인한 재로딩을 막기 위해 모든 요청에 `keep_alive`(기본 `"30m"`)를 지정합니다.
+* 재요청은 앞부분 프롬프트가 같아 Ollama가 접두사 KV 캐시를 재사용합니다(S2: 2단계 TTFT 중앙값 299ms). 모델 언로드로 인한 재로딩을 막기 위해 모든 요청에 `keep_alive`(기본 `"30m"`)를 지정합니다.
 * think 태그 문자열은 모델 chat template에서 확인한 값을 설정으로 주입합니다(미결 사항 Q1).
 
 ### FR-06. 결정론적 검증 및 자가 치유 하네스 (Deterministic Verification Harness)
@@ -246,7 +248,7 @@ Ollama에는 공개된 토큰화 전용 엔드포인트가 없으므로 다음�
 * **문장 허용 목록:** 배치의 최상위는 **대상 객체에 대한 단일 `CREATE`/`ALTER PROCEDURE|FUNCTION|VIEW` 문**만 허용합니다. `GO` 구분자로 나뉜 다중 배치는 거부합니다.
 * **금지 구문 (위치 무관):** `SET NOEXEC`, `SET PARSEONLY`, `SET FMTONLY`, `SHUTDOWN`, `RECONFIGURE`, `xp_cmdshell`, `OPENROWSET`/`OPENDATASOURCE`, `ALTER DATABASE`/`ALTER LOGIN`/`CREATE LOGIN`, `GRANT`/`REVOKE`/`DENY`
 * **접속 대상 제한:** 설정의 `sql.allowedHosts`/`sql.allowedDatabases` 화이트리스트에 있는 대상에만 접속합니다. 없으면 종료 코드 5로 끝냅니다.
-* **최소 권한 계정:** 검증 전용 계정을 사용합니다(`VIEW DEFINITION` 등. `NOEXEC` 컴파일에 필요한 최소 권한은 M0에서 확인 — 미결 사항 Q4).
+* **최소 권한 계정:** 검증 전용 계정에 **DB 수준 `VIEW DEFINITION`만** 부여합니다. `ALTER`·`SHOWPLAN`은 필요 없습니다. 이 권한이 없으면 객체 존재 검사와 스키마 요약이 동작하지 않습니다(S5).
 * **Windows 통합 인증 (기본):** 폐쇄망에서는 `Integrated Security=true`를 기본으로 사용합니다. 연결 문자열에 비밀번호가 없으므로 설정 파일에 두어도 됩니다.
 * **SQL 인증 (외부 개발용):** 비밀번호가 필요한 연결 문자열은 환경 변수 `PELLY_SQL_CONNECTION` 또는 `dotnet user-secrets`로만 받으며, 설정 파일·로그에 평문으로 남기지 않습니다.
 
@@ -292,7 +294,7 @@ Ollama에는 공개된 토큰화 전용 엔드포인트가 없으므로 다음�
 * **C# AST 코드 슬라이서:** `Microsoft.CodeAnalysis.CSharp` (Roslyn)
 * **SQL 파싱 및 안전 가드:** `Microsoft.SqlServer.TransactSql.ScriptDom`
 * **DB 스키마/구문 검증:** `Microsoft.Data.SqlClient` + `Dapper`
-* **토큰 계산:** `Microsoft.ML.Tokenizers` (Qwen `tokenizer.json` 내장 리소스)
+* **토큰 계산:** `Microsoft.ML.Tokenizers` 2.0.1 (Qwen `vocab.json`·`merges.txt` 내장 리소스, S4에서 서버와 오차 0%)
 * **설정:** `Microsoft.Extensions.Configuration` (+ `UserSecrets`, 외부 개발용)
 * **LLM 스트리밍 연동:** `System.Net.Http` (Ollama NDJSON 스트림 직접 제어)
 * **테스트:** `xUnit`, `Verify` (스냅샷 테스트)
@@ -474,10 +476,10 @@ pelly가 요청마다 지정하는 값: `options.num_ctx = 8192`, `keep_alive = 
 
 | ID | 질문 | 확인 시점 | 담당 |
 | :--- | :--- | :--- | :--- |
-| Q1 | `Qwen3.6-35B-A3B`의 실제 think 태그 문자열과 chat template | M0 | |
-| Q2 | Qwen3.6의 thinking 모드 권장 샘플링 값 (모델 카드) | M0 | |
-| Q3 | Ollama `raw: true` 모드에서 프리필 재요청 시 접두사 KV 캐시가 재사용되는지 (TTFT로 확인) | M0 | |
-| Q4 | `SET NOEXEC ON` 상태로 `ALTER PROCEDURE`를 컴파일할 때 필요한 최소 권한 | M0 | |
+| Q1 | ~~think 태그·chat template~~ → **해소: ChatML + `<think>` (S1)**. 폐쇄망과 같은 모델로 재확인 | — | |
+| Q2 | ~~권장 샘플링 값~~ → **해소: 모델 카드 "정밀 코딩" 값 0.6/0.95/20 (S3)** | — | |
+| Q3 | ~~접두사 캐시 재사용~~ → **해소: 재사용됨, 2단계 TTFT 299ms (S2)** | — | |
+| Q4 | ~~NOEXEC 최소 권한~~ → **해소: DB 수준 `VIEW DEFINITION` (S5)** | — | |
 | Q5 | 외부 샘플 코퍼스가 모사할 실제 코드의 특징(프로젝트 구성, C# 버전, 인코딩, 데이터 접근 패턴) | M0 | |
 | Q6 | 최종 작업 성공률 목표치 확정 (잠정 85%) | M4 | |
 | Q7 | ~~기준 하드웨어 확정~~ → 폐쇄망 Ollama 서버로 확정 (사양은 Q9) | — | |

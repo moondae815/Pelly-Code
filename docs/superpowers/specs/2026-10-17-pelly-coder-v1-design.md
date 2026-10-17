@@ -69,6 +69,8 @@ PRD §1.4의 "v1 제외" 항목 전부. 특히 다중 파일 수정, 새 파일 
 | D17 | 설정 파일의 `sql.connectionString`은 **비밀번호가 없는 연결(Windows 통합 인증)만** 허용. `Password`/`Pwd`가 있으면 설정 오류(4). 비밀번호가 있는 연결은 `PELLY_SQL_CONNECTION` 또는 user-secrets로만 받음 (PRD FR-07) | 설계 |
 | D19 | **IDE 연동은 External Tools 방식.** 사용자들은 Visual Studio와 Rider를 혼용하므로 IDE별 플러그인 대신 두 IDE 공통 기능인 External Tools로 `pelly cs <파일> --line <커서 줄>`을 실행. v1 UI는 콘솔 창. GUI 승인 창(`pelly ui`, Avalonia)은 v1 다음 단계 | 사용자 |
 | D20 | `Core`는 콘솔에 직접 출력하지 않음. 모든 진행 표시·입력은 `IUserInteraction`을 통해서만 함 (다음 단계의 GUI 승인 창이 같은 `Core`를 쓰기 위함) | 설계 |
+| D21 | **Think 단계는 교정 시도부터 사용** (`llm.thinkMode = retry` 기본, `off`/`always` 선택 가능). 첫 시도는 빈 think 프리필로 바로 코드 생성. 근거: S3 — 이 모델은 512토큰 안에 생각을 끝내지 못하고(30/30), 생략해도 10건 결과가 같았으며 평균 9.0초 → 1.7초 | 사용자 |
+| D22 | **Think 예산은 서버 `num_predict`로 제한**하고 `done_reason == "length"`로 잘림을 판단. 클라이언트가 스트림을 끊지 않음(Ctrl+C 제외). 근거: S2 — 클라이언트 취소 시 다음 요청이 약 2초 늦어짐 | 설계 |
 | D18 | `--test`의 테스트 프로젝트는 솔루션 안에서 대상 프로젝트를 `ProjectReference`(레거시는 `<ProjectReference Include>`)로 참조하는 프로젝트 중 이름이 `Test`를 포함하는 것. 설정 `test.projects`로 직접 지정 가능 | 설계 |
 
 ---
@@ -83,7 +85,7 @@ PellyCoder.sln
 │   │   ├── Config/                     # PellyOptions, 기본값, 검증
 │   │   ├── Core/                       # FsmOrchestrator, RunContext, Transitions, ContextBudget, Workspace
 │   │   ├── Llm/                        # OllamaBackend, QwenStreamClient, QwenChatTemplate, TokenCounter, Prompts
-│   │   │   └── Resources/              # tokenizer.json, prompts/*.txt, template.json (EmbeddedResource)
+│   │   │   └── Resources/              # vocab.json, merges.txt, tokenizer-meta.json, prompts/*.txt, template.json (EmbeddedResource)
 │   │   ├── Locators/
 │   │   ├── Slicers/
 │   │   ├── Patchers/
@@ -117,7 +119,7 @@ PellyCoder.sln
 | DI·설정 | `Microsoft.Extensions.DependencyInjection`, `Microsoft.Extensions.Configuration.Json`, `.EnvironmentVariables` |
 | C# 분석 | `Microsoft.CodeAnalysis.CSharp` |
 | SQL | `Microsoft.SqlServer.TransactSql.ScriptDom`, `Microsoft.Data.SqlClient`, `Dapper` |
-| 토큰 | `Microsoft.ML.Tokenizers` (S4 결과에 따라) |
+| 토큰 | `Microsoft.ML.Tokenizers` **2.0.1** (S4: 서버와 토큰 수 100% 일치) |
 | 기타 | `DiffPlex`, `System.IO.Abstractions` (+ `.TestingHelpers`), `System.Text.Encoding.CodePages`는 런타임 내장 provider 등록만 |
 | 테스트 | `xunit.v3`(또는 xunit 2 최신), `Verify.Xunit`, `NSubstitute` |
 
@@ -142,7 +144,8 @@ public interface IProcessRunner
 public sealed record SamplingOptions(double Temperature, double TopP, int TopK, double RepeatPenalty, double PresencePenalty);
 public sealed record LlmRequest(string RawPrompt, SamplingOptions Sampling, int NumPredict,
     IReadOnlyList<string> Stop, int NumCtx, string KeepAlive);
-public sealed record LlmChunk(string Text, bool Done, int? PromptEvalCount, int? EvalCount, TimeSpan? PromptEvalDuration);
+public sealed record LlmChunk(string Text, bool Done, int? PromptEvalCount, int? PromptEvalCachedCount,
+    int? EvalCount, TimeSpan? PromptEvalDuration, string? DoneReason);   // PromptEvalCount는 캐시분 포함 전체 (S2)
 public sealed record LlmServerStatus(bool Reachable, string? Version, bool ModelInstalled, bool ModelLoaded,
     string? ModelTemplate, TimeSpan Latency);
 public interface ILlmBackend
@@ -290,12 +293,15 @@ public async Task<int> RunAsync(RunRequest req, CancellationToken ct)
     "headers": {},                       // 인증 프록시용
     "connectTimeoutSeconds": 3,
     "streamIdleTimeoutSeconds": 10,
-    "template": null                     // null이면 내장 template.json 사용
+    "template": null,                    // null이면 내장 template.json 사용
+    "thinkMode": "retry"                 // D21: off | retry | always
   },
   "budget": { "inputTotal": 4096, "system": 600, "request": 200, "context": 3000, "feedback": 296,
               "think": 512, "codeOutput": 2048 },
   "sampling": {
+    // think: 모델 카드 "Thinking, 정밀 코딩" 값 = Ollama Modelfile 기본값 (S3)
     "think": { "temperature": 0.6, "topP": 0.95, "topK": 20, "repeatPenalty": 1.0, "presencePenalty": 0.0 },
+    // code: S3에서 0.2/0.95/1.0과 차이 없음 → 결정론 쪽 값 유지
     "code":  { "temperature": 0.1, "topP": 0.9,  "topK": 20, "repeatPenalty": 1.05, "presencePenalty": 0.0 }
   },
   "retry": { "max": 3 },
@@ -317,10 +323,11 @@ public async Task<int> RunAsync(RunRequest req, CancellationToken ct)
   "options": { "num_ctx": 8192, "num_predict": 512, "temperature": 0.6, "top_p": 0.95, "top_k": 20,
                "repeat_penalty": 1.0, "presence_penalty": 0.0, "stop": ["</think>"] } }
 ```
-* 응답은 NDJSON. 줄마다 `response`(텍스트), `done`, 마지막 줄의 `prompt_eval_count`, `eval_count`, `prompt_eval_duration`을 `LlmChunk`로 변환합니다. 알 수 없는 필드는 무시합니다(버전 차이 대비). raw 모드에서 `thinking` 필드가 따로 오는 경우도 `Text`에 합칩니다(S1에서 확인).
-* `HttpClient`는 `HttpCompletionOption.ResponseHeadersRead`로 스트림을 읽습니다. 취소 토큰이 취소되면 응답 스트림을 닫아 서버 생성을 멈춥니다.
+* 응답은 NDJSON. 줄마다 `response`(텍스트), `done`, 마지막 줄의 `prompt_eval_count`, `prompt_eval_cached_count`, `eval_count`, `prompt_eval_duration`, `done_reason`을 `LlmChunk`로 변환합니다. 알 수 없는 필드는 무시합니다(버전 차이 대비). raw 모드에서는 생각 텍스트도 `response`로 옵니다(S1 확인 — `thinking` 필드는 오지 않음).
+* 로그에는 "새로 처리한 입력 토큰 = `prompt_eval_count` − `prompt_eval_cached_count`"를 함께 기록합니다(S2).
+* `HttpClient`는 `HttpCompletionOption.ResponseHeadersRead`로 스트림을 읽습니다. 취소 토큰이 취소되면 응답 스트림을 닫습니다. 단, 서버는 끊긴 요청을 바로 멈추지 않아 다음 요청이 약 2초 늦어지므로(S2), **취소는 사용자 Ctrl+C에만** 쓰고 길이 제한은 `num_predict`로 합니다(D22).
 * 첫 바이트까지 `connectTimeoutSeconds`, 이후 줄 사이 무응답 `streamIdleTimeoutSeconds`. 무응답 시 1회 재요청 후 실패하면 EnvError.
-* `GetStatusAsync`: `/api/version`, `/api/tags`(모델 존재), `/api/ps`(로드 여부), `/api/show`(템플릿 문자열 — doctor가 내장 템플릿과 비교해 경고).
+* `GetStatusAsync`: `/api/version`, `/api/tags`(모델 존재), `/api/ps`(로드 여부), `/api/show`(Modelfile의 `RENDERER`/`PARSER` 이름, 기본 파라미터). 이 모델은 Go 템플릿 대신 내장 렌더러(`qwen3.5`)를 써서 `template`이 `{{ .Prompt }}`뿐이므로 템플릿 문자열 비교는 하지 않습니다(S1).
 * 서버 대기(공용 서버) 시간: 요청 전송부터 첫 청크까지 시간 중 `prompt_eval_duration`을 뺀 값을 "대기"로 로그에 기록.
 
 #### QwenChatTemplate (D10)
@@ -330,34 +337,47 @@ public async Task<int> RunAsync(RunRequest req, CancellationToken ct)
   "systemStart": "<|im_start|>system\n", "systemEnd": "<|im_end|>\n",
   "userStart": "<|im_start|>user\n", "userEnd": "<|im_end|>\n",
   "assistantStart": "<|im_start|>assistant\n",
-  "thinkOpen": "<think>\n", "thinkClose": "\n</think>\n\n"
+  "thinkOpen": "<think>\n", "thinkClose": "\n</think>\n\n",
+  "endOfTurn": "<|im_end|>"
 }
 ```
-`Build(system, user)` → `systemStart+system+systemEnd+userStart+user+userEnd+assistantStart`. 값은 S1 결과로 확정하고, 설정 `llm.template`로 파일 경로를 주면 덮어씁니다.
+`Build(system, user)` → `systemStart+system+systemEnd+userStart+user+userEnd+assistantStart`. **S1에서 확정**(`docs/spikes/S1-template.json`): 이 조립 결과의 토큰 수가 `/api/chat` 내장 렌더러 결과와 같았습니다(50 = 50). `</think>`·`<|im_end|>`는 단일 특수 토큰입니다. 설정 `llm.template`로 파일 경로를 주면 덮어씁니다.
 
 #### QwenStreamClient — 2단계 생성
 ```text
 basePrompt = template.Build(system, user)
 
-[THINK]
-  req1 = basePrompt + thinkOpen ; sampling.think ; num_predict = budget.think + 16 ; stop = ["</think>"]
-  스트리밍하며 누적 텍스트를 tokenCounter.Count()로 측정 (청크마다, 512 토큰 이하라 비용 무시 가능)
-  ≥ budget.think 이면 취소 → 마지막 '\n' 이전까지만 남김 (잘린 줄 제거)
-  thinkText = 결과 (끝 공백 제거)
+useThink = thinkMode == always || (thinkMode == retry && attempt >= 2)     // D21
+
+[THINK]  (useThink일 때만)
+  req1 = basePrompt + thinkOpen ; sampling.think ; num_predict = budget.think ; stop = ["</think>"]   // D22
+  done_reason == "length" 이면 잘린 것 → 마지막 '\n' 이전까지만 남김 (잘린 줄 제거)
+  thinkText = 결과 (끝 공백 제거), thinkTokens = eval_count (서버 값)
 
 [CODE]
-  prefill = thinkOpen + thinkText + thinkClose + "<<<<<<< SEARCH\n"
-  req2 = basePrompt + prefill ; sampling.code ; num_predict = budget.codeOutput ; stop = ["<|im_end|>"]
+  prefill = useThink ? thinkOpen + thinkText + thinkClose : thinkOpen + thinkClose     // 빈 think = "<think>\n" + "\n</think>\n\n"
+  req2 = basePrompt + prefill + "<<<<<<< SEARCH\n" ; sampling.code ; num_predict = budget.codeOutput ; stop = ["<|im_end|>"]
   output = "<<<<<<< SEARCH\n" + 스트림 전체
 ```
-* 두 요청은 `basePrompt`가 같으므로 Ollama의 접두사 캐시 재사용을 기대합니다(S2에서 TTFT로 확인).
+* 두 요청은 `basePrompt`가 같아 Ollama가 접두사 KV 캐시를 재사용합니다. **S2 측정:** 2단계 TTFT 중앙값 299ms, 새로 처리한 입력 514토큰(생성한 think 토큰은 재사용되지 않고 다시 처리됨).
+* 시스템 프롬프트·few-shot은 항상 프롬프트 맨 앞에 고정합니다. 실행 사이에도 그 부분이 캐시됩니다.
 * 결과 `GenerationResult(ThinkText, ThinkTokens, ThinkTruncated, Output, Timings, ServerCounts)`를 로그에 남깁니다.
 * LOCATE의 "모델이 후보 고르기"는 생각 없이 단일 요청: `basePrompt + thinkOpen + thinkClose`(빈 think) 프리필, `sampling.code`, `num_predict = 32`, 출력 첫 줄을 후보 목록과 정확히 비교.
 
 #### TokenCounter
-* 1순위: `Microsoft.ML.Tokenizers`로 내장 `tokenizer.json`(Qwen BPE vocab/merges)을 로드한 `QwenTokenCounter`. 특수 토큰(`<|im_start|>` 등)은 1토큰으로 계산.
-* 2순위(S4에서 1순위가 불가능할 경우): `CalibratedEstimator` — 문자 종류별 가중치(ASCII, 한글, 기타)로 추정하고, 실행 로그의 `prompt_eval_count`로 계수를 보정. 이 경우 예산 여유분을 10% 더 둡니다.
-* 서버 카운트와의 오차는 매 실행 로그에 기록합니다(`tokens.local` vs `tokens.server`).
+* **`QwenTokenCounter` 확정 (S4: 샘플 50개, 13,368토큰에서 서버와 오차 0%).** 용도는 입력 예산 계산입니다(think 예산은 서버 `eval_count`, D22).
+  ```csharp
+  var options = new BpeOptions(vocabStream, mergesStream)   // 내장 vocab.json, merges.txt
+  {
+      ByteLevel = true,
+      SpecialTokens = meta.SpecialTokens,                     // tokenizer-meta.json (tokenizer.json의 added_tokens 26개)
+      PreTokenizer = new RegexPreTokenizer(new Regex(meta.PreTokenizerRegex, RegexOptions.Compiled), meta.SpecialTokens),
+      Normalizer = new NfcNormalizer(),                       // string.Normalize(NormalizationForm.FormC)
+  };
+  BpeTokenizer.Create(options);   // 로드 약 0.4초 → 프로세스당 1회, 지연 초기화
+  ```
+  `tokenizer-meta.json`은 빌드 시점이 아니라 저장소에 커밋된 작은 파일입니다(모델의 `tokenizer.json`에서 특수 토큰과 Split 정규식만 뽑음). `BpeOptions`가 스트림 생성자를 제공하지 않으면 임시 파일로 풀어 로드합니다.
+* 서버 카운트와의 차이는 매 실행 로그에 기록합니다(`tokens.local` vs `tokens.server`). 0이 아니면 모델·토크나이저 불일치 신호입니다.
 
 #### Prompts
 내장 리소스 `prompts/system.cs.txt`, `prompts/system.sql.txt`, `prompts/fewshot.cs.txt`, `prompts/fewshot.sql.txt`, `prompts/locate.txt`. 설정으로 경로를 주면 덮어씁니다(폐쇄망 튜닝용). 프롬프트 파일 첫 줄에 `# version: N`을 두고 로그에 기록합니다.
@@ -531,16 +551,16 @@ public void Cancel(int orderId) { ...원문 그대로... }
 0. **검증 대상은 대상 배치 하나뿐**입니다. 파일의 다른 배치(`SET ANSI_NULLS` 등)는 실행하지 않고, 대신 연결에 `SET ANSI_NULLS ON; SET QUOTED_IDENTIFIER ON;`을 기본으로 설정합니다. 원본 파일에 이 두 설정의 `OFF`가 있으면 그 값을 따릅니다.
 1. 연결 문자열이 없거나 접속할 수 없으면 PREFLIGHT에서 EnvError(4) (D16). 접속 대상이 `allowedHosts`/`allowedDatabases`에 없으면 SafetyRejected(5) — 역시 PREFLIGHT에서 검사.
 2. 객체 존재 검사: 참조 객체 이름을 `OBJECT_ID(@name)`로 확인. 없으면 `Msg 208 Invalid object name '...'` 형식으로 NewErrors.
-3. NOEXEC 컴파일: 같은 연결에서
-   ```sql
-   SET XACT_ABORT ON; BEGIN TRAN;
-   SET NOEXEC ON;
-   <대상 문장>
-   SET NOEXEC OFF;
-   ROLLBACK;
-   ```
-   `CREATE`/`ALTER` 문은 배치의 첫 문장이어야 하므로, 실제로는 연결에 `SET NOEXEC ON`을 먼저 별도 배치로 보낸 뒤 대상 문장을 단독 배치로 보내고, 마지막에 `SET NOEXEC OFF` 배치를 보냅니다. 트랜잭션 처리 방식은 S5에서 확정합니다.
-   `SqlException.Errors`를 `Diagnostic(Code = "Msg" + Number, Line = LineNumber + 파일 내 문장 시작 줄)`로 변환.
+3. NOEXEC 컴파일 (**S5에서 확정**): 같은 연결에서 배치를 다음 순서로 따로 보냅니다.
+   1. `BEGIN TRAN;`
+   2. `SET NOEXEC ON;`
+   3. `<대상 문장>` (단독 배치 — `CREATE`/`ALTER`는 배치의 첫 문장이어야 함)
+   4. `SET NOEXEC OFF;`
+   5. `IF @@TRANCOUNT > 0 ROLLBACK;`
+   트랜잭션은 결과에 영향이 없었지만(S5) 안전장치로 유지합니다. NOEXEC 컴파일은 `ALTER` 권한을 검사하지 않습니다.
+   `SqlException.Errors`를 `Diagnostic(Code = "Msg" + Number, Line = SqlError.LineNumber + (파일 안 대상 배치의 시작 줄 − 1))`로 변환합니다(`LineNumber`는 배치 기준, S5).
+   **S5 검출 결과:** 없는 컬럼 207, 구문 오류 102는 잡히고, **없는 테이블은 NOEXEC·실제 ALTER 모두 잡지 못합니다**(지연 이름 확인) → 2번 객체 존재 검사가 필수입니다.
+   **최소 권한: DB 수준 `VIEW DEFINITION`.** 이 권한이 없으면 `OBJECT_ID`가 NULL, `sys.columns`가 0건이 되어 존재 검사·스키마 요약이 모두 틀어집니다(S5).
 4. 동적 SQL(`ExecuteStatement`의 문자열 실행, `sp_executesql`)이나 `#temp` 사용이 있으면 Notices에 경고 추가.
 
 ### 8.11 REVIEW·사용자 상호작용
@@ -561,16 +581,19 @@ public sealed record RunSummary(
     string RunId, string PellyVersion, string? OllamaVersion, string ModelName, string PromptVersion,
     EditKind Kind, string ProjectStyle /* Sdk|Legacy|Sql */, int ExitCode, int Attempts,
     IReadOnlyDictionary<RunPhase, double> PhaseSeconds, double TtftSeconds, double QueueSeconds,
-    int ThinkTokens, bool ThinkTruncated, int InputTokensLocal, int? InputTokensServer,
+    string ThinkMode, int ThinkTokens, bool ThinkTruncated,
+    int InputTokensLocal, int? InputTokensServer, int? InputTokensCached,
     IReadOnlyList<MatchStage> MatchStages, IReadOnlyList<string> ErrorCodes /* CS0103, Msg207 … */,
     string? FailureKind);
 ```
 * **`pelly report`:** `summary.json`들을 모아 PRD §2.2 지표와 실패 유형 분포를 표로 출력.
-* **`--sanitize` (D11):** `RunSummary`에서 문자열 필드는 `PellyVersion`, `OllamaVersion`, `PromptVersion`, `Kind`, `ProjectStyle`, `FailureKind`(열거 이름)와 `ErrorCodes`(정규식 `^(CS|MSB|NU|Msg)\d+$` 통과 값만)만 출력. `ModelName`은 출력하지 않음. 다른 파일(`events.jsonl` 등)은 읽지 않습니다. 결과는 JSON과 Markdown 두 파일.
+* **`--sanitize` (D11):** `RunSummary`에서 문자열 필드는 `PellyVersion`, `OllamaVersion`, `PromptVersion`, `Kind`, `ProjectStyle`, `ThinkMode`, `FailureKind`(열거 이름)와 `ErrorCodes`(정규식 `^(CS|MSB|NU|Msg)\d+$` 통과 값만)만 출력. `ModelName`은 출력하지 않음. 다른 파일(`events.jsonl` 등)은 읽지 않습니다. 결과는 JSON과 Markdown 두 파일.
 
 ### 8.13 doctor
 PRD FR-08 항목을 순서대로 검사하고 표로 출력합니다. 각 항목은 `Ok / Warn / Fail`과 조치 안내 한 줄. 추가로:
-* `/api/show` 템플릿에 내장 `template.json`의 토큰(`<|im_start|>`, `<think>`)이 없으면 Warn.
+* **템플릿 일치:** 고정된 짧은 대화를 `/api/chat`과 raw(`QwenChatTemplate` 조립)로 각각 `num_predict: 1`로 보내 `prompt_eval_count`가 같으면 Ok, 다르면 Warn(S1 방식). `/api/show`의 `RENDERER`/`PARSER` 이름도 표시.
+* **토크나이저 일치:** 고정 문자열 1개의 로컬 토큰 수와 서버 `prompt_eval_count`가 같으면 Ok, 다르면 Fail(S4 — 모델과 내장 토크나이저 불일치).
+* **SQL 권한:** 설정된 DB에서 `OBJECT_ID`가 알려진 테이블에 대해 NULL이면 "VIEW DEFINITION 권한 필요"로 Fail(S5).
 * 1회 짧은 생성(`num_predict: 8`)으로 TTFT 실측.
 * 서버 설정 체크리스트(`deploy/server-checklist.md` 내용)를 표시.
 
@@ -617,6 +640,15 @@ PRD FR-08 항목을 순서대로 검사하고 표로 출력합니다. 각 항목
 | S6 | 단일 파일 publish (—, M3) | `win-x64` self-contained single-file로 Roslyn·ScriptDom·임베디드 토크나이저 동작 확인(CI windows 러너) | 동작 여부와 필요한 `IncludeNativeLibrariesForSelfExtract` 등 설정 |
 
 S1~S5는 M0, S6·S7은 M3에 수행합니다.
+
+### 9.1 M0 결과 (2026-10-17, `qwen3.6:35b-a3b-coding-nvfp4` — 폐쇄망 모델과 같은 모델을 받으면 S1·S2·S4 재실행)
+| ID | 결과 | 문서 |
+| :--- | :--- | :--- |
+| S1 | 통과. ChatML + `<think>\n` 확정(렌더러와 토큰 수 일치). raw 모드는 생각도 `response`로 옴 | [S1](../../spikes/S1-template.md) |
+| S2 | 통과. 2단계 TTFT 299ms. 클라이언트 취소는 다음 요청 +2초 → D22. 1단계(무캐시 4,300토큰) TTFT 1.56초는 이 Mac에서 KPI 초과 | [S2](../../spikes/S2-prefill-cache.md) |
+| S3 | 샘플링 기본값 유지. think 30/30이 512 초과, 생략해도 결과 동일·5배 빠름 → D21 | [S3](../../spikes/S3-sampling.md) |
+| S4 | 통과. `Microsoft.ML.Tokenizers` 2.0.1로 서버와 오차 0% → `QwenTokenCounter` | [S4](../../spikes/S4-tokenizer.md) |
+| S5 | 최소 권한 `VIEW DEFINITION`, 배치 순서 확정, 없는 테이블은 존재 검사로만 잡힘 | [S5](../../spikes/S5-sql-noexec.md) |
 
 ---
 

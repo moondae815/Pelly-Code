@@ -72,6 +72,8 @@ PRD §1.4의 "v1 제외" 항목 전부. 특히 다중 파일 수정, 새 파일 
 | D21 | **Think 단계는 교정 시도부터 사용** (`llm.thinkMode = retry` 기본, `off`/`always` 선택 가능). 첫 시도는 빈 think 프리필로 바로 코드 생성. 근거: S3 — 이 모델은 512토큰 안에 생각을 끝내지 못하고(30/30), 생략해도 10건 결과가 같았으며 평균 9.0초 → 1.7초 | 사용자 |
 | D23 | **`stop` 옵션에 의존하지 않음.** 이 모델 엔진(raw 모드)은 `stop`을 무시함(S1 보완 측정). `stop`은 보내되, THINK 응답은 클라이언트가 첫 `</think>` 앞까지만 쓰고 나머지는 버림. CODE 응답은 종료 토큰(`<|im_end|>`)·`num_predict`로 끝나며, 파서는 마지막 `>>>>>>> REPLACE` 뒤 텍스트를 무시함. 생성 길이는 항상 `num_predict`로 제한 | 설계 |
 | D22 | **Think 예산은 서버 `num_predict`로 제한**하고 `done_reason == "length"`로 잘림을 판단. 클라이언트가 스트림을 끊지 않음(Ctrl+C 제외). 근거: S2 — 클라이언트 취소 시 다음 요청이 약 2초 늦어짐 | 설계 |
+| D24 | **모델 제어 토큰 문자열 차단.** raw 모드에서는 서버가 프롬프트 안의 `<|im_end|>` 같은 문자열을 실제 제어 토큰으로 읽으므로, 요청문이나 대상 파일에 토크나이저 특수 토큰(26개) 문자열이 있으면 서버를 부르기 전에 PREFLIGHT에서 종료 코드 4로 끝냄 (요청문: "요청문에 모델 제어 토큰 '…'이(가) 있어 실행할 수 없습니다", 파일: "파일에 모델 제어 토큰 문자열 '…'이(가) 있어 안전하게 편집할 수 없습니다 (줄 N)"). 근거: M1 최종 리뷰 (M2a T10) | 설계 |
+| D25 | **Baseline 빌드는 LOCATE 끝에서 시작.** 대상 프로젝트와 빌드 도구를 확정한 뒤에야 시작할 수 있고, 모델 생성(SLICE·EDIT) 동안 병렬로 돌며 APPLY가 첫 쓰기 전에 기다림. 드라이런은 도구만 확인하고 Baseline을 시작하지 않음. 실행이 끝날 때 오케스트레이터가 취소하고 최대 10초 기다린 뒤 롤백·잠금 해제 (M2a T6, §7.3) | 설계 |
 | D18 | `--test`의 테스트 프로젝트는 솔루션 안에서 대상 프로젝트를 `ProjectReference`(레거시는 `<ProjectReference Include>`)로 참조하는 프로젝트 중 이름이 `Test`를 포함하는 것. 설정 `test.projects`로 직접 지정 가능 | 설계 |
 
 ---
@@ -229,6 +231,7 @@ public enum RunPhase { Preflight, Locate, Slice, Edit, Apply, Verify, Review, Do
 | Apply | MatchFailed | 시도 < 1+max ? Slice : Rollback→Failed(1) |
 | Apply | SafetyRejected (SQL 가드) | 시도 < 1+max ? Slice : Rollback→Failed(5) |
 | Apply | ShapeRejected (멤버 모양 검사, D14) | 시도 < 1+max ? Slice : Rollback→Failed(1) |
+| Apply | NotFound (멤버 모양 검사에서 원본에 대상이 없음, M2a T7) | Rollback→Failed(3) |
 | Apply | FileChangedExternally | Rollback→Failed(4) |
 | Verify | Ok | Review |
 | Verify | NewErrors | 시도 < 1+max ? Slice : Rollback→Failed(1) |
@@ -269,11 +272,12 @@ public async Task<int> RunAsync(RunRequest req, CancellationToken ct)
 ```
 각 단계는 `IPhase` 구현 클래스(`PreflightPhase`, `LocatePhase`, …)이며 서로 직접 호출하지 않습니다. v2의 `SpecRunner`는 이 `RunAsync`를 작업마다 호출하는 방식으로 확장합니다.
 
-### 7.3 Baseline 병렬화 (D8)
-1. PREFLIGHT가 `ctx.Baseline = baselineService.CaptureAsync(target, ct)`를 **시작만** 하고 바로 다음 단계로 갑니다.
-2. LOCATE → SLICE → EDIT(모델 생성)가 진행되는 동안 Baseline 빌드가 돌아갑니다.
-3. APPLY는 파일을 바꾸기 전에 `await ctx.Baseline`으로 완료를 기다립니다. Baseline 빌드 자체가 실패(도구 없음 등)하면 EnvError로 Failed(4).
-4. Baseline 빌드 중 사용자가 취소하면 빌드 프로세스 트리를 종료합니다.
+### 7.3 Baseline 병렬화 (D8, D25)
+1. LOCATE가 대상 멤버와 프로젝트·빌드 도구를 확정한 **끝에서** `ctx.Baseline`(원본 상태 빌드)을 **시작만** 하고 다음 단계로 갑니다. PREFLIGHT에서 시작하지 않는 이유: 대상 프로젝트(`--line`·식별자·모델 선택으로 정해짐)와 빌드 도구를 그 전에는 알 수 없고, LOCATE가 실패하면 빌드를 낭비하지 않기 위함입니다 (M2a T6).
+2. SLICE → EDIT(모델 생성)가 진행되는 동안 Baseline 빌드가 돌아갑니다.
+3. APPLY는 **첫 쓰기 전에** 한 번 `await ctx.Baseline`으로 완료를 기다립니다(멤버 모양 검사가 먼저 돌고, 거부되면 기다리지 않음). 결과 판정은 §8.9 BaselineSnapshot을 따릅니다.
+4. `--dry-run`은 빌드 도구까지 확인하지만 Baseline을 시작하지 않습니다.
+5. 실행이 끝나면(성공·실패·취소 모두) 오케스트레이터가 `finally`에서 Baseline을 취소해 프로세스 트리를 종료하고 최대 10초 기다린 뒤 롤백과 잠금 해제를 합니다. 10초 안에 멈추지 않으면 "원본 상태 빌드가 10초 안에 멈추지 않았습니다. 남은 빌드 프로세스가 있는지 확인하세요" 알림을 남깁니다 (M2a T6).
 
 ---
 
@@ -415,12 +419,13 @@ public void Cancel(int orderId) { ...원문 그대로... }
 
 ### 8.4 SymbolLocator
 1. 파일을 Roslyn으로 파싱(언어 버전은 §8.5 감지값).
-2. `--line <n>` 지정 (IDE External Tools용, D19): 줄 `n`을 포함하는 가장 안쪽의 메서드·생성자·프로퍼티(접근자 안이면 그 프로퍼티)·연산자를 대상으로 합니다. 지역 함수·람다 안이면 그것을 감싼 멤버입니다. 어떤 멤버에도 속하지 않는 줄(필드, using, 클래스 선언 줄)이면 NotFound(3)와 "메서드 안에 커서를 두고 실행하세요" 메시지. `--line`은 `--class`/`--method`와 함께 쓸 수 없습니다(설정 오류 4). SQL의 `--line`은 그 줄을 포함하는 배치의 객체를 대상으로 합니다.
+2. `--line <n>` 지정 (IDE External Tools용, D19): 줄 `n`을 포함하는 가장 안쪽의 메서드·생성자·프로퍼티(접근자 안이면 그 프로퍼티)·연산자를 대상으로 합니다. 지역 함수·람다 안이면 그것을 감싼 멤버입니다. 어떤 멤버에도 속하지 않는 줄(필드, using, 클래스 선언 줄)이면 NotFound(3)와 "`N`번 줄은 메서드 안이 아닙니다. 메서드 안에 커서를 두고 실행하세요" 메시지(FailureKind `TargetNotFound`). `--line`은 `--class`/`--method`와 함께 쓸 수 없고(설정 오류 4: "--line은 --class/--method와 함께 쓸 수 없습니다") 1 이상이어야 합니다("--line은 1 이상이어야 합니다") (M2a T8, T9). SQL의 `--line`은 그 줄을 포함하는 배치의 객체를 대상으로 합니다.
 3. `--class`/`--method` 지정: 이름 정확 일치(대소문자 구분). 오버로드가 여러 개면 후보 다수.
-4. 미지정: 요청문에서 식별자 후보 추출 — 정규식 `` `([^`]+)` ``, `"([^"]+)"`, `\b[A-Z][A-Za-z0-9_]+\b`. 파일의 메서드·생성자·프로퍼티 이름과 일치하는 것만 남김.
-5. 후보 0개: 멤버 시그니처 목록(최대 60개, 넘으면 실패)을 모델에 주고 하나 고르게 함(§8.2). 목록에 없는 답이면 NotFound.
-6. 후보 2개 이상: `IsInteractive`면 선택 UI, 아니면 Ambiguous(3).
-* **요청문 입력:** `pelly cs <파일> --line <n>`처럼 요청문 없이 실행하면(External Tools 사용 시) 대화형 콘솔에서 요청문을 입력받습니다. 비대화형이면 설정 오류(4).
+4. 미지정: 요청문에서 식별자 후보 추출 — 정규식 `` `([^`]+)` ``, `"([^"]+)"`, `\b[A-Z][A-Za-z0-9_]+\b`. `\b`는 ASCII 단어 경계(ECMAScript 옵션)여서 `CancelAsync에`처럼 한글 조사가 붙어도 이름이 끝납니다. 따옴표·백틱 안의 `A.B`는 마지막 조각 `B`도 후보로 하고, 따옴표 구간 안의 PascalCase는 따로 더하지 않습니다(`` `OrderService.CancelAsync` ``가 `OrderService` 생성자를 가리키지 않게). 파일의 메서드·생성자·프로퍼티 이름과 일치하는 것만 남김 (M2a T8).
+5. 후보 0개: `--class` 필터를 적용한 멤버 시그니처 목록을 모델에 주고 하나 고르게 함(§8.2, `locate.txt` v1, `NumPredict` 32, 응답은 `<|im_end|>`에서 자름). 멤버가 **60개를 넘으면** 모델을 부르지 않고 NotFound(3)와 "멤버가 60개를 넘어 자동으로 고를 수 없습니다. --method나 --line을 쓰세요". 목록에 없는 답이면 NotFound("요청문에서 대상 멤버를 찾지 못했습니다. --method나 --line을 쓰세요"). 모델이 고르면 "대상: … (모델이 선택)" 알림. 모델 서버 장애는 EnvError(4) (M2a T8).
+6. 후보 2개 이상: `IsInteractive`면 선택 UI, 아니면 Ambiguous(3, FailureKind `TargetAmbiguous`).
+* **재시도 때 재탐색:** 교정 시도에서 파일이 바뀐 뒤에는 포함 타입과 이름으로 대상을 다시 찾되, 오버로드가 여럿이면 처음의 Display와 정확히 같은 것을 우선합니다 (M2a T8).
+* **요청문 입력:** `pelly cs <파일> --line <n>`처럼 요청문 없이 실행하면(External Tools 사용 시) 대화형 콘솔에서 "수정 요청을 입력하세요:"로 입력받습니다. 비대화형이면 설정 오류(4). `--method`·요청문은 모두 선택입니다 (M2a T9).
 * SQL: 파일을 `GO` 줄(대소문자 무시, 앞뒤 공백 허용, `GO <숫자>` 포함)로 배치로 나눈 뒤 ScriptDom으로 각 배치를 파싱합니다. `CREATE/ALTER/CREATE OR ALTER PROCEDURE|FUNCTION|VIEW` 배치가 정확히 1개면 그것이 대상입니다. 0개면 NotFound, 2개 이상이면 `--object`로 지정해야 합니다(비대화형이 아니면 선택 UI). `GO` 분리는 문자열·주석 안의 `GO`를 무시하도록 ScriptDom 토큰 스트림 기준으로 합니다.
 * `EditTarget.ProjectPath`: 대상 파일에서 위로 올라가며 처음 나오는 `*.csproj`. 레거시 csproj가 `<Compile Include>`로 파일을 나열하는 경우, 그 목록에 대상 파일이 있는지 확인(없으면 경고).
 
@@ -435,6 +440,7 @@ public void Cancel(int orderId) { ...원문 그대로... }
   | `net5.0` / `net6.0` / `net7.0` / `net8.0` / `net9.0` / `net10.0` | 9 / 10 / 11 / 12 / 13 / 14 |
 
   여러 타겟(`TargetFrameworks`)이면 가장 낮은 버전을 씁니다. `LangVersion`이 `latest`/`preview`면 SDK 기본값으로 봅니다.
+* **Directory.Build.props (M2a T4):** csproj에 없는 속성(`LangVersion`, `TargetFramework(s)`, 레거시의 `TargetFrameworkVersion`)은 csproj 폴더에서 위로 올라가며 **처음 만나는** `Directory.Build.props` 하나에서 읽습니다(MSBuild처럼 가까운 것이 이기고 연쇄 임포트는 하지 않음). `Condition`이 붙은 `PropertyGroup`/속성은 평가하지 않고 무시하며, 같은 속성이 여럿이면 마지막 값을 씁니다. csproj의 값이 props보다 우선하고, csproj 안에서는 `Condition`을 보지 않고 처음 나온 값을 씁니다. props의 XML이 깨졌으면 파일 경로를 담은 EnvError(4).
 * **API 표면 힌트:** `.NET Framework 4.5`처럼 오래된 타겟이면 `LanguageHint`에 타겟 프레임워크도 함께 넣습니다(예: `C# 7.3, .NET Framework 4.5`). 해당 버전에 없는 API를 쓰면 빌드가 잡아내므로 별도 검사는 하지 않습니다.
 * **파트 구성과 우선순위** (숫자가 낮을수록 먼저 제거):
 
@@ -474,12 +480,20 @@ public void Cancel(int orderId) { ...원문 그대로... }
 * **마커 충돌:** 원본 파일에 마커 줄이 이미 있으면 PREFLIGHT에서 EnvError(4).
 
 #### 8.7.1 MemberShapeGuard (C#, APPLY 단계에서 파일 쓰기 전, D14)
-수정 전·후 파일을 Roslyn으로 파싱해 대상 타입의 멤버 목록을 비교합니다.
-* **대상 멤버:** 이름, 매개변수(타입·한정자·기본값), 반환 타입, 제네릭 매개변수·제약, 접근 한정자, `static`/`async` 외 한정자가 같아야 합니다. `async` 추가·제거는 반환 타입이 바뀌므로 함께 거부됩니다. 본문, XML 주석, 지역 함수는 자유롭게 바꿀 수 있습니다. 특성(attribute)은 바꿀 수 없습니다.
-* **추가 멤버:** `private` 메서드만 허용(PRD §1.4 "같은 클래스 내 private 헬퍼 메서드 추가"). 필드, 프로퍼티, 다른 접근 수준의 메서드, 중첩 타입 추가는 거부합니다.
-* **삭제·변경:** 대상 멤버 외 기존 멤버가 사라지거나 바뀌면 거부합니다(편집 가능 영역 제한으로 대부분 막히지만, 마지막 방어선).
+수정 전·후 파일을 Roslyn으로 파싱해 모든 타입의 멤버를 (네임스페이스·타입 경로, 종류, 표시 이름) 키로 비교합니다. **비교 기준은 그 시도의 직전 쓰기가 아니라 실행의 원본 텍스트**입니다(APPLY가 원본을 넘김). 그래서 앞선 시도에서 모델이 더한 도우미가 이후 시도에서 "추가된 멤버"로 계속 허용되고 편집 가능합니다 (M2a T7).
+* **대상 멤버 시그니처(변경 불가):** 매개변수 타입·`ref`/`out`/`in`/`params`/`this` 한정자·기본값(이름은 제외), 반환 타입, 제네릭 매개변수·제약, 명시적 인터페이스, 프로퍼티는 접근자와 그 한정자, 그리고 `async`를 뺀 모든 한정자(접근 수준·`static`·`virtual` 등). `async`는 반환 타입이 같을 때만 추가·제거할 수 있습니다. 본문, XML 주석, 지역 함수는 자유롭게 바꿀 수 있습니다.
+* **특성:** 대상 멤버와 그 매개변수의 attribute는 바꿀 수 없습니다.
+* **다른 멤버:** 선행 trivia를 뺀 텍스트를 공백만 접어 비교해, 사라지거나 바뀌면 거부합니다(편집 가능 영역 제한이 대부분 막지만 마지막 방어선).
+* **추가 멤버:** 대상과 같은 타입 범위의 `private` 메서드만 허용합니다(접근 한정자가 없으면 class·struct·record에서만 private으로 봄. `private protected`, 인터페이스 멤버, 명시적 인터페이스 구현은 제외). 필드·프로퍼티·다른 접근 수준 메서드·중첩 타입 추가는 거부합니다. 허용된 도우미는 `ctx.AddedHelpers`에 쌓여 다음 시도의 프롬프트에 `[EDITABLE: helper]` 구간으로 실립니다(시스템 프롬프트 규칙 3에 명시, 프롬프트 버전 `cs-v2`) (M2a T7).
 * **using:** 추가만 허용, 삭제는 거부합니다.
-* 거부 시 피드백 예: `SHAPE REJECTED: signature of Cancel(int) changed to Cancel(int, bool). Signature changes are not allowed.`
+* **원본에 대상이 없으면**(Display 불일치) 검사하지 않고 NotFound(3, FailureKind `TargetNotFound`), "대상 멤버 '…'을(를) 원본에서 찾을 수 없습니다".
+* **거부 사유 문구** (피드백은 `SHAPE REJECTED: ` + 사유를 `budget.feedback` 안으로 자름. FailureKind `ShapeRejected`, 종료 코드는 재시도 소진 시 1):
+  * 시그니처 변경, Display가 달라짐: `signature of Cancel(int) changed to Cancel(int, bool). Signature changes are not allowed.`
+  * 시그니처 변경, Display는 같음(반환 타입·기본값·한정자 등): `signature of <Display> changed from `<h1>` to `<h2>`. Signature changes are not allowed.` (`h1`·`h2`는 본문 앞까지의 선언부, 특성 제외·공백 정규화)
+  * `attributes of <Display> changed. Attribute changes are not allowed.`
+  * `member <Display> was removed or changed. Only the target member may change.`
+  * `added <종류> <Display>. Only private helper methods may be added.`
+  * `using <이름> was removed. Usings may only be added.`
 
 ### 8.8 FileGuard
 * **읽기:**
@@ -503,7 +517,7 @@ public void Cancel(int orderId) { ...원문 그대로... }
   1. 설정 `build.msbuildPath`
   2. `%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe -latest -products * -requires Microsoft.Component.MSBuild -find MSBuild\**\Bin\MSBuild.exe` 결과 첫 줄
   3. 둘 다 없으면 EnvError(4) — doctor가 Build Tools 설치 안내.
-* Windows가 아닌 OS에서 레거시 프로젝트면 EnvError(4)와 "레거시 .NET Framework 프로젝트는 Windows에서만 검증 가능" 메시지.
+* Windows가 아닌 OS의 레거시 프로젝트는 빌드하지 않고 알림 "레거시 .NET Framework 프로젝트는 Windows에서만 빌드 검증합니다 — 구문 검사만 합니다"와 함께 **구문 검사만** 합니다(오류 아님). 같은 방식으로 `ProjectStyle == None`(csproj 없음)이면 "csproj가 없어 빌드 검증을 건너뜁니다 (구문 검사만 합니다)" 알림과 함께 빌드를 생략합니다. Windows에서 MSBuild를 못 찾으면 EnvError(4, FailureKind `BuildToolUnavailable`) (M2a T6).
 
 #### 명령
 | 형식 | 명령 |
@@ -512,18 +526,24 @@ public void Cancel(int orderId) { ...원문 그대로... }
 | 레거시 | `MSBuild.exe <csproj> /t:Build /nologo /v:q /clp:NoSummary;ErrorsOnly /nr:true /m` |
 
 * 환경 변수 `DOTNET_CLI_UI_LANGUAGE=en`, `VSLANG=1033`을 지정해 메시지를 영어로 고정합니다(파싱 안정성, Baseline 비교 일관성).
-* 출력 인코딩: UTF-8로 시도하고, 레거시 MSBuild 출력이 깨져 보이면(대체 문자 비율) CP949로 다시 디코딩합니다.
+* 출력 인코딩: stdout을 UTF-8로 디코딩해 대체 문자(U+FFFD)가 있으면 원시 바이트를 CP949로 다시 디코딩하고(CP949에도 있으면 UTF-8 결과 유지), stdout과 stderr를 합쳐 파싱합니다.
+* SDK 기본 명령은 `-clp:ErrorsOnly`를 유지하므로 새 경고 알림("새 경고 N개: …")은 `--warn-as-error`(경고 포함 출력) 때만 실질적으로 나옵니다 (M2a T6).
+* **`BuildRun`:** 빌드 한 번의 결과(`Errors`, `Warnings`, `ExitCode`, `TimedOut`, `Duration`). **파싱하지 못한 실패는 오류로 봅니다:** 종료 코드가 0이 아닌데 파싱된 오류가 하나도 없으면 합성 오류 `BUILD`("build failed with exit code N")를 더해 통과로 보이지 않게 합니다. 타임아웃은 EnvError(4)입니다 (M2a T5).
 
 #### BuildErrorParser
 ```regex
 ^\s*(?<file>.+?)\((?<line>\d+),(?<col>\d+)(?:,\d+,\d+)?\)\s*:\s*(?<sev>error|warning)\s+(?<code>[A-Z]{2,}\d+)\s*:\s*(?<msg>.*?)(?:\s+\[(?<proj>[^\]]+)\])?\s*$
 ```
-파일 경로는 워크스페이스 루트 기준 상대 경로로 정규화(Windows는 대소문자 무시). 같은 진단이 여러 번 나오면 중복 제거.
+파일 경로는 워크스페이스 루트 기준 상대 경로로 정규화(Windows는 대소문자 무시). 컴파일러는 심볼릭 링크를 푼 실제 경로를 출력하므로(macOS `/var` → `/private/var`) 루트와 그 실경로 두 가지를 모두 기준으로 삼습니다 (M2a T5). 같은 진단이 여러 번 나오면 중복 제거.
 
 #### BaselineSnapshot
 * 키: `(정규화 경로, 코드, 메시지)` — 줄 번호 제외.
 * 신규 에러 = 검증 빌드 에러 − Baseline 에러(키 기준 다중집합 차감).
-* Baseline에 에러가 있으면 경고 표시 후 진행. `--strict-baseline`이면 EnvError(4).
+* **판정 (APPLY가 첫 쓰기 전에 한 번, M2a T6):**
+  1. Baseline 타임아웃 → EnvError(4).
+  2. CS가 아닌 오류가 하나라도 있으면(`NETSDK*`, `MSB*`, `NU*`, 합성 `BUILD`) 컴파일러가 돌지 않은 것이므로 이후 모든 빌드가 같은 이유로 실패하거나 편집이 공허하게 통과합니다. `--strict-baseline`과 무관하게 EnvError(4, FailureKind `BuildUnverifiable`)와 "빌드 검증을 할 수 없습니다: <코드> <메시지>. 프로젝트를 복원(dotnet restore 또는 Visual Studio 복원)하고 빌드되는지 먼저 확인하세요".
+  3. CS 오류만 있으면 "원본 상태에서 이미 빌드 오류가 N개 있습니다 — 새로 생긴 오류만 검사합니다" 알림을 실행당 한 번 보이고 진행. `--strict-baseline`이면 EnvError(4, FailureKind `BaselineErrors`).
+  * 신규 경고도 같은 방식으로 차감하며 `--warn-as-error`(`build.warnAsError`)일 때만 실패로 셉니다.
 
 #### BuildVerifier 순서
 1. **구문 사전 검사:** 수정된 파일을 감지된 언어 버전으로 파싱 → `GetDiagnostics()`에 Error가 있으면 빌드 없이 NewErrors로 반환.
@@ -576,7 +596,8 @@ public void Cancel(int orderId) { ...원문 그대로... }
   * `events.jsonl`: 단계 시작·종료, 결과, 소요 시간, 토큰 수(local/server), 시도 번호, 매칭 단계, 진단 코드, 종료 코드
   * `attempt-<n>/prompt.txt`, `think.txt`, `output.txt`, `feedback.txt`, `build.log`
   * `summary.json`: `RunSummary` (아래)
-* 시작 시 `retentionDays`보다 오래된 run 폴더 삭제.
+* `retentionDays`보다 오래된 run 폴더는 **실행이 끝날 때**, 작업 공간 잠금을 쥔 채로만 삭제합니다(현재 실행은 지우지 않음) (M2a T12).
+* `FailureKind` 값에는 M2a에서 `BuildErrors`(빌드 신규 오류), `BuildToolUnavailable`, `BaselineErrors`, `BuildUnverifiable`, `ShapeRejected`, `TargetNotFound`(LOCATE·APPLY 모두)가 더해졌습니다 (M2a T6, T7). 검증 단계의 값은 `{단계 Name}Errors`(`SyntaxErrors`, `BuildErrors`)입니다.
 * 연결 문자열은 `Password=`, `Pwd=` 값을 마스킹.
 
 ```csharp
@@ -616,14 +637,14 @@ PRD FR-08 항목을 순서대로 검사하고 표로 출력합니다. 각 항목
 * 콘솔 창에서 한글 입력·출력이 깨지지 않는지(D20, §8.11 UTF-8 설정) 확인하는 것을 S7에 포함합니다.
 
 ### 8.15 v1의 알려진 한계 (사용자에게 안내)
-* **C# 문자열 안의 SQL은 DB로 검증하지 않습니다.** Dapper 호출(`Query<T>("SELECT …")`)이나 ADO.NET `SqlCommand.CommandText`에 들어 있는 SQL은 C# 빌드만 통과하면 승인됩니다. 잘못된 컬럼명은 실행 시점에야 드러납니다. REVIEW 단계에서 수정된 문자열 리터럴에 `SELECT|INSERT|UPDATE|DELETE|EXEC`가 있으면 "인라인 SQL은 DB 검증되지 않음" 경고를 표시합니다. 인라인 SQL 추출·NOEXEC 검증은 v2 후보입니다.
+* **C# 문자열 안의 SQL은 DB로 검증하지 않습니다.** Dapper 호출(`Query<T>("SELECT …")`)이나 ADO.NET `SqlCommand.CommandText`에 들어 있는 SQL은 C# 빌드만 통과하면 승인됩니다. 잘못된 컬럼명은 실행 시점에야 드러납니다. REVIEW 단계에서 대상 멤버의 문자열 리터럴이 바뀌었고 그 리터럴에 `SELECT|INSERT|UPDATE|DELETE|EXEC`(대소문자 무시)가 있으면 "인라인 SQL이 바뀌었습니다 — 빌드는 통과했지만 DB로 검증되지 않았습니다 (설계 §8.15)" 경고를 `--yes`일 때도 표시합니다 (M2a T13). 인라인 SQL 추출·NOEXEC 검증은 v2 후보입니다.
 * Razor 뷰(`.cshtml`), 설정 파일(`web.config`, `appsettings.json`)은 수정 대상이 아닙니다.
 * 컨트롤러 액션의 라우팅·필터 특성(`[HttpPost]`, `[Authorize]` 등)은 MemberShapeGuard 때문에 바꿀 수 없습니다(의도된 동작).
 
 ### 8.16 다음 단계·v2 확장 지점 (구현은 하지 않음)
 * **GUI 승인 창 (`pelly ui`, v1 다음 단계):** Avalonia로 만든 작은 창. External Tools 인수를 `ui cs "$(ItemPath)" --line $(CurLine)`로 바꾸면 요청 입력·진행 표시·diff 승인을 창에서 합니다. `IUserInteraction`의 Avalonia 구현만 추가하면 되도록 v1에서 D20을 지킵니다. 진행 표시를 위해 `IUserInteraction.ShowStatus`는 단계·시도 번호·경과 시간을 구조화된 값으로 받습니다.
 * `FsmOrchestrator.RunAsync`는 외부에서 반복 호출 가능하게 둡니다(`SpecRunner`).
-* VERIFY는 `IReadOnlyList<IVerifierStep>` 파이프라인으로 구성합니다(v2의 `ForbiddenPatternVerifier`, `TestRunner` 추가 지점).
+* VERIFY는 `IReadOnlyList<IVerifierStep>` 파이프라인으로 구성합니다(v2의 `ForbiddenPatternVerifier`, `TestRunner` 추가 지점). **M2a에서 실현 (T6):** `VerifyPhase`가 `[SyntaxStep, BuildStep]`을 순서대로 돌리고 첫 실패에서 멈추며, 단계의 `Name`이 실패 라벨(`{Name}Errors`)이 됩니다. 단계가 검사를 아예 못 돌린 경우(`EnvironmentFailure`: 타임아웃·도구 없음)는 모델에 되묻지 않고 EnvError(4)로 끝냅니다.
 * 시스템 프롬프트 조립에 `Rules` 슬롯(v1에서는 항상 비어 있음)을 둡니다.
 
 ---

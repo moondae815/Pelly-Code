@@ -3,7 +3,7 @@
 > **타겟 런타임:** .NET 10 (LTS) CLI  
 > **운영 환경:** 폐쇄망 Windows 11 x64 개발 PC + 폐쇄망 내부 원격 Ollama 서버  
 > **개발 환경:** 외부 개발 노트북(macOS) → 검증 후 폐쇄망으로 이관  
-> **문서 버전:** v1.6 (2026-10-17)
+> **문서 버전:** v1.7 (2026-10-18)
 
 ### 변경 이력
 | 버전 | 날짜 | 주요 변경 |
@@ -15,6 +15,7 @@
 | v1.4 | 2026-10-17 | §12 v2 로드맵 추가: 작업 명세 파일과 순차 실행(`pelly apply`), 테스트 우선 검증, 프로젝트 규칙 파일. 진입 조건·v2 KPI·v2에서도 하지 않을 것 명시 |
 | v1.5 | 2026-10-17 | IDE 연동(Visual Studio·Rider External Tools, `--line`, `--pause-on-exit`) 추가, v2 로드맵에 V2-0 GUI 승인 창 추가 |
 | v1.6 | 2026-10-17 | M0 스파이크 결과 반영: think 단계를 교정 시도부터 사용(`llm.thinkMode`), think 예산은 서버 `num_predict`로 제한, SQL 최소 권한 `VIEW DEFINITION`, 토크나이저 확정, 미결 사항 Q1~Q4 해소 |
+| v1.7 | 2026-10-18 | M2a 반영(상세는 설계 문서 §3 D24·D25, §7.3, §8.4, §8.7.1, §8.9): FR-00 옵션 정리(`--line`, `--strict-baseline`, `--warn-as-error`, `--method`·요청문 선택, 요청문 생략 시 대화형 입력), FR-06 Baseline을 LOCATE 끝에서 시작하고 CS 외 오류면 `BuildUnverifiable`로 중단, 모델 제어 토큰 문자열 차단(종료 코드 4), 멤버 모양 검사 구체화 |
 
 ---
 
@@ -93,7 +94,7 @@
 [User Request]
       │
       ▼
-[Phase 0: PREFLIGHT] ──(Ollama 서버 연결·모델 확인 / 설정 검증 / 빌드 도구 탐지 / Baseline 빌드·에러 스냅샷)
+[Phase 0: PREFLIGHT] ──(Ollama 서버 연결·모델 확인 / 설정 검증 / 제어 토큰 검사)  ·  Baseline 빌드·에러 스냅샷은 LOCATE 끝에서 시작
       │
       ▼
 [Phase 1: LOCATE] ──(Roslyn 심볼 검색 / ripgrep / SQL 객체 검색)──> 대상 심볼 특정
@@ -147,11 +148,14 @@ Ollama에는 공개된 토큰화 전용 엔드포인트가 없으므로 다음�
 ### FR-00. CLI 명령 및 사용자 경험
 * **명령 형식:**
   ```text
-  pelly cs     <file.cs>  [--class <Name>] [--method <Name>] [--line <n>] ["<요청>"]
+  pelly cs     <file.cs>  ["<요청>"] [--class <Name>] [--method <Name>] [--line <n>]
   pelly sql    <file.sql> [--object <Name>] [--line <n>] ["<요청>"]
   pelly doctor                       # 환경 점검 (FR-08)
   pelly report [--sanitize] [--since <date>]   # 실행 기록 요약 (FR-09)
   ```
+* **대상 지정 (`pelly cs`):** `--method`(+선택 `--class`), `--line <n>`(커서 줄이 속한 멤버, `--class`/`--method`와 함께 쓸 수 없고 1 이상), 또는 둘 다 생략(요청문의 식별자 → 없으면 모델이 멤버 목록에서 선택, 최대 60개). `--method`와 요청문은 모두 선택입니다. 요청문을 생략하면 대화형 실행에서는 입력을 묻고 비대화형이면 종료 코드 4입니다.
+* **빌드 검증 옵션:** `--strict-baseline`(원본에 이미 있던 CS 오류도 종료 코드 4로 처리), `--warn-as-error`(새 경고도 오류로 취급).
+* **입력 제한:** 요청문이나 대상 파일에 모델 제어 토큰 문자열(`<|im_end|>` 등)이 있으면 서버를 부르기 전에 종료 코드 4로 끝납니다.
 * **공통 옵션:** `--dry-run`(패치만 보여주고 적용 안 함), `--yes`(최종 승인 생략), `--test`(검증 시 테스트 실행), `--max-retries <n>`(기본 3), `--warn-as-error`, `--verbose`(단계별 타이밍·프롬프트 출력), `--config <path>`
 * **IDE 연동:** 사용자는 Visual Studio와 JetBrains Rider를 혼용합니다. 두 IDE의 External Tools에 `pelly cs "<현재 파일>" --line <커서 줄>`을 등록해, 커서가 있는 메서드를 대상으로 실행합니다. 요청문을 생략하면 콘솔에서 입력받습니다. `--pause-on-exit`는 결과를 보여준 뒤 키 입력을 기다립니다(External Tools 콘솔 창이 바로 닫히지 않게). 설정 가이드는 반입 패키지 문서에 포함합니다.
 * **최종 승인 (REVIEW):** 검증을 통과하면 `Spectre.Console`로 컬러 diff를 표시하고 `[y/N]` 확인을 받습니다. 거부하면 원본으로 복구합니다.
@@ -217,7 +221,7 @@ Ollama에는 공개된 토큰화 전용 엔드포인트가 없으므로 다음�
 * think 태그 문자열은 모델 chat template에서 확인한 값을 설정으로 주입합니다(미결 사항 Q1).
 
 ### FR-06. 결정론적 검증 및 자가 치유 하네스 (Deterministic Verification Harness)
-* **Baseline 스냅샷 (PREFLIGHT):** 패치 전에 대상 프로젝트를 한 번 빌드하고 에러 집합(파일, 에러 코드, 메시지 — 줄 번호 제외)을 기록합니다. 검증 단계에서는 **새로 생긴 에러만** 실패로 판단합니다. Baseline에 에러가 있으면 사용자에게 알리고 계속 진행합니다(`--strict-baseline`이면 중단).
+* **Baseline 스냅샷 (LOCATE 끝):** 대상 프로젝트와 빌드 도구가 정해지면(LOCATE 끝) 패치 전 프로젝트 빌드를 시작해 에러 집합(파일, 에러 코드, 메시지 — 줄 번호 제외)을 기록합니다. 빌드는 모델 생성과 병렬로 돌고 파일을 처음 쓰기 전에 완료를 기다립니다. 검증 단계에서는 **새로 생긴 에러만** 실패로 판단합니다. Baseline에 CS 오류만 있으면 사용자에게 알리고 계속 진행합니다(`--strict-baseline`이면 종료 코드 4). NETSDK·MSB·NU 같은 CS가 아닌 오류가 있으면(예: 패키지 복원 안 됨) 컴파일러가 돌지 않은 것이므로 `--strict-baseline`과 무관하게 종료 코드 4로 중단하고 복원을 안내합니다.
 * **빌드 도구 선택 (`BuildToolResolver`):**
 
   | 프로젝트 형식 | 판별 기준 | 빌드 도구 |
@@ -226,7 +230,7 @@ Ollama에는 공개된 토큰화 전용 엔드포인트가 없으므로 다음�
   | 레거시 .NET Framework | `Sdk` 속성 없음 (`ToolsVersion`, `packages.config` 등) | Visual Studio / Build Tools의 `MSBuild.exe` |
 
   * `MSBuild.exe` 경로는 `vswhere.exe -latest -requires Microsoft.Component.MSBuild -find MSBuild\**\Bin\MSBuild.exe`로 찾고, 설정 `build.msbuildPath`로 직접 지정할 수도 있습니다.
-  * 찾지 못하면 PREFLIGHT에서 종료 코드 4로 끝내고, `pelly doctor`에서 설치 안내를 표시합니다.
+  * 찾지 못하면 LOCATE 끝(Baseline 시작 전)에서 종료 코드 4로 끝내고, `pelly doctor`에서 설치 안내를 표시합니다.
 * **C# 검증 파이프라인 (`BuildVerifier`):**
   1. **사전 검사:** 패치된 파일을 프로젝트의 언어 버전에 맞춘 Roslyn `SyntaxTree`로 파싱해, 구문 오류가 있으면 빌드 없이 바로 피드백합니다.
   2. **빌드:** 대상 파일이 속한 가장 가까운 `.csproj`만 빌드합니다. 패키지 복원은 하지 않습니다(폐쇄망 개발 PC에 이미 복원돼 있다고 가정).

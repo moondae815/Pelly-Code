@@ -4,7 +4,7 @@ using PellyCoder.Core.Feedbacks;
 
 namespace PellyCoder.Core.Fsm.Phases;
 
-/// <summary>M1 verification: Roslyn syntax check of the written file (build verification is M2).</summary>
+/// <summary>M1 verification: Roslyn syntax check of the written file against the original's errors (build verification is M2).</summary>
 public sealed class VerifyPhase(IFileSystem fs, FeedbackBuilder feedback) : IPhase
 {
     private const string Header = "SYNTAX CHECK FAILED";
@@ -13,7 +13,7 @@ public sealed class VerifyPhase(IFileSystem fs, FeedbackBuilder feedback) : IPha
 
     public Task<PhaseOutcome> ExecuteAsync(RunContext ctx, CancellationToken ct)
     {
-        var result = SyntaxVerifier.Verify(ctx.Current.Text, ctx.Language!.Version, fs.Path.GetFileName(ctx.FilePath));
+        var result = SyntaxVerifier.Verify(ctx.Current.Text, ctx.Language!.Version, fs.Path.GetFileName(ctx.FilePath), ctx.OriginalSyntax);
         if (result.Passed)
             return Task.FromResult(PhaseOutcome.Ok);
 

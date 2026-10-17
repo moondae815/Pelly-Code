@@ -26,6 +26,11 @@ public sealed class LocatePhase(IFileSystem fs, IUserInteraction ui) : IPhase
             return PhaseOutcome.EnvError;
         }
 
+        // Baseline for VERIFY (design §8.9): only errors beyond these count. Parsed once, with the detected version.
+        ctx.OriginalSyntax = SyntaxBaseline.Of(ctx.Original.Text, ctx.Language.Version, fs.Path.GetFileName(ctx.FilePath));
+        if (ctx.OriginalSyntax.Errors.Count > 0)
+            ctx.Messages.Add($"원본 파일에 이미 구문 오류가 {ctx.OriginalSyntax.Errors.Count}개 있습니다 — 새로 생긴 오류만 검사합니다");
+
         var name = ctx.Request.ClassName is null ? ctx.Request.MethodName : $"{ctx.Request.ClassName}.{ctx.Request.MethodName}";
         var candidates = MemberLocator.FindByName(ctx.Current.Text, ctx.Language.Version, ctx.Request.ClassName, ctx.Request.MethodName);
         MemberCandidate chosen;

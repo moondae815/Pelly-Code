@@ -447,4 +447,52 @@ public sealed class FsmOrchestratorTests : IDisposable
         Assert.Equal(CalcSource.Replace(Original, Guarded), File.ReadAllText(CalcPath));
         Assert.Contains(_ui.Warnings, w => w.Contains("scripted log failure"));
     }
+
+    /// <summary>Calc with one syntax error already in another member (missing semicolon in <c>Two</c>, line 9).</summary>
+    private const string CalcWithPreexistingError =
+        "namespace Demo;\n" +
+        "\n" +
+        "public class Calc\n" +
+        "{\n" +
+        "    public int Divide(int a, int b)\n" +
+        "    {\n" +
+        "        return a / b;\n" +
+        "    }\n" +
+        "    public int Two() { return 2 }\n" +
+        "}\n";
+
+    [Fact]
+    public async Task PreexistingSyntaxError_ValidPatch_Exit0_WarnsOnce()
+    {
+        File.WriteAllText(CalcPath, CalcWithPreexistingError);
+        _backend.Enqueue(Block(Original, Guarded));
+
+        var exit = await Run(Req(CalcPath));
+
+        Assert.Equal(0, exit);
+        Assert.Equal(CalcWithPreexistingError.Replace(Original, Guarded), File.ReadAllText(CalcPath));
+        Assert.Single(_ui.Warnings, w => w == "원본 파일에 이미 구문 오류가 1개 있습니다 — 새로 생긴 오류만 검사합니다");
+    }
+
+    [Fact]
+    public async Task PreexistingSyntaxError_PatchAddsSameKindError_ReportsOnlyTheNewOne()
+    {
+        File.WriteAllText(CalcPath, CalcWithPreexistingError);
+        var originalBytes = File.ReadAllBytes(CalcPath);
+        _backend.Enqueue(Block(Original, Broken)); // a second CS1002 "; expected", on line 7
+        for (var i = 0; i < 3; i++)
+        {
+            _backend.Enqueue("Retry.</think>", evalCount: 5);
+            _backend.Enqueue(Block(Broken, Broken));
+        }
+
+        var exit = await Run(Req(CalcPath));
+
+        Assert.Equal(1, exit);
+        Assert.Equal(originalBytes, File.ReadAllBytes(CalcPath));
+        var prompt = _backend.Requests[1].RawPrompt;
+        Assert.Contains("SYNTAX CHECK FAILED (1 error)", prompt);
+        Assert.Contains("Calc.cs(7): CS1002", prompt);
+        Assert.DoesNotContain("Calc.cs(9)", prompt);
+    }
 }

@@ -49,4 +49,26 @@ public sealed class SyntaxVerifierTests
         }
         finally { CultureInfo.CurrentUICulture = old; }
     }
+
+    [Fact]
+    public void Verify_WithBaseline_ReportsOnlyNewErrors_MultisetIgnoringLines()
+    {
+        var baseline = SyntaxBaseline.Of("class A\n{\n    int x = 1\n}\n", LanguageVersion.CSharp12, "A.cs");
+        Assert.Single(baseline.Errors);
+
+        // Same error moved to another line: not new.
+        var moved = SyntaxVerifier.Verify("class A\n{\n\n    int x = 1\n}\n", LanguageVersion.CSharp12, "A.cs", baseline);
+        Assert.True(moved.Passed);
+
+        // A second error with the same code and message: exactly one is new.
+        var twice = SyntaxVerifier.Verify("class A\n{\n    int x = 1\n    int y = 2\n}\n", LanguageVersion.CSharp12, "A.cs", baseline);
+        Assert.False(twice.Passed);
+        var d = Assert.Single(twice.NewErrors);
+        Assert.Equal("CS1002", d.Code);
+        Assert.Equal(4, d.Line); // the error on the original's error line is the old one
+
+        // The new same-key error comes first in the file: the old one (on its unchanged line) still matches first.
+        var before = SyntaxVerifier.Verify("class A\n{\n    int y = 2\n    int x = 1\n}\n", LanguageVersion.CSharp12, "A.cs", baseline);
+        Assert.Equal(3, Assert.Single(before.NewErrors).Line);
+    }
 }

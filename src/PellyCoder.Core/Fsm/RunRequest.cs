@@ -54,6 +54,9 @@ public sealed class RunContext(string runId, RunRequest request, PellyOptions op
     public MemberCandidate? Candidate { get; set; }
     public LanguageTarget? Language { get; set; }
 
+    /// <summary>Syntax errors already in <see cref="Original"/> (set by Locate); VERIFY reports only errors beyond these.</summary>
+    public SyntaxBaseline OriginalSyntax { get; set; } = SyntaxBaseline.Empty;
+
     /// <summary><c>Sdk</c>, <c>Legacy</c> or <c>None</c> (no csproj, or LOCATE not reached).</summary>
     public string ProjectStyle { get; set; } = "None";
 

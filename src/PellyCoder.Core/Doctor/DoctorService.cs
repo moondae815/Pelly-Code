@@ -1,4 +1,6 @@
+using System.IO.Abstractions;
 using PellyCoder.Core.Abstractions;
+using PellyCoder.Core.Builds;
 using PellyCoder.Core.Config;
 using PellyCoder.Core.Llm;
 
@@ -15,8 +17,14 @@ public sealed class DoctorService(
     QwenChatTemplate template,
     ITokenCounter tokens,
     PellyOptions options,
-    TimeProvider time)
+    TimeProvider time,
+    IFileSystem fs,
+    IProcessRunner processes,
+    Func<bool>? isWindows = null)
 {
+    private static readonly TimeSpan DotnetTimeout = TimeSpan.FromSeconds(10);
+    private readonly Func<bool> _isWindows = isWindows ?? OperatingSystem.IsWindows;
+
     private const string ProbeSystem = "You are a test.";
     private const string ProbeUser = "ping";
     private const string TokenizerProbe = "public int Add(int a, int b) => a + b; // 합계";
@@ -70,10 +78,44 @@ public sealed class DoctorService(
             checks.Add(await CheckLatencyAsync(ct));
         }
 
+        checks.Add(await CheckDotnetAsync(ct));
+        checks.Add(await CheckMsBuildAsync(ct));
+
         checks.Add(new("서버 설정 확인 필요", DoctorStatus.Warn,
             "서버에서 직접 확인할 수 없음: OLLAMA_FLASH_ATTENTION, OLLAMA_KV_CACHE_TYPE, OLLAMA_NUM_PARALLEL, OLLAMA_KEEP_ALIVE",
             "서버 관리자에게 PRD §7.1 값을 확인하세요"));
         return checks;
+    }
+
+    private async Task<DoctorCheck> CheckDotnetAsync(CancellationToken ct)
+    {
+        const string name = ".NET SDK";
+        var fail = new DoctorCheck(name, DoctorStatus.Fail, "dotnet을 실행할 수 없습니다", ".NET 10 SDK를 설치하고 PATH를 확인하세요");
+        try
+        {
+            var result = await processes.RunAsync(
+                new ProcessSpec("dotnet", ["--version"], fs.Directory.GetCurrentDirectory(), DotnetTimeout), ct);
+            var version = result.StdOut.Trim();
+            return result.ExitCode == 0 && !result.TimedOut && version.Length > 0
+                ? new(name, DoctorStatus.Ok, version, null)
+                : fail;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return fail; // e.g. Win32Exception when dotnet is not on PATH
+        }
+    }
+
+    private async Task<DoctorCheck> CheckMsBuildAsync(CancellationToken ct)
+    {
+        const string name = "MSBuild (레거시)";
+        if (!_isWindows())
+            return new(name, DoctorStatus.Warn, "Windows에서만 확인합니다", null);
+        var resolution = await new BuildToolResolver(fs, processes, options.Build, _isWindows).ResolveAsync(ProjectStyle.Legacy, ct);
+        return resolution.Tool is { } tool
+            ? new(name, DoctorStatus.Ok, tool.Executable, null)
+            : new(name, DoctorStatus.Warn, resolution.Error ?? "MSBuild.exe를 찾을 수 없습니다",
+                "레거시 .NET Framework 프로젝트를 고치려면 Visual Studio Build Tools가 필요합니다");
     }
 
     private static DoctorCheck Skipped(string name, string reason) => new(name, DoctorStatus.Warn, reason, null);

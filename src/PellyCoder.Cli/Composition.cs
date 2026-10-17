@@ -55,13 +55,13 @@ public static class Composition
         }
     }
 
-    private sealed class DoctorRunner(IFileSystem fs, TimeProvider time, HttpClientHolder http) : IDoctorRunner
+    private sealed class DoctorRunner(IFileSystem fs, TimeProvider time, HttpClientHolder http, IProcessRunner processes) : IDoctorRunner
     {
         public Task<IReadOnlyList<DoctorCheck>> RunAsync(PellyOptions options, CancellationToken ct)
         {
             var backend = new OllamaBackend(http.Get(options.Llm), options.Llm, time);
             var template = options.Llm.Template is { } path ? QwenChatTemplate.LoadFromFile(fs, path) : QwenChatTemplate.LoadDefault();
-            return new DoctorService(backend, backend, template, QwenTokenCounter.Shared, options, time).RunAsync(ct);
+            return new DoctorService(backend, backend, template, QwenTokenCounter.Shared, options, time, fs, processes).RunAsync(ct);
         }
     }
 }

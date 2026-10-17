@@ -2,6 +2,7 @@ using System.IO.Abstractions;
 using System.IO.Abstractions.TestingHelpers;
 using Microsoft.Extensions.DependencyInjection;
 using PellyCoder.Cli;
+using PellyCoder.Core.Abstractions;
 using PellyCoder.Core.Config;
 using PellyCoder.Core.Doctor;
 using PellyCoder.Core.Fsm;
@@ -42,6 +43,7 @@ public class ExitCodeMappingTests
         var services = new ServiceCollection();
         services.AddSingleton<IFileSystem>(fs);
         services.AddSingleton<OptionsResolver>();
+        services.AddSingleton<IUserInteraction>(new FakeUi(false));
         services.AddSingleton<IRunner>(new CancellingRunner());
         services.AddSingleton<IDoctorRunner>(new CancellingDoctor());
         services.AddSingleton(new ConfigSources(null, new Dictionary<string, string?>()));
@@ -55,12 +57,12 @@ public class ExitCodeMappingTests
     private static CancellationToken Cancelled() => new(canceled: true);
 
     [Fact]
-    public void MissingRequestArgument_Exit4()
+    public void MissingFileArgument_Exit4()
     {
-        var result = Build(CancellationToken.None).Run("cs", File);
+        var result = Build(CancellationToken.None).Run("cs");
 
         Assert.Equal(4, result.ExitCode);
-        Assert.Contains("REQUEST", result.Output);
+        Assert.Contains("FILE", result.Output);
     }
 
     [Fact]

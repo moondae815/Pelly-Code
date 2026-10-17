@@ -38,7 +38,7 @@ public class CsCommandTests
 
     private sealed record Harness(CommandAppTester App, FakeRunner Runner, IFileSystem Fs);
 
-    private static Harness Build(int exitCode = 0, string? workspaceConfig = null, DoctorCheck[]? doctor = null)
+    private static Harness Build(int exitCode = 0, string? workspaceConfig = null, DoctorCheck[]? doctor = null, bool interactive = false)
     {
         var fs = new MockFileSystem();
         fs.AddFile(File, new MockFileData("class A { void M() {} }"));
@@ -50,6 +50,7 @@ public class CsCommandTests
         services.AddSingleton<IFileSystem>(fs);
         services.AddSingleton<OptionsResolver>();
         services.AddSingleton<IRunner>(runner);
+        services.AddSingleton<IUserInteraction>(new FakeUi(interactive));
         services.AddSingleton<IDoctorRunner>(new FakeDoctor(doctor ?? []));
         services.AddSingleton(new ConfigSources(null, new Dictionary<string, string?>()));
         services.AddSingleton(typeof(CancellationToken), CancellationToken.None);
@@ -60,15 +61,131 @@ public class CsCommandTests
     }
 
     [Fact]
-    public void Cs_WithoutMethod_Exit4_WithM1Message()
+    public void NoMethodNoLine_PassesNullsToRunner()
     {
         var h = Build();
 
         var result = h.App.Run("cs", File, "do it");
 
+        Assert.Equal(0, result.ExitCode);
+        Assert.Null(h.Runner.Request!.MethodName);
+        Assert.Null(h.Runner.Request.Line);
+    }
+
+    [Fact]
+    public void Line_IsPassedToRunner()
+    {
+        var h = Build();
+
+        h.App.Run("cs", File, "do it", "--line", "12");
+
+        Assert.Equal(12, h.Runner.Request!.Line);
+    }
+
+    [Fact]
+    public void Line_WithMethod_Exit4_Message()
+    {
+        var h = Build();
+
+        var result = h.App.Run("cs", File, "do it", "--line", "3", "--method", "M");
+
         Assert.Equal(4, result.ExitCode);
-        Assert.Contains("M1에서는 --method로 대상을 지정해야 합니다 (자동 탐색은 다음 버전)", result.Output);
+        Assert.Contains("--line은 --class/--method와 함께 쓸 수 없습니다", result.Output);
         Assert.Equal(0, h.Runner.Calls);
+    }
+
+    [Fact]
+    public void Line_WithClass_Exit4_Message()
+    {
+        var h = Build();
+
+        var result = h.App.Run("cs", File, "do it", "--line", "3", "--class", "C");
+
+        Assert.Equal(4, result.ExitCode);
+        Assert.Contains("--line은 --class/--method와 함께 쓸 수 없습니다", result.Output);
+    }
+
+    [Fact]
+    public void Line_Zero_Exit4()
+    {
+        var h = Build();
+
+        var result = h.App.Run("cs", File, "do it", "--line", "0");
+
+        Assert.Equal(4, result.ExitCode);
+        Assert.Contains("--line은 1 이상이어야 합니다", result.Output);
+        Assert.Equal(0, h.Runner.Calls);
+    }
+
+    [Fact]
+    public void MaxRetriesNegative_Exit4()
+    {
+        var h = Build();
+
+        var result = h.App.Run("cs", File, "do it", "--max-retries", "-1");
+
+        Assert.Equal(4, result.ExitCode);
+        Assert.Contains("--max-retries는 0 이상이어야 합니다", result.Output);
+        Assert.Equal(0, h.Runner.Calls);
+    }
+
+    [Fact]
+    public void RequestOmitted_Interactive_PromptsAndPasses()
+    {
+        var h = Build(interactive: true);
+        h.App.Console.Input.PushTextWithEnter("add-check");
+
+        var result = h.App.Run("cs", File);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("수정 요청을 입력하세요:", result.Output);
+        Assert.Equal("add-check", h.Runner.Request!.Request);
+    }
+
+    [Fact]
+    public void RequestOmitted_Interactive_EmptyInput_Exit4()
+    {
+        var h = Build(interactive: true);
+        h.App.Console.Input.PushTextWithEnter("");
+
+        var result = h.App.Run("cs", File);
+
+        Assert.Equal(4, result.ExitCode);
+        Assert.Contains("요청문(REQUEST)이 비어 있습니다", result.Output);
+    }
+
+    [Fact]
+    public void RequestOmitted_NonInteractive_Exit4_Message()
+    {
+        var h = Build(interactive: false);
+
+        var result = h.App.Run("cs", File);
+
+        Assert.Equal(4, result.ExitCode);
+        Assert.Contains("요청문(REQUEST)이 필요합니다 (비대화형 실행)", result.Output);
+        Assert.Equal(0, h.Runner.Calls);
+    }
+
+    [Fact]
+    public void StrictBaseline_And_WarnAsError_OverrideOptions()
+    {
+        var h = Build();
+
+        h.App.Run("cs", File, "x", "--strict-baseline", "--warn-as-error");
+
+        Assert.True(h.Runner.Options!.Build.StrictBaseline);
+        Assert.True(h.Runner.Options.Build.WarnAsError);
+    }
+
+    [Fact]
+    public void BuildFlags_AbsentKeepConfig()
+    {
+        var h = Build(workspaceConfig: """{ "build": { "warnAsError": true } }""");
+
+        h.App.Run("cs", File, "x");
+
+        Assert.True(h.Runner.Options!.Build.WarnAsError);
+        Assert.False(h.Runner.Options.Build.StrictBaseline);
     }
 
     [Fact]

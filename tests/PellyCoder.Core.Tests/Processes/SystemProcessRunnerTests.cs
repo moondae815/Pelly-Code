@@ -68,13 +68,20 @@ public sealed class SystemProcessRunnerTests
     public async Task ArgumentsWithSpacesAndKorean_RoundTrip()
     {
         const string arg = "공백 있는 인자 [x]";
-        var spec = OperatingSystem.IsWindows()
-            ? new ProcessSpec("powershell",
-                ["-NoProfile", "-Command", "[Console]::OutputEncoding=[Text.Encoding]::UTF8; [Console]::Out.Write($args[0])", arg],
-                Path.GetTempPath(), TimeSpan.FromSeconds(30))
-            : new ProcessSpec("/bin/sh", ["-c", "printf \"%s\" \"$1\"", "_", arg], Path.GetTempPath(), TimeSpan.FromSeconds(30));
-        var r = await Runner.RunAsync(spec, CancellationToken.None);
-        Assert.Equal(arg, r.StdOut.Trim());
+        // powershell -Command does not bind trailing tokens to $args, so Windows goes through a -File script.
+        var script = Path.Combine(Path.GetTempPath(), $"pelly-echo-{Guid.NewGuid():N}.ps1");
+        if (OperatingSystem.IsWindows())
+            await File.WriteAllTextAsync(script, "[Console]::OutputEncoding=[Text.Encoding]::UTF8; [Console]::Out.Write($args[0])", new System.Text.UTF8Encoding(true));
+        try
+        {
+            var spec = OperatingSystem.IsWindows()
+                ? new ProcessSpec("powershell", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, arg],
+                    Path.GetTempPath(), TimeSpan.FromSeconds(30))
+                : new ProcessSpec("/bin/sh", ["-c", "printf \"%s\" \"$1\"", "_", arg], Path.GetTempPath(), TimeSpan.FromSeconds(30));
+            var r = await Runner.RunAsync(spec, CancellationToken.None);
+            Assert.Equal(arg, r.StdOut.Trim());
+        }
+        finally { File.Delete(script); }
     }
 
     [Fact]

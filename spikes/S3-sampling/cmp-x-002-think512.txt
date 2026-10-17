@@ -1,0 +1,24 @@
+<<<<<<< SEARCH
+                var rows = conn.Query<SettlementSource>(@"
+SELECT o.OrderId, o.SellerId, o.TotalAmount, o.ShippingFee, o.DiscountAmount, s.CommissionRate
+FROM dbo.Orders o
+JOIN dbo.Sellers s ON s.SellerId = o.SellerId
+WHERE o.Status = 3
+  AND o.DeliveredAt >= @From AND o.DeliveredAt < @To",
+                    new { From = from, To = to }).ToList();
+
+                if (rows.Count == 0)
+=======
+                var rows = conn.Query<SettlementSource>(@"
+SELECT o.OrderId, o.SellerId, o.TotalAmount, o.ShippingFee, o.DiscountAmount, s.CommissionRate
+FROM dbo.Orders o
+JOIN dbo.Sellers s ON s.SellerId = o.SellerId
+WHERE o.Status = 3
+  AND o.DeliveredAt >= @From AND o.DeliveredAt < @To",
+                    new { From = from, To = to }).ToList();
+
+                _log.WriteLine("[정산] 대상 주문 수: {0}", rows.Count);
+
+                if (rows.Count == 0)
+>>>>>>> REPLACE
+```

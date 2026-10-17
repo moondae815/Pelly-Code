@@ -1,0 +1,20 @@
+<<<<<<< SEARCH
+            if (!string.IsNullOrEmpty(keyword))
+            {
+                // 고객 이름으로만 검색한다.
+                sql.AppendLine("  AND c.Name LIKE @Keyword");
+                param.Add("Keyword", "%" + keyword.Trim() + "%");
+            }
+=======
+            if (!string.IsNullOrEmpty(keyword))
+            {
+                sql.AppendLine("  AND (c.Name LIKE @Keyword OR oi.ProductName LIKE @Keyword)");
+                param.Add("Keyword", "%" + keyword.Trim() + "%");
+            }
+
+            if (!string.IsNullOrEmpty(keyword))
+            {
+                sql.AppendLine("LEFT JOIN dbo.OrderItems oi ON oi.OrderId = o.OrderId");
+            }
+>>>>>>> REPLACE
+```

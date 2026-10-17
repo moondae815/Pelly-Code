@@ -1,0 +1,12 @@
+<<<<<<< SEARCH
+            if (order.Status == OrderStatus.Delivered)
+            {
+                throw new InvalidOperationException("배송 완료된 주문은 취소할 수 없습니다.");
+            }
+=======
+            if (order.Status == OrderStatus.Delivered || order.Status == OrderStatus.Shipped)
+            {
+                throw new InvalidOperationException("배송 완료 또는 배송 중인 주문은 취소할 수 없습니다.");
+            }
+>>>>>>> REPLACE
+```

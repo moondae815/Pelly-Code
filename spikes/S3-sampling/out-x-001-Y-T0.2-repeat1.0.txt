@@ -1,0 +1,17 @@
+<<<<<<< SEARCH
+            if (request.From.HasValue && request.To.HasValue && request.From > request.To)
+            {
+                throw new ArgumentException("검색 시작일이 종료일보다 늦습니다.");
+            }
+=======
+            if (request.From.HasValue && request.To.HasValue && request.From > request.To)
+            {
+                throw new ArgumentException("검색 시작일이 종료일보다 늦습니다.");
+            }
+
+            if (request.From.HasValue && request.To.HasValue && (request.To.Value - request.From.Value).Days > 90)
+            {
+                throw new ArgumentException("검색 기간은 90일을 초과할 수 없습니다.");
+            }
+>>>>>>> REPLACE
+```

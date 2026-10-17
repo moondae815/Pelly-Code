@@ -1,0 +1,11 @@
+<<<<<<< SEARCH
+                            var row = new SettlementRow();
+                            row.SellerId = reader.GetInt32(0);
+                            row.SellerName = reader.GetString(1);
+                            row.Category = reader.IsDBNull(2) ? "미분류" : reader.GetString(2);
+=======
+                            var row = new SettlementRow();
+                            row.SellerId = reader.GetInt32(0);
+                            row.SellerName = reader.IsDBNull(1) ? "(이름 없음)" : reader.GetString(1);
+                            row.Category = reader.IsDBNull(2) ? "미분류" : reader.GetString(2);
+>>>>>>> REPLACE

@@ -1,0 +1,7 @@
+<<<<<<< SEARCH
+            // 10원 미만은 버린다.
+            refund = Math.Floor(refund / 10m) * 10m;
+=======
+            // 10원 단위로 반올림한다.
+            refund = Math.Round(refund / 10m, MidpointRounding.AwayFromZero) * 10m;
+>>>>>>> REPLACE

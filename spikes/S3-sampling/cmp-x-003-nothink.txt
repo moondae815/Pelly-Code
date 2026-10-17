@@ -1,0 +1,37 @@
+<<<<<<< SEARCH
+        public int UpdateStatus(int orderId, OrderStatus status, string reason)
+        {
+            using (IDbConnection conn = new SqlConnection(_connectionString))
+            {
+                return conn.Execute(
+                    @"UPDATE dbo.Orders
+                      SET Status = @Status,
+                          CancelledAt = CASE WHEN @Status = 9 THEN GETDATE() ELSE CancelledAt END,
+                          CancelReason = CASE WHEN @Status = 9 THEN @Reason ELSE CancelReason END
+                      WHERE OrderId = @OrderId",
+                    new { OrderId = orderId, Status = (int)status, Reason = reason });
+            }
+        }
+=======
+        public int UpdateStatus(int orderId, OrderStatus status, string reason)
+        {
+            using (IDbConnection conn = new SqlConnection(_connectionString))
+            {
+                int rowsAffected = conn.Execute(
+                    @"UPDATE dbo.Orders
+                      SET Status = @Status,
+                          CancelledAt = CASE WHEN @Status = 9 THEN GETDATE() ELSE CancelledAt END,
+                          CancelReason = CASE WHEN @Status = 9 THEN @Reason ELSE CancelReason END
+                      WHERE OrderId = @OrderId",
+                    new { OrderId = orderId, Status = (int)status, Reason = reason });
+
+                if (rowsAffected == 0)
+                {
+                    throw new InvalidOperationException($"Order with ID {orderId} not found or status already matches.");
+                }
+
+                return rowsAffected;
+            }
+        }
+>>>>>>> REPLACE
+```

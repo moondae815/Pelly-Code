@@ -1,0 +1,6 @@
+<<<<<<< SEARCH
+                    warnings.Add("정산 저장 실패: " + ex.Message);
+=======
+                    warnings.Add("정산 저장 실패: " + ex.Message + " (Error Code: " + ex.Number + ")");
+>>>>>>> REPLACE
+```

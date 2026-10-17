@@ -1,0 +1,5 @@
+<<<<<<< SEARCH
+            refund = Math.Floor(refund / 10m) * 10m;
+=======
+            refund = Math.Round(refund / 10m, MidpointRounding.AwayFromZero) * 10m;
+>>>>>>> REPLACE

@@ -1,0 +1,5 @@
+<<<<<<< SEARCH
+                            row.SellerName = reader.GetString(1);
+=======
+                            row.SellerName = reader.IsDBNull(1) ? "(이름 없음)" : reader.GetString(1);
+>>>>>>> REPLACE

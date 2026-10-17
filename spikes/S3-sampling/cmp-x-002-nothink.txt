@@ -1,0 +1,17 @@
+<<<<<<< SEARCH
+                _log.WriteLine(
+                    "[정산] 완료: 판매자 {0}명 지급, {1}명 이월, 총 지급액 {2:N0}원",
+                    payouts.Count,
+                    deferred.Count,
+                    payouts.Sum(p => p.PayoutAmount));
+                return true;
+=======
+                _log.WriteLine(
+                    "[정산] 완료: 정산 대상 주문 {0}건, 판매자 {1}명 지급, {2}명 이월, 총 지급액 {3:N0}원",
+                    rows.Count,
+                    payouts.Count,
+                    deferred.Count,
+                    payouts.Sum(p => p.PayoutAmount));
+                return true;
+>>>>>>> REPLACE
+```

@@ -1,0 +1,44 @@
+<<<<<<< SEARCH
+            // 배송 완료된 주문은 반품 절차를 따라야 한다.
+            if (order.Status == OrderStatus.Delivered)
+            {
+                throw new InvalidOperationException("배송 완료된 주문은 취소할 수 없습니다. 반품을 신청하세요.");
+            }
+
+            if (order.Status == OrderStatus.Pending)
+            {
+                _logger.LogInformation("결제 전 주문을 취소합니다. OrderId={OrderId}", orderId);
+            }
+
+            // 결제 전 주문은 환불 없이 상태만 바꾼다.
+            var refund = 0m;
+            if (order.Status == OrderStatus.Paid || order.Status == OrderStatus.Shipped)
+            {
+                refund = await CalculateRefundAsync(orderId);
+            }
+=======
+            // 배송 완료된 주문은 반품 절차를 따라야 한다.
+            if (order.Status == OrderStatus.Delivered)
+            {
+                throw new InvalidOperationException("배송 완료된 주문은 취소할 수 없습니다. 반품을 신청하세요.");
+            }
+
+            // 배송 중인 주문은 취소할 수 없다.
+            if (order.Status == OrderStatus.Shipped)
+            {
+                throw new InvalidOperationException("배송 중인 주문은 취소할 수 없습니다. 반품을 신청하세요.");
+            }
+
+            if (order.Status == OrderStatus.Pending)
+            {
+                _logger.LogInformation("결제 전 주문을 취소합니다. OrderId={OrderId}", orderId);
+            }
+
+            // 결제 전 주문은 환불 없이 상태만 바꾼다.
+            var refund = 0m;
+            if (order.Status == OrderStatus.Paid)
+            {
+                refund = await CalculateRefundAsync(orderId);
+            }
+>>>>>>> REPLACE
+```

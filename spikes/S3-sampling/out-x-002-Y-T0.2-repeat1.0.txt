@@ -1,0 +1,7 @@
+<<<<<<< SEARCH
+                if (rows.Count == 0)
+=======
+                _log.WriteLine("[정산] 정산 대상 주문 수: {0}건", rows.Count);
+                if (rows.Count == 0)
+>>>>>>> REPLACE
+```

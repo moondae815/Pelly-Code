@@ -1,0 +1,22 @@
+/Users/payletter/git-root/Pelly-Code/spikes/S3-sampling/nothink.cs(118,13): warning CS8321: 로컬 함수 'HasRepetition'이(가) 선언되었지만 사용되지 않았습니다.
+task,mode,parsed,exact_match,request_applied,think_tokens,code_tokens,think_sec,code_sec,total_sec
+cs-legacy-001,think512,True,True,True,512,107,6.5,1.7,8.2
+cs-legacy-001,nothink,True,True,True,0,107,0.0,1.5,1.5
+cs-legacy-002,think512,True,True,True,512,40,6.5,0.9,7.5
+cs-legacy-002,nothink,True,True,True,0,40,0.0,0.6,0.6
+cs-legacy-003,think512,True,True,True,512,126,6.5,1.9,8.4
+cs-legacy-003,nothink,True,True,True,0,119,0.0,1.6,1.6
+cs-modern-001,think512,True,True,True,512,120,6.5,1.8,8.3
+cs-modern-001,nothink,True,True,True,0,125,0.0,1.6,1.6
+cs-modern-002,think512,True,True,True,512,53,6.6,1.0,7.5
+cs-modern-002,nothink,True,True,True,0,79,0.0,1.1,1.1
+x-001,think512,True,True,True,512,151,6.5,2.2,8.7
+x-001,nothink,True,True,True,0,153,0.0,2.0,2.0
+x-002,think512,True,True,True,512,255,6.5,3.6,10.1
+x-002,nothink,True,True,True,0,150,0.0,2.0,2.0
+x-003,think512,True,True,True,512,308,6.5,4.2,10.7
+x-003,nothink,True,True,True,0,318,0.0,4.1,4.1
+x-004,think512,True,True,True,512,415,6.6,5.9,12.5
+x-004,nothink,True,True,True,0,104,0.0,1.4,1.4
+x-005,think512,True,True,True,512,102,6.6,1.6,8.1
+x-005,nothink,True,True,True,0,97,0.0,1.3,1.3

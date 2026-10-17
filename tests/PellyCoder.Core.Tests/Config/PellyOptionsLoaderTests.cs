@@ -31,6 +31,7 @@ public class PellyOptionsLoaderTests
         Assert.Equal(2048, o.Budget.CodeOutput);
         Assert.Equal(8192, o.Llm.NumCtx);
         Assert.Equal("30m", o.Llm.KeepAlive);
+        Assert.Equal(120, o.Llm.FirstTokenTimeoutSeconds);
         Assert.Equal(ThinkMode.Retry, o.Llm.ThinkMode);
         Assert.Equal(new SamplingOptions(0.6, 0.95, 20, 1.0, 0), o.Sampling.Think);
         Assert.Equal(new SamplingOptions(0.1, 0.9, 20, 1.05, 0), o.Sampling.Code);

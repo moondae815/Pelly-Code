@@ -1,0 +1,7 @@
+{"model":"qwen3.6:35b-a3b-coding-nvfp4","created_at":"2026-10-17T13:15:41.221666Z","response":"Hello","done":false}
+{"model":"qwen3.6:35b-a3b-coding-nvfp4","created_at":"2026-10-17T13:15:41.233902Z","response":"!","done":false}
+{"model":"qwen3.6:35b-a3b-coding-nvfp4","created_at":"2026-10-17T13:15:41.246232Z","response":" How","done":false}
+{"model":"qwen3.6:35b-a3b-coding-nvfp4","created_at":"2026-10-17T13:15:41.258522Z","response":" can","done":false}
+{"model":"qwen3.6:35b-a3b-coding-nvfp4","created_at":"2026-10-17T13:15:41.270785Z","response":" I","done":false}
+{"model":"qwen3.6:35b-a3b-coding-nvfp4","created_at":"2026-10-17T13:15:41.283111Z","response":" help","done":false}
+{"model":"qwen3.6:35b-a3b-coding-nvfp4","created_at":"2026-10-17T13:15:41.283117Z","response":"","done":true,"done_reason":"length","total_duration":10854433584,"load_duration":9028473167,"prompt_eval_count":13,"prompt_eval_cached_count":0,"prompt_eval_duration":1738253375,"eval_count":6,"eval_duration":70975542}

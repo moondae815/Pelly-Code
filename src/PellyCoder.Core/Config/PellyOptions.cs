@@ -21,7 +21,10 @@ public sealed class LlmOptions
     public string KeepAlive { get; set; } = "30m";
     public int NumCtx { get; set; } = 8192;
     public Dictionary<string, string> Headers { get; set; } = new();
+    /// <summary>Whole-request timeout for status and diagnostic calls (not for generate).</summary>
     public int ConnectTimeoutSeconds { get; set; } = 3;
+    /// <summary>Max wait from sending a generate request to the first NDJSON line (covers cold model load, S1: ~26 s).</summary>
+    public int FirstTokenTimeoutSeconds { get; set; } = 120;
     public int StreamIdleTimeoutSeconds { get; set; } = 10;
     public string? Template { get; set; }
     public ThinkMode ThinkMode { get; set; } = ThinkMode.Retry;

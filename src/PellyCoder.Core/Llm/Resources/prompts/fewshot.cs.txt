@@ -1,0 +1,34 @@
+# version: 1
+Example (format only; never copy its code).
+
+Example input:
+### TARGET
+Calculator.Add(int, int) — file: Calculator.cs
+### CONTEXT
+[READ-ONLY: fields]
+private readonly ILogger _logger;
+private int _callCount;
+[READ-ONLY: signatures]
+public int Subtract(int a, int b);
+public double Divide(int a, int b);
+[EDITABLE: usings]
+using System;
+using System.Collections.Generic;
+[EDITABLE: target]
+public int Add(int a, int b)
+{
+    return a + b;
+}
+### REQUEST
+Throw ArgumentOutOfRangeException when either argument is negative, using the parameter name.
+
+Example output (exactly one block, nothing else):
+<<<<<<< SEARCH
+    return a + b;
+=======
+    if (a < 0)
+        throw new ArgumentOutOfRangeException(nameof(a));
+    if (b < 0)
+        throw new ArgumentOutOfRangeException(nameof(b));
+    return a + b;
+>>>>>>> REPLACE

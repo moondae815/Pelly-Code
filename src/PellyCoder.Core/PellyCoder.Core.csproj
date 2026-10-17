@@ -5,7 +5,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="Llm/Resources/**" LogicalName="PellyCoder.Core.Llm.Resources.%(Filename)%(Extension)" />
+    <EmbeddedResource Include="Llm/Resources/**" WithCulture="false" LogicalName="PellyCoder.Core.Llm.Resources.%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>

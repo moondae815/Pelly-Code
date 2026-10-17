@@ -69,5 +69,7 @@ jobs:
           global-json-file: global.json
       - name: Build
         run: dotnet build -warnaserror
+      - name: Deploy SQL corpus
+        run: ./eval/corpus/Sql/deploy.sh "${{ job.services.mssql.id }}" 'Pelly_Test_2026!'
       - name: SQL Server tests
         run: dotnet test --no-build -- --filter-trait "Env=SqlServer"

@@ -1,9 +1,15 @@
 <Project>
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <!-- 간접 의존 패키지도 아래 버전으로 고정한다 (취약 버전 차단용) -->
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
   </PropertyGroup>
   <ItemGroup>
+    <PackageVersion Include="Dapper" Version="2.1.89" />
+    <PackageVersion Include="Microsoft.Data.SqlClient" Version="7.1.1" />
     <PackageVersion Include="Spectre.Console.Cli" Version="0.57.2" />
     <PackageVersion Include="xunit.v3.mtp-v2" Version="4.0.2" />
+    <!-- Microsoft.Data.SqlClient 7.1.1의 간접 의존(9.0.18)에 알려진 취약성이 있어 패치 버전으로 고정 -->
+    <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
   </ItemGroup>
 </Project>

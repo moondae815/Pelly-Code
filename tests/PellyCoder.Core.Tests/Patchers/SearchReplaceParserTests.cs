@@ -72,4 +72,17 @@ public class SearchReplaceParserTests
         Assert.Null(result.Failure);
         Assert.Equal("", Assert.Single(result.Blocks).Replace);
     }
+
+    [Theory]
+    [InlineData("<<<<<<< SEARCH\na\n<<<<<<< SEARCH\nb\n=======\nc\n>>>>>>> REPLACE\n", "<<<<<<< SEARCH")]
+    [InlineData("<<<<<<< SEARCH\na\n>>>>>>> REPLACE\n", ">>>>>>> REPLACE")]
+    [InlineData("<<<<<<< SEARCH\na\n=======\nb\n<<<<<<< SEARCH\nc\n=======\nd\n>>>>>>> REPLACE\n", "<<<<<<< SEARCH")]
+    [InlineData("<<<<<<< SEARCH\na\n=======\nb\n=======\nc\n>>>>>>> REPLACE\n", "=======")]
+    public void Parse_MarkerInWrongState_IsParseFailure(string output, string marker)
+    {
+        var result = SearchReplaceParser.Parse(output);
+        Assert.Equal(PatchFailureKinds.Parse, result.Failure!.Kind);
+        Assert.Contains(marker, result.Failure.Detail);
+        Assert.Contains("Block 1", result.Failure.Detail);
+    }
 }

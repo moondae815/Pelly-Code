@@ -62,7 +62,7 @@ public class SearchReplacePatcherTests
     {
         var original = "class C\n{\n\t\tint a;\n\t\tint b;\n}\n";
         var regions = new[] { new EditableRegion(new TextSpanInfo(1, 5), "all") };
-        var o = SearchReplacePatcher.Apply(original, [new PatchBlock("int a;", "int a;\nint c;")], regions);
+        var o = SearchReplacePatcher.Apply(original, [new PatchBlock("  int a;", "  int a;\n  int c;")], regions);
         Assert.True(o.Success);
         Assert.Equal("class C\n{\n\t\tint a;\n\t\tint c;\n\t\tint b;\n}\n", o.NewText);
     }
@@ -102,13 +102,15 @@ public class SearchReplacePatcherTests
     [Fact]
     public void MultipleBlocks_AppliedSequentially_RegionShifts()
     {
+        // Line 30 ("}") is the last line of the target region. After block 1 adds 2 lines above it,
+        // it sits at line 32 and is inside the region only if the region was shifted.
         var o = Run(Original(),
             new PatchBlock("using C;", "using C;\nusing D;\nusing E;"),
-            new PatchBlock("            var x = 1;", "            var x = 9;"));
+            new PatchBlock("}", "    // end\n}"));
         Assert.True(o.Success);
         Assert.Equal([MatchStage.Exact, MatchStage.Exact], o.Stages);
+        Assert.EndsWith("    // end\n}\n", o.NewText);
         Assert.Contains("using E;", o.NewText);
-        Assert.Contains("var x = 9;", o.NewText);
     }
 
     [Fact]
@@ -142,5 +144,46 @@ public class SearchReplacePatcherTests
         Assert.True(MarkerScanner.HasConflictMarkers("a\n=======\nb"));
         Assert.True(MarkerScanner.HasConflictMarkers(">>>>>>> x"));
         Assert.False(MarkerScanner.HasConflictMarkers("a\n  <<<<<<< not at start\nb"));
+    }
+
+    private static PatchOutcome RunAll(string original, PatchBlock block)
+    {
+        var lineCount = original.Split('\n').Length;
+        return SearchReplacePatcher.Apply(original, [block], [new EditableRegion(new TextSpanInfo(1, lineCount), "all")]);
+    }
+
+    [Fact]
+    public void TabFile_SpaceIndentedModelOutput_EmitsTabs()
+    {
+        var o = RunAll("class C\n{\n\t\tint a;\n}\n",
+            new PatchBlock("        int a;", "        int a;\n            int b;"));
+        Assert.True(o.Success);
+        Assert.Equal("class C\n{\n\t\tint a;\n\t\t\tint b;\n}\n", o.NewText);
+    }
+
+    [Fact]
+    public void SpaceFile_TabIndentedModelOutput_EmitsSpaces()
+    {
+        var o = RunAll("class C\n{\n    int a;\n}\n",
+            new PatchBlock("\tint a;", "\tint a;\n\t\tint b;"));
+        Assert.True(o.Success);
+        Assert.Equal("class C\n{\n    int a;\n        int b;\n}\n", o.NewText);
+    }
+
+    [Fact]
+    public void TabFile_NestedRelativeIndent_KeepsRelativeColumns()
+    {
+        var o = RunAll("\tif (a)\n\t\tx;\n",
+            new PatchBlock("  if (a)\n    x;", "  if (a)\n    x;\n      y;\n  z;"));
+        Assert.True(o.Success);
+        Assert.Equal("\tif (a)\n\t  x;\n\t\ty;\n\tz;\n", o.NewText);
+    }
+
+    [Fact]
+    public void MixedExtraIndent_IsRemovedByColumns()
+    {
+        var o = RunAll("\tint a;\n", new PatchBlock("\t  int a;", "\t  int a;\n\t  int b;"));
+        Assert.True(o.Success);
+        Assert.Equal("\tint a;\n\tint b;\n", o.NewText);
     }
 }

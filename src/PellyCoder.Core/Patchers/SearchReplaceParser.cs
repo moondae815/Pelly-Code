@@ -35,6 +35,10 @@ public static class SearchReplaceParser
                     break;
                 case State.InSearch:
                     if (line == DividerMarker) state = State.InReplace;
+                    else if (line == SearchMarker || line == ReplaceMarker)
+                    {
+                        return Fail($"Block {blocks.Count + 1}: unexpected '{line}' marker inside the SEARCH section (a marker is missing or misplaced).");
+                    }
                     else search.Add(raw);
                     break;
                 case State.InReplace:
@@ -48,6 +52,10 @@ public static class SearchReplaceParser
 
                         blocks.Add(new PatchBlock(searchText, string.Join('\n', replace)));
                         state = State.Outside;
+                    }
+                    else if (line == SearchMarker || line == DividerMarker)
+                    {
+                        return Fail($"Block {blocks.Count + 1}: unexpected '{line}' marker inside the REPLACE section (a marker is missing or misplaced).");
                     }
                     else replace.Add(raw);
                     break;

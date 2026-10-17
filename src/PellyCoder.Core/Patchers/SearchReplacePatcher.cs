@@ -126,34 +126,43 @@ public static class SearchReplacePatcher
         var origIndent = LeadingWhitespace(lines[matchStart + first]);
         if (searchIndent == origIndent) return replace;
 
-        string addPrefix = "";
-        var remove = 0;
-        var removeChar = ' ';
-        if (origIndent.StartsWith(searchIndent, StringComparison.Ordinal))
-        {
-            addPrefix = origIndent[searchIndent.Length..];
-        }
-        else if (searchIndent.StartsWith(origIndent, StringComparison.Ordinal))
-        {
-            remove = searchIndent.Length - origIndent.Length;
-            removeChar = searchIndent[origIndent.Length];
-        }
-        else
-        {
-            var unit = origIndent.Contains('\t') ? '\t' : ' ';
-            var delta = origIndent.Length - searchIndent.Length;
-            if (delta > 0) addPrefix = new string(unit, delta);
-            else { remove = -delta; removeChar = unit; }
-        }
+        // Fast path: indents are prefix-related with a single-kind difference and the line carries the
+        // SEARCH indent as its own prefix: swap that prefix for the original's indent.
+        var related = origIndent.StartsWith(searchIndent, StringComparison.Ordinal)
+            ? IsUniform(origIndent[searchIndent.Length..])
+            : searchIndent.StartsWith(origIndent, StringComparison.Ordinal) && IsUniform(searchIndent[origIndent.Length..]);
+        var fast = related;
 
+        // General path: convert by columns (tab width 4) and emit in the matched original's style.
+        var searchCols = Columns(searchIndent);
+        var origCols = Columns(origIndent);
+        var useTabs = origIndent.Contains('\t');
         return replace.Select(l =>
         {
             if (l.Trim().Length == 0) return l;
-            if (addPrefix.Length > 0) return addPrefix + l;
-            var cut = 0;
-            while (cut < remove && cut < l.Length && l[cut] == removeChar) cut++;
-            return l[cut..];
+            var indent = LeadingWhitespace(l);
+            if (fast && indent.StartsWith(searchIndent, StringComparison.Ordinal))
+            {
+                return origIndent + l[searchIndent.Length..];
+            }
+
+            var target = Math.Max(0, origCols + Columns(indent) - searchCols);
+            var emitted = useTabs
+                ? new string('\t', target / TabWidth) + new string(' ', target % TabWidth)
+                : new string(' ', target);
+            return emitted + l[indent.Length..];
         }).ToArray();
+    }
+
+    private const int TabWidth = 4;
+
+    private static bool IsUniform(string s) => s.All(c => c == s[0]);
+
+    private static int Columns(string indent)
+    {
+        var col = 0;
+        foreach (var c in indent) col = c == '\t' ? (col / TabWidth + 1) * TabWidth : col + 1;
+        return col;
     }
 
     private static string LeadingWhitespace(string line)

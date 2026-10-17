@@ -215,4 +215,81 @@ public sealed class RoslynSlicerTests
         Assert.Throws<InvalidOperationException>(() =>
             RoslynSlicer.Build(src, target with { Span = new TextSpanInfo(1, 2) }, Lang, Tokens, Huge));
     }
+
+    private static string[] SignatureLines(string src, string member)
+    {
+        var target = MemberLocator.FindByName(src, V, null, member)[0];
+        return Part(RoslynSlicer.Build(src, target, Lang, Tokens, Huge), "signatures").Text.Split('\n');
+    }
+
+    [Fact]
+    public void NestedTypesOfEveryKind_RenderAsBodylessOneLiners()
+    {
+        const string src = """
+            class C
+            {
+                public record R(int A);
+                public record R2(int A) { public int Secret = 1; }
+                public struct S { public int SecretS; }
+                public interface I { void SecretI(); }
+                public enum E { A, B }
+                public delegate int D(int x);
+                public void T() { }
+            }
+            """;
+
+        var lines = SignatureLines(src, "T");
+
+        Assert.Equal(
+            ["public record R(int A);", "public record R2(int A) { ... }", "public struct S { ... }",
+             "public interface I { ... }", "public enum E { ... }", "public delegate int D(int x);"],
+            lines);
+    }
+
+    [Fact]
+    public void OtherMembers_HaveNoBodies()
+    {
+        const string src = """
+            using System;
+            class C
+            {
+                public int this[int i] { get { return Secret1; } set { Secret2 = value; } }
+                public int this[string s] => Secret3;
+                public static C operator +(C a, C b) { return Secret4; }
+                public static C operator -(C a, C b) => Secret5;
+                public static implicit operator int(C c) { return Secret6; }
+                public static explicit operator long(C c) => Secret7;
+                ~C() { Secret8(); }
+                public event EventHandler Changed { add { Secret9(); } remove { Secret10(); } }
+                public event EventHandler Plain;
+                public void T() { }
+            }
+            """;
+
+        var lines = SignatureLines(src, "T");
+
+        Assert.Equal(
+            ["public int this[int i] { get { ... } set { ... } }",
+             "public int this[string s] { get { ... } }",
+             "public static C operator +(C a, C b) { ... }",
+             "public static C operator -(C a, C b) { ... }",
+             "public static implicit operator int (C c) { ... }",
+             "public static explicit operator long (C c) { ... }",
+             "~C() { ... }",
+             "public event EventHandler Changed { add { ... } remove { ... } }",
+             "public event EventHandler Plain;"],
+            lines);
+    }
+
+    [Fact]
+    public void OneLineClass_TargetIsTheMemberNotTheEnclosingType()
+    {
+        const string src = "class C { public void T() { } public void U() { } }\n";
+        var target = MemberLocator.FindByName(src, V, null, "T")[0];
+
+        var r = RoslynSlicer.Build(src, target, Lang, Tokens, Huge);
+
+        Assert.Equal("class C { public void T() { } public void U() { } }", Part(r, "target").Text);
+        Assert.Equal(["public void U() { ... }"], Part(r, "signatures").Text.Split('\n'));
+    }
 }

@@ -25,8 +25,11 @@ public static class RoslynSlicer
         var root = (CompilationUnitSyntax)tree.GetRoot();
         var lines = sourceLf.Split('\n');
 
+        // Same kinds and display as MemberLocator emits; an enclosing type or sibling on the same lines must not match.
         var member = root.DescendantNodes().OfType<MemberDeclarationSyntax>()
-            .FirstOrDefault(m => MemberLocator.SpanOf(tree, m) == target.Span)
+            .LastOrDefault(m => MemberLocator.SpanOf(tree, m) == target.Span
+                && MemberLocator.DisplayOf(m) is { } display
+                && target.Display.EndsWith("." + display, StringComparison.Ordinal))
             ?? throw new InvalidOperationException($"No member found at lines {target.Span.StartLine}-{target.Span.EndLine}.");
 
         var targetPart = MakePart("target", LinesText(lines, target.Span), tokens, int.MaxValue);
@@ -103,36 +106,48 @@ public static class RoslynSlicer
     private static string Signature(MemberDeclarationSyntax m) => m switch
     {
         MethodDeclarationSyntax { Body: null, ExpressionBody: null } => OneLine(m),
-        MethodDeclarationSyntax method =>
-            OneLine(method.WithBody(null).WithExpressionBody(null).WithSemicolonToken(default)) + " { ... }",
-        PropertyDeclarationSyntax prop => PropertySignature(prop),
-        BaseTypeDeclarationSyntax nested => NestedTypeHeader(nested) + " { ... }",
+        MethodDeclarationSyntax x => Stub(x.WithBody(null).WithExpressionBody(null).WithSemicolonToken(default)),
+        OperatorDeclarationSyntax x => Stub(x.WithBody(null).WithExpressionBody(null).WithSemicolonToken(default)),
+        ConversionOperatorDeclarationSyntax x => Stub(x.WithBody(null).WithExpressionBody(null).WithSemicolonToken(default)),
+        DestructorDeclarationSyntax x => Stub(x.WithBody(null).WithExpressionBody(null).WithSemicolonToken(default)),
+        PropertyDeclarationSyntax x => WithAccessors(m, x.AccessorList, x.ExpressionBody,
+            () => x.WithAccessorList(null).WithExpressionBody(null).WithInitializer(null).WithSemicolonToken(default)),
+        IndexerDeclarationSyntax x => WithAccessors(m, x.AccessorList, x.ExpressionBody,
+            () => x.WithAccessorList(null).WithExpressionBody(null).WithSemicolonToken(default)),
+        EventDeclarationSyntax x => WithAccessors(m, x.AccessorList, null, () => x.WithAccessorList(null)),
+        BaseTypeDeclarationSyntax nested => NestedTypeHeader(nested),
         _ => OneLine(m),
     };
 
-    private static string PropertySignature(PropertyDeclarationSyntax prop)
+    private static string Stub(SyntaxNode header) => OneLine(header) + " { ... }";
+
+    /// <summary>Properties, indexers and events: bodied accessors become <c>get { ... }</c>; auto accessors stay as written.</summary>
+    private static string WithAccessors(MemberDeclarationSyntax original, AccessorListSyntax? list, ArrowExpressionClauseSyntax? arrow, Func<SyntaxNode> header)
     {
-        var accessors = prop.AccessorList?.Accessors;
-        var bodied = prop.ExpressionBody is not null
-            || (accessors?.Any(a => a.Body is not null || a.ExpressionBody is not null) ?? false);
+        var accessors = list?.Accessors ?? default;
+        var bodied = arrow is not null || accessors.Any(a => a.Body is not null || a.ExpressionBody is not null);
         if (!bodied)
-            return OneLine(prop);
+            return OneLine(original);
 
-        var header = OneLine(prop.WithAccessorList(null).WithExpressionBody(null).WithInitializer(null).WithSemicolonToken(default));
-        if (accessors is null)
-            return header + " { get { ... } }";
+        var head = OneLine(header());
+        if (list is null)
+            return head + " { get { ... } }";
 
-        var parts = accessors.Value.Select(a => a.Body is null && a.ExpressionBody is null
+        var parts = accessors.Select(a => a.Body is null && a.ExpressionBody is null
             ? a.Keyword.Text + ";"
             : a.Keyword.Text + " { ... }");
-        return header + " { " + string.Join(' ', parts) + " }";
+        return head + " { " + string.Join(' ', parts) + " }";
     }
 
     private static string NestedTypeHeader(BaseTypeDeclarationSyntax type)
     {
+        // A positional record without a body (`record R(int A);`) has no braces: it is already one bodyless line.
+        if (type.OpenBraceToken.IsKind(SyntaxKind.None))
+            return OneLine(type);
+
         var text = type.ToString();
         var open = type.OpenBraceToken.SpanStart - type.SpanStart;
-        return LineBreaks.Replace(text[..open].Trim(), " ");
+        return LineBreaks.Replace(text[..open].Trim(), " ") + " { ... }";
     }
 
     private static string OneLine(SyntaxNode node) =>

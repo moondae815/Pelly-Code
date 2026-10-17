@@ -21,13 +21,7 @@ public static class MemberLocator
 
         foreach (var member in tree.GetRoot().DescendantNodes().OfType<MemberDeclarationSyntax>())
         {
-            var (name, display) = member switch
-            {
-                MethodDeclarationSyntax m => (m.Identifier.Text, m.Identifier.Text + ParameterList(m.ParameterList)),
-                ConstructorDeclarationSyntax c => (c.Identifier.Text, c.Identifier.Text + ParameterList(c.ParameterList)),
-                PropertyDeclarationSyntax p => (p.Identifier.Text, p.Identifier.Text),
-                _ => (null, null),
-            };
+            var (name, display) = NameAndDisplay(member);
             if (name != memberName || display is null)
                 continue;
 
@@ -41,6 +35,17 @@ public static class MemberLocator
 
         return result;
     }
+
+    /// <summary>The display text (<c>Name(int, string)</c>) for the member kinds this locator emits, else null.</summary>
+    internal static string? DisplayOf(MemberDeclarationSyntax member) => NameAndDisplay(member).Display;
+
+    private static (string? Name, string? Display) NameAndDisplay(MemberDeclarationSyntax member) => member switch
+    {
+        MethodDeclarationSyntax m => (m.Identifier.Text, m.Identifier.Text + ParameterList(m.ParameterList)),
+        ConstructorDeclarationSyntax c => (c.Identifier.Text, c.Identifier.Text + ParameterList(c.ParameterList)),
+        PropertyDeclarationSyntax p => (p.Identifier.Text, p.Identifier.Text),
+        _ => (null, null),
+    };
 
     private static string ParameterList(ParameterListSyntax list) =>
         "(" + string.Join(", ", list.Parameters.Select(p => p.Type?.ToString() ?? "?")) + ")";

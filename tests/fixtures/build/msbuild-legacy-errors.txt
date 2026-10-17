@@ -1,0 +1,11 @@
+# 손으로 작성한 MSBuild 형식 표본(설계 §8.9). 실제 MSBuild 출력 검증은 Integration 테스트의 [WindowsFact]가 맡는다.
+Microsoft (R) Build Engine version 16.11.2+f32259642 for .NET Framework
+C:\W\Src\Legacy.Web\Controllers\HomeController.cs(12,17): error CS0103: The name 'foo' does not exist in the current context [C:\W\Src\Legacy.Web\Legacy.Web.csproj]
+C:\W\Src\Legacy.Web\Controllers\HomeController.cs(12,17): error CS0103: The name 'foo' does not exist in the current context [C:\W\Src\Legacy.Web\Legacy.Web.csproj]
+c:\w\src\legacy.web\controllers\homecontroller.cs(12,17): error CS0103: The name 'foo' does not exist in the current context [C:\W\Src\Legacy.Web\Legacy.Web.csproj]
+C:\W\Src\Legacy.Web\Models\User.cs(30,9,30,20): warning CS0168: The variable 'ex' is declared but never used [C:\W\Src\Legacy.Web\Legacy.Web.csproj]
+D:\Other\Lib\Helper.cs(5,1): error CS1002: ; expected [D:\Other\Lib\Lib.csproj]
+MSBUILD : error MSB1009: Project file does not exist.
+CSC : error CS2001: Source file 'C:\W\Src\Missing.cs' could not be found. [C:\W\Src\Legacy.Web\Legacy.Web.csproj]
+    1 Warning(s)
+    4 Error(s)

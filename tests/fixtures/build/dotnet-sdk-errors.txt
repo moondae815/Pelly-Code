@@ -1,0 +1,18 @@
+# root: /private/var/folders/tz/12sgf_612fl30jv7s4y_8zlm0000gn/T/rec4.N4yD/plain/Modern
+/private/var/folders/tz/12sgf_612fl30jv7s4y_8zlm0000gn/T/rec4.N4yD/plain/Modern/Shop.Api/Services/OrderService.cs(46,13): error CS0103: The name 'undefinedVar' does not exist in the current context [/private/var/folders/tz/12sgf_612fl30jv7s4y_8zlm0000gn/T/rec4.N4yD/plain/Modern/Shop.Api/Shop.Api.csproj]
+/private/var/folders/tz/12sgf_612fl30jv7s4y_8zlm0000gn/T/rec4.N4yD/plain/Modern/Shop.Api/Services/OrderService.cs(47,21): error CS0029: Cannot implicitly convert type 'string' to 'int' [/private/var/folders/tz/12sgf_612fl30jv7s4y_8zlm0000gn/T/rec4.N4yD/plain/Modern/Shop.Api/Shop.Api.csproj]
+
+Build FAILED.
+    0 Warning(s)
+    2 Error(s)
+
+Time Elapsed 00:00:00.45
+# root: /private/var/folders/tz/12sgf_612fl30jv7s4y_8zlm0000gn/T/rec4.N4yD/한글폴더/Modern
+/private/var/folders/tz/12sgf_612fl30jv7s4y_8zlm0000gn/T/rec4.N4yD/한글폴더/Modern/Shop.Api/Services/OrderService.cs(46,13): error CS0103: The name 'undefinedVar' does not exist in the current context [/private/var/folders/tz/12sgf_612fl30jv7s4y_8zlm0000gn/T/rec4.N4yD/한글폴더/Modern/Shop.Api/Shop.Api.csproj]
+/private/var/folders/tz/12sgf_612fl30jv7s4y_8zlm0000gn/T/rec4.N4yD/한글폴더/Modern/Shop.Api/Services/OrderService.cs(47,21): error CS0029: Cannot implicitly convert type 'string' to 'int' [/private/var/folders/tz/12sgf_612fl30jv7s4y_8zlm0000gn/T/rec4.N4yD/한글폴더/Modern/Shop.Api/Shop.Api.csproj]
+
+Build FAILED.
+    0 Warning(s)
+    2 Error(s)
+
+Time Elapsed 00:00:00.27

@@ -18,7 +18,7 @@
   * `tran+noexec`: `BEGIN TRAN` 배치 → 위 순서 → `ROLLBACK`
 * 대상 문장 4종: ⓐ 정상 ⓑ 없는 컬럼 ⓒ 없는 테이블 ⓓ 구문 오류. 실행마다 sa로 `OBJECT_DEFINITION`을 비교해 객체가 바뀌지 않았는지 확인.
 * 참고: sa로 NOEXEC 없이 실제 `ALTER`(트랜잭션 안, 끝에 롤백).
-* 메타데이터 가시성: 사용자별 `OBJECT_ID`, `sys.columns`, `sys.dm_sql_referenced_entities` 조회.
+* 메타데이터 가시성: 사용자별 `OBJECT_ID`, `sys.columns`, `sys.dm_sql_referenced_entities` 조회(`noexec.cs` 마지막 단계). 포트를 `127.0.0.1`로 바꾼 뒤 컨테이너를 다시 만들어 전체를 재실행했다.
 
 ## 측정 결과
 **컴파일 오류 검출** (원시: `results.csv`) — 4개 사용자 × 2개 순서 모두 같은 결과
@@ -35,7 +35,7 @@
 * `BEGIN TRAN`/`ROLLBACK`을 함께 써도 결과·부작용 차이가 없다.
 * ⓒ는 지연 이름 확인(Deferred Name Resolution) 때문에 NOEXEC는 물론 실제 ALTER에서도 잡히지 않는다.
 
-**메타데이터 가시성**
+**메타데이터 가시성** (원시: `results.csv` 마지막 표 — `noexec.cs`가 함께 출력)
 | 사용자 | `OBJECT_ID('dbo.Orders')` | `sys.columns`(Orders) | `OBJECT_ID('dbo.usp_CancelOrder')` | `dm_sql_referenced_entities` |
 | :--- | :--- | ---: | :--- | ---: |
 | ④ 권한 없음 | NULL | 0 | NULL | 0 |

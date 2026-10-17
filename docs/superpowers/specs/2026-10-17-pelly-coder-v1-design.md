@@ -70,6 +70,7 @@ PRD §1.4의 "v1 제외" 항목 전부. 특히 다중 파일 수정, 새 파일 
 | D19 | **IDE 연동은 External Tools 방식.** 사용자들은 Visual Studio와 Rider를 혼용하므로 IDE별 플러그인 대신 두 IDE 공통 기능인 External Tools로 `pelly cs <파일> --line <커서 줄>`을 실행. v1 UI는 콘솔 창. GUI 승인 창(`pelly ui`, Avalonia)은 v1 다음 단계 | 사용자 |
 | D20 | `Core`는 콘솔에 직접 출력하지 않음. 모든 진행 표시·입력은 `IUserInteraction`을 통해서만 함 (다음 단계의 GUI 승인 창이 같은 `Core`를 쓰기 위함) | 설계 |
 | D21 | **Think 단계는 교정 시도부터 사용** (`llm.thinkMode = retry` 기본, `off`/`always` 선택 가능). 첫 시도는 빈 think 프리필로 바로 코드 생성. 근거: S3 — 이 모델은 512토큰 안에 생각을 끝내지 못하고(30/30), 생략해도 10건 결과가 같았으며 평균 9.0초 → 1.7초 | 사용자 |
+| D23 | **`stop` 옵션에 의존하지 않음.** 이 모델 엔진(raw 모드)은 `stop`을 무시함(S1 보완 측정). `stop`은 보내되, THINK 응답은 클라이언트가 첫 `</think>` 앞까지만 쓰고 나머지는 버림. CODE 응답은 종료 토큰(`<|im_end|>`)·`num_predict`로 끝나며, 파서는 마지막 `>>>>>>> REPLACE` 뒤 텍스트를 무시함. 생성 길이는 항상 `num_predict`로 제한 | 설계 |
 | D22 | **Think 예산은 서버 `num_predict`로 제한**하고 `done_reason == "length"`로 잘림을 판단. 클라이언트가 스트림을 끊지 않음(Ctrl+C 제외). 근거: S2 — 클라이언트 취소 시 다음 요청이 약 2초 늦어짐 | 설계 |
 | D18 | `--test`의 테스트 프로젝트는 솔루션 안에서 대상 프로젝트를 `ProjectReference`(레거시는 `<ProjectReference Include>`)로 참조하는 프로젝트 중 이름이 `Test`를 포함하는 것. 설정 `test.projects`로 직접 지정 가능 | 설계 |
 
@@ -351,7 +352,8 @@ useThink = thinkMode == always || (thinkMode == retry && attempt >= 2)     // D2
 
 [THINK]  (useThink일 때만)
   req1 = basePrompt + thinkOpen ; sampling.think ; num_predict = budget.think ; stop = ["</think>"]   // D22
-  done_reason == "length" 이면 잘린 것 → 마지막 '\n' 이전까지만 남김 (잘린 줄 제거)
+  응답에 "</think>"가 있으면 그 앞까지만 사용 (stop이 무시될 수 있음 — D23)
+  없고 done_reason == "length" 이면 잘린 것 → 마지막 '\n' 이전까지만 남김 (잘린 줄 제거)
   thinkText = 결과 (끝 공백 제거), thinkTokens = eval_count (서버 값)
 
 [CODE]
@@ -644,7 +646,7 @@ S1~S5는 M0, S6·S7은 M3에 수행합니다.
 ### 9.1 M0 결과 (2026-10-17, `qwen3.6:35b-a3b-coding-nvfp4` — 폐쇄망 모델과 같은 모델을 받으면 S1·S2·S4 재실행)
 | ID | 결과 | 문서 |
 | :--- | :--- | :--- |
-| S1 | 통과. ChatML + `<think>\n` 확정(렌더러와 토큰 수 일치). raw 모드는 생각도 `response`로 옴 | [S1](../../spikes/S1-template.md) |
+| S1 | 통과. ChatML + `<think>\n` 확정(렌더러와 토큰 수 일치). raw 모드는 생각도 `response`로 옴. **raw 모드에서 `stop` 무시됨 → D23** | [S1](../../spikes/S1-template.md) |
 | S2 | 통과. 2단계 TTFT 299ms. 클라이언트 취소는 다음 요청 +2초 → D22. 1단계(무캐시 4,300토큰) TTFT 1.56초는 이 Mac에서 KPI 초과 | [S2](../../spikes/S2-prefill-cache.md) |
 | S3 | 샘플링 기본값 유지. think 30/30이 512 초과, 생략해도 결과 동일·5배 빠름 → D21 | [S3](../../spikes/S3-sampling.md) |
 | S4 | 통과. `Microsoft.ML.Tokenizers` 2.0.1로 서버와 오차 0% → `QwenTokenCounter` | [S4](../../spikes/S4-tokenizer.md) |

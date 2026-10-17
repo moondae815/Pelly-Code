@@ -36,3 +36,9 @@ sa,real-alter-in-tran,b-bad-column,"207@L14:Invalid column name 'CancelReasonX'.
 sa,real-alter-in-tran,c-missing-table,"none",
 sa,real-alter-in-tran,d-syntax,"102@L8:Incorrect syntax near 'SELEC'.",
 final definition unchanged: True
+
+user,object_id_orders,sys_columns_orders,object_id_usp_cancelorder,referenced_entities
+pelly_none,NULL,0,NULL,0
+pelly_view,1061578820,14,1493580359,9
+pelly_showplan,1061578820,14,1493580359,9
+pelly_alter,1061578820,14,1493580359,9

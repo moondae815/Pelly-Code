@@ -1,7 +1,44 @@
 ===== chat think=true
 fields: created_at, done, done_reason, eval_count, eval_duration, load_duration, message, message.content, message.role, message.thinking, model, prompt_eval_cached_count, prompt_eval_count, prompt_eval_duration, total_duration
-prompt_eval_count=50 eval_count=393 done_reason=stop ttft=25657ms
---- thinking field (1264 chars):
+prompt_eval_count=50 eval_count=400 done_reason=length ttft=8752ms
+--- thinking field (1393 chars):
+Here's a thinking process:
+
+1.  **Analyze User Input:**
+   - **Language:** C#
+   - **Task:** Write a method that adds two integers.
+   - **Constraint:** "설명 없이 코드만." (No explanation, just the code.)
+   - **Input Language:** Korean
+
+2.  **Identify Key Requirements:**
+   - C# method signature for adding two integers.
+   - Return type should be `int` 
+...
+
+
+   ```csharp
+   public int Add(int a, int b)
+   {
+       return a + b;
+   }
+   ```
+
+4.  **Check Constraints:**
+   - C#? Yes.
+   - Adds two integers? Yes.
+   - No explanation, just code? Yes.
+   - Language matches? The code is language-agnostic in terms of comments, but I'll ensure no Korean/English text outside the code block.
+
+5.  **Final Output
+--- response field (0 chars):
+
+response contains '</think>' at index -1; '<think>' at -1
+===== generate raw ChatML+<think>
+fields: created_at, done, done_reason, eval_count, eval_duration, load_duration, model, prompt_eval_cached_count, prompt_eval_count, prompt_eval_duration, response, total_duration
+prompt_eval_count=50 eval_count=400 done_reason=length ttft=55ms
+--- thinking field (0 chars):
+
+--- response field (1350 chars):
 Here's a thinking process:
 
 1.  **Analyze User Input:**
@@ -14,12 +51,7 @@ Here's a thinking process:
    - Method signature: Should take two integers and return an integer.
    - Lang
 ...
-tandard version.)
-
-   Let's output exactly what's requested.
-
-   ```csharp
-   public int Add(int a, int b)
+nt Add(int a, int b)
    {
        return a + b;
    }
@@ -27,50 +59,14 @@ tandard version.)
 
    Wait, the prompt says "설명 없이 코드만." (No explanation, just code.) I will provide only the code block.
 
-   Final check: The code is correct, concise, and matches all constraints. I'll output it directly.✅
---- response field (52 chars):
-```csharp
-public int Add(int a, int b) => a + b;
-```
-response contains '</think>' at index -1; '<think>' at -1
-===== generate raw ChatML+<think>
-fields: created_at, done, done_reason, eval_count, eval_duration, load_duration, model, prompt_eval_cached_count, prompt_eval_count, prompt_eval_duration, response, total_duration
-prompt_eval_count=50 eval_count=400 done_reason=length ttft=81ms
---- thinking field (0 chars):
-
---- response field (1350 chars):
-Here's a thinking process:
-
-1.  **Analyze User Input:**
-   - **Task:** Write a C# method that adds two integers.
-   - **Constraint:** "설명 없이 코드만." (Only code, no explanation.)
-   - **Language:** C#
-   - **Input Language:** Korean
-
-2.  **Identify Key Requirements:**
-   - Method signature: Should take two integers and return an integer.
-   - Language
-...
-d one for clarity, or the concise one. Both are fine. I'll use the standard one.)
-
-   Actually, the prompt says "설명 없이 코드만." so I will just output the code block.
-
-   Let's produce exactly that.
-
-   ```csharp
-   public int Add(int a, int b)
-   {
-       return a + b;
-   }
-   ```
-
-   No extra text. Ready.✅
-   I will output just the code block.👇🏼
-  
+   Final check: C# method, adds two integers, no extra text. Perfect.✅
+   Output matches response. 
+   Proceed. 
+   [Output Generation] -> `public int Add(int a, int b) { return a + b; }
 response contains '</think>' at index -1; '<think>' at -1
 ===== generate raw empty-think
 fields: created_at, done, done_reason, eval_count, eval_duration, load_duration, model, prompt_eval_cached_count, prompt_eval_count, prompt_eval_duration, response, total_duration
-prompt_eval_count=52 eval_count=26 done_reason=stop ttft=110ms
+prompt_eval_count=52 eval_count=26 done_reason=stop ttft=44ms
 --- thinking field (0 chars):
 
 --- response field (64 chars):
@@ -81,3 +77,69 @@ public int Add(int a, int b)
 }
 ```
 response contains '</think>' at index -1; '<think>' at -1
+===== generate raw long (no stop)
+fields: created_at, done, done_reason, eval_count, eval_duration, load_duration, model, prompt_eval_cached_count, prompt_eval_count, prompt_eval_duration, response, total_duration
+prompt_eval_count=60 eval_count=295 done_reason=stop ttft=162ms
+--- thinking field (0 chars):
+
+--- response field (1122 chars):
+Here's a thinking process:
+
+1.  **Analyze User Input:**
+   - **Language:** C#
+   - **Task:** Identify a method name that checks if a string is null or empty.
+   - **Constraint:** Provide only one method name.
+   - **Language of Response:** Korean (as the prompt is in Korean).
+
+2.  **Identify Key Concept:**
+   - In C#, the standard method to check i
+...
+
+   - In Korean context, I'll just output the exact method name as requested.
+
+   Draft: `string.IsNullOrEmpty`
+
+4.  **Verify against Constraints:**
+   - C#? Yes.
+   - Checks if string is null or empty? Yes.
+   - Only one method name? Yes.
+   - Language matches? Yes.
+
+   All constraints met. Output matches exactly.✅
+</think>
+
+`string.IsNullOrEmpty`
+response contains '</think>' at index 1090; '<think>' at -1
+===== generate raw long + stop </think>
+fields: created_at, done, done_reason, eval_count, eval_duration, load_duration, model, prompt_eval_cached_count, prompt_eval_count, prompt_eval_duration, response, total_duration
+prompt_eval_count=60 eval_count=327 done_reason=stop ttft=144ms
+--- thinking field (0 chars):
+
+--- response field (1226 chars):
+Here's a thinking process:
+
+1.  **Analyze User Input:**
+   - **Language:** C#
+   - **Task:** Identify a method name that checks if a string is null or empty.
+   - **Constraint:** Provide only one method name.
+   - **Language of Response:** Korean (as the prompt is in Korean).
+
+2.  **Identify Key Concept:**
+   - In C#, the standard method to check i
+...
+ed, possibly with a brief note if needed, but strictly follow "하나만 말해줘" (just tell me one).
+
+   Draft: `IsNullOrEmpty`
+
+4.  **Verify against Constraints:**
+   - C#? Yes.
+   - Checks if string is null or empty? Yes.
+   - Only one method name? Yes.
+   - Language matches? Yes.
+
+   All constraints met. Output matches exactly.✅
+</think>
+
+`IsNullOrEmpty`
+response contains '</think>' at index 1201; '<think>' at -1
+stop check: done_reason=stop, eval_count=327, ends_with_think_close=False

@@ -1,0 +1,4 @@
+stop="</think>" done_reason=stop eval_count=958 contains_close=True tail='utput that)\n   *(Done.)*\n</think>\n\n`IsNullOrEmpty`'
+stop="\n</think>" done_reason=stop eval_count=438 contains_close=True tail='IsNullOrEmpty`.\n\n   Done.✅\n</think>\n\nIsNullOrEmpty'
+stop="</think>\n" done_reason=stop eval_count=432 contains_close=True tail='l provide exactly that.✅\n</think>\n\n`IsNullOrEmpty`'
+stop="IsNullOrEmpty" done_reason=stop eval_count=1139 contains_close=True tail='lOrEmpty` \n   (Proceeds)\n</think>\n\n`IsNullOrEmpty`'

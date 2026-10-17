@@ -93,3 +93,18 @@ using (var conn = new SqlConnection(Conn("sa", saPassword)))
     tx.Rollback();
 }
 Console.WriteLine($"final definition unchanged: {Definition() == original}");
+
+// 메타데이터 가시성: 존재 검사·스키마 요약에 쓰는 조회가 권한별로 어떻게 보이는지
+Console.WriteLine();
+Console.WriteLine("user,object_id_orders,sys_columns_orders,object_id_usp_cancelorder,referenced_entities");
+foreach (var (user, pwd) in users)
+{
+    using var conn = new SqlConnection(Conn(user, pwd));
+    conn.Open();
+    object Scalar(string q) { using var cmd = new SqlCommand(q, conn); return cmd.ExecuteScalar() ?? DBNull.Value; }
+    var oid = Scalar("SELECT OBJECT_ID('dbo.Orders')");
+    var cols = Scalar("SELECT COUNT(*) FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Orders')");
+    var pid = Scalar("SELECT OBJECT_ID('dbo.usp_CancelOrder')");
+    var refs = Scalar("SELECT COUNT(*) FROM sys.dm_sql_referenced_entities('dbo.usp_CancelOrder', 'OBJECT')");
+    Console.WriteLine($"{user},{(oid is DBNull ? "NULL" : oid)},{cols},{(pid is DBNull ? "NULL" : pid)},{refs}");
+}

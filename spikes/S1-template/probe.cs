@@ -40,6 +40,18 @@ var gen2 = await Stream(http, "/api/generate", new
 });
 Report("generate raw empty-think", gen2);
 
+// 4) raw, 생각을 끝낼 만큼 긴 num_predict — </think>가 response에 나오는지
+const string briefUser = "C#에서 문자열이 null이거나 비었는지 확인하는 메서드 이름 하나만 말해줘.";
+var rawLong = $"<|im_start|>system\nYou are a C# coding assistant. Think briefly. [{nonce}-4]<|im_end|>\n<|im_start|>user\n{briefUser}<|im_end|>\n<|im_start|>assistant\n<think>\n";
+var gen4 = await Stream(http, "/api/generate", new { model, prompt = rawLong, raw = true, stream = true, options = new { num_predict = 3000, temperature = 0 } });
+Report("generate raw long (no stop)", gen4);
+
+// 5) 같은 프롬프트에 stop ["</think>"] — 서버가 </think>에서 멈추는지
+var rawStop = rawLong.Replace($"[{nonce}-4]", $"[{nonce}-5]");
+var gen5 = await Stream(http, "/api/generate", new { model, prompt = rawStop, raw = true, stream = true, options = new { num_predict = 3000, temperature = 0, stop = new[] { "</think>" } } });
+Report("generate raw long + stop </think>", gen5);
+Console.WriteLine($"stop check: done_reason={gen5.DoneReason}, eval_count={gen5.Eval}, ends_with_think_close={gen5.Response.ToString().TrimEnd().EndsWith("</think>")}");
+
 static async Task<Result> Stream(HttpClient http, string path, object body)
 {
     var req = new HttpRequestMessage(HttpMethod.Post, path) { Content = JsonContent.Create(body) };

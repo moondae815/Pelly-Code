@@ -39,12 +39,13 @@ jobs:
           global-json-file: global.json
       - name: Build
         run: dotnet build -warnaserror
-      - name: Windows tests
-        # 환경이 빠져 Skip되거나 필터 오타로 0개가 되면 실패해야 한다
-        run: dotnet test tests/PellyCoder.Integration.Tests --no-build -- --filter-trait "Env=Windows" --fail-skips on --minimum-expected-tests 1
+      # 테스트가 eval/corpus/Legacy/packages 를 쓰므로 Windows tests 보다 먼저 복원·빌드한다
       - name: Legacy corpus build and tests
         shell: pwsh
         run: ./eval/corpus/Legacy/build.ps1
+      - name: Windows tests
+        # 환경이 빠져 Skip되거나 필터 오타로 0개가 되면 실패해야 한다
+        run: dotnet test tests/PellyCoder.Integration.Tests --no-build -- --filter-trait "Env=Windows" --fail-skips on --minimum-expected-tests 1
 
   sql-integration:
     runs-on: ubuntu-latest

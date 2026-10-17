@@ -1,0 +1,6 @@
+* text=auto
+*.cs text eol=lf
+eval/corpus/Legacy/** -text
+eval/corpus/Sql/** -text
+tests/fixtures/** -text
+*.sln text eol=crlf

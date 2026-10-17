@@ -1,4 +1,5 @@
 using System.IO.Abstractions;
+using Microsoft.Win32.SafeHandles;
 using PellyCoder.Core.Workspaces;
 
 namespace PellyCoder.Core.Tests.Workspaces;
@@ -29,12 +30,32 @@ public class WorkspaceLockTests : IDisposable
     [Fact]
     public void NonLockIoFailure_IsNotReportedAsLocked()
     {
-        var fs = new FileSystem();
-        var blocker = Path.Combine(_root, "blocker");
-        File.WriteAllText(blocker, "x");
-        // PellyDir lies under an existing file, so creating it fails for a reason other than a lock.
-        var ws = new Workspace(_root, Path.Combine(blocker, ".pelly"));
+        // The failure comes from opening the lock file (inside the try), not from creating the directory.
+        var fs = new OpenFailsFileSystem(new IOException("disk full", unchecked((int)0x80070070)));
+        var ws = new Workspace(_root, Path.Combine(_root, ".pelly"));
 
-        Assert.ThrowsAny<IOException>(() => WorkspaceLock.TryAcquire(fs, ws));
+        var ex = Assert.Throws<IOException>(() => WorkspaceLock.TryAcquire(fs, ws));
+        Assert.Contains("disk full", ex.Message);
+    }
+
+    private sealed class OpenFailsFileSystem(IOException failure) : FileSystem, IFileSystem
+    {
+        IFileStreamFactory IFileSystem.FileStream => new ThrowingFactory(failure);
+    }
+
+    private sealed class ThrowingFactory(IOException failure) : IFileStreamFactory
+    {
+        public IFileSystem FileSystem => throw new NotSupportedException();
+        public FileSystemStream New(SafeFileHandle handle, FileAccess access) => throw failure;
+        public FileSystemStream New(SafeFileHandle handle, FileAccess access, int bufferSize) => throw failure;
+        public FileSystemStream New(SafeFileHandle handle, FileAccess access, int bufferSize, bool isAsync) => throw failure;
+        public FileSystemStream New(string path, FileMode mode) => throw failure;
+        public FileSystemStream New(string path, FileMode mode, FileAccess access) => throw failure;
+        public FileSystemStream New(string path, FileMode mode, FileAccess access, FileShare share) => throw failure;
+        public FileSystemStream New(string path, FileMode mode, FileAccess access, FileShare share, int bufferSize) => throw failure;
+        public FileSystemStream New(string path, FileMode mode, FileAccess access, FileShare share, int bufferSize, bool useAsync) => throw failure;
+        public FileSystemStream New(string path, FileMode mode, FileAccess access, FileShare share, int bufferSize, FileOptions options) => throw failure;
+        public FileSystemStream New(string path, FileStreamOptions options) => throw failure;
+        public FileSystemStream Wrap(FileStream fileStream) => throw failure;
     }
 }

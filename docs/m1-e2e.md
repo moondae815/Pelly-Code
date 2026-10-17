@@ -92,4 +92,4 @@ Review (시도 1) 변경 검토
 
 * Modern 코퍼스에서 `pelly cs`가 실제 모델로 성공: 테스트 3/3, CLI 1건 — 충족.
 * M1 구성 요소 단위 테스트: 환경 변수 없이 `dotnet test`: 합계 293 · 실패 0 · 성공 284 · 건너뜀 9(환경 의존 테스트).
-* CI 4개 잡: 푸시 후 확인 필요(이 작업에서는 푸시하지 않았다).
+* CI 4개 잡: `7404300`에서 실행 39039432086 — `unit (macos-latest)`·`unit (windows-latest)`·`windows-integration`·`sql-integration` 4개 모두 성공.

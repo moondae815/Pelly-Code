@@ -23,7 +23,9 @@ pelly cs <파일> "<요청문>" --method <메서드> [--class <클래스>] [--ye
 ```
 
 * M1에서는 `--method`가 필수입니다. 같은 이름이 여러 개면 `--class`로 좁힙니다.
-* 파일을 쓰기 전에 diff를 보여주고 승인을 받습니다. `--yes`는 질문 없이 승인, `--dry-run`은 파일을 쓰지 않고 diff만 보여줍니다.
+* 순서: 패치를 파일에 **먼저 쓰고**(APPLY) → 구문 검사(VERIFY) → 통과하면 diff를 보여주고 승인을 묻습니다(REVIEW). 거부하면 원래 파일로 되돌립니다.
+  승인 질문이 떠 있는 동안 파일은 이미 바뀐 상태이므로, IDE나 파일 감시 도구(빌드 watch 등)가 승인 전 변경을 볼 수 있습니다.
+* `--yes`는 질문 없이 승인, `--dry-run`은 파일을 쓰지 않고 diff만 보여줍니다.
 * 실행 기록은 작업 공간의 `.pelly/runs/<runId>/`(`summary.json`, `events.jsonl`, `attempt-*/`)에 남습니다.
 * 예: `pelly cs Shop.Api/Services/OrderService.cs "배송 중인 주문은 취소할 수 없게 해줘" --method CancelAsync`
 

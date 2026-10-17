@@ -92,8 +92,10 @@ public static class MemberShapeGuard
 
     private static ShapeCheck Fail(string reason) => new(false, reason, []);
 
+    /// <summary>The kinds <see cref="MemberLocator"/> can target (operators only through <c>--line</c>).</summary>
     private static bool IsLocatorKind(MemberDeclarationSyntax m) =>
-        m is MethodDeclarationSyntax or ConstructorDeclarationSyntax or PropertyDeclarationSyntax;
+        m is MethodDeclarationSyntax or ConstructorDeclarationSyntax or PropertyDeclarationSyntax
+            or OperatorDeclarationSyntax or ConversionOperatorDeclarationSyntax;
 
     /// <summary>
     /// <c>private</c> (not <c>private protected</c>), or no access modifier in a class, struct or record, where the
@@ -204,6 +206,8 @@ public static class MemberShapeGuard
         MethodDeclarationSyntax m => m.Identifier.Text,
         ConstructorDeclarationSyntax c => c.Identifier.Text,
         PropertyDeclarationSyntax p => p.Identifier.Text,
+        OperatorDeclarationSyntax o => "operator " + o.OperatorToken.Text,
+        ConversionOperatorDeclarationSyntax c => "operator " + c.Type,
         _ => null,
     };
 
@@ -224,6 +228,16 @@ public static class MemberShapeGuard
             },
             ConstructorDeclarationSyntax c => new[] { ParameterShape(c.ParameterList) },
             PropertyDeclarationSyntax p => new[] { p.Type.ToString(), p.ExplicitInterfaceSpecifier?.ToString() ?? "", AccessorShape(p) },
+            OperatorDeclarationSyntax o => new[]
+            {
+                o.ReturnType.ToString(), o.ExplicitInterfaceSpecifier?.ToString() ?? "", o.CheckedKeyword.Text, o.OperatorToken.Text,
+                ParameterShape(o.ParameterList),
+            },
+            ConversionOperatorDeclarationSyntax c => new[]
+            {
+                c.ImplicitOrExplicitKeyword.Text, c.ExplicitInterfaceSpecifier?.ToString() ?? "", c.CheckedKeyword.Text, c.Type.ToString(),
+                ParameterShape(c.ParameterList),
+            },
             _ => [member.ToString()],
         };
         return Normalize(modifiers + " | " + string.Join(" | ", parts));

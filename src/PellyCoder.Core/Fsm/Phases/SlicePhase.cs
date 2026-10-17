@@ -24,7 +24,12 @@ public sealed class SlicePhase(FileGuard fileGuard, ITokenCounter tokens, Budget
 
         var language = ctx.Language!;
         var previous = ctx.Candidate!;
-        var found = MemberLocator.FindByName(current.Text, language.Version, ctx.Request.ClassName, ctx.Request.MethodName);
+        // Re-find by the requested name, or by the name of the member LOCATE resolved (--line, request text or model pick).
+        var found = ctx.Request.MethodName is { } method
+            ? MemberLocator.FindByName(current.Text, language.Version, ctx.Request.ClassName, method)
+            : MemberLocator.Locatable(current.Text, language.Version)
+                .Where(c => c.ContainingType == previous.ContainingType && MemberLocator.NameOf(c.Display) == MemberLocator.NameOf(previous.Display))
+                .ToList();
         var same = found.Where(c => c.Display == previous.Display).ToList();
         var candidate = same.Count == 1 ? same[0] : found.Count == 1 ? found[0] : null;
         if (candidate is null)

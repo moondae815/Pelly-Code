@@ -61,7 +61,7 @@ public sealed class ShapeGuardFlowTests : IDisposable
     private string CsprojPath => Path.Combine(_root, "Demo", "Demo.csproj");
 
     private static RunRequest Req(string path, bool dryRun = false, int? maxRetries = null) =>
-        new(path, null, "Divide", "Throw DivideByZeroException when b is zero.", true, dryRun, maxRetries);
+        new(path, null, "Divide", null, "Throw DivideByZeroException when b is zero.", true, dryRun, maxRetries);
 
     private static string Block(string search, string replace) => search + "\n=======\n" + replace + "\n>>>>>>> REPLACE\n";
 

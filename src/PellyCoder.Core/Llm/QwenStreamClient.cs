@@ -54,7 +54,7 @@ public sealed class QwenStreamClient(
         {
             var req = new LlmRequest(basePrompt + template.ThinkOpen, sampling.Think, budget.Think,
                 [ThinkCloseTag], llm.NumCtx, llm.KeepAlive);
-            var (raw, usage) = await RunAsync(req, ct);
+            var (raw, usage) = await ReadAsync(backend, req, time, ct);
             thinkUsage = usage;
             thinkTokens = usage.EvalCount ?? 0;
 
@@ -83,12 +83,14 @@ public sealed class QwenStreamClient(
 
         var codeReq = new LlmRequest(basePrompt + prefill + SearchMarker, sampling.Code, budget.CodeOutput,
             [template.EndOfTurn], llm.NumCtx, llm.KeepAlive);
-        var (code, codeUsage) = await RunAsync(codeReq, ct);
+        var (code, codeUsage) = await ReadAsync(backend, codeReq, time, ct);
 
         return new GenerationResult(SearchMarker + code, useThink, thinkText, thinkTokens, thinkTruncated, thinkUsage, codeUsage);
     }
 
-    private async Task<(string Text, LlmUsage Usage)> RunAsync(LlmRequest request, CancellationToken ct)
+    /// <summary>Streams one request to the done chunk and collects its text and counters (shared with <see cref="ModelMemberPicker"/>).</summary>
+    internal static async Task<(string Text, LlmUsage Usage)> ReadAsync(ILlmBackend backend, LlmRequest request, TimeProvider time,
+        CancellationToken ct)
     {
         var start = time.GetTimestamp();
         TimeSpan? ttft = null;

@@ -59,7 +59,7 @@ public sealed class FsmOrchestratorTests : IDisposable
     private string BackupDir => Path.Combine(_root, ".pelly", "backup");
 
     private static RunRequest Req(string path, string method = "Divide", bool yes = true, bool dryRun = false, string? cls = null) =>
-        new(path, cls, method, "Throw DivideByZeroException when b is zero.", yes, dryRun, null);
+        new(path, cls, method, null, "Throw DivideByZeroException when b is zero.", yes, dryRun, null);
 
     /// <summary>Model output after the "&lt;&lt;&lt;&lt;&lt;&lt;&lt; SEARCH\n" prefill.</summary>
     private static string Block(string search, string replace) => search + "\n=======\n" + replace + "\n>>>>>>> REPLACE\n";

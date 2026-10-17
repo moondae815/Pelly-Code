@@ -9,9 +9,13 @@ using PellyCoder.Core.Workspaces;
 
 namespace PellyCoder.Core.Fsm;
 
-/// <summary>One <c>pelly cs</c> invocation. <paramref name="MaxRetries"/> null means <c>retry.max</c> from the options.</summary>
+/// <summary>
+/// One <c>pelly cs</c> invocation. The target is <paramref name="Line"/> (1-based, not with a class or method name), else
+/// <paramref name="MethodName"/>, else found from the request text (design 8.4). <paramref name="MaxRetries"/> null means
+/// <c>retry.max</c> from the options.
+/// </summary>
 public sealed record RunRequest(
-    string FilePath, string? ClassName, string MethodName, string Request, bool Yes, bool DryRun, int? MaxRetries);
+    string FilePath, string? ClassName, string? MethodName, int? Line, string Request, bool Yes, bool DryRun, int? MaxRetries);
 
 /// <summary>
 /// Mutable state of one run. Phases exchange data only through this object.

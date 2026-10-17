@@ -22,14 +22,16 @@ public static class FsmOrchestratorFactory
         var fileGuard = new FileGuard(fs, time);
         var logger = new RunLogger(fs, time);
         var feedback = new FeedbackBuilder(tokens, options.Budget.Feedback);
-        var prompts = new PromptBuilder(template, PromptResources.LoadDefault(), tokens, options.Budget);
+        var resources = PromptResources.LoadDefault();
+        var prompts = new PromptBuilder(template, resources, tokens, options.Budget);
         var client = new QwenStreamClient(backend, template, options.Llm, options.Budget, options.Sampling, time);
         var builds = new BuildVerifier(processes, options.Build);
 
         IPhase[] phases =
         [
             new PreflightPhase(fs, fileGuard, backend, options.Llm),
-            new LocatePhase(fs, ui, new BuildToolResolver(fs, processes, options.Build, isWindows), builds, isWindows),
+            new LocatePhase(fs, ui, new BuildToolResolver(fs, processes, options.Build, isWindows), builds,
+                new ModelMemberPicker(backend, template, resources, options.Llm, options.Sampling), isWindows),
             new SlicePhase(fileGuard, tokens, options.Budget),
             new EditPhase(prompts, client, feedback, logger),
             new ApplyPhase(fileGuard, feedback, ui, options.Build),

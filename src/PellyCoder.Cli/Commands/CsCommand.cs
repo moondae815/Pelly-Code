@@ -77,7 +77,7 @@ public sealed class CsCommand(
         }
 
         var request = new RunRequest(
-            file, settings.Class, settings.Method, settings.Request, settings.Yes, settings.DryRun, settings.MaxRetries);
+            file, settings.Class, settings.Method, Line: null, settings.Request, settings.Yes, settings.DryRun, settings.MaxRetries);
         try
         {
             return await runner.RunAsync(request, loaded.Options, cancellation);

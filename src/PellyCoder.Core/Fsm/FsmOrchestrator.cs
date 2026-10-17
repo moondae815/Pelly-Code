@@ -200,7 +200,12 @@ public sealed class FsmOrchestrator(
         return phase switch
         {
             RunPhase.Preflight => $"사전 점검: {file}",
-            RunPhase.Locate => $"대상 찾기: {ctx.Request.MethodName}",
+            RunPhase.Locate => ctx.Request switch
+            {
+                { Line: { } line } => $"대상 찾기: {line}번 줄",
+                { MethodName: { } method } => $"대상 찾기: {method}",
+                _ => "대상 찾기: 요청문에서",
+            },
             RunPhase.Slice => "문맥 구성",
             RunPhase.Edit => $"수정 생성 (시도 {ctx.Attempt + 1}/{1 + ctx.MaxRetries})",
             RunPhase.Apply => ctx.Request.DryRun ? "패치 미리 보기" : "패치 적용",

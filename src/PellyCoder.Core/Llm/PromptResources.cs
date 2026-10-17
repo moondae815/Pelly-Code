@@ -1,7 +1,10 @@
 namespace PellyCoder.Core.Llm;
 
-/// <summary>Embedded C# prompt texts. Bodies have the leading "# version: N" line and one trailing newline removed.</summary>
-public sealed record PromptResources(string SystemCs, string FewShotCs, string Version)
+/// <summary>
+/// Embedded C# prompt texts. Bodies have the leading "# version: N" line and one trailing newline removed.
+/// <paramref name="Version"/> covers the edit prompts only; <paramref name="Locate"/> (target pick) is versioned on its own.
+/// </summary>
+public sealed record PromptResources(string SystemCs, string FewShotCs, string Version, string Locate)
 {
     private const string Prefix = "PellyCoder.Core.Llm.Resources.";
     private const string VersionPrefix = "# version:";
@@ -13,7 +16,8 @@ public sealed record PromptResources(string SystemCs, string FewShotCs, string V
         if (systemVersion != fewShotVersion)
             throw new InvalidOperationException(
                 $"Prompt resource versions differ: system.cs.txt={systemVersion}, fewshot.cs.txt={fewShotVersion}.");
-        return new PromptResources(system, fewShot, "cs-v" + systemVersion);
+        var (locate, _) = Load("locate.txt");
+        return new PromptResources(system, fewShot, "cs-v" + systemVersion, locate);
     }
 
     private static (string Body, string Version) Load(string name)

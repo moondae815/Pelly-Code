@@ -113,7 +113,7 @@ public sealed class CsEndToEndTests(ITestOutputHelper output) : IDisposable
         var orchestrator = FsmOrchestratorFactory.Create(fs, backend, ui, options, TimeProvider.System, new SystemProcessRunner(TimeProvider.System));
 
         using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(10));
-        var exit = await orchestrator.RunAsync(new RunRequest(file, null, method, request, Yes: true, DryRun: dryRun, MaxRetries: null), cts.Token);
+        var exit = await orchestrator.RunAsync(new RunRequest(file, null, method, null, request, Yes: true, DryRun: dryRun, MaxRetries: null), cts.Token);
         return (exit, ui);
     }
 

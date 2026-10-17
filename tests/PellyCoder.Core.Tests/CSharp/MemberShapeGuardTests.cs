@@ -359,4 +359,35 @@ public sealed class MemberShapeGuardTests
         Assert.Equal("using System was removed. Usings may only be added.",
             Check(Replace("using System;\n", "")).Reason);
     }
+
+    private const string Money =
+        "public readonly struct Money\n{\n    public decimal Value { get; init; }\n\n" +
+        "    public static Money operator +(Money a, Money b)\n    {\n        return new Money { Value = a.Value + b.Value };\n    }\n\n" +
+        "    public static implicit operator decimal(Money m)\n    {\n        return m.Value;\n    }\n}\n";
+
+    [Fact]
+    public void OperatorTarget_BodyChange_IsOk()
+    {
+        var plus = MemberShapeGuard.Check(Money, Money.Replace("a.Value + b.Value", "Math.Round(a.Value + b.Value, 2)"),
+            "Money.operator +(Money, Money)", V);
+        var conversion = MemberShapeGuard.Check(Money, Money.Replace("return m.Value;", "return Math.Round(m.Value, 2);"),
+            "Money.operator decimal(Money)", V);
+
+        Assert.True(plus.Ok, plus.Reason);
+        Assert.True(conversion.Ok, conversion.Reason);
+    }
+
+    [Fact]
+    public void OperatorTarget_SignatureChange_IsRejected()
+    {
+        var plus = MemberShapeGuard.Check(Money, Money.Replace("operator +(Money a, Money b)", "operator +(Money a, decimal b)"),
+            "Money.operator +(Money, Money)", V);
+        var conversion = MemberShapeGuard.Check(Money, Money.Replace("implicit operator decimal", "explicit operator decimal"),
+            "Money.operator decimal(Money)", V);
+
+        Assert.Equal("signature of Money.operator +(Money, Money) changed to Money.operator +(Money, decimal). Signature changes are not allowed.",
+            plus.Reason);
+        Assert.False(conversion.Ok);
+        Assert.StartsWith("signature of Money.operator decimal(Money) changed from ", conversion.Reason);
+    }
 }

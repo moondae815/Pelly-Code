@@ -64,7 +64,7 @@ public sealed class BuildVerificationFlowTests : IDisposable
     private string BackupDir => Path.Combine(_root, ".pelly", "backup");
 
     private static RunRequest Req(string path, bool dryRun = false) =>
-        new(path, null, "Divide", "Throw DivideByZeroException when b is zero.", true, dryRun, null);
+        new(path, null, "Divide", null, "Throw DivideByZeroException when b is zero.", true, dryRun, null);
 
     private static string Block(string search, string replace) => search + "\n=======\n" + replace + "\n>>>>>>> REPLACE\n";
 

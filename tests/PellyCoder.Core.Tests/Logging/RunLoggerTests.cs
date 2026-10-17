@@ -23,7 +23,7 @@ public sealed class RunLoggerTests
     {
         var options = new PellyOptions();
         options.Log.RetentionDays = 30;
-        var request = new RunRequest(P(@"C:\ws\Calc.cs"), null, "Divide", "req", true, false, null);
+        var request = new RunRequest(P(@"C:\ws\Calc.cs"), null, "Divide", null, "req", true, false, null);
         return new RunContext(runId, request, options) { Workspace = new Workspace(P(@"C:\ws"), P(@"C:\ws\.pelly")) };
     }
 

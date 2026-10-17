@@ -1,0 +1,38 @@
+user,order,case,errors,definition_unchanged
+pelly_none,noexec,a-valid,"none",True
+pelly_none,noexec,b-bad-column,"207@L14:Invalid column name 'CancelReasonX'.",True
+pelly_none,noexec,c-missing-table,"none",True
+pelly_none,noexec,d-syntax,"102@L8:Incorrect syntax near 'SELEC'.",True
+pelly_none,tran+noexec,a-valid,"none",True
+pelly_none,tran+noexec,b-bad-column,"207@L14:Invalid column name 'CancelReasonX'.",True
+pelly_none,tran+noexec,c-missing-table,"none",True
+pelly_none,tran+noexec,d-syntax,"102@L8:Incorrect syntax near 'SELEC'.",True
+pelly_view,noexec,a-valid,"none",True
+pelly_view,noexec,b-bad-column,"207@L14:Invalid column name 'CancelReasonX'.",True
+pelly_view,noexec,c-missing-table,"none",True
+pelly_view,noexec,d-syntax,"102@L8:Incorrect syntax near 'SELEC'.",True
+pelly_view,tran+noexec,a-valid,"none",True
+pelly_view,tran+noexec,b-bad-column,"207@L14:Invalid column name 'CancelReasonX'.",True
+pelly_view,tran+noexec,c-missing-table,"none",True
+pelly_view,tran+noexec,d-syntax,"102@L8:Incorrect syntax near 'SELEC'.",True
+pelly_showplan,noexec,a-valid,"none",True
+pelly_showplan,noexec,b-bad-column,"207@L14:Invalid column name 'CancelReasonX'.",True
+pelly_showplan,noexec,c-missing-table,"none",True
+pelly_showplan,noexec,d-syntax,"102@L8:Incorrect syntax near 'SELEC'.",True
+pelly_showplan,tran+noexec,a-valid,"none",True
+pelly_showplan,tran+noexec,b-bad-column,"207@L14:Invalid column name 'CancelReasonX'.",True
+pelly_showplan,tran+noexec,c-missing-table,"none",True
+pelly_showplan,tran+noexec,d-syntax,"102@L8:Incorrect syntax near 'SELEC'.",True
+pelly_alter,noexec,a-valid,"none",True
+pelly_alter,noexec,b-bad-column,"207@L14:Invalid column name 'CancelReasonX'.",True
+pelly_alter,noexec,c-missing-table,"none",True
+pelly_alter,noexec,d-syntax,"102@L8:Incorrect syntax near 'SELEC'.",True
+pelly_alter,tran+noexec,a-valid,"none",True
+pelly_alter,tran+noexec,b-bad-column,"207@L14:Invalid column name 'CancelReasonX'.",True
+pelly_alter,tran+noexec,c-missing-table,"none",True
+pelly_alter,tran+noexec,d-syntax,"102@L8:Incorrect syntax near 'SELEC'.",True
+sa,real-alter-in-tran,a-valid,"none",
+sa,real-alter-in-tran,b-bad-column,"207@L14:Invalid column name 'CancelReasonX'.",
+sa,real-alter-in-tran,c-missing-table,"none",
+sa,real-alter-in-tran,d-syntax,"102@L8:Incorrect syntax near 'SELEC'.",
+final definition unchanged: True

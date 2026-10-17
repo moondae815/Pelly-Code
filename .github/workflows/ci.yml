@@ -40,7 +40,8 @@ jobs:
       - name: Build
         run: dotnet build -warnaserror
       - name: Windows tests
-        run: dotnet test --no-build -- --filter-trait "Env=Windows"
+        # 환경이 빠져 Skip되거나 필터 오타로 0개가 되면 실패해야 한다
+        run: dotnet test --no-build -- --filter-trait "Env=Windows" --fail-skips on --minimum-expected-tests 1
       - name: Legacy corpus build and tests
         shell: pwsh
         run: ./eval/corpus/Legacy/build.ps1
@@ -72,4 +73,5 @@ jobs:
       - name: Deploy SQL corpus
         run: ./eval/corpus/Sql/deploy.sh "${{ job.services.mssql.id }}" 'Pelly_Test_2026!'
       - name: SQL Server tests
-        run: dotnet test --no-build -- --filter-trait "Env=SqlServer"
+        # 환경이 빠져 Skip되거나 필터 오타로 0개가 되면 실패해야 한다
+        run: dotnet test --no-build -- --filter-trait "Env=SqlServer" --fail-skips on --minimum-expected-tests 1

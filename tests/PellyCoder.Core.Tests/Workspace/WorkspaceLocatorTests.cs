@@ -1,8 +1,8 @@
 using System.IO.Abstractions.TestingHelpers;
-using PellyCoder.Core.Workspace;
+using PellyCoder.Core.Workspaces;
 using static PellyCoder.Core.Tests.TestPaths;
 
-namespace PellyCoder.Core.Tests.Workspace;
+namespace PellyCoder.Core.Tests.Workspaces;
 
 public class WorkspaceLocatorTests
 {

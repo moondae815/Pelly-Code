@@ -1,6 +1,6 @@
 using System.IO.Abstractions;
 
-namespace PellyCoder.Core.Workspace;
+namespace PellyCoder.Core.Workspaces;
 
 public sealed record Workspace(string Root, string PellyDir);
 

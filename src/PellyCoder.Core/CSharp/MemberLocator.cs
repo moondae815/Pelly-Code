@@ -45,7 +45,7 @@ public static class MemberLocator
     private static string ParameterList(ParameterListSyntax list) =>
         "(" + string.Join(", ", list.Parameters.Select(p => p.Type?.ToString() ?? "?")) + ")";
 
-    private static TextSpanInfo SpanOf(SyntaxTree tree, MemberDeclarationSyntax member)
+    internal static TextSpanInfo SpanOf(SyntaxTree tree, MemberDeclarationSyntax member)
     {
         var doc = member.GetLeadingTrivia().FirstOrDefault(t =>
             t.IsKind(SyntaxKind.SingleLineDocumentationCommentTrivia) || t.IsKind(SyntaxKind.MultiLineDocumentationCommentTrivia));

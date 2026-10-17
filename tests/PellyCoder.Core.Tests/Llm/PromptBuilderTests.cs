@@ -58,7 +58,7 @@ public sealed class PromptBuilderTests
         var b = NewBuilder();
         var p1 = b.BuildCSharp(Target(), FullSlice(), "make it faster", null).BasePrompt;
         var p2 = b.BuildCSharp(Target("Other.Run()", "/x/Other.cs"), new Slice(new[] { Part("target", "void Run() { }") }, Array.Empty<SlicePart>(), "C# 7.3"),
-            "different request", new Feedback("compile error", 3)).BasePrompt;
+            "different request", new Models.Feedback("compile error", 3)).BasePrompt;
         const string marker = "<|im_end|>\n<|im_start|>user\n";
         var s1 = p1[..p1.IndexOf(marker, StringComparison.Ordinal)];
         var s2 = p2[..p2.IndexOf(marker, StringComparison.Ordinal)];
@@ -71,7 +71,7 @@ public sealed class PromptBuilderTests
     [Fact]
     public void User_HasExactLayout()
     {
-        var r = NewBuilder().BuildCSharp(Target(), FullSlice(), "  add a guard \n", new Feedback("CS1002 ; expected", 5));
+        var r = NewBuilder().BuildCSharp(Target(), FullSlice(), "  add a guard \n", new Models.Feedback("CS1002 ; expected", 5));
         Assert.Equal(PromptBudgetError.None, r.Error);
         var expected = string.Join("\n",
             "### TARGET",
@@ -97,7 +97,7 @@ public sealed class PromptBuilderTests
     [Fact]
     public void User_SectionsInDesignOrder()
     {
-        var u = User(NewBuilder().BuildCSharp(Target(), FullSlice(), "req", new Feedback("fb", 1)).BasePrompt);
+        var u = User(NewBuilder().BuildCSharp(Target(), FullSlice(), "req", new Models.Feedback("fb", 1)).BasePrompt);
         var t = u.IndexOf("### TARGET", StringComparison.Ordinal);
         var c = u.IndexOf("### CONTEXT", StringComparison.Ordinal);
         var r = u.IndexOf("### REQUEST", StringComparison.Ordinal);
@@ -139,7 +139,7 @@ public sealed class PromptBuilderTests
     public void FeedbackOver296Tokens_IsFeedbackTooLong()
     {
         var text = string.Join(' ', Enumerable.Range(0, 400).Select(i => "err" + i));
-        var r = NewBuilder().BuildCSharp(Target(), FullSlice(), "req", new Feedback(text, Counter.Count(text)));
+        var r = NewBuilder().BuildCSharp(Target(), FullSlice(), "req", new Models.Feedback(text, Counter.Count(text)));
         Assert.Equal(PromptBudgetError.FeedbackTooLong, r.Error);
         Assert.Contains("296", r.Detail);
     }

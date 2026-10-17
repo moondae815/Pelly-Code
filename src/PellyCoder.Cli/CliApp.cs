@@ -20,19 +20,23 @@ public static class CliApp
         config.SetExceptionHandler((ex, resolver) =>
         {
             var console = resolver?.Resolve(typeof(IAnsiConsole)) as IAnsiConsole ?? settings.Console ?? AnsiConsole.Console;
-            return HandleException(ex, console);
+            var shutdown = resolver?.Resolve(typeof(CancellationToken)) is CancellationToken t ? t : CancellationToken.None;
+            return HandleException(ex, console, shutdown);
         });
     }
 
     /// <summary>Exit code for an exception that escaped a command or came from argument parsing.</summary>
-    public static int HandleException(Exception ex, IAnsiConsole console)
+    /// <remarks>An <see cref="OperationCanceledException"/> is a user cancel (2) only when the shared shutdown token is cancelled; otherwise it is unexpected (4).</remarks>
+    public static int HandleException(Exception ex, IAnsiConsole console, CancellationToken shutdown)
     {
-        if (ex is OperationCanceledException)
+        if (ex is OperationCanceledException && shutdown.IsCancellationRequested)
         {
             console.MarkupLine("[yellow]사용자가 실행을 중단했습니다.[/]");
             return ExitCodes.UserCancelled;
         }
-        console.MarkupLine($"[red]{Markup.Escape(ex.Message)}[/]");
+        console.MarkupLine(ex is OperationCanceledException
+            ? $"[red]예기치 않은 오류로 중단합니다: {Markup.Escape(ex.GetType().Name)}: {Markup.Escape(ex.Message)}[/]"
+            : $"[red]{Markup.Escape(ex.Message)}[/]");
         return ExitCodes.EnvError;
     }
 

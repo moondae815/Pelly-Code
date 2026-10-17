@@ -5,6 +5,7 @@ using System.Text.Json.Serialization;
 using PellyCoder.Core.Fsm;
 using PellyCoder.Core.Llm;
 using PellyCoder.Core.Models;
+using PellyCoder.Core.Workspaces;
 
 namespace PellyCoder.Core.Logging;
 
@@ -41,24 +42,44 @@ public sealed class RunLogger(IFileSystem fs, TimeProvider time)
     public static string NewRunId(TimeProvider time) =>
         time.GetLocalNow().ToString(StampFormat, CultureInfo.InvariantCulture) + "-" + Random.Shared.Next(0x10000).ToString("x4", CultureInfo.InvariantCulture);
 
-    /// <summary>Creates the run folder and deletes run folders older than <c>log.retentionDays</c>.</summary>
-    public void Start(RunContext ctx) => Safe(ctx, () =>
+    /// <summary>
+    /// Deletes run folders older than <paramref name="retentionDays"/>. Call only from a run that holds the workspace
+    /// lock (a concurrent run's folder must not vanish); the current run's folder is never deleted. Best effort.
+    /// </summary>
+    public void Prune(Workspace ws, int retentionDays, string currentRunId)
     {
-        var runs = RunsDir(ctx);
-        fs.Directory.CreateDirectory(runs);
-        var cutoff = time.GetLocalNow().DateTime.AddDays(-ctx.Options.Log.RetentionDays);
-        foreach (var dir in fs.Directory.GetDirectories(runs))
+        try
         {
-            var name = fs.Path.GetFileName(dir);
-            if (name == ctx.RunId || name.Length < StampFormat.Length) continue;
-            if (!DateTime.TryParseExact(name[..StampFormat.Length], StampFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out var stamp))
-                continue;
-            if (stamp >= cutoff) continue;
-            try { fs.Directory.Delete(dir, recursive: true); }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { /* retried at the next run */ }
+            var runs = fs.Path.Combine(ws.PellyDir, "runs");
+            if (!fs.Directory.Exists(runs)) return;
+            var cutoff = time.GetLocalNow().DateTime.AddDays(-retentionDays);
+            foreach (var dir in fs.Directory.GetDirectories(runs))
+            {
+                var name = fs.Path.GetFileName(dir);
+                if (name == currentRunId || name.Length < StampFormat.Length) continue;
+                if (!DateTime.TryParseExact(name[..StampFormat.Length], StampFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out var stamp))
+                    continue;
+                if (stamp >= cutoff) continue;
+                try { fs.Directory.Delete(dir, recursive: true); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { /* retried at the next run */ }
+            }
         }
-        fs.Directory.CreateDirectory(RunDir(ctx));
-    });
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Retention is housekeeping: never fails the run.
+        }
+    }
+
+    /// <summary>Creates the run folder and resets the per-run failure note. Does not prune (see <see cref="Prune"/>).</summary>
+    public void Start(RunContext ctx)
+    {
+        _failed = false;
+        Safe(ctx, () =>
+        {
+            fs.Directory.CreateDirectory(RunsDir(ctx));
+            fs.Directory.CreateDirectory(RunDir(ctx));
+        });
+    }
 
     public void Phase(RunContext ctx, PhaseOutcome outcome, TimeSpan elapsed) => Safe(ctx, () =>
     {

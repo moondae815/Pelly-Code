@@ -33,7 +33,13 @@ public class ExitCodeMappingTests
         }
     }
 
-    private static CommandAppTester Build(CancellationToken ct)
+    private sealed class StrayCancelRunner : IRunner
+    {
+        public Task<int> RunAsync(RunRequest request, PellyOptions options, CancellationToken ct) =>
+            throw new TaskCanceledException("http timeout");
+    }
+
+    private static CommandAppTester Build(CancellationToken ct, IRunner? runner = null)
     {
         var fs = new MockFileSystem();
         fs.AddFile(File, new MockFileData("class A { void M() {} }"));
@@ -44,7 +50,7 @@ public class ExitCodeMappingTests
         services.AddSingleton<IFileSystem>(fs);
         services.AddSingleton<OptionsResolver>();
         services.AddSingleton<IUserInteraction>(new FakeUi(false));
-        services.AddSingleton<IRunner>(new CancellingRunner());
+        services.AddSingleton<IRunner>(runner ?? new CancellingRunner());
         services.AddSingleton<IDoctorRunner>(new CancellingDoctor());
         services.AddSingleton(new ConfigSources(null, new Dictionary<string, string?>()));
         services.AddSingleton(typeof(CancellationToken), ct);
@@ -96,5 +102,14 @@ public class ExitCodeMappingTests
         var result = Build(Cancelled()).Run("cs", File, "do it", "--method", "M");
 
         Assert.Equal(2, result.ExitCode);
+    }
+
+    [Fact]
+    public void Cli_UnexpectedOperationCanceled_Exit4()
+    {
+        var result = Build(CancellationToken.None, new StrayCancelRunner()).Run("cs", File, "do it", "--method", "M");
+
+        Assert.Equal(4, result.ExitCode);
+        Assert.DoesNotContain("사용자가 실행을 중단했습니다", result.Output);
     }
 }

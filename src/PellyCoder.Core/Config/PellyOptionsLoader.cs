@@ -175,6 +175,18 @@ public static class PellyOptionsLoader
 
     private static void Validate(PellyOptions o, List<string> errors)
     {
+        AtLeast(errors, "llm:numCtx", o.Llm.NumCtx, 1);
+        AtLeast(errors, "llm:connectTimeoutSeconds", o.Llm.ConnectTimeoutSeconds, 1);
+        AtLeast(errors, "llm:firstTokenTimeoutSeconds", o.Llm.FirstTokenTimeoutSeconds, 1);
+        AtLeast(errors, "llm:streamIdleTimeoutSeconds", o.Llm.StreamIdleTimeoutSeconds, 1);
+        foreach (var p in typeof(BudgetOptions).GetProperties().Where(p => p.PropertyType == typeof(int)))
+            AtLeast(errors, $"budget:{char.ToLowerInvariant(p.Name[0])}{p.Name[1..]}", (int)p.GetValue(o.Budget)!, 1);
+        AtLeast(errors, "build:timeoutSeconds", o.Build.TimeoutSeconds, 1);
+        AtLeast(errors, "log:retentionDays", o.Log.RetentionDays, 1);
+        AtLeast(errors, "retry:max", o.Retry.Max, 0);
+        AtLeast(errors, "sampling:think:topK", o.Sampling.Think.TopK, 1);
+        AtLeast(errors, "sampling:code:topK", o.Sampling.Code.TopK, 1);
+
         var b = o.Budget;
         var parts = (long)b.System + b.Request + b.Context + b.Feedback;
         if (parts > b.InputTotal)
@@ -182,5 +194,11 @@ public static class PellyOptionsLoader
         var total = (long)b.InputTotal + b.Think + b.CodeOutput;
         if (total > o.Llm.NumCtx)
             errors.Add($"budget: inputTotal+think+codeOutput ({total}) exceeds llm:numCtx ({o.Llm.NumCtx})");
+    }
+
+    private static void AtLeast(List<string> errors, string key, int value, int min)
+    {
+        if (value < min)
+            errors.Add($"{key} 값은 {min} 이상이어야 합니다: {value}");
     }
 }

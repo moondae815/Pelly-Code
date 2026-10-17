@@ -42,22 +42,6 @@ public sealed class RunLoggerTests
     }
 
     [Fact]
-    public void Retention_DeletesOldRuns()
-    {
-        _fs.AddDirectory(_fs.Path.Combine(_runs, "20260901-000000-aaaa")); // 46 days old
-        _fs.AddFile(_fs.Path.Combine(_runs, "20260901-000000-aaaa", "summary.json"), new MockFileData("{}"));
-        _fs.AddDirectory(_fs.Path.Combine(_runs, "20261001-000000-bbbb")); // 16 days old
-        _fs.AddDirectory(_fs.Path.Combine(_runs, "notes"));                // not a run id
-
-        new RunLogger(_fs, _time).Start(NewContext());
-
-        Assert.False(_fs.Directory.Exists(_fs.Path.Combine(_runs, "20260901-000000-aaaa")));
-        Assert.True(_fs.Directory.Exists(_fs.Path.Combine(_runs, "20261001-000000-bbbb")));
-        Assert.True(_fs.Directory.Exists(_fs.Path.Combine(_runs, "notes")));
-        Assert.True(_fs.Directory.Exists(_fs.Path.Combine(_runs, "20261017-093015-abcd")));
-    }
-
-    [Fact]
     public void AttemptFiles_Written()
     {
         var ctx = NewContext();

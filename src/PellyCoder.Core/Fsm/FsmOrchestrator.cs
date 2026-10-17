@@ -72,6 +72,9 @@ public sealed class FsmOrchestrator(
                 messages.Flush(); // before Complete, so a display failure is still recorded in messages.txt
                 if (!logStarted && ctx.Workspace is not null) BestEffort(ctx, () => logger.Start(ctx));
                 BestEffort(ctx, () => logger.Complete(ctx));
+                // Retention only under the lock, after this run's summary is written; never touches the current run.
+                if (ctx.Lock is not null && ctx.Workspace is { } ws)
+                    BestEffort(ctx, () => logger.Prune(ws, options.Log.RetentionDays, ctx.RunId));
                 messages.Flush();
             }
             finally
@@ -102,8 +105,9 @@ public sealed class FsmOrchestrator(
             ct.ThrowIfCancellationRequested();
             return await phase.ExecuteAsync(ctx, ct);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
+            // Only the run's own token means the user cancelled; any other cancellation (e.g. an HTTP timeout) is a crash.
             ctx.Messages.Add("사용자가 실행을 중단했습니다.");
             return PhaseOutcome.Cancelled;
         }

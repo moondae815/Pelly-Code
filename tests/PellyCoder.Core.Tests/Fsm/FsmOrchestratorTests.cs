@@ -441,6 +441,56 @@ public sealed class FsmOrchestratorTests : IDisposable
     }
 
     [Fact]
+    public async Task StrayOperationCanceled_WithoutUserCancel_IsCrashedExit4()
+    {
+        var originalBytes = File.ReadAllBytes(CalcPath);
+        _backend.EnqueueException(new TaskCanceledException("http timeout"));
+
+        var exit = await Run(Req(CalcPath));
+
+        Assert.Equal(4, exit);
+        Assert.Equal(originalBytes, File.ReadAllBytes(CalcPath));
+        Assert.Equal("Crashed", Summary().GetProperty("failureKind").GetString());
+    }
+
+    [Fact]
+    public async Task UserCancel_IsExit2()
+    {
+        using var cts = new CancellationTokenSource();
+        _backend.Enqueue(Block(Original, Guarded));
+        _backend.BeforeRespond = _ =>
+        {
+            cts.Cancel();
+            return Task.CompletedTask;
+        };
+
+        var exit = await RunAsync(Req(CalcPath), cts.Token);
+
+        Assert.Equal(2, exit);
+        Assert.Equal("Cancelled", Summary().GetProperty("failureKind").GetString());
+    }
+
+    private string OldRun => Path.Combine(_root, ".pelly", "runs", "20200101-000000-aaaa");
+
+    [Fact]
+    public async Task Prune_OnlyWhenLockHeld()
+    {
+        Directory.CreateDirectory(OldRun);
+        _backend.Enqueue(Block(Original, Guarded));
+        int exit;
+        using (WorkspaceLock.TryAcquire(_fs, new Workspace(_root, Path.Combine(_root, ".pelly"))))
+            exit = await Run(Req(CalcPath));
+
+        Assert.Equal(4, exit); // locked by another process: this run never held the lock
+        Assert.True(Directory.Exists(OldRun));
+
+        exit = await Run(Req(CalcPath));
+
+        Assert.Equal(0, exit);
+        Assert.False(Directory.Exists(OldRun));
+    }
+
+    [Fact]
     public async Task LoggerFailure_DoesNotUndoApprovedEdit()
     {
         _backend.Enqueue(Block(Original, Guarded));

@@ -1,0 +1,7 @@
+<Project>
+  <!-- 샘플 코퍼스는 루트 빌드 설정을 상속하지 않는다. -->
+  <PropertyGroup>
+    <!-- 실행하지 않는 샘플 데이터이므로, 새 보안 공지로 CI가 깨지지 않게 감사를 끈다. -->
+    <NuGetAudit>false</NuGetAudit>
+  </PropertyGroup>
+</Project>

@@ -25,6 +25,10 @@ jobs:
         run: dotnet build -warnaserror
       - name: Unit tests (no Env trait)
         run: dotnet test --no-build -- --filter-not-trait "Env=Windows" --filter-not-trait "Env=SqlServer" --filter-not-trait "Env=Ollama"
+      - name: Modern corpus build and tests
+        run: |
+          dotnet build eval/corpus/Modern/Modern.sln -warnaserror
+          dotnet test eval/corpus/Modern/Shop.Api.Tests --no-build
 
   windows-integration:
     runs-on: windows-latest

@@ -71,7 +71,7 @@ public sealed class SystemProcessRunnerTests
         // powershell -Command does not bind trailing tokens to $args, so Windows goes through a -File script.
         var script = Path.Combine(Path.GetTempPath(), $"pelly-echo-{Guid.NewGuid():N}.ps1");
         if (OperatingSystem.IsWindows())
-            await File.WriteAllTextAsync(script, "[Console]::OutputEncoding=[Text.Encoding]::UTF8; [Console]::Out.Write($args[0])", new System.Text.UTF8Encoding(true));
+            await File.WriteAllTextAsync(script, "[Console]::OutputEncoding=[Text.Encoding]::UTF8; [Console]::Out.Write($args[0])", new System.Text.UTF8Encoding(true), TestContext.Current.CancellationToken);
         try
         {
             var spec = OperatingSystem.IsWindows()

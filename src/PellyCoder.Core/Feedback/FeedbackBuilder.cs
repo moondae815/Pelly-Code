@@ -2,9 +2,8 @@ using System.Text;
 using PellyCoder.Core.Abstractions;
 using PellyCoder.Core.Models;
 using Diagnostic = PellyCoder.Core.Models.Diagnostic;
-using FeedbackResult = PellyCoder.Core.Models.Feedback;
 
-namespace PellyCoder.Core.Feedback;
+namespace PellyCoder.Core.Feedbacks;
 
 /// <summary>Builds the retry feedback text the local model reads, fitted to a token budget.</summary>
 public sealed class FeedbackBuilder(ITokenCounter tokens, int budget)
@@ -12,7 +11,7 @@ public sealed class FeedbackBuilder(ITokenCounter tokens, int budget)
     private const int MaxRadius = 3;
     private const string Ellipsis = "…";
 
-    public FeedbackResult ForDiagnostics(string header, IReadOnlyList<Diagnostic> errors, string fileTextLf)
+    public Feedback ForDiagnostics(string header, IReadOnlyList<Diagnostic> errors, string fileTextLf)
     {
         var unique = errors.DistinctBy(e => (e.Line, e.Code, e.Message)).ToList();
         if (unique.Count == 0) return Done(header + " (0 errors)");
@@ -44,7 +43,7 @@ public sealed class FeedbackBuilder(ITokenCounter tokens, int budget)
         return Done(Compose(1, 0, cut));
     }
 
-    public FeedbackResult ForPatchFailure(PatchFailure failure)
+    public Feedback ForPatchFailure(PatchFailure failure)
     {
         switch (failure.Kind)
         {
@@ -85,7 +84,7 @@ public sealed class FeedbackBuilder(ITokenCounter tokens, int budget)
 
     private bool Fits(string text) => tokens.Count(text) <= budget;
 
-    private FeedbackResult Fit(string text) => Done(Fits(text) ? text : TruncateWhole(text));
+    private Feedback Fit(string text) => Done(Fits(text) ? text : TruncateWhole(text));
 
     private string TruncateWhole(string text) => Truncate(text, s => s);
 
@@ -102,5 +101,5 @@ public sealed class FeedbackBuilder(ITokenCounter tokens, int budget)
         return part[..lo].TrimEnd() + Ellipsis;
     }
 
-    private FeedbackResult Done(string text) => new(text, tokens.Count(text));
+    private Feedback Done(string text) => new(text, tokens.Count(text));
 }

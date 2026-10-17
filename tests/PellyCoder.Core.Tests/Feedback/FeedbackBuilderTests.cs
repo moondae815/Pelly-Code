@@ -1,8 +1,8 @@
-using PellyCoder.Core.Feedback;
+using PellyCoder.Core.Feedbacks;
 using PellyCoder.Core.Llm;
 using PellyCoder.Core.Models;
 
-namespace PellyCoder.Core.Tests.Feedback;
+namespace PellyCoder.Core.Tests.Feedbacks;
 
 public sealed class FeedbackBuilderTests
 {

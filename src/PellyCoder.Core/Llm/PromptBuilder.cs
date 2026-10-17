@@ -25,7 +25,7 @@ public sealed class PromptBuilder(QwenChatTemplate template, PromptResources res
         ("target", "[EDITABLE: target]"),
     };
 
-    public PromptBuildResult BuildCSharp(EditTarget target, Slice slice, string request, Models.Feedback? feedback)
+    public PromptBuildResult BuildCSharp(EditTarget target, Slice slice, string request, Feedback? feedback)
     {
         var requestText = request.Trim();
         var system = resources.SystemCs.Replace(HintPlaceholder, slice.LanguageHint) + "\n\n" + resources.FewShotCs;

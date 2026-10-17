@@ -12,6 +12,7 @@ public sealed class PellyOptions
     public SamplingSet Sampling { get; set; } = new();
     public RetryOptions Retry { get; set; } = new();
     public LogOptions Log { get; set; } = new();
+    public BuildOptions Build { get; set; } = new();
 }
 
 public sealed class LlmOptions
@@ -55,4 +56,12 @@ public sealed class RetryOptions
 public sealed class LogOptions
 {
     public int RetentionDays { get; set; } = 30;
+}
+
+public sealed class BuildOptions
+{
+    public string? MsbuildPath { get; set; }
+    public int TimeoutSeconds { get; set; } = 120;
+    public bool WarnAsError { get; set; }
+    public bool StrictBaseline { get; set; }
 }

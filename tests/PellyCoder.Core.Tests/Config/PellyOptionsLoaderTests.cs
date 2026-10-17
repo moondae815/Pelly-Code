@@ -36,6 +36,10 @@ public class PellyOptionsLoaderTests
         Assert.Equal(new SamplingOptions(0.6, 0.95, 20, 1.0, 0), o.Sampling.Think);
         Assert.Equal(new SamplingOptions(0.1, 0.9, 20, 1.05, 0), o.Sampling.Code);
         Assert.Equal(3, o.Retry.Max);
+        Assert.Null(o.Build.MsbuildPath);
+        Assert.Equal(120, o.Build.TimeoutSeconds);
+        Assert.False(o.Build.WarnAsError);
+        Assert.False(o.Build.StrictBaseline);
     }
 
     [Fact]

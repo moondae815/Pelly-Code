@@ -1,7 +1,7 @@
 using System.IO.Abstractions;
 using System.Xml;
-using System.Xml.Linq;
 using PellyCoder.Core.Abstractions;
+using PellyCoder.Core.Builds;
 using PellyCoder.Core.CSharp;
 using PellyCoder.Core.Models;
 
@@ -18,7 +18,7 @@ public sealed class LocatePhase(IFileSystem fs, IUserInteraction ui) : IPhase
         try
         {
             ctx.Language = LanguageVersionDetector.Detect(fs, csproj);
-            ctx.ProjectStyle = csproj is null ? "None" : StyleOf(XDocument.Parse(fs.File.ReadAllText(csproj)).Root);
+            ctx.ProjectStyle = ProjectStyleDetector.Detect(fs, csproj).ToString();
         }
         catch (Exception ex) when (ex is XmlException or IOException or UnauthorizedAccessException)
         {
@@ -61,10 +61,4 @@ public sealed class LocatePhase(IFileSystem fs, IUserInteraction ui) : IPhase
     }
 
     private static string Label(MemberCandidate c) => $"{c.Display} (줄 {c.Span.StartLine}-{c.Span.EndLine})";
-
-    /// <summary>Same rule as <see cref="LanguageVersionDetector"/>: SDK style has an <c>Sdk</c> attribute or element.</summary>
-    private static string StyleOf(XElement? root) =>
-        root is not null && (root.Attribute("Sdk") is not null || root.Elements().Any(e => e.Name.LocalName == "Sdk"))
-            ? "Sdk"
-            : "Legacy";
 }

@@ -24,7 +24,6 @@ public static class PellyOptionsLoader
     // Keys of sections not consumed in M1 (design 8.1): accepted but not bound.
     private static readonly string[] FutureKeys =
     {
-        "build:msbuildPath", "build:timeoutSeconds", "build:warnAsError",
         "test:command", "test:projects",
         "sql:allowedHosts", "sql:allowedDatabases", "sql:compatLevel", "sql:connectionString",
     };
@@ -102,7 +101,7 @@ public static class PellyOptionsLoader
         foreach (var (section, type) in new (string, Type)[]
         {
             ("llm", typeof(LlmOptions)), ("budget", typeof(BudgetOptions)),
-            ("retry", typeof(RetryOptions)), ("log", typeof(LogOptions)),
+            ("retry", typeof(RetryOptions)), ("log", typeof(LogOptions)), ("build", typeof(BuildOptions)),
         })
         {
             foreach (var p in type.GetProperties())
@@ -137,6 +136,7 @@ public static class PellyOptionsLoader
             config.GetSection("budget").Bind(options.Budget);
             config.GetSection("retry").Bind(options.Retry);
             config.GetSection("log").Bind(options.Log);
+            config.GetSection("build").Bind(options.Build);
         }
         catch (InvalidOperationException ex)
         {

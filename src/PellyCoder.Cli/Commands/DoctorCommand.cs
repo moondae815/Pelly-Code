@@ -38,7 +38,16 @@ public sealed class DoctorCommand(
             return ExitCodes.EnvError;
         }
 
-        var checks = await doctor.RunAsync(loaded.Options, cancellation);
+        IReadOnlyList<DoctorCheck> checks;
+        try
+        {
+            checks = await doctor.RunAsync(loaded.Options, cancellation);
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            console.MarkupLine("[yellow]사용자가 실행을 중단했습니다.[/]");
+            return ExitCodes.UserCancelled;
+        }
 
         var table = new Table().AddColumns("점검", "상태", "내용", "조치");
         foreach (var c in checks)

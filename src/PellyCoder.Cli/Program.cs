@@ -21,4 +21,4 @@ Console.CancelKeyPress += (_, e) =>
 var console = AnsiConsole.Console;
 var app = new CommandApp(new DiTypeRegistrar(Composition.Services(new SpectreUserInteraction(console), console, cts.Token)));
 app.Configure(CliApp.Configure);
-return await app.RunAsync(args);
+return CliApp.NormalizeExitCode(await app.RunAsync(args));

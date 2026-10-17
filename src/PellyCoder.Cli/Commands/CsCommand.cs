@@ -78,7 +78,16 @@ public sealed class CsCommand(
 
         var request = new RunRequest(
             file, settings.Class, settings.Method, settings.Request, settings.Yes, settings.DryRun, settings.MaxRetries);
-        return await runner.RunAsync(request, loaded.Options, cancellation);
+        try
+        {
+            return await runner.RunAsync(request, loaded.Options, cancellation);
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            // The orchestrator turns cancellation into exit 2 itself; this covers a cancel before it took over.
+            console.MarkupLine("[yellow]사용자가 실행을 중단했습니다.[/]");
+            return ExitCodes.UserCancelled;
+        }
     }
 
     private int Fail(string message)

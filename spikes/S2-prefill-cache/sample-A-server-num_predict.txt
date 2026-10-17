@@ -1,0 +1,76 @@
+=== THINK
+Here's a thinking process:
+
+1.  **Understand User Request:**
+   - **Target Method:** `OrderService.CancelAsync(int, string)`
+   - **Context:** The provided C# code for `OrderService`.
+   - **Request:** Modify the code so that if an order with status `Shipped` (배송 중) is cancelled, it throws an `InvalidOperationException`.
+   - **Current Behavior:** Looking at the `CancelAsync` method in the context:
+     ```csharp
+     // 결제 전 주문은 환불 없이 상태만 바꾼다.
+     var refund = 0m;
+     if (order.Status == OrderStatus.Paid || order.Status == OrderStatus.Shipped)
+     {
+         refund = await CalculateRefundAsync(orderId);
+     }
+     ```
+     Currently, `Shipped` orders are allowed to be cancelled (with a refund calculation). The request explicitly says to throw an `InvalidOperationException` when trying to cancel a `Shipped` order.
+
+2.  **Identify Changes Needed:**
+   - Find the `CancelAsync` method.
+   - Locate the check for `OrderStatus.Delivered` (which already throws an exception).
+   - Add a similar check for `OrderStatus.Shipped` that throws an `InvalidOperationException`.
+   - Remove `OrderStatus.Shipped` from the condition that calculates refunds, or adjust the logic accordingly. Actually, the request just says to throw an exception for `Shipped`, so I'll add the check and remove it from the refund calculation block.
+
+   Current code snippet around the status checks:
+   ```csharp
+   // 이미 취소된 주문은 다시 처리하지 않는다.
+   if (order.Status == OrderStatus.Cancelled)
+   {
+       _logger.LogInformation("이미 취소된 주문입니다. OrderId={OrderId}", orderId);
+       return;
+   }
+
+   // 배송 완료된 주문은 반품 절차를 따라야 한다.
+   if (order.Status == OrderStatus.Delivered)
+   {
+       throw new InvalidOperationException("배송 완료된 주문은 취소할 수 없습니다. 반품을 신청하세요.");
+   }
+
+   if (order.Status == OrderStatus.Pending)
+   {
+       _logger.LogInformation("결제 전 주문을 취소합니다. OrderId={OrderId}", orderId);
+   }
+
+   // 결제 전 주문은 환불 없이 상태만 바꾼다.
+   var refund = 0m;
+=== CODE
+<<<<<<< SEARCH
+            // 배송 완료된 주문은 반품 절차를 따라야 한다.
+            if (order.Status == OrderStatus.Delivered)
+            {
+                throw new InvalidOperationException("배송 완료된 주문은 취소할 수 없습니다. 반품을 신청하세요.");
+            }
+
+            if (order.Status == OrderStatus.Pending)
+            {
+                _logger.LogInformation("결제 전 주문을 취소합니다. OrderId={OrderId}", orderId);
+            }
+
+            // 결제 전 주문은 환불 없이 상태만 바꾼다.
+            var refund = 0m;
+            if (order.Status == OrderStatus.Paid || order.Status == OrderStatus.Shipped)
+            {
+                refund = await CalculateRefundAsync(orderId);
+            }
+=======
+            // 배송 완료된 주문은 반품 절차를 따라야 한다.
+            if (order.Status == OrderStatus.Delivered)
+            {
+                throw new InvalidOperationException("배송 완료된 주문은 취소할 수 없습니다. 반품을 신청하세요.");
+            }
+
+            // 배송 중(Shipped)인 주문은 취소할 수 없다.
+            if (order.Status == OrderStatus.Shipped)
+            {
+                throw new InvalidOperationException("배송 중인 주문은 취소할 수 없습니다.");

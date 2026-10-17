@@ -1,0 +1,23 @@
+/Users/payletter/git-root/Pelly-Code/spikes/S2-prefill-cache/prefill.cs(38,23): warning CS8602: null 가능 참조에 대한 역참조입니다.
+/Users/payletter/git-root/Pelly-Code/spikes/S2-prefill-cache/prefill.cs(41,17): warning CS8602: null 가능 참조에 대한 역참조입니다.
+variant,run,stage,ttft_ms,prompt_eval_count,prompt_eval_cached_count,prompt_eval_ms,eval_count,chunks,done_reason,think_tokens_kept
+A-server-num_predict,1,think,2051,4304,1,2013,512,512,length,
+A-server-num_predict,1,code,296,4820,4300,259,256,256,length,1925c
+A-server-num_predict,2,think,1634,4303,3,1598,512,512,length,
+A-server-num_predict,2,code,560,4812,4299,522,157,157,stop,2129c
+A-server-num_predict,3,think,1533,4301,5,1496,512,512,length,
+A-server-num_predict,3,code,304,4810,4297,265,197,197,stop,1886c
+A-server-num_predict,4,think,1549,4301,5,1511,512,512,length,
+A-server-num_predict,4,code,299,4811,4297,259,236,236,stop,2017c
+A-server-num_predict,5,think,1559,4302,5,1524,512,512,length,
+A-server-num_predict,5,code,294,4813,4298,259,256,256,length,1860c
+B-client-cancel,1,think,1673,,,0,,512,client-cancel,
+B-client-cancel,1,code,2296,4817,4303,264,162,162,stop,2079c
+B-client-cancel,2,think,1609,,,0,,512,client-cancel,
+B-client-cancel,2,code,2309,4822,4304,266,179,179,stop,2012c
+B-client-cancel,3,think,1628,,,0,,512,client-cancel,
+B-client-cancel,3,code,2322,4820,4299,281,184,184,stop,1969c
+B-client-cancel,4,think,1963,,,0,,512,client-cancel,
+B-client-cancel,4,code,2458,4821,4301,420,157,157,stop,2071c
+B-client-cancel,5,think,1899,,,0,,512,client-cancel,
+B-client-cancel,5,code,2318,4815,4300,277,184,184,stop,2035c

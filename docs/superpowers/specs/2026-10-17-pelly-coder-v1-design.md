@@ -527,6 +527,7 @@ public void Cancel(int orderId) { ...원문 그대로... }
 
 * 환경 변수 `DOTNET_CLI_UI_LANGUAGE=en`, `VSLANG=1033`을 지정해 메시지를 영어로 고정합니다(파싱 안정성, Baseline 비교 일관성).
 * 출력 인코딩: stdout을 UTF-8로 디코딩해 대체 문자(U+FFFD)가 있으면 원시 바이트를 CP949로 다시 디코딩하고(CP949에도 있으면 UTF-8 결과 유지), stdout과 stderr를 합쳐 파싱합니다.
+* 빌드 서버와 MSBuild 작업자 노드(노드 재사용, 레거시의 `/nr:true`)는 성공한 실행 뒤에도 살아 있을 수 있으며, 시간 초과와 취소 때는 프로세스 트리 전체를 종료합니다 (M2a 최종 리뷰).
 * SDK 기본 명령은 `-clp:ErrorsOnly`를 유지하므로 새 경고 알림("새 경고 N개: …")은 `--warn-as-error`(경고 포함 출력) 때만 실질적으로 나옵니다 (M2a T6).
 * **`BuildRun`:** 빌드 한 번의 결과(`Errors`, `Warnings`, `ExitCode`, `TimedOut`, `Duration`). **파싱하지 못한 실패는 오류로 봅니다:** 종료 코드가 0이 아닌데 파싱된 오류가 하나도 없으면 합성 오류 `BUILD`("build failed with exit code N")를 더해 통과로 보이지 않게 합니다. 타임아웃은 EnvError(4)입니다 (M2a T5).
 
@@ -541,13 +542,13 @@ public void Cancel(int orderId) { ...원문 그대로... }
 * 신규 에러 = 검증 빌드 에러 − Baseline 에러(키 기준 다중집합 차감).
 * **판정 (APPLY가 첫 쓰기 전에 한 번, M2a T6):**
   1. Baseline 타임아웃 → EnvError(4).
-  2. CS가 아닌 오류가 하나라도 있으면(`NETSDK*`, `MSB*`, `NU*`, 합성 `BUILD`) 컴파일러가 돌지 않은 것이므로 이후 모든 빌드가 같은 이유로 실패하거나 편집이 공허하게 통과합니다. `--strict-baseline`과 무관하게 EnvError(4, FailureKind `BuildUnverifiable`)와 "빌드 검증을 할 수 없습니다: <코드> <메시지>. 프로젝트를 복원(dotnet restore 또는 Visual Studio 복원)하고 빌드되는지 먼저 확인하세요".
+  2. CS가 아닌 오류가 하나라도 있으면(`NETSDK*`, `MSB*`, `NU*`, 합성 `BUILD`) 컴파일러가 돌지 않은 것이므로 이후 모든 빌드가 같은 이유로 실패하거나 편집이 공허하게 통과합니다. `--strict-baseline`과 무관하게 EnvError(4, FailureKind `BuildUnverifiable`)와 "빌드 검증을 할 수 없습니다: <코드> <메시지>. 프로젝트를 복원(dotnet restore 또는 Visual Studio 복원)하고 빌드되는지 먼저 확인하세요". 출력 파일 잠금(`MSB3021`·`MSB3026`·`MSB3027`)이면 대신 "빌드 출력 파일이 잠겨 있어 빌드 검증을 할 수 없습니다: <코드> <메시지>. 실행 중인 프로그램(디버거 포함)을 닫고 다시 시도하세요".
   3. CS 오류만 있으면 "원본 상태에서 이미 빌드 오류가 N개 있습니다 — 새로 생긴 오류만 검사합니다" 알림을 실행당 한 번 보이고 진행. `--strict-baseline`이면 EnvError(4, FailureKind `BaselineErrors`).
   * 신규 경고도 같은 방식으로 차감하며 `--warn-as-error`(`build.warnAsError`)일 때만 실패로 셉니다.
 
 #### BuildVerifier 순서
 1. **구문 사전 검사:** 수정된 파일을 감지된 언어 버전으로 파싱 → `GetDiagnostics()`에 Error가 있으면 빌드 없이 NewErrors로 반환.
-2. **빌드** → 파싱 → Baseline 차감.
+2. **빌드** → 파싱 → Baseline 차감. 신규 오류 중 CS가 아닌 것(`MSB*`·`NETSDK*`·`NU*`·합성 `BUILD`)이 있으면 모델이 고칠 수 없는 오류이므로 재시도·피드백 없이 EnvError(4, FailureKind `BuildUnverifiable`)로 끝내고 파일을 복원합니다. 잠금 계열은 위 잠금 문구, 나머지는 "빌드 검증을 할 수 없습니다: <코드> <메시지>. 프로젝트가 빌드되는지 먼저 확인하세요" (M2a 최종 리뷰).
 3. **피드백 생성(FeedbackBuilder):**
    ```text
    BUILD FAILED (2 new errors)

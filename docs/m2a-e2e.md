@@ -188,3 +188,19 @@ f2 결함은 새 THINK에서는 다시 나오지 않았고(512에서 20/20 올�
 R7 대체안·Shipped 판정 강화 뒤 같은 명령(`--minimum-expected-tests 1` 포함)을 3회: 세 번 모두 합계 11(E2E 8 + 오프라인 삽입 검사 3) · 실패 0 · 건너뜀 0.
 BuildError 3회는 모두 1안 자리(REPLACE 마지막 줄 앞)가 본문 안이라 대체안을 타지 않았다 — 대체안은 `BuildErrorInjectionTests`(식 중간 · 추가 도우미 두 경우)가 덮는다.
 재시도 테스트 6회 모두 시도 2, THINK 잘림, BuildError는 `CS0103`.
+
+## 6. 빌드 프로세스 종료와 파이프 배수 측정 (M2a 최종 리뷰)
+
+**질문:** 재사용되는 MSBuild 노드나 빌드 서버(VBCSCompiler)가 stdout/stderr 파이프를 붙잡아, 프로세스 종료 뒤 `SystemProcessRunner`의 2초 배수 유예가 매번 발동하는가?
+
+**방법(macOS, SDK 10.0.302):** 복원한 Modern 사본의 `Shop.Api.csproj`를 매 회 `Program.cs`에 줄바꿈을 더해 실제로 컴파일되게 한 뒤 5회 빌드했다. (가) 제품 경로 `BuildVerifier.BuildAsync` → `SystemProcessRunner`의 반환 시간, (나) 같은 명령을 `Process`로 직접 띄워 잰 프로세스 종료 시각과 두 파이프 EOF 시각. 첫 회 전에 `dotnet build-server shutdown`.
+
+| 회 | (가) RunAsync 반환 | (나) 프로세스 종료 | (나) 파이프 EOF | EOF − 종료 |
+| -: | -: | -: | -: | -: |
+| 1 | 1.21초 | 0.53초 | 0.53초 | 0ms |
+| 2 | 0.55초 | 0.54초 | 0.54초 | 0ms |
+| 3 | 0.53초 | 0.53초 | 0.53초 | 0ms |
+| 4 | 0.53초 | 0.52초 | 0.52초 | 0ms |
+| 5 | 0.52초 | 0.51초 | 0.51초 | 0ms |
+
+**결론:** 배수 유예는 한 번도 발동하지 않았다(EOF가 종료와 같은 시각, RunAsync는 종료 시간과 같다 — 1회의 1.21초는 서버를 내린 뒤의 콜드 시작). 실행 뒤 `VBCSCompiler` 한 개가 살아 남았지만 EOF 차이가 0이라 파이프를 붙잡지 않았다. 증분 빌드만 한 사전 5회(코드 변경 없음)도 0.45~0.67초 · 차이 0ms였다. Windows(레거시 `/nr:true` 포함)는 Windows 미확인.

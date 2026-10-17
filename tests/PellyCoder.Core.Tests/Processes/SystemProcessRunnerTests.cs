@@ -16,6 +16,13 @@ public sealed class SystemProcessRunnerTests
             ? new ProcessSpec("cmd", ["/c", windowsScript], Path.GetTempPath(), timeout ?? TimeSpan.FromSeconds(30), env)
             : new ProcessSpec("/bin/sh", ["-c", unixScript], Path.GetTempPath(), timeout ?? TimeSpan.FromSeconds(30), env);
 
+    /// <summary>
+    /// The prebuilt test helper run through <c>dotnet</c>: identical on every OS and much quicker to start than powershell,
+    /// which timed out on a loaded windows-latest runner.
+    /// </summary>
+    private static ProcessSpec Helper(TimeSpan timeout, params string[] args) =>
+        new("dotnet", [Path.Combine(AppContext.BaseDirectory, "PellyCoder.TestHelper.dll"), .. args], Path.GetTempPath(), timeout);
+
     [Fact]
     public async Task RunsDotnetVersion_CapturesStdOut()
     {
@@ -38,14 +45,10 @@ public sealed class SystemProcessRunnerTests
     [Fact]
     public async Task Timeout_KillsProcessTree()
     {
-        // Parent shell starts a long-lived child, prints the child's PID, then waits on it. The timeout must cover the
-        // parent's start-up until the PID is printed: powershell + Start-Process took over 3 s on a loaded CI runner.
-        var timeout = OperatingSystem.IsWindows() ? TimeSpan.FromSeconds(15) : TimeSpan.FromSeconds(1);
-        var spec = OperatingSystem.IsWindows()
-            ? new ProcessSpec("powershell",
-                ["-NoProfile", "-Command", "$p = Start-Process -PassThru -WindowStyle Hidden ping -ArgumentList '-n','120','127.0.0.1'; Write-Output $p.Id; Wait-Process -Id $p.Id"],
-                Path.GetTempPath(), timeout)
-            : new ProcessSpec("/bin/sh", ["-c", "sleep 30 & echo $!; wait"], Path.GetTempPath(), timeout);
+        // The helper starts a long-lived child, prints its PID and waits on it. The timeout must cover the helper's start-up
+        // (a dotnet host) until the PID is printed, so it stays generous on every OS; the kill is what ends the run.
+        var timeout = TimeSpan.FromSeconds(OperatingSystem.IsWindows() ? 20 : 3);
+        var spec = Helper(timeout, "spawn");
 
         var r = await Runner.RunAsync(spec, CancellationToken.None);
 
@@ -72,20 +75,9 @@ public sealed class SystemProcessRunnerTests
     public async Task ArgumentsWithSpacesAndKorean_RoundTrip()
     {
         const string arg = "공백 있는 인자 [x]";
-        // powershell -Command does not bind trailing tokens to $args, so Windows goes through a -File script.
-        var script = Path.Combine(Path.GetTempPath(), $"pelly-echo-{Guid.NewGuid():N}.ps1");
-        if (OperatingSystem.IsWindows())
-            await File.WriteAllTextAsync(script, "[Console]::OutputEncoding=[Text.Encoding]::UTF8; [Console]::Out.Write($args[0])", new System.Text.UTF8Encoding(true), TestContext.Current.CancellationToken);
-        try
-        {
-            var spec = OperatingSystem.IsWindows()
-                ? new ProcessSpec("powershell", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, arg],
-                    Path.GetTempPath(), TimeSpan.FromSeconds(30))
-                : new ProcessSpec("/bin/sh", ["-c", "printf \"%s\" \"$1\"", "_", arg], Path.GetTempPath(), TimeSpan.FromSeconds(30));
-            var r = await Runner.RunAsync(spec, CancellationToken.None);
-            Assert.Equal(arg, r.StdOut.Trim());
-        }
-        finally { File.Delete(script); }
+        var r = await Runner.RunAsync(Helper(TimeSpan.FromSeconds(30), "echo", arg), CancellationToken.None);
+        Assert.Equal(0, r.ExitCode);
+        Assert.Equal(arg, r.StdOut.Trim());
     }
 
     [Fact]
@@ -109,13 +101,7 @@ public sealed class SystemProcessRunnerTests
     [Fact]
     public async Task LargeOutputOnBothStreams_DoesNotDeadlock()
     {
-        var spec = OperatingSystem.IsWindows()
-            ? new ProcessSpec("powershell",
-                ["-NoProfile", "-Command", "$s='x'*1048576; [Console]::Out.Write($s); [Console]::Error.Write($s)"],
-                Path.GetTempPath(), TimeSpan.FromSeconds(10))
-            : new ProcessSpec("/bin/sh",
-                ["-c", "head -c 1048576 /dev/zero | tr '\\0' x; head -c 1048576 /dev/zero | tr '\\0' y >&2"],
-                Path.GetTempPath(), TimeSpan.FromSeconds(10));
+        var spec = Helper(TimeSpan.FromSeconds(30), "flood");
         var r = await Runner.RunAsync(spec, CancellationToken.None);
         Assert.False(r.TimedOut);
         Assert.Equal(0, r.ExitCode);

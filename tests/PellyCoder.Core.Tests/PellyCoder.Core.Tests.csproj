@@ -24,6 +24,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\PellyCoder.Core\PellyCoder.Core.csproj" />
+    <ProjectReference Include="..\PellyCoder.TestHelper\PellyCoder.TestHelper.csproj" />
   </ItemGroup>
 
 </Project>

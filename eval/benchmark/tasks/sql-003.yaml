@@ -1,0 +1,7 @@
+id: sql-003
+kind: sql
+file: corpus/Sql/objects/fn_OrderTotal.sql
+request: "사은품(IsGiftItem = 1)은 합계에서 빼줘"
+judge:
+  sqlCompile: true
+  mustContain: ["IsGiftItem"]

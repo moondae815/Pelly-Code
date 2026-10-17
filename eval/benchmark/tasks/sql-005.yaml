@@ -1,0 +1,7 @@
+id: sql-005
+kind: sql
+file: corpus/Sql/objects/usp_SearchOrdersDynamic.sql
+request: "정렬 가능한 컬럼에 Status를 추가해줘"
+judge:
+  sqlCompile: true
+  mustContain: ["N'Status'"]

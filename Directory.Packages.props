@@ -11,5 +11,6 @@
     <PackageVersion Include="xunit.v3.mtp-v2" Version="4.0.2" />
     <!-- Microsoft.Data.SqlClient 7.1.1의 간접 의존(9.0.18)에 알려진 취약성이 있어 패치 버전으로 고정 -->
     <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
+    <PackageVersion Include="YamlDotNet" Version="18.1.0" />
   </ItemGroup>
 </Project>

@@ -1,0 +1,8 @@
+id: cs-legacy-001
+kind: cs
+file: corpus/Legacy/Shop.Web/Services/OrderService.cs
+method: Cancel
+request: "배송 중(Shipped)인 주문은 취소할 수 없도록 InvalidOperationException을 던지게 수정해줘"
+judge:
+  build: true
+  mustContain: ["OrderStatus.Shipped"]

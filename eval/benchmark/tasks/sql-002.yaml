@@ -1,0 +1,7 @@
+id: sql-002
+kind: sql
+file: corpus/Sql/objects/usp_SearchOrders.sql
+request: "@Keyword nvarchar(50) = NULL 매개변수를 추가해서 고객 이름 LIKE 검색을 지원해줘"
+judge:
+  sqlCompile: true
+  mustContain: ["@Keyword"]

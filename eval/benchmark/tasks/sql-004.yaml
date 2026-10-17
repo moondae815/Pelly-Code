@@ -1,0 +1,8 @@
+id: sql-004
+kind: sql
+file: corpus/Sql/objects/Settlement_All.sql
+object: dbo.usp_SettleMonthly
+request: "결과에 판매자별 이월 금액(SettlementDeferrals.Amount 합계) 열을 추가해줘"
+judge:
+  sqlCompile: true
+  mustContain: ["SettlementDeferrals"]

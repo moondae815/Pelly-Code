@@ -15,7 +15,7 @@ namespace PellyCoder.Core.Fsm;
 public static class FsmOrchestratorFactory
 {
     public static FsmOrchestrator Create(IFileSystem fs, ILlmBackend backend, IUserInteraction ui, PellyOptions options, TimeProvider time,
-        IProcessRunner processes)
+        IProcessRunner processes, Func<bool>? isWindows = null)
     {
         var tokens = QwenTokenCounter.Shared;
         var template = options.Llm.Template is { } path ? QwenChatTemplate.LoadFromFile(fs, path) : QwenChatTemplate.LoadDefault();
@@ -29,7 +29,7 @@ public static class FsmOrchestratorFactory
         IPhase[] phases =
         [
             new PreflightPhase(fs, fileGuard, backend, options.Llm),
-            new LocatePhase(fs, ui, new BuildToolResolver(fs, processes, options.Build), builds),
+            new LocatePhase(fs, ui, new BuildToolResolver(fs, processes, options.Build, isWindows), builds, isWindows),
             new SlicePhase(fileGuard, tokens, options.Budget),
             new EditPhase(prompts, client, feedback, logger),
             new ApplyPhase(fileGuard, feedback, ui, options.Build),

@@ -36,6 +36,12 @@ public sealed class BuildVerificationFlowTests : IDisposable
     private readonly ScriptedUserInteraction _ui = new();
     private readonly ScriptedProcessRunner _processes = new();
     private readonly PellyOptions _options = new();
+    private Func<bool>? _isWindows;
+
+    private const string LegacyCsproj =
+        "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n" +
+        "<Project ToolsVersion=\"15.0\" xmlns=\"http://schemas.microsoft.com/developer/msbuild/2003\">\n" +
+        "  <PropertyGroup>\n    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>\n  </PropertyGroup>\n</Project>\n";
 
     public BuildVerificationFlowTests()
     {
@@ -65,7 +71,7 @@ public sealed class BuildVerificationFlowTests : IDisposable
     private Task<int> Run(RunRequest request) => RunAsync(request, TestContext.Current.CancellationToken);
 
     private Task<int> RunAsync(RunRequest request, CancellationToken ct) =>
-        FsmOrchestratorFactory.Create(_fs, _backend, _ui, _options, TimeProvider.System, _processes)
+        FsmOrchestratorFactory.Create(_fs, _backend, _ui, _options, TimeProvider.System, _processes, _isWindows)
             .RunAsync(request, ct)
             .WaitAsync(WallClock, CancellationToken.None);
 
@@ -252,23 +258,97 @@ public sealed class BuildVerificationFlowTests : IDisposable
     [Fact]
     public async Task ToolUnresolvable_Exit4_BeforeAnyWrite()
     {
-        if (OperatingSystem.IsWindows())
-            Assert.Skip("On Windows the legacy tool comes from the machine's vswhere; resolution failures are covered by BuildToolResolverTests.");
-        File.WriteAllText(CsprojPath,
-            "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n" +
-            "<Project ToolsVersion=\"15.0\" xmlns=\"http://schemas.microsoft.com/developer/msbuild/2003\">\n" +
-            "  <PropertyGroup>\n    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>\n  </PropertyGroup>\n</Project>\n");
+        _isWindows = () => true; // legacy on "Windows" with no build.msbuildPath and no usable vswhere
+        _processes.WhenEmpty(Build(exit: 1)); // vswhere, if the machine has one (real Windows), finds nothing
+        File.WriteAllText(CsprojPath, LegacyCsproj);
         var originalBytes = File.ReadAllBytes(CalcPath);
 
         var exit = await Run(Req(CalcPath));
 
         Assert.Equal(4, exit);
         Assert.Empty(_backend.Requests);
-        Assert.Empty(_processes.Calls);
+        Assert.All(_processes.Calls, c => Assert.EndsWith("vswhere.exe", c.FileName, StringComparison.OrdinalIgnoreCase));
         Assert.False(HasBackup());
         Assert.Equal(originalBytes, File.ReadAllBytes(CalcPath));
-        Assert.Contains("레거시 .NET Framework 프로젝트는 Windows에서만 빌드 검증할 수 있습니다", _ui.Warnings);
+        Assert.Contains(_ui.Warnings, w => w.StartsWith("MSBuild.exe를 찾을 수 없습니다", StringComparison.Ordinal));
         Assert.Equal("Legacy", Summary().GetProperty("projectStyle").GetString());
+    }
+
+    [Fact]
+    public async Task LegacyOffWindows_SyntaxOnly_WithNotice()
+    {
+        _isWindows = () => false;
+        File.WriteAllText(CsprojPath, LegacyCsproj);
+        _backend.Enqueue(Block(Original, Guarded));
+
+        var exit = await Run(Req(CalcPath));
+
+        Assert.Equal(0, exit);
+        Assert.Empty(_processes.Calls);
+        Assert.Contains("레거시 .NET Framework 프로젝트는 Windows에서만 빌드 검증합니다 — 구문 검사만 합니다", _ui.Warnings);
+        Assert.Equal(CalcSource.Replace(Original, Guarded), File.ReadAllText(CalcPath));
+        Assert.Equal("Legacy", Summary().GetProperty("projectStyle").GetString());
+    }
+
+    [Fact]
+    public async Task LegacyOnWindows_BuildsWithConfiguredMsBuild()
+    {
+        _isWindows = () => true;
+        File.WriteAllText(CsprojPath, LegacyCsproj);
+        _options.Build.MsbuildPath = CsprojPath; // any existing file stands in for MSBuild.exe
+        _processes.Enqueue(Ok());
+        _processes.Enqueue(Ok());
+        _backend.Enqueue(Block(Original, Guarded));
+
+        var exit = await Run(Req(CalcPath));
+
+        Assert.Equal(0, exit);
+        Assert.Equal(2, _processes.Calls.Count);
+        Assert.All(_processes.Calls, c =>
+        {
+            Assert.Equal(CsprojPath, c.FileName);
+            Assert.Equal([CsprojPath, "/t:Build"], c.Arguments.Take(2));
+        });
+    }
+
+    [Fact]
+    public async Task BaselineCannotCompile_Netsdk1004_Exit4_FileUntouched()
+    {
+        var originalBytes = File.ReadAllBytes(CalcPath);
+        const string Targets = "/usr/local/share/dotnet/sdk/10.0.302/Sdks/Microsoft.NET.Sdk/targets/Microsoft.PackageDependencyResolution.targets";
+        const string Message = "Assets file '/tmp/obj/project.assets.json' not found. Run a NuGet package restore to generate this file.";
+        _processes.Enqueue(Failing(
+            Line(OtherPath, 3, "error", "CS0246", "The type or namespace name 'Missing' could not be found"),
+            Line(Targets, 266, "error", "NETSDK1004", Message)));
+        _backend.Enqueue(Block(Original, Guarded));
+
+        var exit = await Run(Req(CalcPath));
+
+        Assert.Equal(4, exit);
+        Assert.Equal(originalBytes, File.ReadAllBytes(CalcPath));
+        Assert.False(HasBackup());
+        Assert.Single(_processes.Calls);
+        Assert.Contains($"빌드 검증을 할 수 없습니다: NETSDK1004 {Message}. 프로젝트를 복원(dotnet restore 또는 Visual Studio 복원)하고 빌드되는지 먼저 확인하세요",
+            _ui.Warnings);
+        Assert.DoesNotContain(_ui.Warnings, w => w.StartsWith("원본 상태에서 이미 빌드 오류가", StringComparison.Ordinal));
+        Assert.Equal("BuildUnverifiable", Summary().GetProperty("failureKind").GetString());
+    }
+
+    [Fact]
+    public async Task BaselineSyntheticBuildError_Exit4()
+    {
+        var originalBytes = File.ReadAllBytes(CalcPath);
+        _processes.Enqueue(Failing("something the parser does not understand"));
+        _backend.Enqueue(Block(Original, Guarded));
+
+        var exit = await Run(Req(CalcPath));
+
+        Assert.Equal(4, exit);
+        Assert.Equal(originalBytes, File.ReadAllBytes(CalcPath));
+        Assert.False(HasBackup());
+        Assert.Contains("빌드 검증을 할 수 없습니다: BUILD build failed with exit code 1. 프로젝트를 복원(dotnet restore 또는 Visual Studio 복원)하고 빌드되는지 먼저 확인하세요",
+            _ui.Warnings);
+        Assert.Equal("BuildUnverifiable", Summary().GetProperty("failureKind").GetString());
     }
 
     [Fact]

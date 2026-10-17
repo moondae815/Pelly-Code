@@ -39,6 +39,8 @@ public sealed class BuildStep(BuildVerifier builds, FeedbackBuilder feedback, Bu
         IReadOnlyList<Diagnostic> failing = newErrors;
         if (options.WarnAsError)
             failing = [.. newErrors, .. newWarnings];
+        // Warnings exist only when the build prints them: the default SDK command uses ErrorsOnly, so in practice this
+        // notice appears with build.warnAsError (NoSummary only) or a tool that prints warnings anyway.
         else if (newWarnings.Count > 0)
             ctx.Messages.Add($"새 경고 {newWarnings.Count}개: {string.Join(", ", newWarnings.Select(w => w.Code).Distinct())}");
 

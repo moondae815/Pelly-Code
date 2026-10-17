@@ -11,8 +11,11 @@ namespace PellyCoder.Core.Fsm.Phases;
 /// Resolves the project, its C# version and the single member to edit, then the build tool. Unless this is a dry run
 /// it starts the baseline build of the untouched project, which runs while SLICE and EDIT proceed (design §7.3).
 /// </summary>
-public sealed class LocatePhase(IFileSystem fs, IUserInteraction ui, BuildToolResolver tools, BuildVerifier builds) : IPhase
+public sealed class LocatePhase(
+    IFileSystem fs, IUserInteraction ui, BuildToolResolver tools, BuildVerifier builds, Func<bool>? isWindows = null) : IPhase
 {
+    private readonly Func<bool> _isWindows = isWindows ?? OperatingSystem.IsWindows;
+
     public RunPhase Phase => RunPhase.Locate;
 
     public async Task<PhaseOutcome> ExecuteAsync(RunContext ctx, CancellationToken ct)
@@ -69,6 +72,12 @@ public sealed class LocatePhase(IFileSystem fs, IUserInteraction ui, BuildToolRe
         if (style == ProjectStyle.None || csproj is null)
         {
             ctx.Messages.Add("csproj가 없어 빌드 검증을 건너뜁니다 (구문 검사만 합니다)");
+            return PhaseOutcome.Ok;
+        }
+        if (style == ProjectStyle.Legacy && !_isWindows())
+        {
+            // MSBuild for .NET Framework exists only on Windows: verify syntax only, like a project without csproj.
+            ctx.Messages.Add("레거시 .NET Framework 프로젝트는 Windows에서만 빌드 검증합니다 — 구문 검사만 합니다");
             return PhaseOutcome.Ok;
         }
 

@@ -35,6 +35,7 @@ public sealed class FsmOrchestratorTests : IDisposable
     private readonly ScriptedUserInteraction _ui = new();
     private readonly PellyOptions _options = new();
     private readonly ScriptedProcessRunner _processes = new();
+    private Func<bool>? _isWindows;
 
     public FsmOrchestratorTests()
     {
@@ -66,7 +67,7 @@ public sealed class FsmOrchestratorTests : IDisposable
     private Task<int> Run(RunRequest request) => RunAsync(request, TestContext.Current.CancellationToken);
 
     private Task<int> RunAsync(RunRequest request, CancellationToken ct) =>
-        FsmOrchestratorFactory.Create(_fs, _backend, _ui, _options, TimeProvider.System, _processes)
+        FsmOrchestratorFactory.Create(_fs, _backend, _ui, _options, TimeProvider.System, _processes, _isWindows)
             .RunAsync(request, ct)
             .WaitAsync(WallClock, CancellationToken.None);
 
@@ -233,10 +234,11 @@ public sealed class FsmOrchestratorTests : IDisposable
         var cp949 = Encoding.GetEncoding(949);
         var project = Path.Combine(_root, "Shop.Web");
         Directory.CreateDirectory(Path.Combine(project, "Services"));
-        // SDK style so the build tool resolves on every OS; legacy resolution is covered by BuildVerificationFlowTests.
+        _isWindows = () => false; // legacy is syntax-only off Windows; the same path on every OS keeps this test about bytes
         File.WriteAllText(Path.Combine(project, "Shop.Web.csproj"),
-            "<Project Sdk=\"Microsoft.NET.Sdk\">\r\n" +
-            "  <PropertyGroup>\r\n    <TargetFramework>net48</TargetFramework>\r\n    <LangVersion>7.3</LangVersion>\r\n  </PropertyGroup>\r\n" +
+            "<?xml version=\"1.0\" encoding=\"utf-8\"?>\r\n" +
+            "<Project ToolsVersion=\"15.0\" xmlns=\"http://schemas.microsoft.com/developer/msbuild/2003\">\r\n" +
+            "  <PropertyGroup>\r\n    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>\r\n  </PropertyGroup>\r\n" +
             "</Project>\r\n");
         var path = Path.Combine(project, "Services", "OrderService.cs");
         File.Copy(CorpusLocation.Get("Legacy/Shop.Web/Services/OrderService.cs"), path);
@@ -251,7 +253,8 @@ public sealed class FsmOrchestratorTests : IDisposable
         var expected = cp949.GetBytes(cp949.GetString(originalBytes).Replace(oldLine, newLine));
         Assert.Equal(expected, File.ReadAllBytes(path));
         Assert.Throws<DecoderFallbackException>(() => new UTF8Encoding(false, true).GetString(File.ReadAllBytes(path)));
-        Assert.Equal("Sdk", Summary().GetProperty("projectStyle").GetString());
+        Assert.Equal("Legacy", Summary().GetProperty("projectStyle").GetString());
+        Assert.Contains("레거시 .NET Framework 프로젝트는 Windows에서만 빌드 검증합니다 — 구문 검사만 합니다", _ui.Warnings);
     }
 
     [Fact]

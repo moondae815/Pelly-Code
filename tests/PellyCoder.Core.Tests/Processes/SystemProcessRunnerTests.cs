@@ -38,19 +38,23 @@ public sealed class SystemProcessRunnerTests
     [Fact]
     public async Task Timeout_KillsProcessTree()
     {
-        // Parent shell starts a long-lived child, prints the child's PID, then waits on it.
+        // Parent shell starts a long-lived child, prints the child's PID, then waits on it. The timeout must cover the
+        // parent's start-up until the PID is printed: powershell + Start-Process took over 3 s on a loaded CI runner.
+        var timeout = OperatingSystem.IsWindows() ? TimeSpan.FromSeconds(15) : TimeSpan.FromSeconds(1);
         var spec = OperatingSystem.IsWindows()
             ? new ProcessSpec("powershell",
-                ["-NoProfile", "-Command", "$p = Start-Process -PassThru -WindowStyle Hidden ping -ArgumentList '-n','40','127.0.0.1'; Write-Output $p.Id; Wait-Process -Id $p.Id"],
-                Path.GetTempPath(), TimeSpan.FromSeconds(3))
-            : new ProcessSpec("/bin/sh", ["-c", "sleep 30 & echo $!; wait"], Path.GetTempPath(), TimeSpan.FromSeconds(1));
+                ["-NoProfile", "-Command", "$p = Start-Process -PassThru -WindowStyle Hidden ping -ArgumentList '-n','120','127.0.0.1'; Write-Output $p.Id; Wait-Process -Id $p.Id"],
+                Path.GetTempPath(), timeout)
+            : new ProcessSpec("/bin/sh", ["-c", "sleep 30 & echo $!; wait"], Path.GetTempPath(), timeout);
 
         var r = await Runner.RunAsync(spec, CancellationToken.None);
 
         Assert.True(r.TimedOut);
         Assert.Equal(-1, r.ExitCode);
-        Assert.True(r.Duration < TimeSpan.FromSeconds(10), $"took {r.Duration}");
-        var pid = int.Parse(Regex.Match(r.StdOut, @"\d+").Value);
+        Assert.True(r.Duration < timeout + TimeSpan.FromSeconds(10), $"took {r.Duration}");
+        var match = Regex.Match(r.StdOut, @"\d+");
+        Assert.True(match.Success, $"the child PID was not printed before the timeout; stdout '{r.StdOut}', stderr '{r.StdErr}'");
+        var pid = int.Parse(match.Value);
         Assert.True(await WaitUntilGoneAsync(pid, TimeSpan.FromSeconds(5)), $"child {pid} still alive");
     }
 

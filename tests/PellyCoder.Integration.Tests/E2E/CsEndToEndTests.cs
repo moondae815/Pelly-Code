@@ -1,6 +1,7 @@
 using System.IO.Abstractions;
 using System.Text;
 using Microsoft.CodeAnalysis.CSharp;
+using PellyCoder.Core.Abstractions;
 using PellyCoder.Core.Config;
 using PellyCoder.Core.CSharp;
 using PellyCoder.Core.Fsm;
@@ -36,6 +37,7 @@ public sealed class CsEndToEndTests(ITestOutputHelper output) : IDisposable
     public async Task ModernCancelAsync_AddsShippedGuard()
     {
         var root = CopyCorpus("Modern", ["."]);
+        await RestoreAsync(Path.Combine(root, "Modern.sln")); // pelly builds with --no-restore
         var file = Path.Combine(root, "Shop.Api", "Services", "OrderService.cs");
         var before = File.ReadAllText(file);
 
@@ -50,7 +52,11 @@ public sealed class CsEndToEndTests(ITestOutputHelper output) : IDisposable
     [OllamaFact]
     public async Task LegacyCp949Cancel_KeepsEncodingAndSyntax()
     {
-        var root = CopyCorpus("Legacy", ["Legacy.sln", "Shop.Web", "Shop.Data"]);
+        // On Windows the run builds with MSBuild, which needs the packages restored by eval/corpus/Legacy/build.ps1.
+        string[] entries = OperatingSystem.IsWindows()
+            ? ["Legacy.sln", "Shop.Web", "Shop.Data", "packages"]
+            : ["Legacy.sln", "Shop.Web", "Shop.Data"];
+        var root = CopyCorpus("Legacy", entries);
         var file = Path.Combine(root, "Shop.Web", "Services", "OrderService.cs");
         var beforeBytes = File.ReadAllBytes(file);
         var cp949 = CodePagesEncodingProvider.Instance.GetEncoding(949)!;
@@ -60,15 +66,9 @@ public sealed class CsEndToEndTests(ITestOutputHelper output) : IDisposable
         DumpRun(root, ui);
 
         var afterBytes = File.ReadAllBytes(file);
-        if (!OperatingSystem.IsWindows())
-        {
-            // Legacy projects are build-verified only on Windows (design §8.9): the run stops before touching the file.
-            Assert.Equal(ExitCodes.EnvError, exit);
-            Assert.Equal(beforeBytes, afterBytes);
-            Assert.Contains("warn: 레거시 .NET Framework 프로젝트는 Windows에서만 빌드 검증할 수 있습니다", ui.Lines);
-            return;
-        }
         Assert.Equal(ExitCodes.Success, exit);
+        if (!OperatingSystem.IsWindows())
+            Assert.Contains("warn: 레거시 .NET Framework 프로젝트는 Windows에서만 빌드 검증합니다 — 구문 검사만 합니다", ui.Lines);
         Assert.Throws<DecoderFallbackException>(() => new UTF8Encoding(false, true).GetString(afterBytes));
         var after = cp949.GetString(afterBytes);
         Assert.DoesNotContain("�", after);
@@ -161,6 +161,15 @@ public sealed class CsEndToEndTests(ITestOutputHelper output) : IDisposable
         for (var i = 0; i < text.Length; i++)
             if (text[i] == '\n' && (i == 0 || text[i - 1] != '\r')) count++;
         return count;
+    }
+
+    /// <summary>Restores a corpus copy so pelly's <c>--no-restore</c> build can compile it (otherwise NETSDK1004 stops the run).</summary>
+    private static async Task RestoreAsync(string solution)
+    {
+        var result = await new SystemProcessRunner(TimeProvider.System).RunAsync(
+            new ProcessSpec("dotnet", ["restore", solution, "--nologo"], Path.GetDirectoryName(solution)!, TimeSpan.FromMinutes(5)),
+            TestContext.Current.CancellationToken);
+        Assert.True(result.ExitCode == 0, "dotnet restore 실패:\n" + result.StdOut + result.StdErr);
     }
 
     private string CopyCorpus(string corpus, string[] entries)

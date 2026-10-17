@@ -1,4 +1,5 @@
 using System.IO.Abstractions;
+using System.Runtime.Versioning;
 using PellyCoder.Core.Workspaces;
 
 namespace PellyCoder.Core.Files;
@@ -78,8 +79,22 @@ public sealed class FileGuard(IFileSystem fs, TimeProvider time)
         return new FileWriteResult(FileWriteStatus.Written, TextFileCodec.Decode(lastKnown.Path, bytes), null);
     }
 
-    private async Task<(FileWriteStatus Status, string? Detail)> ReplaceAsync(string path, string expectedSha, byte[] bytes, CancellationToken ct)
+    /// <summary>심볼릭 링크면 최종 대상 파일 경로, 아니면 그대로. 링크 자체는 건드리지 않는다.</summary>
+    private string ResolveFinalPath(string path)
     {
+        try
+        {
+            var target = fs.File.ResolveLinkTarget(path, returnFinalTarget: true);
+            return target?.FullName ?? path;
+        }
+        catch (IOException) { return path; }
+        catch (UnauthorizedAccessException) { return path; }
+    }
+
+    private async Task<(FileWriteStatus Status, string? Detail)> ReplaceAsync(string userPath, string expectedSha, byte[] bytes, CancellationToken ct)
+    {
+        // 읽기·SHA 검사·임시 파일·교체는 모두 최종 대상 파일에서 한다(링크는 그대로 둔다).
+        string path = ResolveFinalPath(userPath);
         string dir = fs.Path.GetDirectoryName(path)!;
         string tmp = fs.Path.Combine(dir, "." + fs.Path.GetFileName(path) + ".pelly-tmp");
         bool changed = false;
@@ -91,6 +106,7 @@ public sealed class FileGuard(IFileSystem fs, TimeProvider time)
                 changed = !fs.File.Exists(path) || TextFileCodec.HashHex(fs.File.ReadAllBytes(path)) != expectedSha;
                 if (changed) return;
                 fs.File.WriteAllBytes(tmp, bytes);
+                if (!OperatingSystem.IsWindows()) CopyUnixMode(path, tmp);
                 if (OperatingSystem.IsWindows()) fs.File.Replace(tmp, path, null);
                 else fs.File.Move(tmp, path, overwrite: true);
             }, MaxAttempts, RetryDelay, time, ct);
@@ -105,5 +121,13 @@ public sealed class FileGuard(IFileSystem fs, TimeProvider time)
             catch (IOException) { /* 정리 실패는 쓰기 결과를 바꾸지 않는다 */ }
             catch (UnauthorizedAccessException) { }
         }
+    }
+
+    // Unix 전용: 교체 전에 원래 파일의 모드를 임시 파일에 옮겨 실행 비트 등이 사라지지 않게 한다.
+    [UnsupportedOSPlatform("windows")]
+    private void CopyUnixMode(string from, string to)
+    {
+        try { fs.File.SetUnixFileMode(to, fs.File.GetUnixFileMode(from)); }
+        catch (PlatformNotSupportedException) { /* 모드 개념이 없는 파일 시스템: 그대로 둔다 */ }
     }
 }

@@ -186,4 +186,36 @@ public class SearchReplacePatcherTests
         Assert.True(o.Success);
         Assert.Equal("\tint a;\n\tint b;\n", o.NewText);
     }
+
+    [Fact]
+    public void FlatSearch_SpaceFile_TabInReplace_BecomesSpaces()
+    {
+        var o = RunAll("    if (a)\n", new PatchBlock("if (a)", "if (a)\n\tx();"));
+        Assert.True(o.Success);
+        Assert.Equal("    if (a)\n        x();\n", o.NewText);
+    }
+
+    [Fact]
+    public void FlatSearch_TabFile_SpacesInReplace_BecomeTabs()
+    {
+        var o = RunAll("\tif (a)\n\t{\n\t}\n", new PatchBlock("if (a)\n{\n}", "if (a)\n{\n    x();\n}"));
+        Assert.True(o.Success);
+        Assert.Equal("\tif (a)\n\t{\n\t\tx();\n\t}\n", o.NewText);
+    }
+
+    [Fact]
+    public void TabFile_PrefixRelatedSearch_MixedRemainder_UsesColumns()
+    {
+        var o = RunAll("\t\tif (a)\n", new PatchBlock("\tif (a)", "\tif (a)\n\t    x();"));
+        Assert.True(o.Success);
+        Assert.Equal("\t\tif (a)\n\t\t\tx();\n", o.NewText);
+    }
+
+    [Fact]
+    public void SameKindPrefixRelatedIndents_KeepVerbatimRemainder()
+    {
+        var o = RunAll("        if (a)\n", new PatchBlock("  if (a)", "  if (a)\n      x();\n   y();"));
+        Assert.True(o.Success);
+        Assert.Equal("        if (a)\n            x();\n         y();\n", o.NewText);
+    }
 }

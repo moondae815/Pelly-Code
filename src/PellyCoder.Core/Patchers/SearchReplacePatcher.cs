@@ -137,11 +137,13 @@ public static class SearchReplacePatcher
         var searchCols = Columns(searchIndent);
         var origCols = Columns(origIndent);
         var useTabs = origIndent.Contains('\t');
+        var origKind = useTabs ? '\t' : ' ';
         return replace.Select(l =>
         {
             if (l.Trim().Length == 0) return l;
             var indent = LeadingWhitespace(l);
-            if (fast && indent.StartsWith(searchIndent, StringComparison.Ordinal))
+            if (fast && indent.StartsWith(searchIndent, StringComparison.Ordinal)
+                && indent[searchIndent.Length..].All(c => c == origKind))
             {
                 return origIndent + l[searchIndent.Length..];
             }

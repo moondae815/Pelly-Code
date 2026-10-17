@@ -1,4 +1,5 @@
 using System.IO.Abstractions;
+using System.Runtime.CompilerServices;
 using System.Text;
 using Microsoft.CodeAnalysis.CSharp;
 using PellyCoder.Core.Abstractions;
@@ -118,7 +119,7 @@ public sealed class CsEndToEndTests(ITestOutputHelper output) : IDisposable
     }
 
     /// <summary>Benchmark rule: the target must change, mustAdd occurrences increase, other members are untouched.</summary>
-    private static void AssertTargetChangedAndRestUntouched(string before, string after, string member, LanguageVersion version, string mustAdd)
+    internal static void AssertTargetChangedAndRestUntouched(string before, string after, string member, LanguageVersion version, string mustAdd)
     {
         var beforeLf = Lf(before);
         var afterLf = Lf(after);
@@ -134,7 +135,7 @@ public sealed class CsEndToEndTests(ITestOutputHelper output) : IDisposable
         Assert.True(outcome.Passed, string.Join("\n", outcome.NewErrors.Select(e => $"{e.Line}:{e.Column} {e.Code} {e.Message}")));
     }
 
-    private static (string Target, string Others) Split(string textLf, LanguageVersion version, string member)
+    internal static (string Target, string Others) Split(string textLf, LanguageVersion version, string member)
     {
         var found = Assert.Single(MemberLocator.FindByName(textLf, version, null, member));
         var lines = textLf.Split('\n');
@@ -145,7 +146,7 @@ public sealed class CsEndToEndTests(ITestOutputHelper output) : IDisposable
         return (target, rest);
     }
 
-    private static string Lf(string text) => text.Replace("\r\n", "\n", StringComparison.Ordinal);
+    internal static string Lf(string text) => text.Replace("\r\n", "\n", StringComparison.Ordinal);
 
     private static int Count(string text, string needle)
     {
@@ -163,11 +164,15 @@ public sealed class CsEndToEndTests(ITestOutputHelper output) : IDisposable
         return count;
     }
 
-    /// <summary>Restores a corpus copy so pelly's <c>--no-restore</c> build can compile it (otherwise NETSDK1004 stops the run).</summary>
-    private static async Task RestoreAsync(string solution)
+    /// <summary>
+    /// Restores a corpus copy so pelly's <c>--no-restore</c> build can compile it (otherwise NETSDK1004 stops the run).
+    /// <c>--disable-parallel</c>: on macOS the temp copy is reached both as <c>/var/...</c> and <c>/private/var/...</c>, so a
+    /// parallel restore once restored Shop.Api twice at the same time and failed with "project.assets.json already exists".
+    /// </summary>
+    internal static async Task RestoreAsync(string solution)
     {
         var result = await new SystemProcessRunner(TimeProvider.System).RunAsync(
-            new ProcessSpec("dotnet", ["restore", solution, "--nologo"], Path.GetDirectoryName(solution)!, TimeSpan.FromMinutes(5)),
+            new ProcessSpec("dotnet", ["restore", solution, "--nologo", "--disable-parallel"], Path.GetDirectoryName(solution)!, TimeSpan.FromMinutes(5)),
             TestContext.Current.CancellationToken);
         Assert.True(result.ExitCode == 0, "dotnet restore 실패:\n" + result.StdOut + result.StdErr);
     }
@@ -188,7 +193,7 @@ public sealed class CsEndToEndTests(ITestOutputHelper output) : IDisposable
         return temp;
     }
 
-    private static void CopyDirectory(string from, string to)
+    internal static void CopyDirectory(string from, string to)
     {
         Directory.CreateDirectory(to);
         foreach (var file in Directory.GetFiles(from))
@@ -201,7 +206,7 @@ public sealed class CsEndToEndTests(ITestOutputHelper output) : IDisposable
         }
     }
 
-    private void DumpRun(string root, RecordingUserInteraction ui)
+    private void DumpRun(string root, RecordingUserInteraction ui, [CallerMemberName] string test = "")
     {
         foreach (var line in ui.Lines) output.WriteLine(line);
         var runs = Path.Combine(root, ".pelly", "runs");
@@ -211,7 +216,7 @@ public sealed class CsEndToEndTests(ITestOutputHelper output) : IDisposable
         var keep = Environment.GetEnvironmentVariable("PELLY_TEST_KEEP");
         if (!string.IsNullOrEmpty(keep))
         {
-            var dest = Path.Combine(keep, Path.GetFileName(root));
+            var dest = Path.Combine(keep, test + "-" + Path.GetFileName(root));
             CopyDirectory(runs, dest);
             output.WriteLine($"runs kept at {dest}");
         }

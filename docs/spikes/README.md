@@ -10,6 +10,7 @@
 | S3 | [샘플링 기본값](S3-sampling.md) | 기본값 유지, think는 교정 시도부터 (설계 D21, 사용자 결정) |
 | S4 | [.NET 토크나이저](S4-tokenizer.md) | 통과 (오차 0%) |
 | S5 | [NOEXEC 권한·배치 순서](S5-sql-noexec.md) | 확정 (최소 권한 VIEW DEFINITION) |
+| S6 | [win-x64 단일 파일](S6-single-file.md) | 확정 (M3b, 트리밍·압축 없음) |
 
 모든 측정은 `qwen3.6:35b-a3b-coding-nvfp4`로 했다. 폐쇄망 서버와 같은 모델을 내려받으면 S1·S2·S4를 다시 실행한다.
 

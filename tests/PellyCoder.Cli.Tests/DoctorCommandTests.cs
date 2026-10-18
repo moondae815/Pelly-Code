@@ -136,7 +136,7 @@ public class DoctorCommandTests
 
         Assert.Equal(0, result.ExitCode);
         Assert.Equal(0, doctor.Calls);
-        foreach (var name in new[] { "토크나이저", "Roslyn", "ScriptDom", "인코딩", "리소스" })
+        foreach (var name in new[] { "토크나이저", "Roslyn", "ScriptDom", "인코딩", "리소스", "SqlClient" })
             Assert.Contains(name, result.Output);
     }
 

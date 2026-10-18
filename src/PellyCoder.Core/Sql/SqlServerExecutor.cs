@@ -10,6 +10,32 @@ public sealed class SqlServerExecutor(string? connectionString) : ISqlExecutor
     public const int CommandTimeoutSeconds = 30;
     private const int TimeoutErrorNumber = -2;
 
+    /// <summary>Local named pipe that never exists: opening it loads the native SNI layer without touching the network.</summary>
+    private const string SelfTestConnectionString = @"Data Source=np:\\.\pipe\pelly-selftest-none\sql\query;Connect Timeout=1;";
+
+    /// <summary>
+    /// Offline self-test row (<c>pelly doctor --offline-selftest</c>). On Windows it opens a local named pipe that does
+    /// not exist: a <see cref="SqlException"/> means the native SNI library loaded; <see cref="DllNotFoundException"/> or
+    /// <see cref="TypeInitializationException"/> propagate and the caller reports Fail. Elsewhere SqlClient uses its
+    /// managed SNI, so constructing a connection is enough.
+    /// </summary>
+    public static string SelfTestNativeLayer()
+    {
+        using var conn = new SqlConnection(SelfTestConnectionString);
+        if (!OperatingSystem.IsWindows())
+            return "관리 코드 SNI";
+
+        try
+        {
+            conn.Open();
+        }
+        catch (SqlException ex)
+        {
+            return $"네이티브 SNI 로드 성공 (예상된 연결 실패 {ex.Number})";
+        }
+        throw new InvalidOperationException("존재하지 않는 파이프에 연결되었습니다.");
+    }
+
     public async Task<SqlServerProbe> ProbeAsync(CancellationToken ct)
         => await RunAsync(async conn =>
         {

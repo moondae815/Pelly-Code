@@ -10,6 +10,17 @@
     <PackageId>PellyCoder.Cli</PackageId>
   </PropertyGroup>
 
+  <!-- Air-gapped carry-in build (PRD §11.1, spike S6): `dotnet publish -r win-x64` alone yields the single-file pelly.exe.
+       No trimming (Roslyn/ScriptDom/SqlClient use reflection). Compression stays off: the zip already compresses and
+       in-exe compression costs startup on every run (docs/spikes/S6-single-file.md). -->
+  <PropertyGroup Condition="'$(RuntimeIdentifier)'=='win-x64'">
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <PublishTrimmed>false</PublishTrimmed>
+    <DebugType>none</DebugType>
+  </PropertyGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\PellyCoder.Core\PellyCoder.Core.csproj" />
   </ItemGroup>

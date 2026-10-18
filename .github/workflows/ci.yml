@@ -47,6 +47,47 @@ jobs:
         # 환경이 빠져 Skip되거나 필터 오타로 0개가 되면 실패해야 한다
         run: dotnet test tests/PellyCoder.Integration.Tests --no-build -- --filter-trait "Env=Windows" --fail-skips on --minimum-expected-tests 1
 
+  publish-check:
+    # 반입본(PRD §11.1)이 SQL·Ollama 없이 자기 점검을 통과하는지 확인한다 (spike S6)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Publish win-x64 single file
+        run: dotnet publish src/PellyCoder.Cli -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:PublishTrimmed=false -p:DebugType=none -o artifacts/publish/win-x64
+      - name: Check published exe
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = Resolve-Path artifacts/publish/win-x64/pelly.exe
+          Get-ChildItem artifacts/publish/win-x64 | Format-Table Name, Length -AutoSize | Out-String | Write-Host
+          $size = (Get-Item $exe).Length
+          Write-Host ("pelly.exe size: {0} bytes ({1:N1} MB)" -f $size, ($size / 1MB))
+
+          # 첫 실행은 네이티브 라이브러리를 새 폴더에 풀므로 따로 잰다
+          $env:DOTNET_BUNDLE_EXTRACT_BASE_DIR = Join-Path $env:RUNNER_TEMP 'pelly-extract'
+          foreach ($run in 'first', 'second') {
+            $t = Measure-Command { & $exe doctor --offline-selftest | Out-Host }
+            if ($LASTEXITCODE -ne 0) { throw "doctor --offline-selftest ($run) exit $LASTEXITCODE" }
+            Write-Host ("offline-selftest {0} run: {1:N2} s" -f $run, $t.TotalSeconds)
+          }
+          Get-ChildItem -Recurse -File $env:DOTNET_BUNDLE_EXTRACT_BASE_DIR | ForEach-Object { Write-Host "extracted: $($_.FullName) $($_.Length)" }
+
+          $version = (& $exe --version | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0) { throw "--version exit $LASTEXITCODE" }
+          Write-Host "version: $version"
+          if (-not $version.StartsWith('0.9.0')) { throw "unexpected version: $version" }
+
+          & $exe cs --help | Out-Host
+          if ($LASTEXITCODE -ne 0) { throw "cs --help exit $LASTEXITCODE" }
+
+          # Cli 어셈블리의 포함 리소스(서버 확인 사항)를 단일 파일에서 찾는지 본다. 닫힌 루프백 포트만 쓴다(Ollama Fail → 종료 4)
+          $out = (& $exe doctor --endpoint http://127.0.0.1:1 --model none | Out-String)
+          if ($LASTEXITCODE -ne 4) { throw "doctor (no server) exit $LASTEXITCODE, expected 4" }
+          if (-not $out.Contains('OLLAMA_KV_CACHE_TYPE')) { Write-Host $out; throw 'server checklist resource missing' }
+
   sql-integration:
     runs-on: ubuntu-latest
     services:

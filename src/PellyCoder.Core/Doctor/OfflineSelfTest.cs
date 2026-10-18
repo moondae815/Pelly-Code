@@ -8,7 +8,8 @@ namespace PellyCoder.Core.Doctor;
 
 /// <summary>
 /// Hidden <c>pelly doctor --offline-selftest</c>: exercises the bundled components without network, config files or
-/// <c>HttpClient</c>, so a packaged single-file build can prove its embedded dependencies work.
+/// <c>HttpClient</c>, so a packaged single-file build can prove its embedded dependencies work. The SqlClient row only
+/// opens a local named pipe that does not exist (Windows) or constructs a connection (elsewhere).
 /// </summary>
 public static class OfflineSelfTest
 {
@@ -19,6 +20,7 @@ public static class OfflineSelfTest
         Row("ScriptDom", ScriptDom),
         Row("인코딩", Cp949RoundTrip),
         Row("리소스", Resources),
+        Row("SqlClient", SqlServerExecutor.SelfTestNativeLayer),
     ];
 
     private static DoctorCheck Row(string name, Func<string> check)

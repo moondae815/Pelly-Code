@@ -92,22 +92,50 @@ $sbom = Get-Content -Raw $sbomPath | ConvertFrom-Json -AsHashtable
 $components = [System.Collections.Generic.List[object]]::new()
 foreach ($c in $sbom['components']) { $components.Add($c) }
 
-# Runtime packs carried by the self-contained single file: listed under downloadDependencies, not as libraries.
+# Runtime packs carried by the self-contained single file. They are not package references: restore lists them
+# under downloadDependencies (NuGet cache), or the SDK already has them in <dotnet root>/packs (the apphost pack of
+# the machine's own RID, e.g. win-x64 on the Windows CI runner). The latter has no nuspec; its license is read from
+# the LICENSE.txt of the same .NET installation and must be the MIT License.
+$dotnetRoot = $env:DOTNET_ROOT
+if (-not $dotnetRoot -or -not (Test-Path (Join-Path $dotnetRoot 'packs'))) {
+    $cmd = (Get-Command dotnet).Source
+    $target = (Get-Item $cmd).ResolvedTarget
+    $dotnetRoot = Split-Path -Parent $(if ($target) { $target } else { $cmd })
+}
 $downloads = @($assets['project']['frameworks'].Values | ForEach-Object { $_['downloadDependencies'] } | Where-Object { $_ })
+$downloadVersions = @{}
+foreach ($d in $downloads) {
+    if ($d['version'] -match '\A\[([0-9][^,\]]*), *\1\]\z') { $downloadVersions[$d['name']] = $Matches[1] }
+}
 foreach ($pack in $RuntimePacks) {
-    $dep = $downloads | Where-Object { $_['name'] -eq $pack } | Select-Object -First 1
-    if (-not $dep) { throw "runtime pack $pack not found in project.assets.json downloadDependencies" }
-    if ($dep['version'] -notmatch '\A\[([0-9][^,\]]*), *\1\]\z') { throw "runtime pack $pack has no exact version: $($dep['version'])" }
-    $ver = $Matches[1]
-    $components.Add([ordered]@{
-            'type'       = 'framework'
-            'bom-ref'    = "pkg:nuget/$pack@$ver"
-            'name'       = $pack
-            'version'    = $ver
-            'scope'      = 'required'
-            'purl'       = "pkg:nuget/$pack@$ver"
-            'properties' = @(@{ 'name' = 'pelly:origin'; 'value' = 'self-contained .NET runtime pack (added by build-package.ps1)' })
-        })
+    $origin = 'self-contained .NET runtime pack (NuGet download, added by build-package.ps1)'
+    $licenses = $null
+    if ($downloadVersions.Contains($pack)) {
+        $ver = $downloadVersions[$pack]
+    }
+    else {
+        $packDir = Join-Path $dotnetRoot 'packs' $pack
+        $dirs = @(if (Test-Path $packDir) { Get-ChildItem -Directory $packDir | ForEach-Object Name })
+        $known = @($dirs | Where-Object { $downloadVersions.Values -contains $_ })
+        $ver = if ($known.Count -eq 1) { $known[0] } elseif ($dirs.Count -eq 1) { $dirs[0] } else { $null }
+        if (-not $ver) { throw "runtime pack $pack not in downloadDependencies and no single version under $packDir (found: $($dirs -join ', '))" }
+        $licenseFile = Join-Path $dotnetRoot 'LICENSE.txt'
+        $first = if (Test-Path $licenseFile) { (Get-Content $licenseFile | Where-Object { $_.Trim() } | Select-Object -First 1).Trim() } else { '' }
+        if ($first -notmatch '\AThe MIT License') { throw "runtime pack $pack from SDK packs: $licenseFile is not the MIT License ('$first')" }
+        $licenses = @(@{ 'license' = @{ 'id' = 'MIT' } })
+        $origin = 'self-contained .NET runtime pack (SDK packs folder; license from the .NET installation LICENSE.txt; added by build-package.ps1)'
+    }
+    $component = [ordered]@{
+        'type'       = 'framework'
+        'bom-ref'    = "pkg:nuget/$pack@$ver"
+        'name'       = $pack
+        'version'    = $ver
+        'scope'      = 'required'
+        'purl'       = "pkg:nuget/$pack@$ver"
+        'properties' = @(@{ 'name' = 'pelly:origin'; 'value' = $origin })
+    }
+    if ($licenses) { $component['licenses'] = $licenses }
+    $components.Add($component)
 }
 $sbom['components'] = $components.ToArray()
 [System.IO.File]::WriteAllText($sbomPath, ($sbom | ConvertTo-Json -Depth 64), $Utf8)
@@ -169,6 +197,8 @@ $rejected = @()
 foreach ($c in ($sbom['components'] | Sort-Object { $_['name'] }, { $_['version'] })) {
     $r = Resolve-License $c
     $note = $r.Source
+    $origin = if ($c.Contains('properties')) { @($c['properties'] | Where-Object { $_['name'] -eq 'pelly:origin' } | ForEach-Object { $_['value'] }) } else { @() }
+    if ($origin -match 'SDK packs') { $note = 'SDK packs 폴더, .NET 설치본 LICENSE.txt' }
     if (-not $r.Allowed) {
         $ex = $exceptions | Where-Object {
             $_['package'] -eq $c['name'] -and $_['version'] -eq $c['version'] -and

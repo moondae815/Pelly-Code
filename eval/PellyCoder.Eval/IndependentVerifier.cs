@@ -63,7 +63,7 @@ public sealed class IndependentVerifier(IFileSystem fs, IProcessRunner processes
                 return VerificationResult.Skip(resolved.Error ?? "MSBuild를 찾지 못함");
             var legacy = await BuildAsync(resolved.Tool, csproj, corpusRoot, ct);
             return legacy.Status == VerificationResult.Passed && (tests.Count > 0 || failing.Count > 0)
-                ? VerificationResult.Skip("빌드 통과, 레거시 테스트 판정 생략")
+                ? VerificationResult.Skip("빌드 통과, 레거시 테스트 판정 생략") with { Build = VerificationResult.Passed }
                 : legacy;
         }
 
@@ -71,10 +71,12 @@ public sealed class IndependentVerifier(IFileSystem fs, IProcessRunner processes
         if (build.Status != VerificationResult.Passed || (tests.Count == 0 && failing.Count == 0))
             return build;
 
+        // The edited project built: whatever the judge tests say, the invariant's build verdict is Passed.
         var run = await RunJudgeTestsAsync(tests, failing, corpusRoot, ct);
-        return run.Error is null ? Verdict(tests, failing, run.Results)
+        var judged = run.Error is null ? Verdict(tests, failing, run.Results)
             : run.ToolingError ? VerificationResult.Skip("판정 도구 오류: " + run.Error)
             : VerificationResult.Fail(run.Error);
+        return judged with { Build = VerificationResult.Passed };
     }
 
     /// <summary>

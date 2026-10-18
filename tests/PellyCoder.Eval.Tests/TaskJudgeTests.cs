@@ -24,8 +24,37 @@ public class TaskJudgeTests
         Assert.False(outcome.Passed);
         Assert.Contains(outcome.Reasons, r => r.Contains("동작 판정 생략", StringComparison.Ordinal) && r.Contains("복원 실패", StringComparison.Ordinal));
         Assert.False(outcome.InvariantViolated);
+        Assert.True(outcome.JudgeToolingSkipped);
         // Without a behaviour judge a Skipped build check (Legacy on macOS) keeps the string verdict.
         Assert.True(TaskJudge.Judge(Cs(), Original, Fixed, 0, VerificationResult.Skip(VerificationResult.LegacyBuildSkipped)).Passed);
+    }
+
+    // The invariant (PRD §2.2) is the independent build/compile only: a judge test failing after a passing build is the model's miss.
+    [Fact]
+    public void Judge_JudgeTestFailsAfterPassingBuild_IsJudgeFailureNotViolation()
+    {
+        var task = Cs(judge: new BenchmarkJudge { Build = true, Tests = ["Shop.Api.JudgeTests.T.cs_modern_001_X"] });
+        var independent = new VerificationResult(VerificationResult.Failed, "판정 테스트 실패: x", VerificationResult.Passed);
+
+        var outcome = TaskJudge.Judge(task, Original, Fixed, 0, independent);
+
+        Assert.False(outcome.Passed);
+        Assert.Contains(outcome.Reasons, r => r.Contains("판정 테스트 실패", StringComparison.Ordinal));
+        Assert.False(outcome.InvariantViolated);
+        Assert.False(outcome.JudgeToolingSkipped);
+        Assert.Equal(VerificationResult.Passed, outcome.BuildCheck);
+    }
+
+    [Fact]
+    public void Judge_IndependentBuildFails_IsViolation()
+    {
+        var task = Cs(judge: new BenchmarkJudge { Build = true, Tests = ["Shop.Api.JudgeTests.T.cs_modern_001_X"] });
+
+        var outcome = TaskJudge.Judge(task, Original, Fixed, 0, VerificationResult.Fail("빌드 오류: CS0103"));
+
+        Assert.False(outcome.Passed);
+        Assert.True(outcome.InvariantViolated);
+        Assert.Equal(VerificationResult.Failed, outcome.BuildCheck);
     }
 
     [Fact]

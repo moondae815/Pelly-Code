@@ -33,13 +33,16 @@ public static partial class TaskJudge
         if (independent.Status == VerificationResult.Failed)
             reasons.Add($"독립 검증 실패: {independent.Detail}");
         // A behaviour judge that did not run (judge tooling failure) proved nothing: no success, but no invariant violation either.
-        else if (independent.Status == VerificationResult.Skipped && (judge.Tests?.Count ?? 0) + (judge.FailingTests?.Count ?? 0) > 0)
+        var toolingSkipped = independent.Status == VerificationResult.Skipped
+            && (judge.Tests?.Count ?? 0) + (judge.FailingTests?.Count ?? 0) > 0;
+        if (toolingSkipped)
             reasons.Add($"동작 판정 생략: {independent.Detail}");
 
         var checkRequired = judge.Build == true || judge.SqlCompile == true;
-        var buildCheck = checkRequired ? independent.Status : VerificationResult.NotRequired;
-        var invariant = exitCode == 0 && independent.Status == VerificationResult.Failed;
-        return new JudgeOutcome(reasons.Count == 0, reasons, buildCheck, invariant);
+        // PRD §2.2: an approved patch always passes build/SQL verification — judged from the build verdict only.
+        var buildCheck = checkRequired ? independent.BuildStatus : VerificationResult.NotRequired;
+        var invariant = exitCode == 0 && independent.BuildStatus == VerificationResult.Failed;
+        return new JudgeOutcome(reasons.Count == 0, reasons, buildCheck, invariant, toolingSkipped);
     }
 
     /// <summary>Whitespace runs (line breaks and indentation included) collapsed to one space: a reformat is no change.</summary>

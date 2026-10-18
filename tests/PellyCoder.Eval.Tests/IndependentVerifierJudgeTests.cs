@@ -113,6 +113,8 @@ public sealed class IndependentVerifierJudgeTests : IDisposable
         Assert.Equal(VerificationResult.Failed, result.Status);
         Assert.Contains("판정 테스트 실패", result.Detail);
         Assert.Contains("boom", result.Detail);
+        // The edited project itself built: the invariant's build verdict stays Passed.
+        Assert.Equal(VerificationResult.Passed, result.Build);
     }
 
     [Fact]
@@ -155,6 +157,7 @@ public sealed class IndependentVerifierJudgeTests : IDisposable
 
         Assert.Equal(VerificationResult.Skipped, result.Status);
         Assert.Contains("복원 실패", result.Detail);
+        Assert.Equal(VerificationResult.Passed, result.Build);
     }
 
     [Fact]
@@ -188,6 +191,7 @@ public sealed class IndependentVerifierJudgeTests : IDisposable
         Assert.Equal(VerificationResult.Failed, result.Status);
         Assert.Contains("빌드 오류", result.Detail);
         Assert.Contains("CS0103", result.Detail);
+        Assert.Equal(VerificationResult.Passed, result.Build);
     }
 
     // A test host that wrote no TRX (killed or crashed by the edited code) never passes the judge.

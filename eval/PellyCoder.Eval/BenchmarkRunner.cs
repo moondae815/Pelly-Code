@@ -76,7 +76,9 @@ public sealed class BenchmarkRunner(RunnerSetup setup)
 
         string? failureType = exit != 0 ? artifacts.FailureKind ?? $"Exit{exit}"
             : outcome.InvariantViolated ? "InvariantViolated"
-            : passed ? null : "Judge";
+            : passed ? null
+            : outcome.JudgeToolingSkipped ? "JudgeTooling"
+            : "Judge";
 
         var result = new TaskResult(task.Id, task.Kind, passed ? VerificationResult.Passed : VerificationResult.Failed, exit,
             artifacts.Attempts, reasons, independent, outcome.BuildCheck, outcome.InvariantViolated, failureType,

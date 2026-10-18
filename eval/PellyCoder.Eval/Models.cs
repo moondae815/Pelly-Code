@@ -1,9 +1,17 @@
 namespace PellyCoder.Eval;
 
 /// <summary>Result of the runner's own re-verification, independent of the orchestrator's VERIFY.</summary>
-/// <param name="Status"><c>Passed</c>, <c>Failed</c> or <c>Skipped</c>.</param>
-public sealed record VerificationResult(string Status, string? Detail)
+/// <param name="Status"><c>Passed</c>, <c>Failed</c> or <c>Skipped</c>: the whole check, behaviour judge included.</param>
+/// <param name="Build">
+/// The independent build (C#) or NOEXEC compile (SQL) verdict when it differs from <paramref name="Status"/>: a behaviour judge ran
+/// (or could not run) after a passing build. Null: <paramref name="Status"/> is the build verdict. The invariant (PRD §2.2) is
+/// judged from <see cref="BuildStatus"/> only — a failing judge test is the model's miss, not a violation.
+/// </param>
+public sealed record VerificationResult(string Status, string? Detail, string? Build = null)
 {
+    /// <summary>The build/compile verdict the verification invariant is judged from.</summary>
+    public string BuildStatus => Build ?? Status;
+
     public const string Passed = "Passed";
     public const string Failed = "Failed";
     public const string Skipped = "Skipped";
@@ -20,12 +28,15 @@ public sealed record VerificationResult(string Status, string? Detail)
 }
 
 /// <param name="BuildCheck"><c>Passed</c>, <c>Failed</c>, <c>Skipped</c> or <c>NotRequired</c>.</param>
-/// <param name="InvariantViolated">Exit 0 but the independent verification failed (KPI "검증 불변 조건").</param>
-public sealed record JudgeOutcome(bool Passed, IReadOnlyList<string> Reasons, string BuildCheck, bool InvariantViolated);
+/// <param name="InvariantViolated">Exit 0 but the independent build/compile failed (KPI "검증 불변 조건").</param>
+/// <param name="JudgeToolingSkipped">The task's behaviour judge could not run (judge tooling failure): not a success.</param>
+public sealed record JudgeOutcome(bool Passed, IReadOnlyList<string> Reasons, string BuildCheck, bool InvariantViolated,
+    bool JudgeToolingSkipped = false);
 
 /// <summary>One task's row in <c>results.json</c>.</summary>
 /// <param name="Status"><c>Passed</c>, <c>Failed</c> or <c>Skipped</c> (not run; <paramref name="SkipReason"/> says why).</param>
-/// <param name="FailureType">Summary FailureKind for a failed run, <c>Judge</c> when exit 0 but the judge failed, else null.</param>
+/// <param name="FailureType">Summary FailureKind for a failed run; for exit 0: <c>InvariantViolated</c> (independent build/compile
+/// failed), <c>JudgeTooling</c> (the behaviour judge could not run), <c>Judge</c> (a judge failed); else null.</param>
 /// <param name="FormatErrors">EDIT attempts whose output could not be parsed (summary.json); the parse-success KPI is (Attempts − FormatErrors) ÷ Attempts.</param>
 /// <param name="EditOutcomes">Outcomes of the EDIT phase from <c>events.jsonl</c>, in order.</param>
 public sealed record TaskResult(

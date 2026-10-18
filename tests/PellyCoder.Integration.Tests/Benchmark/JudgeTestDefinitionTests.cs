@@ -81,12 +81,19 @@ public class JudgeTestDefinitionTests
         foreach (var sln in Directory.GetFiles(repoRoot, "*.sln").Concat(Directory.GetFiles(CorpusPaths.Root, "*.sln", SearchOption.AllDirectories)))
             Assert.DoesNotContain("JudgeTests", File.ReadAllText(sln), StringComparison.Ordinal);
 
-        var dir = Path.Combine(EvalRoot, "benchmark", "judges", "Modern", "Shop.Api.JudgeTests");
-        var csproj = XDocument.Load(Path.Combine(dir, "Shop.Api.JudgeTests.csproj"));
-        var fallback = csproj.Descendants("JudgeTargetRoot").Single().Value
-            .Replace("$(MSBuildThisFileDirectory)", dir + Path.DirectorySeparatorChar, StringComparison.Ordinal);
-        Assert.Equal(Path.GetFullPath(CorpusPaths.Get("Modern")), Path.GetFullPath(fallback));
-        Assert.True(File.Exists(Path.Combine(dir, "Directory.Build.props")));
-        Assert.True(File.Exists(Path.Combine(dir, "Directory.Packages.props")));
+        // Every judge project (Shop.Api.JudgeTests, Shop.Data.JudgeTests, …) has the same default and its own props.
+        var projects = Directory.GetFiles(Path.Combine(EvalRoot, "benchmark", "judges", "Modern"), "*.csproj", SearchOption.AllDirectories)
+            .Where(p => !p.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
+            .ToList();
+        Assert.Equal(["Shop.Api.JudgeTests", "Shop.Data.JudgeTests"], projects.Select(Path.GetFileNameWithoutExtension).Order(StringComparer.Ordinal));
+        foreach (var project in projects)
+        {
+            var dir = Path.GetDirectoryName(project)!;
+            var fallback = XDocument.Load(project).Descendants("JudgeTargetRoot").Single().Value
+                .Replace("$(MSBuildThisFileDirectory)", dir + Path.DirectorySeparatorChar, StringComparison.Ordinal);
+            Assert.Equal(Path.GetFullPath(CorpusPaths.Get("Modern")), Path.GetFullPath(fallback));
+            Assert.True(File.Exists(Path.Combine(dir, "Directory.Build.props")), project);
+            Assert.True(File.Exists(Path.Combine(dir, "Directory.Packages.props")), project);
+        }
     }
 }

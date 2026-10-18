@@ -84,6 +84,28 @@ public class KpiReportTests
         Assert.Contains("| 검증 불변 조건 | 100% | 50.0% (위반 1건 / 독립 검증 2건, 독립 검증 생략 1건) |", some, StringComparison.Ordinal);
     }
 
+    // Only an independent build/compile failure is a violation; a failed or tooling-skipped judge after a passing build is not.
+    [Fact]
+    public void Kpi_Invariant_CountsOnlyBuildFailures_AndShowsJudgeToolingNextToSuccess()
+    {
+        TaskResult[] results =
+        [
+            Result("cs-modern-001", "cs", "Failed", 0, 1, 10, failure: "Judge",
+                independent: new VerificationResult(VerificationResult.Failed, "판정 테스트 실패: x", VerificationResult.Passed)),
+            Result("cs-modern-002", "cs", "Failed", 0, 1, 10, failure: "JudgeTooling",
+                independent: new VerificationResult(VerificationResult.Skipped, "판정 도구 오류: 복원 실패", VerificationResult.Passed)),
+            Result("cs-modern-003", "cs", "Failed", 0, 1, 10, failure: "InvariantViolated", invariant: true,
+                independent: VerificationResult.Fail("빌드 오류: CS0103")),
+            Result("cs-modern-004", "cs", "Passed", 0, 1, 10),
+        ];
+
+        var report = KpiReport.Render(results, "테스트");
+
+        Assert.Contains("| 검증 불변 조건 | 100% | 75.0% (위반 1건 / 독립 검증 4건, 독립 검증 생략 0건) |", report, StringComparison.Ordinal);
+        Assert.Contains("전체 25.0% (1/4)", report, StringComparison.Ordinal);
+        Assert.Contains("판정 도구 오류로 미판정 1건", report, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Kpi_Ttft_ExcludesRunsWithoutGeneration()
     {

@@ -39,7 +39,8 @@ public static class KpiReport
         sb.AppendLine($"| 초기 응답 지연 (TTFT) | < 1.0초 | {MedianP90(ttft, "초")} |");
         sb.AppendLine($"| 추론 예산 제어 (Thinking) | ≤ 512 토큰 | 최대 {(ran.Count == 0 ? 0 : ran.Max(r => r.ThinkTokens))} 토큰, 잘림 {ran.Count(r => r.ThinkTruncated)}건 |");
         sb.AppendLine($"| 패치 포맷 파싱 성공률 | > 99.5% | {(parse is { } p ? $"{Pct(p)} (EDIT {edits}회)" : "— (EDIT 없음)")} |");
-        sb.AppendLine($"| 최종 작업 성공률 | ≥ 85% | {SuccessRates(ran)} |");
+        var tooling = ran.Count(r => r.FailureType == "JudgeTooling");
+        sb.AppendLine($"| 최종 작업 성공률 | ≥ 85% | {SuccessRates(ran)} (판정 도구 오류로 미판정 {tooling}건) |");
         sb.AppendLine($"| 단일 작업 완료 시간 | 중위값 < 15초 / P90 < 30초 | {MedianP90(wall, "초")} |");
         sb.AppendLine();
 
@@ -75,13 +76,13 @@ public static class KpiReport
     }
 
     /// <summary>
-    /// Only exit-0 runs the independent check actually judged (Passed or Failed) count; a skipped check (Legacy off
-    /// Windows, no SQL server) proves nothing and is shown separately.
+    /// Only exit-0 runs whose independent build/compile was judged (Passed or Failed) count; a skipped check (Legacy off
+    /// Windows, no SQL server) proves nothing and is shown separately. Behaviour judges do not enter the invariant.
     /// </summary>
     private static string Invariant(IReadOnlyList<TaskResult> exit0)
     {
         if (exit0.Count == 0) return "— (종료 0 작업 없음)";
-        var judged = exit0.Where(r => r.Independent?.Status is VerificationResult.Passed or VerificationResult.Failed).ToList();
+        var judged = exit0.Where(r => r.Independent?.BuildStatus is VerificationResult.Passed or VerificationResult.Failed).ToList();
         var skipped = exit0.Count - judged.Count;
         if (judged.Count == 0) return $"판정 불가 (종료 0 {exit0.Count}건 모두 독립 검증 생략 {skipped}건)";
         var violations = judged.Count(r => r.InvariantViolated);

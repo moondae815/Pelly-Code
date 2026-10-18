@@ -4,4 +4,4 @@ file: corpus/Sql/objects/usp_SearchOrders.sql
 request: "@Status를 지정하지 않으면 취소된 주문(Status = 9)은 결과에서 빼줘"
 judge:
   sqlCompile: true
-  mustContain: ["9"]
+  mustContain: ["<> 9"]

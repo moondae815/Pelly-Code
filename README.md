@@ -5,6 +5,7 @@
 ## 문서
 - [PRD](docs/PRD.md)
 - [v1 설계](docs/superpowers/specs/2026-10-17-pelly-coder-v1-design.md)
+- 벤치마크·튜닝 기록(M3b): [기준선 50건 × 3회](docs/m3b-baseline.md) · [튜닝(채택 없음)](docs/m3b-tuning.md) · [S6 단일 파일](docs/spikes/S6-single-file.md) · [S7 Rider 확인표](docs/m3b-s7-rider.md)
 - 반입·운영 가이드: [설치](deploy/install.md) · [사용](deploy/usage.md) · [IDE External Tools](deploy/ide-external-tools.md) · [서버 확인 사항](deploy/server-checklist.md) · [외부 통신 없음](deploy/no-network.md)
 - [구현 계획](docs/superpowers/plans/)
 
@@ -149,20 +150,43 @@ pelly report [--since 2026-10-01] [--sanitize [--out <폴더>]]
 
 실제 모델 실행 기록은 [docs/m1-e2e.md](docs/m1-e2e.md)(C# 최소 경로), [docs/m2a-e2e.md](docs/m2a-e2e.md)(빌드 검증·교정 루프), [docs/m2b-e2e.md](docs/m2b-e2e.md)(SQL 경로), [docs/m3a-e2e.md](docs/m3a-e2e.md)(DTO 슬라이스·`--test`·리포트)에 있습니다.
 
+## 반입 패키지 만들기
+폐쇄망에 들고 갈 `pelly-0.9.0-win-x64.zip`은 CI의 `package` 잡이 만듭니다(Windows, PowerShell 7). 로컬(Windows)에서 같은 결과를 만들려면 단일 파일 publish 뒤 스크립트를 실행합니다.
+
+```powershell
+dotnet publish src/PellyCoder.Cli -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:PublishTrimmed=false -p:DebugType=none -o artifacts/publish/win-x64
+dotnet tool restore   # CycloneDX 6.3.1 (SBOM)
+pwsh ./deploy/build-package.ps1 -PublishDir artifacts/publish/win-x64 -OutDir artifacts/package
+```
+* zip에는 `deploy/package-files.txt` 허용 목록의 13개 파일만 들어갑니다(실행 파일·설정 템플릿·문서·`SHA256SUMS.txt`·SBOM·서드파티 라이선스·버전 기록·벤치마크 요약). 허용되지 않은 라이선스가 있으면 스크립트가 실패하며, 예외는 `deploy/license-exceptions.json`에 승인자와 함께 적습니다(현재 하나, 잠정).
+* `deploy/version-record.json`은 개발 PC의 Ollama에서 `deploy/record-versions.sh`로 다시 만듭니다. 반입 전에 사람이 다시 실행합니다.
+* 설치·사용·IDE·외부 통신 없음 문서는 [deploy/](deploy/)에 있고 zip의 `docs/`에도 들어갑니다. 현재 CI는 Windows에서만 이 zip을 검증하며, 실제 폐쇄망 PC는 **Windows 미확인**(M4)입니다.
+
 ## 벤치마크 실행
-작업 30건(C# 18 + SQL 12)을 실제 모델로 돌려 KPI 표를 만드는 실행기 `eval/PellyCoder.Eval`이 있습니다. 작업 정의와 판정 규칙은 [eval/benchmark/README.md](eval/benchmark/README.md), 첫 측정은 [docs/m2b-benchmark.md](docs/m2b-benchmark.md), M3a 회귀 측정(30/30)은 [docs/m3a-benchmark.md](docs/m3a-benchmark.md)입니다.
+작업 50건(C# 30 = Legacy 18 + Modern 12, SQL 20)을 실제 모델로 돌려 KPI 표를 만드는 실행기 `eval/PellyCoder.Eval`이 있습니다. 작업 정의와 판정 규칙은 [eval/benchmark/README.md](eval/benchmark/README.md), 첫 측정은 [docs/m2b-benchmark.md](docs/m2b-benchmark.md), M3a 회귀 측정(30/30)은 [docs/m3a-benchmark.md](docs/m3a-benchmark.md), M3b 50건 기준선(평균 47.67건)은 [docs/m3b-baseline.md](docs/m3b-baseline.md)입니다.
 
 ```bash
 # SQL 작업에는 SQL Server와 코퍼스 배포가 필요합니다 (eval/corpus/Sql/deploy.sh). 비밀번호가 있는 연결은 환경 변수로만.
 export PELLY_SQL_CONNECTION="Server=localhost,14333;Database=PellyCorpus;User Id=sa;Password=<비밀번호>;TrustServerCertificate=True"
 # 허용 목록·모델은 --config 파일에 둡니다: {"llm":{"model":"<태그>"},"sql":{"allowedHosts":["localhost"],"allowedDatabases":["PellyCorpus"]}}
-dotnet run --project eval/PellyCoder.Eval -- --config <pelly.json>             # 30건 전체
+dotnet run --project eval/PellyCoder.Eval -- --config <pelly.json>             # 50건 전체
 dotnet run --project eval/PellyCoder.Eval -- --tasks sql --config <pelly.json>  # 일부 (id 접두사·글롭, --kind cs|sql)
 ```
 * 결과는 `eval/results/<yyyyMMdd-HHmmss>/`(`--out`으로 변경, git 추적 제외)에 `report.md`(KPI 표·실패 유형·작업별 결과), `results.json`, `work/<id>/`로 남습니다. 코퍼스(`eval/corpus`)는 읽기 전용이며 작업마다 임시 복사본에서 실행합니다.
 * **SQL 작업은 허용 목록이 비어 있거나 연결이 없으면 건너뜁니다**(실행기가 허용 목록을 스스로 넓히지 않습니다).
 * Legacy 작업은 Windows가 아니면 빌드 판정을 생략합니다. 검증 불변 조건(KPI)의 분모는 **독립 검증이 실제로 판정한 종료 0 실행**만이고, 생략된 실행은 따로 표시됩니다.
 * 종료 코드: 0 실행 완료 · 1 검증 불변 조건 위반 · 2 중단 · 4 설정 오류 또는 LLM 서버 연결 불가.
+* **검증 불변 조건은 독립 빌드(C#)·NOEXEC 컴파일(SQL)로만 판정**합니다. Modern 12건의 동작 판정(`judge.tests`·`judge.failingTests`) 실패는 모델 실패(`Judge`)로 따로 세고, 판정 도구 오류는 `JudgeTooling`(미판정)입니다.
+
+### 반복 실행과 비교 (`--repeat`, `compare`)
+프롬프트·샘플링을 바꾼 뒤에는 같은 조건으로 3회 반복하고 기준선과 비교합니다(PRD §8.2).
+```bash
+dotnet run --project eval/PellyCoder.Eval -- --config <pelly.json> --repeat 3
+# 결과: <out>/run-1 … run-3, 상위 summary.md · summary.json
+dotnet run --project eval/PellyCoder.Eval -- compare docs/m3b-baseline.summary.json <후보 summary.json>
+```
+* `compare` 종료 코드: 0 채택 · 3 거절 · 4 판정 불가(중단된 반복, 실행 조건·작업 집합이 다른 요약 등). 채택 규칙(R4): 평균 성공 +1.0건 이상, 어느 범주(cs-legacy·cs-modern·sql)도 −0.5건 넘게 줄지 않음, 3회 모두 불변 조건 위반 0건, 시간 중위값 1.5배 이하. M3b 후보 셋은 모두 거절됐습니다([docs/m3b-tuning.md](docs/m3b-tuning.md)).
+* SQL은 반복 사이에 다시 배포하지 않으므로, 의심되면 실행 전후 DB 객체를 비교하십시오(기준선은 차이 없음).
 
 ## 통합 테스트 환경
 환경이 필요한 통합 테스트는 환경 변수가 있을 때만 실행됩니다.

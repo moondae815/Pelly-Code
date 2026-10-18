@@ -64,6 +64,7 @@ dotnet run --project eval/PellyCoder.Eval -- --tasks sql --config <pelly.json> #
   * `report.md`(KPI 표·실패 유형·작업별 결과), `results.json`, `work/<id>/`(작업별 코퍼스 복사본과 `.pelly/runs` 로그)
 * 검증 불변 조건(종료 0 = 검증 통과, PRD §2.2)은 실행기가 결과를 pelly와 별개로 다시 **빌드(C#)·NOEXEC 컴파일(SQL)** 해 판정합니다. 동작 판정·문자열 판정의 실패는 위반이 아니라 모델 실패(`Judge`)입니다. **분모는 독립 빌드·컴파일이 `Passed`/`Failed`인 종료 0 실행만**이고, 생략된 실행(Windows가 아닌 환경의 Legacy, 검증기 예외)은 "독립 검증 생략 N건"으로 따로 표시되며 판정된 것이 없으면 "판정 불가"입니다.
 * 종료 코드: 0 실행 완료 · 1 검증 불변 조건 위반 · 2 중단 · 4 설정 오류 또는 LLM 서버 연결 불가
+* **반복 실행·비교 (M3b):** `--repeat N`은 `run-1/`…`run-N/`과 상위 `summary.md`·`summary.json`(`formatVersion` 1)을 만듭니다. `compare <기준선 summary.json> <후보 summary.json>`은 R4 채택 규칙(평균 +1.0건 이상, 범주별 −0.5건 넘게 감소 없음, 위반 0건, 시간 중위값 1.5배 이하)으로 판정합니다(종료 0 채택 · 3 거절 · 4 판정 불가). 기준선은 `docs/m3b-baseline.summary.json`입니다.
 * **`sql` 작업에는 SQL Server가 필요합니다.**
   * 연결은 환경 변수 `PELLY_SQL_CONNECTION`(비밀번호가 있는 연결은 환경 변수로만).
   * `--config`의 pelly.json에 허용 목록을 둡니다: `{"sql":{"allowedHosts":["localhost"],"allowedDatabases":["PellyCorpus"]}}`

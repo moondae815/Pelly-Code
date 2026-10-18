@@ -329,6 +329,7 @@ public async Task<int> RunAsync(RunRequest req, CancellationToken ct)
 }
 ```
 * 설정 로드 시 검증 실패(예산 합계가 `numCtx` 초과, 알 수 없는 키)는 종료 코드 4와 함께 어떤 키가 문제인지 출력합니다.
+* **M3b 튜닝 결과 (M3b T6, `docs/m3b-tuning.md`):** 위 기본값(`budget.think` 512, `sampling.code` 0.1/0.9/20/1.05)은 **바뀌지 않았습니다.** 미리 정한 후보(think 768, code 샘플링 0.2/0.95, DTO 예시 보강)를 50건 × 3회로 쟀고 R4 채택 규칙을 만족한 것이 없습니다(§10.6).
 * **`sql` 설정 검증과 연결 문자열 (M2b T3·T6):**
   * `sql.compatLevel`은 `90, 100, 110, 120, 130, 140, 150, 160, 170` 중 하나여야 합니다("sql:compatLevel 값은 90, 100, …, 170 중 하나여야 합니다").
   * **비밀번호 (D17):** 설정에서 온 `sql.connectionString`에 `Password`/`Pwd` 키가 있으면 종료 4와 "sql:connectionString에 비밀번호가 있습니다 — 비밀번호가 있는 연결은 환경 변수 PELLY_SQL_CONNECTION으로만 지정하세요". 키는 `DbConnectionStringBuilder`로 해석해 대소문자를 구분하지 않고, 파싱이 안 되는 문자열도 정규식으로 비밀번호 키를 찾습니다. 로그·메시지·doctor에서는 비밀번호 값을 `***`로 가립니다(파싱이 안 되면 문자열 전체를 가림).
@@ -336,6 +337,7 @@ public async Task<int> RunAsync(RunRequest req, CancellationToken ct)
   * **허용 목록 (R4, D27):** 접속 전에 연결 문자열의 서버(`tcp:`/`np:`/`lpc:` 접두사·포트·인스턴스 이름을 뗀 호스트 또는 인스턴스 포함 이름)가 `allowedHosts`에, 데이터베이스가 `allowedDatabases`에 있어야 합니다(대소문자 무시, 빈 항목은 무시). 둘 중 하나라도 비어 있거나 없으면 SafetyRejected(5, FailureKind `SqlTargetNotAllowed`)이고 "… sql.allowedHosts에 추가하세요"/"… sql.allowedDatabases에 추가하세요"로 안내합니다. 서버 키(`Server`, `Data Source`, `Address`, `Addr`, `Network Address`)나 데이터베이스 키(`Database`, `Initial Catalog`)가 둘 이상이거나 `Failover Partner`가 있으면 허용 목록 밖으로 바뀔 수 있으므로 거부합니다(종료 5). 연결 문자열에 `Database`가 없으면 설정 오류(4)입니다.
 
 ### 8.2 LLM 계층
+* **M3b 튜닝 결과 (M3b T6, R4):** 채택한 후보가 없어 프롬프트 버전(`cs-v2`·`sql-v1`), 샘플링, think 예산은 M3a 그대로입니다. 후보 1(시스템 프롬프트에 「요청한 동작을 없애지 말 것」 한 줄)은 M3a T14에서 이미 더 나쁘게 나왔고(회피 8/14, 되돌림) 벤치마크가 `--test`를 쓰지 않아 KPI를 움직일 수 없어서, 측정 전에 후보에서 뺐습니다(M3b 계획 단계 판단 P5). 후보 2·3·4는 각각 +0.00 / −0.67 / −0.33으로 거절됐습니다. 남은 실패는 1차 시도에서 종료 0으로 끝난 뒤 판정에서 떨어지는 경계값 실수라 교정 경로(think·피드백)가 개입하지 않습니다.
 
 #### OllamaBackend
 * `POST {endpoint}/api/generate` 요청 본문:
@@ -693,6 +695,7 @@ PRD FR-08 항목을 순서대로 검사하고 표로 출력합니다. 각 항목
 * **`pelly doctor --project <csproj>` (M3a T10):** 타겟팅 팩 행의 검사 대상 프로젝트입니다. 파일이 없으면 종료 4입니다.
 * **`pelly doctor --sanitize [--out <폴더>]` (D11, R9, M3a T11):** 화면 대신 비식별 결과를 `json`·`md` 두 파일로 씁니다. 행 이름(위 알려진 목록, 그 밖은 `기타`)과 상태, 그리고 행마다 정한 키의 `Facts`만 남기며 `Detail`·`Action` 문장은 읽지도 않습니다. `Facts` 키는 `DoctorFacts` 한 곳에서 만들고 허용합니다(이름이 바뀌어 사실이 조용히 비는 일을 막음). 행별 키: Ollama 서버 `ollamaVersion`·`latencyMs`, 모델 `loaded`, 토크나이저 일치 `match`, 응답 시간 `ttftMs`, pelly `pellyVersion`·`tokenizerHash`, .NET SDK `dotnetVersion`, MSBuild `found`, 타겟팅 팩 `frameworkVersion`·`installed`, SQL 연결 `canViewDefinition`·`serverMajor`. 버전 값(`ollamaVersion`·`dotnetVersion`·`pellyVersion`)은 리포트와 같은 버전 규칙(숫자로 시작하는 `[0-9A-Za-z.+\-]{1,40}`, 아니면 `"invalid"`), `frameworkVersion`은 별도의 모니커 규칙 `\A[vV][0-9]{1,2}(\.[0-9]{1,2}){1,2}\z`(`v4.8`, `v4.5.2`; 아니면 `"invalid"`), 나머지는 짧은 토큰 규칙을 통과해야 하며 비어 있는 사실은 생략합니다. 연결 문자열·경로·메시지는 나오지 않습니다.
 * **`pelly doctor --offline-selftest` (숨은 옵션, M3a T12):** 설정·HTTP 클라이언트·네트워크 객체를 만들기 전에 반환하며, 내장 구성요소(토크나이저, Roslyn 구문 분석, ScriptDom 파싱, CP949 인코딩 왕복, 내장 리소스)를 확인해 행으로 보입니다. 하나라도 Ok가 아니면 종료 4입니다. 단일 파일 배포본 확인(M3b `publish-check`)에 쓸 용도입니다.
+  * **여섯 행 (M3b T7, S6):** 토크나이저 · Roslyn · ScriptDom · 인코딩 · 리소스 · `SqlClient`. `SqlClient` 행은 Windows에서 존재하지 않는 로컬 파이프(`np:\\.\pipe\pelly-selftest-none\sql\query`, `Connect Timeout=1`)에 연결을 시도해 `SqlException`이 나면 네이티브 SNI가 로드된 것으로 보고 Ok입니다(네트워크는 쓰지 않음). Windows가 아니면 SqlClient가 관리 코드 SNI를 쓰므로 `SqlConnection`을 만들기만 합니다. SqlClient 호출은 `SqlServerExecutor.SelfTestNativeLayer()` 안에만 둡니다.
 
 ### 8.14 IDE External Tools 연동 (D19)
 * `deploy/ide-external-tools.md`에 두 IDE 설정 방법을 씁니다.
@@ -736,7 +739,7 @@ PRD FR-08 항목을 순서대로 검사하고 표로 출력합니다. 각 항목
 | S7 | IDE External Tools 연동 (—, M3b) | Mac의 Rider에서 External Tools로 `--line` 실행, 대화형 입력·한글·`--pause-on-exit`·파일 다시 불러오기 확인. Visual Studio는 M4 폐쇄망에서 확인 | `deploy/ide-external-tools.md` 확정 |
 | S6 | 단일 파일 publish (—, M3b) | `win-x64` self-contained single-file로 Roslyn·ScriptDom·임베디드 토크나이저 동작 확인(CI windows 러너) | 동작 여부와 필요한 `IncludeNativeLibrariesForSelfExtract` 등 설정 |
 
-S1~S5는 M0, S6·S7은 M3b에 수행합니다.
+S1~S5는 M0, S6·S7은 M3b에 수행합니다. 결과는 §9.1(S1~S5)과 §9.2(S6·S7)에 있습니다.
 
 ### 9.1 M0 결과 (2026-10-17, `qwen3.6:35b-a3b-coding-nvfp4` — 폐쇄망 모델과 같은 모델을 받으면 S1·S2·S4 재실행)
 | ID | 결과 | 문서 |
@@ -746,6 +749,12 @@ S1~S5는 M0, S6·S7은 M3b에 수행합니다.
 | S3 | 샘플링 기본값 유지. think 30/30이 512 초과, 생략해도 결과 동일·5배 빠름 → D21 | [S3](../../spikes/S3-sampling.md) |
 | S4 | 통과. `Microsoft.ML.Tokenizers` 2.0.1로 서버와 오차 0% → `QwenTokenCounter` | [S4](../../spikes/S4-tokenizer.md) |
 | S5 | 최소 권한 `VIEW DEFINITION`, 배치 순서 확정, 없는 테이블은 존재 검사로만 잡힘 | [S5](../../spikes/S5-sql-noexec.md) |
+
+### 9.2 M3b 결과 (2026-10-18~19)
+| ID | 결과 | 문서 |
+| :--- | :--- | :--- |
+| S6 | 통과(CI `windows-latest`, `publish-check` 잡). `win-x64` self-contained single-file `pelly.exe` 약 113.8 MB(119,305,264 B), 트리밍·압축 없음. 첫 실행에 풀리는 파일은 `Microsoft.Data.SqlClient.SNI.dll`(약 0.5 MB) 하나. 자체 점검 여섯 행 모두 Ok, `--version` 0.9.0, 첫 실행 1.6~2.5초. 실제 폐쇄망 PC(권한·백신·`%TEMP%` 정책)는 **Windows 미확인**이라 M4에서 잰다 (M3b T7) | [S6](../../spikes/S6-single-file.md) |
+| S7 | **결과 대기.** Rider External Tools 확인표와 준비물은 만들었다(M3b T11). 개발 Mac에 Rider가 없어 사용자가 직접 확인한 뒤 결과를 기입한다. Visual Studio는 M4 폐쇄망에서 확인 | [S7 확인표](../../m3b-s7-rider.md) |
 
 ---
 
@@ -784,7 +793,10 @@ S1~S5는 M0, S6·S7은 M3b에 수행합니다.
 | unit | `macos-latest`, `windows-latest` | 빌드 + Unit 테스트 |
 | windows-integration | `windows-latest` | `eval/corpus/Legacy`·`Modern` 빌드(레거시는 `nuget restore` 후 MSBuild), Windows 테스트, `pelly`의 BuildVerifier를 코퍼스에 대해 실제 실행(LLM 없이 미리 정의된 패치 적용) |
 | sql-integration | `ubuntu-latest` + `mcr.microsoft.com/mssql/server:2022-latest` 서비스 | 코퍼스 SQL 배포 후 SqlServer 테스트 |
-| publish-check | `windows-latest` | `win-x64` self-contained single-file publish 후 `pelly doctor --offline-selftest` 실행 (M3b부터) |
+| publish-check | `windows-latest` | `win-x64` self-contained single-file publish 후 `pelly doctor --offline-selftest`(여섯 행 Ok), `--version`(`0.9.0`으로 시작), `cs --help`, 닫힌 루프백 포트로 `doctor`(종료 4와 내장 서버 체크리스트 출력)를 확인하고 exe를 아티팩트로 올림 (M3b T7) |
+| package | `windows-latest` | publish-check의 exe로 반입 zip `pelly-0.9.0-win-x64.zip` 생성(`deploy/build-package.ps1`): 라이선스 게이트 모의 실행(예외 승인의 버전·해시를 바꾼 사본은 실패해야 함), 패키지 생성, `SHA256SUMS.txt`를 `install.md` 방식으로 확인, `Package` 테스트 6개(`--fail-skips on`) 후 zip 업로드 (M3b T9) |
+
+M3b 이후 CI는 **6잡**입니다: unit ×2(macOS·Windows 매트릭스), windows-integration, sql-integration, publish-check, package (M3b T7·T9).
 
 `pelly doctor --offline-selftest`는 네트워크 없이 토크나이저 로드, Roslyn 파싱, ScriptDom 파싱, 인코딩 provider를 확인하는 숨은 옵션입니다.
 
@@ -822,12 +834,21 @@ S1~S5는 M0, S6·S7은 M3b에 수행합니다.
   ```
 * 공통 규칙: 대상이 원본과 같으면 실패(아무것도 안 고친 패치 차단). **공백 차이뿐인 수정(줄바꿈·들여쓰기만 바뀐 재포맷)도 "같다"로 셉니다**(공백 연속을 한 칸으로 접어 비교). **모든 작업은 내용 판정(`mustContain`·`mustAdd`·`mustNotContain`)을 하나 이상 가집니다** — 빌드·컴파일 판정만으로는 의미 없는 수정도 통과합니다(`AllTasks_HaveContentCriterion`, M2b T14). 정의 형식과 규칙은 `eval/benchmark/README.md`.
 * `PellyCoder.Eval`은 코퍼스를 임시 폴더로 복사 → 작업마다 `FsmOrchestrator.RunAsync`(`--yes`) 실행 → 판정 → `summary.json`과 판정 결과를 모아 KPI 표 출력.
-* **작업 구성 (M2b R9):** M2는 **30건** = C# 18건(Legacy 10, Modern 8) + SQL 12건. 설계 초안의 "C# 30 + SQL 20"은 M2 완료 기준("30건 이상 실행 가능")에 맞춰 줄였고, **50건 확장은 M3b가 맡습니다.** 시그니처를 바꾸는 요청(async 전환 등)은 넣지 않습니다 — MemberShapeGuard가 막는 의도된 동작입니다. SQL 매개변수 추가는 허용합니다.
+* **작업 구성 (M3b T4):** M3b는 **50건** = C# 30건(Legacy 18, Modern 12) + SQL 20건입니다. Legacy 18건의 앱 종류는 YAML `category`로 `mvc` 8 · `adonet` 5 · `dapper` 5입니다. 합격 판정(R4)의 범주는 이 `category`가 아니라 작업 id 접두사(cs-legacy·cs-modern·sql)입니다(M3b 판단 P2). **Modern 12건은 모두 동작 판정**을 가집니다(아래). 코퍼스에는 SQL 객체 넷을 더했고 C# 코퍼스는 바꾸지 않았습니다. 구성은 `Composition_Is30Cs20Sql_With18Legacy`가 검사합니다.
+* **작업 구성 (M2b R9, 이전 단계):** M2는 **30건** = C# 18건(Legacy 10, Modern 8) + SQL 12건. 설계 초안의 "C# 30 + SQL 20"은 M2 완료 기준("30건 이상 실행 가능")에 맞춰 줄였고, 50건 확장은 M3b에서 했습니다(위). 시그니처를 바꾸는 요청(async 전환 등)은 넣지 않습니다 — MemberShapeGuard가 막는 의도된 동작입니다. SQL 매개변수 추가는 허용합니다.
 * **실행기 사용법 (M2b T13):** `dotnet run --project eval/PellyCoder.Eval -- [--tasks <접두사|글롭,…>] [--kind cs|sql] [--out <폴더>] [--config <pelly.json>]`. 결과는 `eval/results/<yyyyMMdd-HHmmss>/`(git 추적 제외)의 `report.md`(KPI 표·실패 유형·작업별 결과), `results.json`, `work/<id>/`(작업별 코퍼스 복사본과 `.pelly/runs`). 종료 코드는 0 실행 완료 · 1 검증 불변 조건 위반 · 2 중단 · 4 설정 오류 또는 LLM 서버 연결 불가입니다. SQL 연결은 `PELLY_SQL_CONNECTION`, 허용 목록은 `--config`의 pelly.json에 둡니다.
 * **SQL 작업은 허용 목록이 비어 있으면 건너뜁니다**(보고서에 사유). 실행기가 스스로 허용 목록을 넓히지 않습니다 — 허용 목록이 비면 연결이 없거나 목록에 없는 것과 같은 취급입니다 (M2b T13).
 * **독립 재검증 (M2b T13):** 모델 실행이 종료 0으로 끝난 작업은 실행기가 결과 파일을 pelly와 별개 경로로 다시 검증합니다(C#: 빌드, SQL: 원본과 같은 방식의 NOEXEC 컴파일에서 새 오류 없음). 이것이 "검증 불변 조건"(종료 0 = 검증 통과)의 판정자입니다. **분모는 독립 검증이 `Passed` 또는 `Failed`인 종료 0 실행만**이고, 검증이 생략된 실행(Windows가 아닌 환경의 Legacy, 검증기 예외)은 분모에서 빼 따로 "독립 검증 생략 N건"으로 보입니다. 판정된 것이 하나도 없으면 "판정 불가"로 표시해 미검증 실행이 100%로 보이지 않게 합니다. 검증기 예외는 위반이 아니라 생략으로 기록합니다(검증기가 죽었다는 것이 수정이 틀렸다는 증거는 아님).
-* Legacy 작업은 Mac에서 빌드 판정을 할 수 없으므로, 로컬 Mac에서는 "빌드 판정 생략" 모드(패치 적용·모양 검사까지만)로 측정합니다. 이때 검증 불변 조건의 분모는 Modern 8 + SQL 12 = 20건입니다. 전체 판정은 Windows 환경에서 실행합니다(CI 수동 워크플로 `benchmark-legacy`. LLM이 필요하므로 셀프 호스티드 러너가 생기기 전까지는 미실행). 폐쇄망 벤치마크는 같은 실행기로 M4에서 작성합니다.
-* **첫 측정(기준선):** `docs/m2b-benchmark.md` — 28/30(93.3%), 검증 불변 조건 위반 0건. 약한 판정 4건을 강화한 뒤 해당 작업만 다시 돌린 결과는 기준선을 바꾸지 않고 별도 기록으로 덧붙입니다(약한 판정으로 잰 사실을 숨기지 않기 위함).
+* **불변 조건은 독립 빌드·컴파일로만 판정합니다 (M3b T4 판정, 지시 T4-I1):** 불변 조건은 「승인된 패치는 항상 빌드/SQL 검증을 통과한다」(PRD §2.2)이므로 위반은 종료 0인데 독립 빌드(C#)나 NOEXEC 컴파일(SQL)이 `Failed`인 경우뿐입니다. 종료 0 작업이 동작 판정(`tests`·`failingTests`)이나 문자열 판정에서 떨어지면 **모델 실패**(실패 유형 `Judge`)이지 위반이 아닙니다. pelly는 숨겨진 판정 테스트(R2)를 볼 수 없으므로 거기에 책임질 수 없습니다. 동작 판정 도구 자체의 오류(판정 프로젝트 복원 실패, 테스트 프로젝트 없음, 테스트 호스트 기동 실패)는 독립 검증 **생략**이고 실패 유형 `JudgeTooling`으로 따로 세어 KPI 표의 최종 작업 성공률 칸에 「판정 도구 오류로 미판정 N건」으로 보입니다(일시적 NuGet 문제가 위반으로 세지지 않게 함). 판정 프로젝트의 빌드 오류·시간 초과·TRX 없는 종료는 실패입니다.
+* **동작 판정 (M3b T3, R1~R3):** 동작 판정은 **Modern C# 작업에만** 둡니다. Legacy는 Mac에서 빌드·테스트를 할 수 없어 문자열 판정을 유지하고(M4에서 전체 판정), SQL은 모델 SQL을 실행해야 해서 DB 무변경 원칙과 부딪히므로 문자열 + NOEXEC 판정을 유지합니다.
+  * **판정 프로젝트 둘** (코퍼스 밖 `eval/benchmark/judges/Modern/`, MSBuild 속성 `JudgeTargetRoot`로 대상 코퍼스를 바꿈. 코퍼스 CI와 `--test`가 원본에서 실패하는 판정 테스트를 보지 않게 함, R2): `Shop.Api.JudgeTests`(`Shop.Api`를 참조해 서비스·컨트롤러를 가짜 저장소·서비스로 실행)와 `Shop.Data.JudgeTests`(데이터 접근 코드를 소스로 컴파일해 가짜 Dapper·`SqlConnection`에 묶음). 후자는 DB 없이 보낸 SQL·매개변수와 결과를 보며, 가짜 DB가 SQL 안의 `CASE`·`OFFSET`·`IIF` 같은 다른 올바른 수정을 떨어뜨릴 수 있는 **알려진 거짓 실패 부류**가 있습니다(M3b T4 이월 항목).
+  * **`judge.failingTests` (R3):** 수정 뒤 **실패해야 하는** 코퍼스 테스트(수정 전 동작을 고정한 `*_CurrentlyCancels` 등). 판정 프로젝트가 아니라 코퍼스 테스트 프로젝트에서 찾습니다. `judge.tests`는 모두 Passed, `failingTests`는 모두 Failed여야 하고 이름이 결과(TRX)에 없으면 실패입니다.
+  * 동작 판정이 있는 작업에는 다른 올바른 수정을 떨어뜨릴 수 있는 문자열 판정을 두지 않습니다(cs-modern-001 `mustAdd: OrderStatus.Shipped`, cs-modern-002 `Math.Round`·`Math.Floor` 제거, T3).
+* **반복 실행과 비교 (M3b T5·T6):** `--repeat N`은 같은 실행을 N회 돌려 `run-1/`…`run-N/`과 상위 `summary.md`·`summary.json`을 만듭니다. 요약은 평균 성공 작업 수·표본 표준편차(n − 1)·범주별(작업 id 접두사) 평균/최소/최대·작업별 회차 결과·회차별 불변 조건 위반·`Judge`·`JudgeTooling` 수·시간 중위값·실행 조건을 담고, `formatVersion`(현재 1)이 없거나 다르면 읽지 않습니다. `dotnet run --project eval/PellyCoder.Eval -- compare <기준선 summary.json> <후보 summary.json>`은 R4 규칙을 ✓/✗로 판정합니다(종료 0 채택 · 3 거절 · 4 판정 불가). 중단된 반복(`cancelled`), 실행 조건·회차·범주 누락, 회차 수·작업 집합·회차별 실행 작업 수(`ran`)가 다른 요약은 판정하지 않고 사유를 출력합니다(거부, 종료 4). SQL은 반복 사이에 다시 배포하지 않고 한 번의 `--repeat`으로 돌리되 실행 전후 DB 객체(이름·종류·`modify_date`·정의 체크섬)를 비교해 무변경을 확인합니다.
+* **R4 채택 규칙 (M3b R4, `eval/PellyCoder.Eval/Acceptance.cs`):** 튜닝 후보는 ① 3회 평균 성공 작업 수가 기준선보다 **1.0건 이상** 많고 ② 어떤 범주(cs-legacy·cs-modern·sql)도 평균이 0.5건 넘게 줄지 않고 ③ 3회 모두 검증 불변 조건 위반이 0건이고 ④ 작업 시간 중위값이 기준선의 1.5배 이하일 때만 채택합니다. 만족하는 후보가 없으면 기본값을 유지하고 그것도 결과로 기록합니다. 후보는 계획 단계에 정한 목록(R5, 상한 4개)에서만 고릅니다.
+* Legacy 작업은 Mac에서 빌드 판정을 할 수 없으므로, 로컬 Mac에서는 "빌드 판정 생략" 모드(패치 적용·모양 검사까지만)로 측정합니다. 이때 검증 불변 조건의 분모는 (M2b·M3a의 30건 기준) Modern 8 + SQL 12 = 20건이었고, M3b의 50건 기준으로는 Modern 12 + SQL 20 = 32건(독립 검증 생략 18건 = Legacy)입니다. 전체 판정은 Windows 환경에서 실행합니다(CI 수동 워크플로 `benchmark-legacy`. LLM이 필요하므로 셀프 호스티드 러너가 생기기 전까지는 미실행). 폐쇄망 벤치마크는 같은 실행기로 M4에서 작성합니다.
+* **M3b 기준선과 최종 KPI (M3b T5·T6):** `docs/m3b-baseline.md`(50건 × 3회, 2026-10-18). 평균 성공 **47.67건**(48 · 47 · 48, 표본 표준편차 0.58), 범주별 cs-legacy 18.00 · cs-modern 9.67 · sql 20.00, 작업 시간 중위값 1.90초, 검증 불변 조건 위반 3회 모두 0건, `JudgeTooling` 0건. 실패는 cs-modern-003(2/3)·007(0/3)·008(0/3)뿐이고 모두 빌드를 통과한 뒤 판정에서 떨어진 모델의 경계값 실수입니다. 튜닝 후보 3개(think 768 · code 샘플링 0.2/0.95 · DTO 예시 보강)는 모두 R4 규칙 1에서 거절돼(`docs/m3b-tuning.md`) **채택된 것이 없으므로 M3b의 최종 KPI는 기준선 그대로**입니다. 요약은 `deploy/benchmark-summary.md`로 반입 zip에 들어갑니다.
+* **첫 측정(M2b 기준선):** `docs/m2b-benchmark.md` — 28/30(93.3%), 검증 불변 조건 위반 0건. 약한 판정 4건을 강화한 뒤 해당 작업만 다시 돌린 결과는 기준선을 바꾸지 않고 별도 기록으로 덧붙입니다(약한 판정으로 잰 사실을 숨기지 않기 위함).
 
 ---
 
@@ -839,7 +860,7 @@ S1~S5는 M0, S6·S7은 M3b에 수행합니다.
 | **M1** | 설정·Workspace·로그, OllamaBackend, TokenCounter, QwenStreamClient, Parser/Patcher, FileGuard, RoslynSlicer(기본), Transitions·Orchestrator, `pelly cs`(SDK 스타일), `doctor` 기본 | Modern 코퍼스에서 `pelly cs` 실제 모델로 1건 이상 성공, §10.2 해당 단위 테스트 통과 |
 | **M2** | BuildToolResolver(레거시), Baseline 병렬화, BuildVerifier·FeedbackBuilder, 교정 루프·롤백·REVIEW, MemberShapeGuard, SymbolLocator(`--line` 포함), SqlSafetyGuard·SqlSyntaxVerifier·SqlSchemaSlicer, `pelly sql` | windows-integration·sql-integration 잡 녹색, 벤치마크 30건 이상 실행 가능 |
 | **M3a** (M3를 둘로 나눔, M3a R1 — 튜닝은 DTO·`--test`가 들어간 최종 제품으로 해야 하고 패키지는 튜닝 뒤에 만들기 때문) | DTO 슬라이스(§8.5), `--test`(§8.9), `pelly report`·`--sanitize`(§8.12), doctor 완성(§8.13), `--verbose`, `--pause-on-exit`(§8.14), 대기 시간 분리(§8.2), 변화 없음 가드(§8.7), M2b 이월 항목 해소(SQL 취소 → 종료 2, 별칭 제외를 문장 단위로) | **달성(2026-10-18):** CI 4잡 녹색. 벤치마크 30건 회귀 측정(`docs/m3a-benchmark.md`): 최종 코드에서 30/30, 검증 불변 조건 위반 0건, 대기 0.02~0.03초. 실제 모델 E2E(`docs/m3a-e2e.md`): DTO·`--test`·리포트·비식별 통과. 요청이 테스트와 모순될 때 의미상 회피는 20회 중 5회(25%)로 받아들인 한계 |
-| **M3b** | 벤치마크 50건(C# 30 + SQL 20)과 `judge.tests` 연동 판정, 그 결과로 하는 프롬프트·샘플링 튜닝, S6(`win-x64` 단일 파일 publish)·CI `publish-check` 잡(`doctor --offline-selftest`), S7(Rider External Tools 실기), 반입 패키지(SBOM·서드파티 라이선스·SHA-256·버전 기록·`pelly.json` 템플릿·zip 스크립트), `deploy/` 문서(설치·사용 가이드, IDE External Tools 가이드, "실행 중 외부 통신 없음" 명세) | 외부 벤치마크 50건 실행 결과와 KPI 표, publish-check 잡 녹색, 반입 패키지 zip 생성 |
+| **M3b** | 벤치마크 50건(C# 30 + SQL 20)과 `judge.tests` 연동 판정, 그 결과로 하는 프롬프트·샘플링 튜닝, S6(`win-x64` 단일 파일 publish)·CI `publish-check` 잡(`doctor --offline-selftest`), S7(Rider External Tools 실기), 반입 패키지(SBOM·서드파티 라이선스·SHA-256·버전 기록·`pelly.json` 템플릿·zip 스크립트), `deploy/` 문서(설치·사용 가이드, IDE External Tools 가이드, "실행 중 외부 통신 없음" 명세) | **달성(2026-10-19, S7 결과와 사람 확인 사항 대기):** 벤치마크 50건(cs-legacy 18 · cs-modern 12 동작 판정 · sql 20)을 3회 반복한 기준선이 최종 KPI다 — 평균 성공 47.67건, 검증 불변 조건 위반 0건(`docs/m3b-baseline.md`). 튜닝 후보 3개는 R4로 모두 거절돼 기본값 유지(`docs/m3b-tuning.md`). CI 6잡 녹색: `publish-check`가 배포본 exe로 자체 점검 6행 Ok, `package`가 `pelly-0.9.0-win-x64.zip`(13개 파일: 허용 목록·체크섬·SBOM(CycloneDX 6.3.1)·서드파티 라이선스 표·버전 기록)을 만든다. `deploy/` 설치·사용·IDE·외부 통신 없음 문서와 S6 결과(`docs/spikes/S6-single-file.md`)가 있다. **대기 중:** ① S7 Rider 실기 확인표는 준비됐으나 개발 Mac에 Rider가 없어 결과가 비어 있다 ② 라이선스 게이트에 **잠정 예외 하나**(`Microsoft.Data.SqlClient.SNI.runtime`, 네이티브 SNI의 Microsoft 재배포 라이선스)를 두었고 사람 확인 전까지 잠정이다. 또 버전 기록에는 GGUF SHA-256 대신 개발 PC 모델의 Ollama digest를 담았고(GGUF 해시는 M4), pelly 자체의 `LICENSE` 파일은 사람이 정할 때까지 zip에 넣지 않았다 |
 
 각 마일스톤 안의 작업 순서와 단위는 구현 계획(writing-plans)에서 정합니다.
 

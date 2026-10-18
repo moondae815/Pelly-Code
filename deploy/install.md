@@ -120,6 +120,19 @@ Ollama 접속, 모델, 토크나이저, 응답 시간, .NET SDK, MSBuild, SQL �
 * 레거시 프로젝트를 쓰면 `pelly doctor --project <csproj>`로 .NET Framework 타겟팅 팩이 설치됐는지도 봅니다. (Windows 미확인)
 * 문제를 외부에 문의할 때는 `pelly doctor --sanitize`가 만든 비식별 결과만 보내십시오. 반출 가능 여부는 사내 보안 규정을 따릅니다.
 
+## 압축 해제 폴더 (AppLocker·WDAC)
+
+`pelly.exe`는 처음 실행할 때 네이티브 SQL 클라이언트 `Microsoft.Data.SqlClient.SNI.dll` 하나를 `%TEMP%\.net\pelly\<해시>\`에 풀고 거기서 불러옵니다. .NET 단일 파일 실행 방식이 그렇게 합니다.
+AppLocker나 WDAC가 `%TEMP%`에서 DLL을 불러오는 것을 막으면 SQL 기능이 실패할 수 있습니다. 이때는 허용된 폴더로 옮기십시오.
+
+```powershell
+[Environment]::SetEnvironmentVariable('DOTNET_BUNDLE_EXTRACT_BASE_DIR', 'C:\Tools\pelly\extract', 'User')
+```
+
+* 새 터미널부터 적용됩니다. 그 폴더(`C:\Tools\pelly\extract\pelly\<해시>\`)에 풀립니다. 사용자에게 쓰기 권한이 있어야 하고, 정책이 그 폴더의 DLL 실행을 허용해야 합니다.
+* 현장 확인: 설정한 뒤 `pelly doctor --offline-selftest`를 실행합니다. 이 숨김 옵션은 Ollama·SQL 서버 없이 패키지 자체만 점검합니다. `SqlClient` 행이 `Ok`(네이티브 SNI 로드)이고 종료 코드가 0이면 됩니다.
+* CI(`windows-latest`)에서는 이 변수를 지정해 풀린 위치를 확인했습니다. AppLocker·WDAC가 걸린 실제 PC 동작은 Windows 미확인입니다.
+
 ## 대안: `dotnet tool install`
 
 로컬 피드로 설치하는 방법은 M4에서 결정합니다. 이 패키지에는 .nupkg가 들어 있지 않습니다.

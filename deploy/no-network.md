@@ -17,6 +17,11 @@ pelly는 실행 중에 설정된 서버 둘에만 접속합니다. 그 밖의 �
   * 그 밖의 OS에서는 연결 객체를 만들기만 하고 열지 않습니다.
 * 반입 zip 안의 실행 파일은 위 두 곳 말고 다른 곳에 접속하지 않습니다.
 * 빌드·패키징(CI)에서 NuGet과 도구를 내려받는 것은 예외입니다. 그것은 반입 전 단계입니다.
+* pelly가 직접 열지는 않지만 OS가 대신 만드는 통신이 있을 수 있습니다. 모두 Windows 미확인입니다.
+  * DNS: 설정한 Ollama·SQL 호스트 이름을 OS 리졸버가 조회합니다.
+  * `Integrated Security=true`: Windows 인증을 위해 OS가 도메인 컨트롤러(Kerberos/NTLM)와 통신합니다.
+  * TLS(`https://` 엔드포인트, `Encrypt=True`이고 `TrustServerCertificate`가 아닌 SQL): OS가 인증서 체인 확인을 위해 CRL·OCSP·중간 인증서를 내려받으려 할 수 있습니다.
+  * 이 통신은 pelly 프로세스가 아니라 OS 서비스(예: `lsass`, DNS 클라이언트)에서 나갈 수 있어 5절의 PID 확인에 안 보일 수 있습니다.
 
 ## 2. 프록시 동작
 
@@ -54,7 +59,7 @@ pelly는 프록시를 직접 설정하지 않습니다. `HttpClient`는 .NET 기
 ## 4. 디스크에서 읽고 쓰는 것
 
 작성 방법: `src/`에서 `File.`, `Directory.`, `FileStream`, `IFileSystem`(`fs.File.`/`fs.Directory.`)의 읽기·쓰기·삭제·열거 호출을 grep으로 모두 뽑아 파일별로 분류했습니다. 임베디드 리소스(토크나이저)는 디스크 읽기가 아니라서 뺐습니다.
-쓰기는 아래 표가 전부입니다. 쓰는 곳은 모두 로컬 디스크입니다.
+`src/`의 쓰기는 아래 표가 전부입니다. 그 밖에 .NET 단일 파일 호스트가 압축을 푸는 자리(표 마지막 행)가 있습니다. 쓰는 곳은 모두 로컬 디스크입니다.
 
 ### 쓰기
 
@@ -62,14 +67,15 @@ pelly는 프록시를 직접 설정하지 않습니다. `HttpClient`는 .NET 기
 | :--- | :--- | :--- |
 | 수정 대상 소스 파일 | `pelly cs`, `pelly sql`(`--dry-run` 제외) | 모델이 만든 수정. 임시 파일 `<파일>.pelly-tmp` 또는 같은 폴더의 `.<이름>.pelly-tmp`에 쓴 뒤 이름을 바꿉니다 |
 | `<작업 공간>/.pelly/runs/<runId>/` | 실행마다 | `events.jsonl`, `attempt-<n>/`의 `prompt.txt`·`think.txt`·`output.txt`·`feedback.txt`, `summary.json`, `messages.txt`, 시험 결과 `tests/*.trx` |
-| `<작업 공간>/.pelly/backup/<runId>/` | 파일 수정 전 | 원본 파일 사본 |
+| `<작업 공간>/.pelly/backup/<runId>/` | 파일 수정 전 | 원본 파일 사본. 되돌릴 때 이 사본을 읽습니다(읽기 표 참고) |
 | `<작업 공간>/.pelly/lock`, `.pelly/.gitignore` | 실행마다 | 동시 실행 방지, 추적 제외(`*`) |
 | `.pelly/runs/` 아래 오래된 실행 폴더 | 실행 종료 시 | `log.retentionDays`(기본 30일)가 지난 폴더를 삭제합니다 |
 | 시험 결과 파일 | `pelly cs`의 시험 단계 | 실행 전 이전 `.trx`를 지우고 시험 도구가 새로 씁니다(`.pelly/runs/<runId>/tests/`) |
 | `--out` 폴더, 없으면 현재 폴더 | `pelly doctor --sanitize` | `pelly-doctor-<날짜시각>.json`, `.md` (같은 초에 겹치면 `-2` 식 접미사) |
 | `--out` 폴더, 없으면 현재 폴더 | `pelly report --sanitize` | `pelly-report-<날짜시각>.json`, `.md` (같은 방식) |
+| `%TEMP%\.net\pelly\<해시>\` (환경 변수 `DOTNET_BUNDLE_EXTRACT_BASE_DIR`가 있으면 `<그 값>\pelly\<해시>\`) | `pelly.exe` 첫 실행(그 버전의 첫 실행) | .NET 단일 파일 호스트가 네이티브 `Microsoft.Data.SqlClient.SNI.dll`(약 0.5 MB) 하나를 풉니다. pelly 코드가 아니라 .NET 호스트가 씁니다. 다음 실행부터는 풀린 파일을 다시 씁니다. CI `windows-latest`에서 측정(docs/spikes/S6-single-file.md), 현장 PC는 Windows 미확인 |
 
-* `src/`는 시스템 임시 폴더(`GetTempPath`)를 쓰지 않습니다.
+* `src/`의 코드는 시스템 임시 폴더(`GetTempPath`)를 쓰지 않습니다. 다만 위 마지막 행처럼 .NET 호스트가 `%TEMP%` 아래에 씁니다. AppLocker·WDAC가 `%TEMP%`의 DLL 실행을 막는 PC라면 [install.md](install.md)의 「압축 해제 폴더」를 보십시오.
 * 두 `--sanitize` 출력은 허용 목록 방식의 비식별 결과입니다(`--help` 설명 기준).
 
 ### 읽기
@@ -82,6 +88,7 @@ pelly는 프록시를 직접 설정하지 않습니다. `HttpClient`는 .NET 기
 | 요청한 소스 파일(`pelly cs`/`sql`의 대상), 같은 작업 공간의 `*.cs` | `pelly cs`, `pelly sql` | 대상 파일과 DTO 수집 등 문맥 |
 | `*.csproj`, `Directory.Build.props`, `*.sln`, `global.json` | 빌드·시험 단계, `pelly doctor --project` | 프로젝트 종류·언어 버전·시험 프로젝트 찾기 |
 | `.pelly/runs/*/summary.json`, `.pelly/runs/<runId>/tests/*.trx` | `pelly report`, 시험 단계 | 실행 기록, 시험 결과 |
+| `<작업 공간>/.pelly/backup/<runId>/` | 검증 실패·거부·중단으로 되돌릴 때 | 원본 파일 사본을 읽어 대상 파일에 다시 씁니다 |
 | 작업 공간 루트 판정 | 모든 명령 | `.git`, `.svn`, `*.sln` 존재 여부와 폴더 열거 |
 | `%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe` | 레거시 빌드 검증(Windows) | MSBuild 위치 찾기. 있으면 실행합니다. Windows 미확인 |
 | `build.msbuildPath`로 지정한 MSBuild | 지정했을 때 | 존재 확인 |
@@ -89,6 +96,14 @@ pelly는 프록시를 직접 설정하지 않습니다. `HttpClient`는 .NET 기
 | 환경 변수 | 시작 시 | `PELLY__*`, `PELLY_SQL_CONNECTION`, `ProgramFiles(x86)`, 프록시 변수. 전체 환경 변수를 한 번 읽어 설정에 반영합니다 |
 
 * 비밀번호가 있는 SQL 연결 문자열은 설정 파일에 두지 못하게 막고 `PELLY_SQL_CONNECTION`으로만 받습니다.
+
+### 띄우는 프로세스
+
+디스크 읽기·쓰기 말고 pelly가 띄우는 외부 프로세스도 있습니다. 목록과 접속 범위는 3절 끝을 보십시오.
+
+* `pelly doctor`는 .NET SDK 확인을 위해 `dotnet --version`을 실행합니다(현재 폴더에서, 결과의 버전 문자열만 읽음). 이 프로세스의 접속은 따로 측정하지 않았습니다.
+* pelly는 띄우는 `dotnet`에 텔레메트리 끄기 변수를 넣지 않습니다. .NET CLI는 기본으로 사용 통계를 보낼 수 있으니 폐쇄망 PC에는 사용자 환경 변수 `DOTNET_CLI_TELEMETRY_OPTOUT=1`을 두십시오. Windows 미확인.
+* `pelly cs`의 빌드·시험 단계는 `dotnet build`/`dotnet run`/`dotnet test`, MSBuild, `test.command`를 실행합니다. 이 프로세스가 쓰는 `bin/`·`obj/`와 그 접속은 pelly가 통제하지 않습니다.
 
 ## 5. 확인 방법
 

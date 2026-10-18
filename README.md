@@ -19,7 +19,7 @@ dotnet run --project src/PellyCoder.Cli -- --version
 ### `pelly cs` — C# 멤버 하나 수정
 ```bash
 pelly cs <파일> ["<요청문>"] [--class <클래스>] [--method <메서드>] [--line N] [--yes] [--dry-run] \
-  [--max-retries N] [--strict-baseline] [--warn-as-error] \
+  [--max-retries N] [--strict-baseline] [--warn-as-error] [--test] [--verbose] [--pause-on-exit] \
   [--config <경로>] [--think off|retry|always] [--model <태그>] [--endpoint <URL>]
 ```
 
@@ -45,17 +45,27 @@ pelly cs <파일> ["<요청문>"] [--class <클래스>] [--method <메서드>] [
 * 레거시 .NET Framework 프로젝트는 **Windows에서만** 빌드 검증합니다(MSBuild를 vswhere 또는 `build.msbuildPath`로 찾음). 그 밖의 환경에서는 알림과 함께 구문 검사만 합니다.
 * csproj가 없으면 구문 검사만 합니다.
 
+**`--test` — 테스트까지 검증**
+* 대상 프로젝트를 참조하고 이름에 `Test`가 들어간 테스트 프로젝트(또는 `test.projects`로 지정한 것)를 수정 전후로 실행해 **새로 실패한 테스트만** 실패로 봅니다. 원래 실패하던 테스트는 세지 않습니다. 테스트 실행 제한은 `test.timeoutSeconds`(기본 300초)입니다.
+* 프로젝트 종류는 csproj에서 판정합니다: xunit v3와 VSTest는 테스트별로 비교하고, 그 밖의 Testing Platform 프로젝트는 종료 코드만 비교합니다. 레거시 프로젝트는 `test.command`(`{project}`·`{dll}`·`{trx}`)가 필요하며 Windows에서는 확인하지 않았습니다.
+* 원본 상태의 테스트를 돌리지 못하면 알림과 함께 빌드로만 검증합니다.
+* **한계:** 요청이 기존 테스트와 모순되면(테스트가 고정한 옛 동작을 바꾸라는 요청 등) 모델이 요청을 로그 출력으로 바꾸는 식으로 회피해 테스트를 통과하고 종료 0이 될 수 있습니다(실측 약 25%). `--test`를 써도 **diff를 직접 읽고** 승인하십시오.
+
+**실행 후 표시 옵션**
+* `--verbose`: 실행이 끝난 뒤 단계별 시간·토큰·시도 요약과 실행 폴더 경로를 보여줍니다. 프롬프트 원문은 출력하지 않고 `attempt-N/prompt.txt` 경로를 안내합니다(`pelly sql`에서도 같습니다).
+* `--pause-on-exit`: 결과를 보여준 뒤 키 입력을 기다립니다. IDE External Tools 창이 바로 닫히지 않게 할 때 씁니다. 입력이 리디렉션되면 기다리지 않으며 Ctrl+C로 중단한 실행도 기다리지 않습니다. 키 대기는 Windows에서 확인하지 않았습니다.
+
 예:
 ```bash
-pelly cs Shop.Api/Services/OrderService.cs "배송 중인 주문은 취소할 수 없게 해줘" --method CancelAsync
-pelly cs Shop.Api/Services/OrderService.cs "null 검사 추가" --line 42
+pelly cs Shop.Api/Services/OrderService.cs "배송 중인 주문은 취소할 수 없게 해줘" --method CancelAsync --test --verbose
+pelly cs Shop.Api/Services/OrderService.cs "null 검사 추가" --line 42 --pause-on-exit
 pelly cs Shop.Api/Services/OrderService.cs        # 요청문을 대화형으로 입력
 ```
 
 ### `pelly sql` — 저장 프로시저·함수·뷰 하나 수정
 ```bash
 pelly sql <파일.sql> ["<요청문>"] [--object <이름>] [--line N] [--yes] [--dry-run] \
-  [--max-retries N] [--config <경로>] [--think off|retry|always] [--model <태그>] [--endpoint <URL>]
+  [--max-retries N] [--verbose] [--pause-on-exit] [--config <경로>] [--think off|retry|always] [--model <태그>] [--endpoint <URL>]
 ```
 
 * 파일은 SSMS가 스크립트한 형태(`SET ANSI_NULLS ON` / `GO` / `CREATE PROCEDURE …` / `GO`)나 여러 객체가 든 파일이어도 됩니다. 수정할 수 있는 것은 **대상 객체 배치 하나**이고, 같은 파일의 다른 배치가 바뀌면 거부됩니다.
@@ -99,7 +109,19 @@ pelly sql Settlement_All.sql "조건 추가" --line 120
 * **검증 계정 권한:** DB 수준 **`VIEW DEFINITION`** 하나면 됩니다(`ALTER`·`SHOWPLAN` 불필요). 없으면 객체 존재 검사와 스키마 요약이 동작하지 않으므로 종료 코드 4와 안내 메시지로 멈춥니다. `pelly doctor`가 접속·허용 목록·권한을 점검합니다.
 
 ### `pelly doctor` — 환경 점검
-Ollama 서버 접속, 모델 존재·로드 여부, chat template, 토크나이저, .NET SDK(`dotnet --version`), 레거시 프로젝트용 MSBuild(Windows에서만), SQL 연결(허용 목록·`VIEW DEFINITION`, 연결 문자열이 설정된 경우)을 점검하고 확인할 항목을 알려 줍니다.
+```bash
+pelly doctor [--project <csproj>] [--sanitize [--out <폴더>]] [--config <경로>] [--model <태그>] [--endpoint <URL>]
+```
+Ollama 서버 접속, 모델 존재·로드 여부, chat template, 토크나이저, 응답 시간, pelly 자체와 설정, .NET SDK(`dotnet --version`), 레거시 프로젝트용 MSBuild(Windows에서만), 타겟팅 팩, SQL 연결(허용 목록·`VIEW DEFINITION`, 연결 문자열이 설정된 경우), 서버 관리자 확인 체크리스트를 표로 보입니다. 하나라도 Fail이면 종료 코드 4입니다.
+* `--project <csproj>`: 그 프로젝트의 .NET Framework 타겟팅 팩이 설치됐는지 확인합니다(Windows에서만, 실기 확인 전).
+* `--sanitize`: 화면 대신 비식별 결과 `json`·`md`를 현재 폴더(또는 `--out`)에 씁니다. 행 이름·상태·버전 같은 짧은 값만 남고 경로·연결 문자열·설명 문장은 나가지 않습니다.
+
+### `pelly report` — 실행 기록 요약
+```bash
+pelly report [--since 2026-10-01] [--sanitize [--out <폴더>]]
+```
+현재 작업 공간의 `.pelly/runs/*/summary.json`을 모아 TTFT·대기·패치 포맷 파싱 성공률·최종 성공률·완료 시간 표와 종료 코드·실패 유형·시도 수 분포를 보입니다.
+* `--sanitize`: 폐쇄망 밖으로 보낼 수 있는 `pelly-report-<시각>.json`·`.md`를 씁니다(`--out`으로 폴더 지정, 기본은 현재 폴더). **허용 목록 방식**이라 소스·경로·식별자·모델 이름·RunId는 나가지 않고 숫자 지표, 오류 코드(`CS0103`·`Msg208`·`TEST` 등), 실패 유형, 버전만 담깁니다. 반출 가능 여부는 사내 보안 규정을 따르십시오.
 
 ### 설정 파일
 설정은 아래 순서로 합쳐지며 뒤의 것이 앞의 것을 덮어씁니다.
@@ -124,10 +146,10 @@ Ollama 서버 접속, 모델 존재·로드 여부, chat template, 토크나이�
 
 * 중단 신호(SIGTERM·SIGHUP)를 받으면 실행을 취소하고 원본 복원이 끝날 때까지 최대 4.5초 기다린 뒤 종료합니다. Windows에서 콘솔 창을 닫는 경우(CTRL_CLOSE, 약 5초 뒤 강제 종료)도 같은 경로를 타도록 했지만 **Windows 미확인**입니다(실제 Windows에서 확인하지 않았습니다).
 
-실제 모델 실행 기록은 [docs/m1-e2e.md](docs/m1-e2e.md)(C# 최소 경로), [docs/m2a-e2e.md](docs/m2a-e2e.md)(빌드 검증·교정 루프), [docs/m2b-e2e.md](docs/m2b-e2e.md)(SQL 경로)에 있습니다.
+실제 모델 실행 기록은 [docs/m1-e2e.md](docs/m1-e2e.md)(C# 최소 경로), [docs/m2a-e2e.md](docs/m2a-e2e.md)(빌드 검증·교정 루프), [docs/m2b-e2e.md](docs/m2b-e2e.md)(SQL 경로), [docs/m3a-e2e.md](docs/m3a-e2e.md)(DTO 슬라이스·`--test`·리포트)에 있습니다.
 
 ## 벤치마크 실행
-작업 30건(C# 18 + SQL 12)을 실제 모델로 돌려 KPI 표를 만드는 실행기 `eval/PellyCoder.Eval`이 있습니다. 작업 정의와 판정 규칙은 [eval/benchmark/README.md](eval/benchmark/README.md), 첫 측정은 [docs/m2b-benchmark.md](docs/m2b-benchmark.md)입니다.
+작업 30건(C# 18 + SQL 12)을 실제 모델로 돌려 KPI 표를 만드는 실행기 `eval/PellyCoder.Eval`이 있습니다. 작업 정의와 판정 규칙은 [eval/benchmark/README.md](eval/benchmark/README.md), 첫 측정은 [docs/m2b-benchmark.md](docs/m2b-benchmark.md), M3a 회귀 측정(30/30)은 [docs/m3a-benchmark.md](docs/m3a-benchmark.md)입니다.
 
 ```bash
 # SQL 작업에는 SQL Server와 코퍼스 배포가 필요합니다 (eval/corpus/Sql/deploy.sh). 비밀번호가 있는 연결은 환경 변수로만.

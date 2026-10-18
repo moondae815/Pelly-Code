@@ -3,7 +3,7 @@
 > **타겟 런타임:** .NET 10 (LTS) CLI  
 > **운영 환경:** 폐쇄망 Windows 11 x64 개발 PC + 폐쇄망 내부 원격 Ollama 서버  
 > **개발 환경:** 외부 개발 노트북(macOS) → 검증 후 폐쇄망으로 이관  
-> **문서 버전:** v1.8 (2026-10-18)
+> **문서 버전:** v1.9 (2026-10-18)
 
 ### 변경 이력
 | 버전 | 날짜 | 주요 변경 |
@@ -17,6 +17,7 @@
 | v1.6 | 2026-10-17 | M0 스파이크 결과 반영: think 단계를 교정 시도부터 사용(`llm.thinkMode`), think 예산은 서버 `num_predict`로 제한, SQL 최소 권한 `VIEW DEFINITION`, 토크나이저 확정, 미결 사항 Q1~Q4 해소 |
 | v1.7 | 2026-10-18 | M2a 반영(상세는 설계 문서 §3 D24·D25, §7.3, §8.4, §8.7.1, §8.9): FR-00 옵션 정리(`--line`, `--strict-baseline`, `--warn-as-error`, `--method`·요청문 선택, 요청문 생략 시 대화형 입력), FR-06 Baseline을 LOCATE 끝에서 시작하고 CS 외 오류면 `BuildUnverifiable`로 중단, 모델 제어 토큰 문자열 차단(종료 코드 4), 멤버 모양 검사 구체화 |
 | v1.8 | 2026-10-18 | M2b 반영(상세는 설계 문서 §3 D26~D28, §5, §8.1, §8.4, §8.6, §8.10, §8.12, §10.6): FR-00 `pelly sql` 옵션 정리, FR-07 `dotnet user-secrets` 제외(R3)·허용 목록이 비면 접속 안 함(R4)·서버/데이터베이스 키 중복과 Failover Partner 거부·원본 대상의 금지 구문은 LOCATE에서 종료 5(R2)·금지 구문 범위(`ALTER DATABASE` 변형, `EXEC … OPENDATASOURCE`), §8.1 벤치마크 30건(M2b, R9)·50건(M3) |
+| v1.9 | 2026-10-18 | M3a 반영(상세는 설계 문서 §8.2, §8.5, §8.7, §8.9, §8.10, §8.12~§8.14, §11): FR-00 `--test`(C# 전용)·`--verbose`·`--pause-on-exit`·`report`(`--since`·`--sanitize`·`--out`) 구현 상태, FR-02 DTO 슬라이스(enum·public 필드·시그니처 한 단계), FR-06 5번 `--test` 구체화(프로젝트 종류별 실행, 새로 실패한 테스트만, `test.timeoutSeconds`, 요청과 모순되는 테스트의 알려진 한계 25%)와 변화 없음 가드, FR-08 전체 doctor(`--project`·`--sanitize`·숨은 `--offline-selftest`), FR-09 비식별 허용 목록(`TEST`, 앵커·ASCII 숫자·버전은 숫자로 시작), §5 대기 시간 `QueueSeconds`, 로드맵 M3를 M3a(완료)·M3b로 분리 (M3a R1~R11) |
 
 ---
 
@@ -151,14 +152,16 @@ Ollama에는 공개된 토큰화 전용 엔드포인트가 없으므로 다음�
   ```text
   pelly cs     <file.cs>  ["<요청>"] [--class <Name>] [--method <Name>] [--line <n>]
   pelly sql    <file.sql> ["<요청>"] [--object <Name>] [--line <n>]
-  pelly doctor                       # 환경 점검 (FR-08)
-  pelly report [--sanitize] [--since <date>]   # 실행 기록 요약 (FR-09)
+  pelly doctor [--project <csproj>] [--sanitize [--out <폴더>]]   # 환경 점검 (FR-08)
+  pelly report [--since <yyyy-MM-dd>] [--sanitize [--out <폴더>]]   # 실행 기록 요약 (FR-09)
   ```
 * **대상 지정 (`pelly cs`):** `--method`(+선택 `--class`), `--line <n>`(커서 줄이 속한 멤버, `--class`/`--method`와 함께 쓸 수 없고 1 이상), 또는 둘 다 생략(요청문의 식별자 → 없으면 모델이 멤버 목록에서 선택, 최대 60개). `--method`와 요청문은 모두 선택입니다. 요청문을 생략하면 대화형 실행에서는 입력을 묻고 비대화형이면 종료 코드 4입니다.
 * **대상 지정 (`pelly sql`, M2b):** 파일에 프로시저·함수·뷰 정의가 하나면 자동으로 정하고, 여럿이면 `--object <이름>`(예: `dbo.MyProc`) 또는 `--line <n>`(그 줄을 포함하는 정의)으로 지정합니다. `--line`과 `--object`는 함께 쓸 수 없고(종료 4), 여러 객체에서 지정이 없으면 대화형은 선택 UI, 비대화형은 종료 코드 3입니다. SQL에는 모델이 대상을 고르는 단계가 없습니다. 편집은 대상 객체 배치 하나에만 적용되며 `--strict-baseline`·`--warn-as-error`는 없습니다(`pelly cs` 전용). 공통 옵션(`--yes`, `--dry-run`, `--max-retries`, `--config`, `--think`, `--model`, `--endpoint`)은 같습니다. 요청문 생략은 `pelly cs`와 같이 대화형에서만 허용됩니다.
 * **빌드 검증 옵션:** `--strict-baseline`(원본에 이미 있던 CS 오류도 종료 코드 4로 처리), `--warn-as-error`(새 경고도 오류로 취급).
 * **입력 제한:** 요청문이나 대상 파일에 모델 제어 토큰 문자열(`<|im_end|>` 등)이 있으면 서버를 부르기 전에 종료 코드 4로 끝납니다.
-* **공통 옵션:** `--dry-run`(패치만 보여주고 적용 안 함), `--yes`(최종 승인 생략), `--test`(검증 시 테스트 실행), `--max-retries <n>`(기본 3), `--warn-as-error`, `--verbose`(단계별 타이밍·프롬프트 출력), `--config <path>`
+* **공통 옵션:** `--dry-run`(패치만 보여주고 적용 안 함), `--yes`(최종 승인 생략), `--max-retries <n>`(기본 3), `--verbose`(실행 후 단계별 타이밍·토큰·시도 요약과 실행 폴더·`prompt.txt` 경로 출력, 프롬프트 원문은 출력하지 않음), `--pause-on-exit`, `--config <path>`
+* **`pelly cs` 전용 옵션:** `--test`(검증 시 테스트 실행, FR-06 5번), `--warn-as-error`, `--strict-baseline`
+* **옵션 구현 상태 (M3a):** `--test`·`--verbose`·`--pause-on-exit`·`report`(`--since`·`--sanitize`·`--out`)는 M3a에서 구현했습니다. `--pause-on-exit`는 실행 결과를 보여준 뒤 키 입력을 기다리며, 입력이 리디렉션되면 기다리지 않고, Ctrl+C로 중단한 실행은 기다리지 않습니다(알려진 한계; 콘솔 키 대기는 Windows 미확인).
 * **IDE 연동:** 사용자는 Visual Studio와 JetBrains Rider를 혼용합니다. 두 IDE의 External Tools에 `pelly cs "<현재 파일>" --line <커서 줄>`을 등록해, 커서가 있는 메서드를 대상으로 실행합니다. 요청문을 생략하면 콘솔에서 입력받습니다. `--pause-on-exit`는 결과를 보여준 뒤 키 입력을 기다립니다(External Tools 콘솔 창이 바로 닫히지 않게). 설정 가이드는 반입 패키지 문서에 포함합니다.
 * **최종 승인 (REVIEW):** 검증을 통과하면 `Spectre.Console`로 컬러 diff를 표시하고 `[y/N]` 확인을 받습니다. 거부하면 원본으로 복구합니다.
 * **종료 코드:**
@@ -181,8 +184,9 @@ Ollama에는 공개된 토큰화 전용 엔드포인트가 없으므로 다음�
 ### FR-02. AST 및 스키마 기반 마이크로 컨텍스트 슬라이서 (Micro-Context Slicer)
 * **C# / .NET 코드 슬라이싱 (`RoslynSlicer`):**
   * `Microsoft.CodeAnalysis.CSharp`로 수정 대상 메서드 본문 전체를 추출합니다. 파일 단위 구문 분석만 사용하므로 프로젝트 형식(SDK/레거시)과 관계없이 동작합니다.
-  * 같은 클래스의 다른 멤버는 본문(`{ ... }`)을 제거하고 시그니처만 남깁니다. DI 필드 선언부, 파일의 `using` 목록, 입출력 DTO의 프로퍼티 정의를 발췌해 가상 컨텍스트를 조립합니다.
+  * 같은 클래스의 다른 멤버는 본문(`{ ... }`)을 제거하고 시그니처만 남깁니다. DI 필드 선언부, 파일의 `using` 목록, 입출력 DTO의 데이터 멤버 정의를 발췌해 가상 컨텍스트를 조립합니다.
   * 레거시 코드의 C# 언어 버전(예: C# 7.3)을 프로젝트 파일에서 읽어 시스템 프롬프트에 명시합니다. 사용할 수 없는 최신 문법(record, 파일 범위 namespace 등)을 생성하지 않도록 하기 위함입니다.
+  * **DTO 슬라이스 (M3a):** 대상이 쓰는 프로젝트 안 선언 타입을 프로퍼티·public 필드·`enum` 멤버까지 한 줄씩 담습니다(타입 5개, 타입당 멤버 30개 상한). 대상을 품은 타입의 필드·프로퍼티 타입 중 대상이 쓰는 것과, 데이터가 없는 타입(저장소 인터페이스)의 메서드 시그니처에 나온 타입을 한 단계 더 따라갑니다. `bin`·`obj`·`.pelly`·`.git`·`.vs`·`node_modules`·`packages`·`TestResults`는 훑지 않고, 링크는 따라가지 않으며, 스캔은 디렉터리 2000개에서 멈춥니다.
   * 예산을 넘으면 다음 순서로 제거합니다: 다른 멤버 시그니처 → DTO 정의 → `using` 목록. 수정 대상 본문은 절대 자르지 않으며, 본문만으로 예산을 넘으면 종료 코드 4로 알립니다.
 * **MS SQL Server 스키마/SP 슬라이싱 (`SqlSchemaSlicer`):**
   * ScriptDom으로 SP 본문을 파싱해 참조 객체를 추출합니다(기존 객체는 `sys.dm_sql_referenced_entities` 병행).
@@ -241,7 +245,11 @@ Ollama에는 공개된 토큰화 전용 엔드포인트가 없으므로 다음�
      * 두 도구의 에러 출력 형식(`파일(줄,열): error CSxxxx: 메시지`)은 같으므로 파서는 하나로 처리합니다.
   3. **피드백:** 신규 에러를 `[파일명(줄번호): CSxxxx - 메시지]`로 추출하고, **에러 줄 앞뒤 ±3줄 코드**를 함께 모델에 전달합니다(296 토큰 이내, 에러가 많으면 앞에서부터).
   4. **경고 정책:** 신규 경고는 사용자에게만 보고합니다. `--warn-as-error`이면 에러와 똑같이 처리합니다.
-  5. **테스트 (선택):** `--test`이면 빌드 통과 후 테스트를 실행하고(SDK 스타일: `dotnet test`, 레거시: 설정 `test.command`로 지정한 러너), 실패한 테스트 이름과 메시지를 피드백합니다.
+  5. **테스트 (선택, `pelly cs --test`, M3a):** 빌드 통과 후 테스트 프로젝트(대상 프로젝트를 참조하고 이름에 `Test`가 있는 프로젝트, 또는 `test.projects`)의 테스트를 실행합니다. 프로젝트 종류별로 xunit v3는 `dotnet run … -- -result-trx`, 그 밖의 Testing Platform은 종료 코드만, VSTest는 `dotnet test --logger trx`, 레거시는 설정 `test.command`(`{project}`·`{dll}`·`{trx}`)로 돌립니다.
+     * **패치 전 상태와 비교해 새로 실패한 테스트만** 실패로 봅니다. 패치 전 테스트가 환경 문제로 돌지 않으면 알림을 남기고 빌드로만 검증합니다. 실패한 테스트 이름과 메시지(또는 종료 코드)를 피드백하며, "요청한 변경을 되돌려 테스트를 통과시키지 말라"는 문장을 함께 보냅니다.
+     * 테스트 실행 제한은 `test.timeoutSeconds`(기본 300초)이며 빌드 제한과 별개입니다.
+     * **변화 없음 가드:** 편집 결과가 원본 대상과 공백 정규화 후 같으면(C#·SQL 공통) 쓰기 전에 거부하고 재시도합니다. 성공으로 끝나는 무변경 수정을 막기 위함입니다.
+     * **알려진 한계:** 요청이 기존 테스트와 모순될 때 모델이 요청을 로그 출력으로 바꾸는 식으로 회피하고 테스트를 통과해 종료 0으로 끝나는 일이 약 25%(20회 중 5회, `docs/m3a-e2e.md`) 있습니다. 의미상 회피는 판정할 수 없으므로 `--test`를 써도 diff를 확인해야 합니다.
 * **MS SQL 검증 파이프라인 (`SqlSyntaxVerifier`):**
   1. **안전 가드 (FR-07)** 통과 여부를 먼저 확인합니다.
   2. **오프라인 구문 검사:** ScriptDom 파서로 파싱합니다(DB 접속 없음). 파서 버전은 대상 SQL Server 버전에 맞춰 설정 `sql.compatLevel`로 고릅니다.
@@ -265,12 +273,16 @@ Ollama에는 공개된 토큰화 전용 엔드포인트가 없으므로 다음�
 * **빌드 도구:** .NET SDK 버전, `vswhere`·`MSBuild.exe` 경로와 버전, .NET Framework Developer Pack(대상 타겟팅 팩) 설치 여부
 * **SQL:** 접속 가능 여부, 화이트리스트 일치, 검증 계정 권한
 * **pelly 자체:** 버전, 내장 토크나이저 해시, 설정 파일 경로와 적용 값
-* 결과는 화면 출력과 함께 `--sanitize` 형식(FR-09)으로 파일 저장이 가능해야 합니다.
+* **구현 (M3a):** 위 항목 전부를 한 표로 보입니다(Ollama 서버·모델·렌더러·템플릿 일치·토크나이저 일치·응답 시간·pelly·설정·.NET SDK·MSBuild·타겟팅 팩·서버 설정 체크리스트·SQL 연결). `--project <csproj>`는 타겟팅 팩을 확인할 프로젝트를 지정합니다(Windows 전용, Windows 미확인). Fail이 있으면 종료 4입니다.
+* **`--sanitize [--out <폴더>]`:** 화면 대신 `json`·`md` 파일로 저장합니다. 행 이름(알려진 목록)·상태와 행마다 정한 사실(버전·지연 ms·로드 여부·일치 여부 등 짧은 토큰)만 남기고 설명·조치 문장, 경로, 연결 문자열은 남기지 않습니다. 버전은 숫자로 시작하는 규칙을, 타겟팅 팩 프레임워크 버전은 `v4.8` 형태의 모니커 규칙을 통과해야 하며 아니면 `invalid`입니다.
+* **`--offline-selftest` (숨은 옵션):** 네트워크·설정 없이 내장 토크나이저·Roslyn·ScriptDom·인코딩·리소스를 확인합니다. 단일 파일 배포본 점검용(M3b)입니다.
 
 ### FR-09. 실행 기록 요약 및 비식별 리포트 (`pelly report`)
 폐쇄망의 실행 로그에는 소스 코드가 들어 있어 외부로 반출할 수 없습니다. 외부에서 개선 작업을 하려면 코드 없이 문제를 파악할 수 있는 자료가 필요합니다.
 * `pelly report`는 실행 기록에서 KPI(§2.2)와 단계별 소요 시간, 실패 유형 분포를 집계합니다.
-* `--sanitize`를 붙이면 **소스 코드, 프롬프트·응답 원문, 파일 경로, 식별자 이름, 연결 정보를 모두 제거**하고 다음만 남깁니다: 단계별 타이밍, 토큰 수, 재시도 횟수, 종료 코드, 에러 코드(`CSxxxx`, SQL 에러 번호), 매칭 단계, pelly·Ollama·모델 버전.
+* `--sanitize`를 붙이면 **소스 코드, 프롬프트·응답 원문, 파일 경로, 식별자 이름, 연결 정보를 모두 제거**하고 다음만 남깁니다: 단계별 타이밍, 토큰 수, 재시도 횟수, 종료 코드, 에러 코드(`CSxxxx`, SQL 에러 번호, 테스트 실패를 뜻하는 `TEST`), 매칭 단계, 실패 유형(고정 목록), pelly·Ollama 버전과 프롬프트 버전. 모델 이름·RunId는 남기지 않습니다.
+* **허용 목록 규칙 (M3a, 설계 §8.12):** 에러 코드는 `\A(CS|MSB|NU|Msg|SQL)[0-9]{1,6}\z` 또는 `TEST`, 버전은 숫자로 시작하는 40자 이내 토큰, 프롬프트 버전은 `\A(cs|sql)-v[0-9]{1,4}\z`이며 정규식은 모두 처음부터 끝까지 고정(ASCII 숫자)합니다. 통과하지 못한 값은 `invalid`/`Other`로 바꾸거나(에러 코드는 건수만 남기고) 버립니다.
+* **구현 (M3a):** `pelly report [--since yyyy-MM-dd]`는 화면에 지표 표와 분포를 보이고, `--sanitize [--out <폴더>]`는 `pelly-report-<시각>.json`·`.md`를 씁니다. 실행 기록 중 `summary.json`만 읽습니다(`events.jsonl` 등은 읽지 않음). 실제 실행으로 소스 식별자·경로·모델 이름이 파일에 없음을 확인했습니다.
 * 반출 가능 여부는 사내 보안 규정을 따릅니다(Q11). 리포트 형식은 사람이 읽고 검토할 수 있는 JSON/Markdown으로 합니다.
 
 ---
@@ -281,8 +293,8 @@ Ollama에는 공개된 토큰화 전용 엔드포인트가 없으므로 다음�
 | :--- | :--- |
 | **오프라인 동작** | 실행 중 인터넷 접속을 일절 하지 않습니다(설정된 Ollama 서버·SQL 서버만 접속). 업데이트 확인, 텔레메트리, 외부 리소스 다운로드 없음. 토크나이저·기본 설정은 실행 파일에 내장 |
 | **원격 Ollama 연동** | 엔드포인트는 설정 `llm.endpoint`(예: `http://ollama.internal:11434`). 사내 프록시 설정(`HTTP_PROXY`, `NO_PROXY`)을 따르되, 내부 주소는 프록시를 우회하도록 안내. 서버 앞단에 인증 프록시가 있으면 `llm.headers`로 헤더 지정(Q13). 연결 타임아웃 3초 |
-| **공용 서버 대기** | Ollama 서버를 여러 사람이 함께 쓰면 요청이 대기할 수 있습니다. 응답 첫 토큰이 늦어지면 "서버 대기 중" 상태를 표시하고, 대기 시간은 KPI의 TTFT와 분리해 기록 |
-| **설정** | 우선순위: CLI 옵션 > 프로젝트 `pelly.json` > 사용자 `%APPDATA%\pelly\config.json` (macOS/Linux: `~/.config/pelly/config.json`) > 내장 기본값. 주요 키: `llm.endpoint`, `llm.model`, `llm.thinkTag`, `llm.headers`, `budget.*`, `sampling.think/code`, `build.msbuildPath`, `test.command`, `sql.allowedHosts`, `sql.allowedDatabases`, `sql.compatLevel` |
+| **공용 서버 대기** | Ollama 서버를 여러 사람이 함께 쓰면 요청이 대기할 수 있습니다. 첫 응답이 3초 넘게 없으면 "서버 응답 대기 중 (N초)" 상태를 표시하고, 대기 시간은 KPI의 TTFT와 분리해 `QueueSeconds`로 기록합니다(`max(0, 클라이언트 TTFT − 모델 로드 − 프롬프트 처리)`, TTFT에서는 뺌, M3a R3). 단독 사용 기준선에서는 약 0.02~0.03초입니다 |
+| **설정** | 우선순위: CLI 옵션 > 프로젝트 `pelly.json` > 사용자 `%APPDATA%\pelly\config.json` (macOS/Linux: `~/.config/pelly/config.json`) > 내장 기본값. 주요 키: `llm.endpoint`, `llm.model`, `llm.thinkTag`, `llm.headers`, `budget.*`, `sampling.think/code`, `build.msbuildPath`, `test.command`, `test.projects`, `test.timeoutSeconds`, `sql.allowedHosts`, `sql.allowedDatabases`, `sql.compatLevel` |
 | **실행 로그** | `.pelly/runs/<run-id>/`에 프롬프트, 모델 응답 원문, 패치, 빌드/SQL 로그, 단계별 타이밍을 JSONL로 저장(디버깅·KPI 수집용). 연결 문자열·비밀번호는 마스킹. `.pelly/`는 형상 관리 제외 대상으로 안내. 보관 기간 기본 30일 후 자동 삭제 |
 | **장애 처리** | 시작 시 Ollama 연결 확인(타임아웃 3초)과 대상 모델 존재 확인. 모델이 로드되지 않았으면 "첫 요청은 모델 로딩으로 느릴 수 있음"을 표시. 스트림 무응답 10초 시 1회 재연결 후 실패하면 종료 코드 4. 빌드 타임아웃 기본 120초(레거시 대형 프로젝트는 설정으로 조정) |
 | **중단 처리** | Ctrl+C(`Console.CancelKeyPress`) 시 진행 중인 요청·빌드를 취소하고 롤백. 빌드 프로세스는 자식 프로세스 트리까지 종료(`Process.Kill(entireProcessTree: true)`) |
@@ -290,7 +302,7 @@ Ollama에는 공개된 토큰화 전용 엔드포인트가 없으므로 다음�
 | **Windows 콘솔** | 시작 시 `Console.OutputEncoding`/`InputEncoding`을 UTF-8로 설정해 한글 깨짐 방지. Windows Terminal·PowerShell 기준으로 렌더링을 확인하고, 구형 콘솔(conhost)에서는 `Spectre.Console`의 색상·유니코드 감지에 맡김 |
 | **경로 처리** | 경로는 항상 `Path` API로 조합(구분자 하드코딩 금지). 대소문자를 구분하지 않는 비교(Windows) 고려. 260자 초과 경로 대비 |
 | **외부 프로세스** | `dotnet`, `MSBuild.exe`, `git` 실행 시 `ProcessStartInfo.ArgumentList`를 사용해 공백·한글 경로 인용 문제 방지. 출력 인코딩은 UTF-8로 지정(레거시 MSBuild 출력이 CP949로 나오는 경우 감지해 변환) |
-| **성능 가시성** | `--verbose` 시 단계별 소요 시간과 토큰 사용량 출력 |
+| **성능 가시성** | `--verbose` 시 실행 후 단계별 소요 시간·토큰·시도 요약과 실행 폴더 경로 출력 (M3a) |
 
 ---
 
@@ -468,9 +480,9 @@ pelly가 요청마다 지정하는 값: `options.num_ctx = 8192`, `keep_alive = 
   * `BuildToolResolver`(레거시 MSBuild.exe 포함), `BaselineSnapshot`, `BuildVerifier`, 자가 교정 루프·롤백·REVIEW 단계
   * `SymbolLocator`
   * `SqlSafetyGuard`, `SqlSyntaxVerifier`, 기본 `SqlSchemaSlicer` → **레거시 C#·SQL 경로 E2E 동작**
-* **Milestone 3 (4주 차) — 품질 및 반입 패키지:**
-  * 슬라이서 고도화, 외부 벤치마크 기반 프롬프트·파라미터 튜닝
-  * `pelly report --sanitize`, `pelly doctor` 완성
+* **Milestone 3a (완료, 2026-10-18) — 제품 기능:** DTO 슬라이스, `--test`, `pelly report`·`--sanitize`, `pelly doctor` 완성(`--project`·`--sanitize`), `--verbose`, `--pause-on-exit`, 대기 시간 분리. 벤치마크 30건 회귀 30/30·불변 조건 위반 0건 (`docs/m3a-benchmark.md`, `docs/m3a-e2e.md`).
+* **Milestone 3b (4주 차) — 튜닝 및 반입 패키지 (M3 중 남은 부분):**
+  * 외부 벤치마크 50건 기반 프롬프트·파라미터 튜닝(테스트 연동 판정 포함)
   * self-contained 패키지·SBOM·라이선스 목록·체크섬 생성, 반입 신청 (§11)
 * **Milestone 4 (5주 차 이후, 반입 승인 시점에 따라 조정) — 폐쇄망 이관 및 현장 검증:**
   * 설치, `pelly doctor`로 서버·빌드 도구·SQL·Windows 인증 점검

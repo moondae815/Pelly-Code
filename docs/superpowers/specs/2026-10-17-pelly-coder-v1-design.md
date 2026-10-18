@@ -322,7 +322,7 @@ public async Task<int> RunAsync(RunRequest req, CancellationToken ct)
   },
   "retry": { "max": 3 },
   "build": { "msbuildPath": null, "timeoutSeconds": 120, "warnAsError": false },
-  "test": { "command": null, "projects": [] },   // projects: 비어 있으면 D18 규칙으로 탐색
+  "test": { "command": null, "projects": [], "timeoutSeconds": 300 },   // projects: 비어 있으면 D18 규칙으로 탐색 (M3a R11)
   "sql": { "allowedHosts": [], "allowedDatabases": [], "compatLevel": 160,
            "connectionString": null },            // D17: 비밀번호 없는 연결만 허용. allowedHosts/allowedDatabases가 비면 아무 데도 접속하지 않음 (D27)
   "log": { "retentionDays": 30 }
@@ -349,7 +349,7 @@ public async Task<int> RunAsync(RunRequest req, CancellationToken ct)
 * `HttpClient`는 `HttpCompletionOption.ResponseHeadersRead`로 스트림을 읽습니다. 취소 토큰이 취소되면 응답 스트림을 닫습니다. 단, 서버는 끊긴 요청을 바로 멈추지 않아 다음 요청이 약 2초 늦어지므로(S2), **취소는 사용자 Ctrl+C에만** 쓰고 길이 제한은 `num_predict`로 합니다(D22).
 * `generate`는 첫 NDJSON 줄까지 `firstTokenTimeoutSeconds`(기본 120초)를 기다리고(무응답 시 1회 재요청, 그래도 실패하면 EnvError), 이후 줄 사이 무응답은 `streamIdleTimeoutSeconds`로 끊습니다. `connectTimeoutSeconds`는 상태 조회(`GetStatusAsync`) 호출의 타임아웃이자 TCP 연결 타임아웃입니다. Ollama는 모델이 로드될 때까지 응답 헤더를 보내지 않으므로(S1 콜드 로드 25.7초) 첫 줄 대기에 별도 값이 필요합니다.
 * `GetStatusAsync`: `/api/version`, `/api/tags`(모델 존재), `/api/ps`(로드 여부), `/api/show`(Modelfile의 `RENDERER`/`PARSER` 이름, 기본 파라미터). 이 모델은 Go 템플릿 대신 내장 렌더러(`qwen3.5`)를 써서 `template`이 `{{ .Prompt }}`뿐이므로 템플릿 문자열 비교는 하지 않습니다(S1).
-* 서버 대기(공용 서버) 시간: 요청 전송부터 첫 청크까지 시간 중 `prompt_eval_duration`을 뺀 값을 "대기"로 로그에 기록.
+* **서버 대기(공용 서버) 시간 (M3a T2, R3):** `QueueSeconds = max(0, 클라이언트 TTFT − load_duration − prompt_eval_duration)`로 계산해 `summary.json`과 리포트에 기록하고, `TtftSeconds`에는 대기를 뺀 값을 남깁니다(PRD §5 "대기는 TTFT와 분리"). 첫 청크가 3초 안에 오지 않으면 `QwenStreamClient`가 1초마다 대기 콜백(`onWaiting`)을 불러, `EditPhase`가 "서버 응답 대기 중 (N초) — 다른 요청을 처리 중이거나 모델을 불러오는 중일 수 있습니다"를 표시합니다. 단독 사용이면 대기 ≈ 0입니다(M2b 기준선 재측정 0.02~0.03초). 첫 토큰 생성 시간 같은 작은 오차가 대기로 잡힐 수 있습니다.
 
 #### QwenChatTemplate (D10)
 내장 `template.json`:
@@ -465,9 +465,12 @@ public void Cancel(int orderId) { ...원문 그대로... }
   | target | 대상 멤버 원문(앞쪽 XML 주석·특성 포함) | 제거 불가 |
   | usings | 파일의 using 지시문 원문 | 3 |
   | fields | 같은 클래스의 필드·생성자 시그니처(DI 파악용) | 4 |
-  | dto | 대상 멤버의 매개변수·반환·지역 변수 타입 중 프로젝트 안에 선언된 타입의 프로퍼티 목록 | 2 |
+  | dto | 대상 멤버가 쓰는 타입 중 프로젝트 안에 선언된 타입의 데이터 멤버 목록(프로퍼티·public 필드·enum 멤버, 아래 "DTO 찾기") | 2 |
   | signatures | 같은 클래스의 다른 멤버 시그니처(본문은 `{ ... }`로 대체) | 1 |
-* **DTO 찾기:** 대상 멤버의 `IdentifierNameSyntax`/`GenericNameSyntax`에서 타입 이름 후보 수집 → 프로젝트 폴더(`bin`, `obj` 제외)의 `*.cs`를 텍스트로 훑어 `class|record|struct|interface <이름>\b`가 있는 파일만 파싱 → 프로퍼티 선언만 추출. 최대 5개 타입, 타입당 최대 30개 프로퍼티.
+* **DTO 찾기 (M3a T7, R5):** `DtoCollector`가 만듭니다.
+  * 후보 이름: 대상 멤버의 `IdentifierNameSyntax`/`GenericNameSyntax`에, 대상을 품은 타입의 필드·프로퍼티 타입 중 대상이 쓰는 것을 더합니다(본문이 `var order = …`라 이름이 안 보이는 `CancelAsync`의 `Order`를 찾기 위함). 1회차에서 찾은 타입이 데이터 멤버가 없으면(저장소 인터페이스 등) 대상이 그 타입에 호출한 메서드의 시그니처에 나온 타입을 한 단계만 더 따라갑니다(스캔은 최대 2회).
+  * 스캔: 프로젝트 폴더의 `*.cs`를 텍스트로 훑어 `class|record|struct|interface|enum <이름>\b`가 있는 파일만 파싱합니다. 건너뛰는 폴더는 `bin`, `obj`, `.pelly`, `.git`, `.vs`, `node_modules`, `packages`, `TestResults`이고, 링크·재해석 지점은 따라가지 않으며, 한 번의 스캔은 디렉터리 2000개(`MaxDirectories`)·파일 5000개·파일당 1MiB에서 멈춥니다. 같은 이름의 `packages`·`TestResults` 폴더에 있는 DTO는 찾지 못합니다. 같은 소스에 대한 결과는 캐시합니다(재시도마다 다시 훑지 않음).
+  * 렌더 형식: 타입마다 한 줄 — `class Order: OrderStatus Status; decimal Total`, `record …`, `struct …`, `interface …`, `enum OrderStatus: Pending, Shipped, …`. 프로퍼티와 public/internal 인스턴스 필드(`const`·`static` 제외)를 담고, 레코드의 위치 매개변수도 포함합니다. 최대 5개 타입, 타입당 최대 30개 멤버(넘으면 끝에 `…`). 읽기·파싱 실패 파일은 건너뛰며 스캔 전체가 실패해도 dto 파트만 없을 뿐 실행은 계속됩니다.
 * **편집 가능 영역(D7):** `target` 범위와 `usings` 범위를 `EditableRegion`으로 반환합니다. using이 없는 파일은 파일 첫 줄 위치를 빈 영역으로 둡니다(이 경우 using 추가는 첫 `namespace` 줄을 SEARCH로 써야 하므로 namespace 선언 줄도 usings 영역에 포함).
 
 ### 8.6 SqlSchemaSlicer
@@ -497,6 +500,7 @@ public void Cancel(int orderId) { ...원문 그대로... }
   * 일치 1개 → 적용. 2개 이상 → Ambiguous 실패. 0개 → 다음 단계. 3단계까지 0개 → NotFound 실패.
 * **들여쓰기 보정 (3단계 일치 시):** SEARCH의 첫 비어 있지 않은 줄과 원본 해당 줄의 앞 공백 차이(문자열)를 구해, REPLACE의 모든 비어 있지 않은 줄에 더하거나 뺍니다. 파일이 탭 들여쓰기면 탭 기준으로 계산합니다.
 * **편집 가능 영역 갱신:** 블록 적용 후 줄 수 변화만큼 뒤쪽 영역 범위를 이동합니다.
+* **변화 없음 가드 (M3a T14):** C# APPLY(대상 멤버 텍스트)와 SQL APPLY(대상 배치)는 패치한 대상을 **원본** 대상과 공백 정규화(연속 공백을 한 칸으로) 후 비교해 같으면 쓰기 전에 `MatchFailed`, FailureKind `NoChange`, 피드백 `NO CHANGE: the edit leaves the target identical to the original. Make the requested change.`로 거부합니다. 이전 시도가 아니라 원본과 비교하므로 2번째 시도가 1번째를 되돌리는 경우도 잡습니다. 문자열 리터럴 안의 공백도 접어 비교하므로 리터럴의 공백만 고친 수정도 거부됩니다(받아들인 한계). 요청의 정답이 "변경 없음"인 경우는 종료 1이 됩니다. 주석 처리·로그로 대체 같은 의미상 회피는 잡지 못합니다(§8.9 4번).
 * **NearestOriginal (NotFound 피드백용):** 편집 가능 영역 안에서 SEARCH 첫 줄과 `Trim()` 기준 편집 거리가 가장 가까운 줄을 찾아 ±3줄을 돌려줍니다.
 * **마커 충돌:** 원본 파일에 마커 줄이 이미 있으면 PREFLIGHT에서 EnvError(4).
 
@@ -581,7 +585,23 @@ public void Cancel(int orderId) { ...원문 그대로... }
    ```
    대상 파일의 에러를 먼저, 그다음 다른 파일의 에러. `budget.feedback` 안에 들어가는 만큼만.
    (피드백에는 줄 번호를 붙이지만, 다음 시도의 CONTEXT는 다시 SLICE한 원문이라 줄 번호가 없습니다.)
-4. `--test`: 테스트 프로젝트를 D18 규칙으로 찾습니다(없으면 경고 후 테스트 생략, 검증은 빌드 결과로만 판정). 테스트 프로젝트를 빌드한 뒤 SDK면 `dotnet test <테스트 csproj> --no-build`, 레거시면 `test.command` 설정값(`{project}`, `{dll}` 자리 표시자 지원)을 실행합니다. 테스트 결과는 패치 전 결과와 비교해 **새로 실패한 테스트만** 실패로 봅니다(Baseline과 같은 방식, 패치 전 테스트 실행은 Baseline 빌드 직후 병렬 작업에 포함). 실패 시 실패 테스트 이름과 메시지를 피드백.
+4. **`--test` (`TestStep`, 단계 이름 `Test`, FailureKind `TestErrors`, 진단 코드 `TEST`) (M3a T8·T9, R6·R7·R11):**
+   * **테스트 프로젝트 찾기 (D18, R6):** 설정 `test.projects`가 있으면 그것, 없으면 솔루션의 프로젝트 중 이름에 `Test`가 있고 대상 프로젝트를 참조하는 것. `.sln`이 없는 작업 공간은 작업 공간의 `*.csproj`(bin/obj 제외)를 같은 규칙으로 훑습니다. 없으면 경고 후 테스트를 생략하고 빌드 결과로만 판정합니다.
+   * **실행 방법은 csproj에서 판정한 프로젝트 종류별로 하나입니다:**
+
+     | 종류 | 판별 | 실행 | 비교 단위 |
+     | :--- | :--- | :--- | :--- |
+     | xunit v3 | `xunit.v3*` 패키지 | `dotnet run --project <csproj> --no-build -- -result-trx <trx>` | 테스트별(TRX) |
+     | 그 밖의 Microsoft Testing Platform | `IsTestingPlatformApplication`, `EnableMicrosoftTestingPlatform`, `MSTest.Sdk`, `Microsoft.Testing.Platform` 등 | `dotnet run --project <csproj> --no-build` | 종료 코드만 |
+     | VSTest(SDK) | 위에 해당 없음 | `dotnet test <csproj> --no-build --logger trx` | 테스트별(TRX) |
+     | 레거시 | `Sdk` 속성 없음 | 설정 `test.command`(`{project}`, `{dll}`, `{trx}` 자리 표시자) | `{trx}`가 있으면 테스트별, 없으면 종료 코드만 (R7) |
+
+     .NET 10의 `dotnet test`는 Testing Platform 프로젝트에 `--logger`를 받지 않고, xunit v3의 `--report-xunit-trx`는 `dotnet run` 경로에서 거부되므로(실측) 한 종류에 한 경로만 둡니다. MSTest/NUnit Testing Platform 프로젝트와 다중 타겟 프로젝트의 테스트별 비교는 확인하지 않았습니다. 레거시 `test.command` 경로는 **Windows 미확인**입니다.
+   * **순서:** 테스트 프로젝트를 먼저 빌드합니다. 패치 전 테스트(기준선)는 **Baseline 빌드 직후** 돌립니다. 원본 상태에서 테스트 프로젝트가 빌드되지 않으면 "원본 상태에서 테스트 프로젝트가 빌드되지 않아 테스트 판정을 건너뜁니다" 알림을 남기고 같은 방식으로 빌드로만 검증합니다. 기준선 테스트를 실행하지 못하면(오류·시간 초과) "원본 상태 테스트를 실행하지 못해 테스트 판정을 건너뜁니다: …" 알림을 남기고 빌드로만 검증합니다(환경 문제로 편집을 막지 않기 위해, T9 판단).
+   * **판정:** 패치 전에 통과하던 테스트가 지금 실패하거나, 테스트 호스트가 죽었거나, 테스트가 사라졌으면 실패로 셉니다(**새로 실패한 것만** — 원래 실패하던 테스트는 세지 않음). 종료 코드만 보는 종류는 원본이 통과했는데 지금 실패하면 실패이고, 원본도 실패했으면 "비교할 수 없음" 알림입니다.
+   * **피드백:** `TESTS FAILED (2 new failures)` 다음에 테스트마다 `<전체 이름>: <메시지 첫 줄>`, 종료 코드만 보는 종류는 `TESTS FAILED (exit n)`. 두 형식 모두 끝에 고정 문장 `Keep the requested change; do not undo it to make tests pass.`를 붙이며 항목을 줄여도 이 문장은 남깁니다(요청과 모순되는 테스트가 있을 때 모델이 자기 수정을 지우지 않게, M3a T14).
+   * **시간 제한:** 설정 `test.timeoutSeconds`(기본 300초, R11)가 테스트 실행 1회의 제한이며 빌드 제한(`build.timeoutSeconds`, 120초)과 별개입니다. TRX는 `.pelly/runs/<runId>/tests/baseline-<n>.trx`, `verify-<시도>-<n>.trx`에 남습니다.
+   * **알려진 한계:** 요청이 기존 테스트와 모순될 때(예: 테스트가 고정한 옛 동작을 바꾸라는 요청) 모델이 `throw`를 로그로 바꾸는 식으로 요청을 회피하고 테스트를 통과해 **종료 0**으로 끝나는 일이 있습니다. 최종 코드에서 20회 중 5회(25%, `docs/m3a-e2e.md` §3)였고 pelly는 의미상 회피를 판정할 수 없어 받아들인 한계입니다. `--test`를 쓸 때도 diff를 읽고 승인하십시오.
 
 ### 8.10 SQL 검증
 
@@ -612,10 +632,12 @@ public void Cancel(int orderId) { ...원문 그대로... }
 5. 두 단계 중 서버를 쓸 수 없으면(`SqlUnavailableException`) 모델에 되묻지 않고 EnvError(4)입니다. 그 밖의 예외도 같습니다.
 6. **별칭 제외 범위:** 스키마 없는 테이블 이름은 같은 문장 안에서 **다른** 테이블 참조가 그 이름을 별칭으로 선언했을 때만 존재 검사에서 뺍니다. 다른 문장의 별칭은 가리지 않고, `FROM Orders AS Orders`처럼 자기 자신의 별칭도 검사합니다 (M3a T13, M2b 최종 리뷰 M-1·M-2 해소). 취소된 SQL 호출은 `OperationCanceledException`으로 올라가 종료 코드 2가 됩니다.
 7. **배포된 객체가 이미 깨진 경우 (M2b 최종 리뷰 I-1):** 삭제된 컬럼을 참조하는 등 배포본이 깨져 있으면 `sys.dm_sql_referenced_entities`가 연결을 유지한 채 Msg 207을 냅니다. 실행기는 연결 수준이 아닌 `SqlException`이면 빈 목록을 돌려주고 SLICE는 수집기가 찾은 참조만으로 진행하며, 그 밖의 예외는 EnvError(4, `스키마 정보를 가져오지 못했습니다`)입니다. 원본의 컴파일 오류는 기준선으로 빼고 새 오류만 셉니다.
+8. **변화 없음 가드 (M3a T14):** APPLY에서 패치한 대상 배치가 원본 대상 배치와 공백 정규화 후 같으면 쓰기 전에 거부합니다(FailureKind `NoChange`, §8.7).
 
 ### 8.11 REVIEW·사용자 상호작용
 * DiffPlex로 원본·수정본의 unified diff(문맥 3줄)를 만들어 Spectre로 색 표시.
 * `IsInteractive` = 콘솔 입력이 리디렉션되지 않았고 `--yes`가 아님. 비대화형이고 `--yes`도 없으면 REVIEW에서 Rejected로 처리(안전 쪽).
+* **`--verbose` (M3a T5, R4):** 실행이 끝난 뒤 단계별 시간·토큰·시도 요약과 실행 폴더(`.pelly/runs/<runId>/`) 경로를 보여줍니다. 프롬프트 원문은 4천 토큰이라 콘솔을 덮으므로 출력하지 않고 `attempt-<n>/prompt.txt` 경로를 안내합니다.
 * 콘솔: 시작 시 `Console.OutputEncoding = Console.InputEncoding = UTF8`. 단계 진행은 Spectre `Status` 스피너로 표시.
 
 ### 8.12 로그·리포트
@@ -626,7 +648,8 @@ public void Cancel(int orderId) { ...원문 그대로... }
 * `retentionDays`보다 오래된 run 폴더는 **실행이 끝날 때**, 작업 공간 잠금을 쥔 채로만 삭제합니다(현재 실행은 지우지 않음) (M2a T12).
 * `FailureKind` 값에는 M2a에서 `BuildErrors`(빌드 신규 오류), `BuildToolUnavailable`, `BaselineErrors`, `BuildUnverifiable`, `ShapeRejected`, `TargetNotFound`(LOCATE·APPLY 모두)가 더해졌습니다 (M2a T6, T7). 검증 단계의 값은 `{단계 Name}Errors`(`SyntaxErrors`, `BuildErrors`)입니다.
 * `FailureKind` 값에는 M2b에서 SQL용 `SqlTargetNotAllowed`(PREFLIGHT 허용 목록), `SqlPermission`(`VIEW DEFINITION` 없음), `SqlForbiddenInOriginal`(LOCATE, R2), `SqlParseErrors`(APPLY 파싱 오류, R5), `SqlSafetyRejected`(APPLY 가드), `SqlObjectsErrors`·`SqlCompileErrors`(VERIFY 단계 `{Name}Errors`)가 더해졌습니다. 객체를 못 찾음·모호함은 기존 `TargetNotFound`·`TargetAmbiguous`입니다 (M2b T5~T10).
-* **진단 코드 (R6):** DB 오류는 `Msg{번호}`(예: `Msg207`, `Msg208`), ScriptDom 파싱 오류는 `SQL{번호}`(예: `SQL46010`)로 `ErrorCodes`에 남습니다.
+* **`FailureKind` 카탈로그 (M3a T1, `FailureKinds.cs`):** 실행기가 낼 수 있는 값의 닫힌 목록입니다. 패치 실패 `Parse`·`NotFound`·`Ambiguous`·`OutsideRegion`·`Overlap`·`Unencodable`, 환경·빌드 `BaselineErrors`·`BuildToolUnavailable`·`BuildUnverifiable`·`Crashed`·`FileChangedExternally`·`ShapeRejected`·`NoChange`(M3a, §8.7), SQL `SqlForbiddenInOriginal`·`SqlParseErrors`·`SqlPermission`·`SqlSafetyRejected`·`SqlTargetNotAllowed`, 대상 `TargetAmbiguous`·`TargetNotFound`, 검증 단계 `SyntaxErrors`·`BuildErrors`·`SqlObjectsErrors`·`SqlCompileErrors`·`TestErrors`(M3a, 단계 `Test`), 종료 `EnvError`·`BudgetExceeded`·`Rejected`·`Cancelled`. 비식별 리포트는 `FailureKinds.IsKnown`을 통과한 값만 내보냅니다.
+* **진단 코드 (R6):** DB 오류는 `Msg{번호}`(예: `Msg207`, `Msg208`), ScriptDom 파싱 오류는 `SQL{번호}`(예: `SQL46010`)로 `ErrorCodes`에 남습니다. 테스트 실패는 `TEST`입니다 (M3a R8).
 * **요약의 종류 (M2b T9):** LOCATE가 대상을 정하지 못하고 끝난 실행의 `Kind`와 프롬프트 버전은 `ctx.Target?.Kind ?? ctx.Request.Kind`를 따릅니다(요청 종류). 앞의 `?? CSharp`로 두면 일찍 실패한 SQL 실행이 C#으로 집계되어 벤치마크·KPI 집계가 틀어집니다.
 * 연결 문자열은 `Password=`, `Pwd=` 값을 마스킹.
 
@@ -637,20 +660,39 @@ public sealed record RunSummary(
     IReadOnlyDictionary<RunPhase, double> PhaseSeconds, double TtftSeconds, double QueueSeconds,
     string ThinkMode, int ThinkTokens, bool ThinkTruncated,
     int InputTokensLocal, int? InputTokensServer, int? InputTokensCached,
-    IReadOnlyList<MatchStage> MatchStages, IReadOnlyList<string> ErrorCodes /* CS0103, Msg207 … */,
-    string? FailureKind);
+    IReadOnlyList<MatchStage> MatchStages, IReadOnlyList<string> ErrorCodes /* CS0103, Msg207, TEST … */,
+    int FormatErrors /* EDIT 결과가 FormatError였던 횟수 (M3a R2) */, string? FailureKind);
 ```
-* **`pelly report`:** `summary.json`들을 모아 PRD §2.2 지표와 실패 유형 분포를 표로 출력.
-* **`--sanitize` (D11):** `RunSummary`에서 문자열 필드는 `PellyVersion`, `OllamaVersion`, `PromptVersion`, `Kind`, `ProjectStyle`, `ThinkMode`, `FailureKind`(열거 이름)와 `ErrorCodes`(정규식 `^(CS|MSB|NU|Msg|SQL)\d+$` 통과 값만 — `SQL`은 ScriptDom 파싱 오류, M2b R6. 구현은 M3의 `report --sanitize`)만 출력. `ModelName`은 출력하지 않음. 다른 파일(`events.jsonl` 등)은 읽지 않습니다. 결과는 JSON과 Markdown 두 파일.
+* **`FormatErrors` (M3a R2):** 리포트가 `summary.json`만 읽고도 파싱 성공률(= (시도 − `FormatErrors`) / 시도)을 내도록 둔 필드입니다. 벤치마크 실행기의 파싱 성공률도 같은 계산(`KpiMath.ParseSuccess`)을 쓰므로 이 필드가 없는 M3a 이전 `summary.json`을 다시 집계하면 100%로 나옵니다.
+* **`QueueSeconds` (M3a R3):** §8.2의 대기. `TtftSeconds`는 대기를 뺀 값입니다.
+* **`pelly report [--since yyyy-MM-dd] [--sanitize [--out <폴더>]]` (M3a T3·T4):** 현재 폴더의 작업 공간 `.pelly/runs/*/summary.json`만 읽어(다른 파일은 읽지 않음) PRD §2.2 순서의 지표 표와 종료 코드·실패 유형·시도 수 분포, 단계별 평균 시간을 출력합니다.
+  * 지표: 검증 불변 조건(독립 검증이 없어 "벤치마크 실행기로 측정"으로 표시), TTFT(중위·P90), 대기(Queue), Thinking(think 최대 토큰·잘림 건수), 패치 포맷 파싱 성공률, 최종 작업 성공률(종료 0), 단일 작업 완료 시간(단계 합).
+  * 읽을 수 없는 `summary.json`은 건수만 알리고 건너뜁니다. 기록이 없으면 안내하고 종료 0입니다. `--since`는 형식이 틀리면, `--out`은 `--sanitize` 없이 쓰면 사용 오류(종료 4)입니다.
+* **`--sanitize` (D11, M3a T4):** 허용 목록 방식이며, 화면 대신 `pelly-report-<yyyyMMdd-HHmmss>.json`과 `.md` 두 파일을 `--out`(기본 현재 폴더)에 씁니다(같은 초에는 `-2` 접미사, 덮어쓰지 않음; 저장 실패는 종료 4). 요약(`RunSummary`)의 값만 쓰며, 출력할 수 있는 문자열은 다음뿐입니다(M3a 구현에서 계획보다 조였습니다 — 리포트가 폐쇄망 밖으로 나가므로 모든 정규식은 `\A…\z`로 고정하고 숫자는 ASCII입니다).
+
+  | 값 | 허용 규칙 | 그 밖 |
+  | :--- | :--- | :--- |
+  | `ErrorCodes` | `\A(CS\|MSB\|NU\|Msg\|SQL)[0-9]{1,6}\z` 또는 정확히 `TEST` (R8). `SQL`은 ScriptDom 파싱 오류(M2b R6) | 버리고 `DroppedErrorCodes` 건수만 |
+  | 버전(`PellyVersion`, `OllamaVersion`) | `\A[0-9][0-9A-Za-z.+\-]{0,39}\z` (숫자로 시작) | `"invalid"` |
+  | `PromptVersion` | `\A(cs\|sql)-v[0-9]{1,4}\z` | `"invalid"` |
+  | `FailureKind` | `FailureKinds.IsKnown` 통과 값 | `"Other"` |
+  | `ProjectStyle` | `Sdk`·`Legacy`·`None`·`Sql` | `"Other"` |
+  | `Kind`·`ThinkMode`·`MatchStages` | 열거형 이름 | — |
+
+  `ModelName`·`RunId`·경로·메시지·소스 문자열은 어떤 경로로도 출력하지 않습니다. 숫자 필드(시간·토큰·시도·종료 코드·`FormatErrors`)와 집계(성공률·분포)는 그대로 냅니다. 숫자로 시작하지 않는 버전 문자열(현재 없음)은 `invalid`로 나옵니다. 실제 실행 2건으로 소스 식별자·경로·모델 이름·RunId가 어느 파일에도 없음을 확인했습니다(`docs/m3a-e2e.md`).
 
 ### 8.13 doctor
 PRD FR-08 항목을 순서대로 검사하고 표로 출력합니다. 각 항목은 `Ok / Warn / Fail`과 조치 안내 한 줄. 추가로:
 * **템플릿 일치:** 고정된 짧은 대화를 `/api/chat`과 raw(`QwenChatTemplate` 조립)로 각각 `num_predict: 1`로 보내 `prompt_eval_count`가 같으면 Ok, 다르면 Warn(S1 방식). `/api/show`의 `RENDERER`/`PARSER` 이름도 표시.
 * **토크나이저 일치:** 고정 문자열 1개의 로컬 토큰 수와 서버 `prompt_eval_count`가 같으면 Ok, 다르면 Fail(S4 — 모델과 내장 토크나이저 불일치).
 * **SQL 권한:** 설정된 DB에서 `OBJECT_ID`가 알려진 테이블에 대해 NULL이면 "VIEW DEFINITION 권한 필요"로 Fail(S5).
-* **SQL 연결 (M2b T11):** 한 행 `SQL 연결`. 연결 문자열이 없으면 Warn("pelly sql을 쓰려면 sql.connectionString 또는 PELLY_SQL_CONNECTION을 설정하세요"), 허용 목록 위반이면 Fail(§8.1과 같은 메시지), 접속·`VIEW DEFINITION` 실패는 Fail(연결 문자열의 비밀번호는 `***`로 가림), 통과하면 Ok(`서버/DB, 서버 버전`). **전체 doctor 완성은 M3입니다.**
+* **행 목록 (M3a T10, 순서):** `Ollama 서버`, `모델`, `렌더러`, `템플릿 일치`, `토크나이저 일치`, `응답 시간`, `pelly`(버전·토크나이저 해시), `설정`(사용자·작업 공간 설정 경로와 적용 값), `.NET SDK`(`dotnet --version`), `MSBuild (레거시)`(Windows에서만, 아니면 Warn), `타겟팅 팩`(`--project <csproj>`가 있을 때 그 프로젝트의 .NET Framework 타겟팅 팩 설치 여부; Windows 전용, **Windows 미확인**), `서버 설정 확인 필요`(`deploy/server-checklist.md` 내용; 기존 안내에 체크리스트 위치를 덧붙여 환경 변수 이름을 그대로 보입니다), `SQL 연결`. Fail이 하나라도 있으면 종료 4입니다.
+* **SQL 연결 (M2b T11):** 한 행 `SQL 연결`. 연결 문자열이 없으면 Warn("pelly sql을 쓰려면 sql.connectionString 또는 PELLY_SQL_CONNECTION을 설정하세요"), 허용 목록 위반이면 Fail(§8.1과 같은 메시지), 접속·`VIEW DEFINITION` 실패는 Fail(연결 문자열의 비밀번호는 `***`로 가림), 통과하면 Ok(`서버/DB, 서버 버전`). 전체 doctor는 M3a에서 완성했습니다.
 * 1회 짧은 생성(`num_predict: 8`)으로 TTFT 실측.
 * 서버 설정 체크리스트(`deploy/server-checklist.md` 내용)를 표시.
+* **`pelly doctor --project <csproj>` (M3a T10):** 타겟팅 팩 행의 검사 대상 프로젝트입니다. 파일이 없으면 종료 4입니다.
+* **`pelly doctor --sanitize [--out <폴더>]` (D11, R9, M3a T11):** 화면 대신 비식별 결과를 `json`·`md` 두 파일로 씁니다. 행 이름(위 알려진 목록, 그 밖은 `기타`)과 상태, 그리고 행마다 정한 키의 `Facts`만 남기며 `Detail`·`Action` 문장은 읽지도 않습니다. `Facts` 키는 `DoctorFacts` 한 곳에서 만들고 허용합니다(이름이 바뀌어 사실이 조용히 비는 일을 막음). 행별 키: Ollama 서버 `ollamaVersion`·`latencyMs`, 모델 `loaded`, 토크나이저 일치 `match`, 응답 시간 `ttftMs`, pelly `pellyVersion`·`tokenizerHash`, .NET SDK `dotnetVersion`, MSBuild `found`, 타겟팅 팩 `frameworkVersion`·`installed`, SQL 연결 `canViewDefinition`·`serverMajor`. 버전 값(`ollamaVersion`·`dotnetVersion`·`pellyVersion`)은 리포트와 같은 버전 규칙(숫자로 시작하는 `[0-9A-Za-z.+\-]{1,40}`, 아니면 `"invalid"`), `frameworkVersion`은 별도의 모니커 규칙 `\A[vV][0-9]{1,2}(\.[0-9]{1,2}){1,2}\z`(`v4.8`, `v4.5.2`; 아니면 `"invalid"`), 나머지는 짧은 토큰 규칙을 통과해야 하며 비어 있는 사실은 생략합니다. 연결 문자열·경로·메시지는 나오지 않습니다.
+* **`pelly doctor --offline-selftest` (숨은 옵션, M3a T12):** 설정·HTTP 클라이언트·네트워크 객체를 만들기 전에 반환하며, 내장 구성요소(토크나이저, Roslyn 구문 분석, ScriptDom 파싱, CP949 인코딩 왕복, 내장 리소스)를 확인해 행으로 보입니다. 하나라도 Ok가 아니면 종료 4입니다. 단일 파일 배포본 확인(M3b `publish-check`)에 쓸 용도입니다.
 
 ### 8.14 IDE External Tools 연동 (D19)
 * `deploy/ide-external-tools.md`에 두 IDE 설정 방법을 씁니다.
@@ -664,7 +706,7 @@ PRD FR-08 항목을 순서대로 검사하고 표로 출력합니다. 각 항목
 
 * SQL용 항목(`sql "$(ItemPath)" --line $(CurLine)`)도 같은 방식으로 하나 더 등록합니다.
 * **실행 전 저장:** 저장하지 않은 편집이 IDE에 있으면 pelly는 디스크의 파일만 보고 수정하게 됩니다. 가이드에서 실행 전 저장(VS: 단축키로 모두 저장 후 실행, Rider: 외부 도구 실행 전 자동 저장 설정)을 안내합니다. 저장되지 않은 IDE 편집과 충돌하는 경우에도 pelly 쪽 파일은 FileGuard가 보호합니다.
-* **실행이 끝나면 창을 바로 닫지 않습니다:** External Tools로 띄운 콘솔은 종료하면 바로 사라지므로, `--pause-on-exit`(External Tools 가이드 인수에 포함) 옵션이 있으면 결과 요약을 보여주고 키 입력을 기다립니다.
+* **실행이 끝나면 창을 바로 닫지 않습니다:** External Tools로 띄운 콘솔은 종료하면 바로 사라지므로, `--pause-on-exit`(External Tools 가이드 인수에 포함) 옵션이 있으면 "종료 코드 n. 아무 키나 누르면 창을 닫습니다…"를 보여주고 키 입력을 기다립니다 (M3a R10). 판정은 `Program`에서 **원시 인자**로 하므로 인자 해석 오류나 예외로 끝나도 창이 바로 닫히지 않습니다. 입력이 리디렉션되어 있으면 기다리지 않고(누를 사람이 없음), `--` 뒤의 인자는 무시합니다. **Ctrl+C·창 닫기(종료 신호)로 중단한 실행은 키를 기다리지 않고 바로 끝납니다**(알려진 한계). 콘솔 키 대기(`Console.KeyAvailable` 폴링)는 macOS에서만 확인했고 **Windows 미확인**입니다.
 * 콘솔 창에서 한글 입력·출력이 깨지지 않는지(D20, §8.11 UTF-8 설정) 확인하는 것을 S7에 포함합니다.
 
 ### 8.15 v1의 알려진 한계 (사용자에게 안내)
@@ -796,7 +838,8 @@ S1~S5는 M0, S6·S7은 M3에 수행합니다.
 | **M0** | 저장소·솔루션 골격, CI(unit 잡), 스파이크 S1~S5, 코퍼스 Modern/Legacy/Sql 초안, 벤치마크 YAML 10건 | 스파이크 문서 5개, CI 녹색, 코퍼스가 CI에서 빌드됨 |
 | **M1** | 설정·Workspace·로그, OllamaBackend, TokenCounter, QwenStreamClient, Parser/Patcher, FileGuard, RoslynSlicer(기본), Transitions·Orchestrator, `pelly cs`(SDK 스타일), `doctor` 기본 | Modern 코퍼스에서 `pelly cs` 실제 모델로 1건 이상 성공, §10.2 해당 단위 테스트 통과 |
 | **M2** | BuildToolResolver(레거시), Baseline 병렬화, BuildVerifier·FeedbackBuilder, 교정 루프·롤백·REVIEW, MemberShapeGuard, SymbolLocator(`--line` 포함), SqlSafetyGuard·SqlSyntaxVerifier·SqlSchemaSlicer, `pelly sql` | windows-integration·sql-integration 잡 녹색, 벤치마크 30건 이상 실행 가능 |
-| **M3** | 슬라이서 고도화(DTO), 프롬프트·샘플링 튜닝, `report --sanitize`, doctor 완성, `--pause-on-exit`, S6·S7, publish·SBOM·체크섬 스크립트, `deploy/` 문서(IDE External Tools 가이드 포함) | 외부 벤치마크 50건 실행 결과와 KPI 표, publish-check 잡 녹색, 반입 패키지 zip 생성 |
+| **M3a** (M3를 둘로 나눔, M3a R1 — 튜닝은 DTO·`--test`가 들어간 최종 제품으로 해야 하고 패키지는 튜닝 뒤에 만들기 때문) | DTO 슬라이스(§8.5), `--test`(§8.9), `pelly report`·`--sanitize`(§8.12), doctor 완성(§8.13), `--verbose`, `--pause-on-exit`(§8.14), 대기 시간 분리(§8.2), 변화 없음 가드(§8.7), M2b 이월 항목 해소(SQL 취소 → 종료 2, 별칭 제외를 문장 단위로) | **달성(2026-10-18):** CI 4잡 녹색. 벤치마크 30건 회귀 측정(`docs/m3a-benchmark.md`): 최종 코드에서 30/30, 검증 불변 조건 위반 0건, 대기 0.02~0.03초. 실제 모델 E2E(`docs/m3a-e2e.md`): DTO·`--test`·리포트·비식별 통과. 요청이 테스트와 모순될 때 의미상 회피는 20회 중 5회(25%)로 받아들인 한계 |
+| **M3b** | 벤치마크 50건(C# 30 + SQL 20)과 `judge.tests` 연동 판정, 그 결과로 하는 프롬프트·샘플링 튜닝, S6(`win-x64` 단일 파일 publish)·CI `publish-check` 잡(`doctor --offline-selftest`), S7(Rider External Tools 실기), 반입 패키지(SBOM·서드파티 라이선스·SHA-256·버전 기록·`pelly.json` 템플릿·zip 스크립트), `deploy/` 문서(설치·사용 가이드, IDE External Tools 가이드, "실행 중 외부 통신 없음" 명세) | 외부 벤치마크 50건 실행 결과와 KPI 표, publish-check 잡 녹색, 반입 패키지 zip 생성 |
 
 각 마일스톤 안의 작업 순서와 단위는 구현 계획(writing-plans)에서 정합니다.
 

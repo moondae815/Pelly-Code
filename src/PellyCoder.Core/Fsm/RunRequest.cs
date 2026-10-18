@@ -17,7 +17,7 @@ namespace PellyCoder.Core.Fsm;
 /// </summary>
 public sealed record RunRequest(
     string FilePath, string? ClassName, string? MethodName, int? Line, string Request, bool Yes, bool DryRun, int? MaxRetries,
-    string? ObjectName = null, EditKind Kind = EditKind.CSharp);
+    string? ObjectName = null, EditKind Kind = EditKind.CSharp, bool Verbose = false);
 
 /// <summary>State of a <c>pelly sql</c> run (set by SQL LOCATE; null for C# runs).</summary>
 public sealed class SqlRunState(SqlScript originalScript, int targetIndex, SqlObjectName target, SqlObjectKind kind,

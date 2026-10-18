@@ -18,4 +18,7 @@ public interface IUserInteraction
     void ShowStatus(RunPhase phase, int attempt, string message);
 
     void Warn(string message);
+
+    /// <summary>Shown after the run summary is written, only with <c>--verbose</c>. <paramref name="runDirectory"/> is null when no workspace was resolved.</summary>
+    void ShowRunSummary(PellyCoder.Core.Logging.RunSummary summary, string? runDirectory);
 }

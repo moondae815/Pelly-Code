@@ -73,6 +73,11 @@ public sealed class FsmOrchestrator(
                 messages.Flush(); // before Complete, so a display failure is still recorded in messages.txt
                 if (!logStarted && ctx.Workspace is not null) BestEffort(ctx, () => logger.Start(ctx));
                 BestEffort(ctx, () => logger.Complete(ctx));
+                if (request.Verbose)
+                {
+                    var runDir = ctx.Workspace is { } w ? fs.Path.Combine(w.PellyDir, "runs", ctx.RunId) : null;
+                    BestEffort(ctx, () => ui.ShowRunSummary(RunLogger.Summarize(ctx), runDir));
+                }
                 // Retention only under the lock, after this run's summary is written; never touches the current run.
                 if (ctx.Lock is not null && ctx.Workspace is { } ws)
                     BestEffort(ctx, () => logger.Prune(ws, options.Log.RetentionDays, ctx.RunId));

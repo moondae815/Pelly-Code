@@ -23,6 +23,31 @@ public sealed class SpectreUserInteractionTests
     }
 
     [Fact]
+    public void Spectre_ShowRunSummary_PrintsPhasesTokensAndPath()
+    {
+        var (ui, console) = Make();
+        var summary = new PellyCoder.Core.Logging.RunSummary(
+            "r1", "1.0", null, "m", "p1", PellyCoder.Core.Models.EditKind.CSharp, "Sdk", 0, 2,
+            new Dictionary<RunPhase, double> { [RunPhase.Edit] = 12.5, [RunPhase.Verify] = 3.25 }, 1.5, 0.5,
+            "Retry", 300, true, 4000, 3900, 3000,
+            [], ["CS0103", "CS[x]"], 1, null);
+
+        ui.ShowRunSummary(summary, "C:/w/.pelly/runs/[r1]");
+
+        var output = console.Output;
+        Assert.Contains("Edit", output);
+        Assert.Contains("12.5", output);
+        Assert.Contains("3.25", output);
+        Assert.Contains("4000", output);
+        Assert.Contains("3900", output);
+        Assert.Contains("3000", output);
+        Assert.Contains("300", output);
+        Assert.Contains("CS0103", output);
+        Assert.Contains("CS[x]", output);
+        Assert.Contains("프롬프트·응답 원문: C:/w/.pelly/runs/[r1]", output);
+    }
+
+    [Fact]
     public void ShowStatus_AttemptTwo_ShowsAttempt()
     {
         var (ui, console) = Make();

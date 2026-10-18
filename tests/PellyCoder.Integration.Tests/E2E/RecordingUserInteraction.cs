@@ -27,4 +27,6 @@ public sealed class RecordingUserInteraction : IUserInteraction
     public void ShowStatus(RunPhase phase, int attempt, string message) => Lines.Add($"{phase}#{attempt}: {message}");
 
     public void Warn(string message) => Lines.Add($"warn: {message}");
+
+    public void ShowRunSummary(PellyCoder.Core.Logging.RunSummary summary, string? runDirectory) => Lines.Add($"summary: {runDirectory}");
 }

@@ -26,6 +26,11 @@ public sealed class ScriptedUserInteraction : IUserInteraction
     public List<(RunPhase Phase, int Attempt, string Message)> Statuses { get; } = [];
     public List<string> Warnings { get; } = [];
 
+    /// <summary>When set, <see cref="ShowRunSummary"/> records the call and then throws this.</summary>
+    public Exception? RunSummaryThrows { get; set; }
+
+    public List<(PellyCoder.Core.Logging.RunSummary Summary, string? RunDirectory)> RunSummaries { get; } = [];
+
     public Task<bool> ConfirmAsync(string message, bool defaultValue, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
@@ -57,5 +62,11 @@ public sealed class ScriptedUserInteraction : IUserInteraction
     {
         Warnings.Add(message);
         if (WarnThrows is not null) throw WarnThrows;
+    }
+
+    public void ShowRunSummary(PellyCoder.Core.Logging.RunSummary summary, string? runDirectory)
+    {
+        RunSummaries.Add((summary, runDirectory));
+        if (RunSummaryThrows is not null) throw RunSummaryThrows;
     }
 }

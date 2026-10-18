@@ -22,4 +22,6 @@ public sealed class EvalUserInteraction(string taskId, Action<string> log) : IUs
     public void ShowStatus(RunPhase phase, int attempt, string message) => log($"[{taskId}] {phase}#{attempt}: {message}");
 
     public void Warn(string message) => log($"[{taskId}] warn: {message}");
+
+    public void ShowRunSummary(PellyCoder.Core.Logging.RunSummary summary, string? runDirectory) { }
 }

@@ -12,4 +12,5 @@ internal sealed class FakeUi(bool interactive) : IUserInteraction
     public void ShowDiff(string path, string before, string after) { }
     public void ShowStatus(RunPhase phase, int attempt, string message) { }
     public void Warn(string message) { }
+    public void ShowRunSummary(PellyCoder.Core.Logging.RunSummary summary, string? runDirectory) { }
 }

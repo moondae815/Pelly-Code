@@ -37,6 +37,10 @@ public sealed class CsSettings : CommandSettings
     [Description("파일을 쓰지 않고 diff만 보여줌")]
     public bool DryRun { get; init; }
 
+    [CommandOption("--verbose")]
+    [Description("단계별 시간·토큰 요약과 실행 기록 폴더를 보여줌")]
+    public bool Verbose { get; init; }
+
     [CommandOption("--max-retries <N>")]
     [Description("교정 재시도 최대 횟수 (기본: retry.max)")]
     public int? MaxRetries { get; init; }
@@ -103,7 +107,8 @@ public sealed class CsCommand(
         }
 
         var request = new RunRequest(
-            file, settings.Class, settings.Method, settings.Line, requestText, settings.Yes, settings.DryRun, settings.MaxRetries);
+            file, settings.Class, settings.Method, settings.Line, requestText, settings.Yes, settings.DryRun, settings.MaxRetries,
+            Verbose: settings.Verbose);
         try
         {
             return await runner.RunAsync(request, loaded.Options, cancellation);

@@ -441,6 +441,41 @@ public sealed class FsmOrchestratorTests : IDisposable
     }
 
     [Fact]
+    public async Task Verbose_ShowsSummaryOnce_WithRunDir()
+    {
+        _backend.Enqueue(Block(Original, Guarded));
+
+        var exit = await Run(Req(CalcPath) with { Verbose = true });
+
+        Assert.Equal(0, exit);
+        var shown = Assert.Single(_ui.RunSummaries);
+        Assert.Equal(0, shown.Summary.ExitCode);
+        Assert.Equal(Path.Combine(_root, ".pelly", "runs", shown.Summary.RunId), shown.RunDirectory);
+    }
+
+    [Fact]
+    public async Task NotVerbose_NoSummary()
+    {
+        _backend.Enqueue(Block(Original, Guarded));
+
+        await Run(Req(CalcPath));
+
+        Assert.Empty(_ui.RunSummaries);
+    }
+
+    [Fact]
+    public async Task ShowRunSummaryThrows_ExitCodeUnchanged()
+    {
+        _backend.Enqueue(Block(Original, Guarded));
+        _ui.RunSummaryThrows = new InvalidOperationException("markup error");
+
+        var exit = await Run(Req(CalcPath) with { Verbose = true });
+
+        Assert.Equal(0, exit);
+        Assert.Single(_ui.RunSummaries);
+    }
+
+    [Fact]
     public async Task WarnThrows_StillReturnsExitCode_RestoresAndReleasesLock()
     {
         var originalBytes = File.ReadAllBytes(CalcPath);

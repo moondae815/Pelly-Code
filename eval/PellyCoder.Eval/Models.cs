@@ -26,12 +26,13 @@ public sealed record JudgeOutcome(bool Passed, IReadOnlyList<string> Reasons, st
 /// <summary>One task's row in <c>results.json</c>.</summary>
 /// <param name="Status"><c>Passed</c>, <c>Failed</c> or <c>Skipped</c> (not run; <paramref name="SkipReason"/> says why).</param>
 /// <param name="FailureType">Summary FailureKind for a failed run, <c>Judge</c> when exit 0 but the judge failed, else null.</param>
+/// <param name="FormatErrors">EDIT attempts whose output could not be parsed (summary.json); the parse-success KPI is (Attempts − FormatErrors) ÷ Attempts.</param>
 /// <param name="EditOutcomes">Outcomes of the EDIT phase from <c>events.jsonl</c>, in order.</param>
 public sealed record TaskResult(
     string Id, string Kind, string Status, int? ExitCode, int Attempts, IReadOnlyList<string> Reasons,
     VerificationResult? Independent, string BuildCheck, bool InvariantViolated, string? FailureType,
     double? WallSeconds, double? TtftSeconds, int ThinkTokens, bool ThinkTruncated,
-    IReadOnlyList<string> EditOutcomes, string? SkipReason, bool IsLegacy)
+    IReadOnlyList<string> EditOutcomes, string? SkipReason, bool IsLegacy, int FormatErrors = 0)
 {
     /// <summary>Prefix of a skip caused by the machine, not by pelly (the KPI denominators shrink because of it).</summary>
     public const string EnvironmentPrefix = "환경 오류";

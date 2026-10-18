@@ -16,7 +16,7 @@ public sealed record RunSummary(
     IReadOnlyDictionary<RunPhase, double> PhaseSeconds, double TtftSeconds,
     string ThinkMode, int ThinkTokens, bool ThinkTruncated,
     int InputTokensLocal, int? InputTokensServer, int? InputTokensCached,
-    IReadOnlyList<MatchStage> MatchStages, IReadOnlyList<string> ErrorCodes, string? FailureKind);
+    IReadOnlyList<MatchStage> MatchStages, IReadOnlyList<string> ErrorCodes, int FormatErrors, string? FailureKind);
 
 /// <summary>
 /// Writes <c>.pelly/runs/&lt;runId&gt;/</c>: <c>events.jsonl</c>, <c>attempt-&lt;n&gt;/*.txt</c>, <c>summary.json</c>.
@@ -117,7 +117,7 @@ public sealed class RunLogger(IFileSystem fs, TimeProvider time)
             new Dictionary<RunPhase, double>(ctx.PhaseSeconds), ttft,
             ctx.Options.Llm.ThinkMode.ToString(), gen?.ThinkTokens ?? 0, gen?.ThinkTruncated ?? false,
             ctx.Prompt?.Tokens ?? 0, gen?.CodeUsage.PromptEvalCount, gen?.CodeUsage.PromptEvalCachedCount,
-            [.. ctx.MatchStages], [.. ctx.ErrorCodes], ctx.FailureKind);
+            [.. ctx.MatchStages], [.. ctx.ErrorCodes], ctx.FormatErrors, ctx.FailureKind);
     }
 
     private string RunsDir(RunContext ctx) => fs.Path.Combine(ctx.Workspace!.PellyDir, "runs");

@@ -126,4 +126,14 @@ public sealed class RunLoggerTests
         Assert.Equal(EditKind.Sql, summary.Kind);
         Assert.Equal("sql-v1", summary.PromptVersion);
     }
+
+    [Fact]
+    public void Summary_CountsFormatErrors()
+    {
+        var ctx = NewContext();
+        ctx.FormatErrors = 2;
+
+        Assert.Equal(2, RunLogger.Summarize(ctx).FormatErrors);
+        Assert.Equal(0, RunLogger.Summarize(NewContext()).FormatErrors);
+    }
 }

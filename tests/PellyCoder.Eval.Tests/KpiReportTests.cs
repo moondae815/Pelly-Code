@@ -16,21 +16,12 @@ public class KpiReportTests
     }
 
     [Fact]
-    public void Kpi_ParseSuccess_FromEvents()
+    public void Kpi_ParseSuccess_FromSummaries()
     {
-        var lines = new List<string>();
-        for (var i = 1; i <= 9; i++)
-        {
-            lines.Add($$"""{"ts":"2026-10-18T00:00:00+00:00","phase":"Edit","outcome":"Ok","attempt":{{i}},"elapsedMs":10}""");
-            lines.Add($$"""{"ts":"2026-10-18T00:00:00+00:00","phase":"Apply","outcome":"MatchFailed","attempt":{{i}},"elapsedMs":1}""");
-        }
-        lines.Add("""{"ts":"2026-10-18T00:00:00+00:00","phase":"Edit","outcome":"FormatError","attempt":10,"elapsedMs":10}""");
-        lines.Add("");
+        // Ten EDIT attempts, one of them a FormatError (summary.json: attempts 10 / formatErrors 1).
+        (int Attempts, int FormatErrors)[] runs = [(4, 0), (6, 1)];
 
-        var outcomes = RunArtifacts.ParseEditOutcomes(lines);
-
-        Assert.Equal(10, outcomes.Count);
-        Assert.Equal(0.9, KpiReport.ParseSuccessRate(outcomes)!.Value, 6);
+        Assert.Equal(0.9, KpiReport.ParseSuccessRate(runs)!.Value, 6);
         Assert.Null(KpiReport.ParseSuccessRate([]));
     }
 

@@ -102,6 +102,22 @@ public sealed class FsmOrchestratorTests : IDisposable
     }
 
     [Fact]
+    public async Task TwoFormatErrorsThenSuccess_SummaryCountsFormatErrors()
+    {
+        _options.Llm.ThinkMode = ThinkMode.Off;
+        _backend.Enqueue("no markers at all");
+        _backend.Enqueue("still no markers");
+        _backend.Enqueue(Block(Original, Guarded));
+
+        var exit = await Run(Req(CalcPath));
+
+        Assert.Equal(0, exit);
+        var summary = Summary();
+        Assert.Equal(3, summary.GetProperty("attempts").GetInt32());
+        Assert.Equal(2, summary.GetProperty("formatErrors").GetInt32());
+    }
+
+    [Fact]
     public async Task SearchMismatch_ThenFixed_SucceedsOnAttempt2()
     {
         _backend.Enqueue(Block("        return a * b;", Guarded));

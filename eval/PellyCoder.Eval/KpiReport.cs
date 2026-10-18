@@ -1,25 +1,21 @@
 using System.Globalization;
 using System.Text;
+using PellyCoder.Core.Reporting;
 
 namespace PellyCoder.Eval;
 
 /// <summary>KPI table of a benchmark run (PRD §2.2 rows, in that order) plus the distributions behind it.</summary>
 public static class KpiReport
 {
-    /// <summary>Nearest-rank percentile: the value at rank ⌈p/100 · N⌉ of the sorted values.</summary>
-    public static double Percentile(IReadOnlyList<double> values, int percent)
-    {
-        if (values.Count == 0) throw new ArgumentException("값이 없습니다.", nameof(values));
-        var sorted = values.Order().ToList();
-        var rank = (int)Math.Ceiling(percent / 100.0 * sorted.Count);
-        return sorted[Math.Clamp(rank, 1, sorted.Count) - 1];
-    }
+    /// <summary>Nearest-rank percentile (see <see cref="KpiMath.Percentile"/>); the report only asks for non-empty sets.</summary>
+    public static double Percentile(IReadOnlyList<double> values, int percent) =>
+        KpiMath.Percentile(values, percent / 100.0) ?? throw new ArgumentException("값이 없습니다.", nameof(values));
 
-    /// <summary>EDIT outcomes that are not <c>FormatError</c> ÷ all EDIT outcomes; null when there are none.</summary>
-    public static double? ParseSuccessRate(IEnumerable<string> editOutcomes)
+    /// <summary>EDIT attempts that were not format errors ÷ all EDIT attempts, from the run summaries; null when there are none.</summary>
+    public static double? ParseSuccessRate(IEnumerable<(int Attempts, int FormatErrors)> runs)
     {
-        var all = editOutcomes.ToList();
-        return all.Count == 0 ? null : (double)all.Count(o => o != "FormatError") / all.Count;
+        var (ok, total) = KpiMath.ParseSuccess(runs);
+        return total == 0 ? null : (double)ok / total;
     }
 
     public static string Render(IReadOnlyList<TaskResult> results, string header)
@@ -29,8 +25,8 @@ public static class KpiReport
         // No generation recorded (failed before EDIT, or summary missing) leaves TTFT 0 or null: not a measurement.
         var ttft = ran.Where(r => r.TtftSeconds is > 0).Select(r => r.TtftSeconds!.Value).ToList();
         var wall = ran.Where(r => r.WallSeconds is not null).Select(r => r.WallSeconds!.Value).ToList();
-        var parse = ParseSuccessRate(ran.SelectMany(r => r.EditOutcomes));
-        var edits = ran.Sum(r => r.EditOutcomes.Count);
+        var parse = ParseSuccessRate(ran.Select(r => (r.Attempts, r.FormatErrors)));
+        var edits = ran.Sum(r => r.Attempts);
 
         var sb = new StringBuilder();
         sb.AppendLine("# 벤치마크 결과").AppendLine().AppendLine(header).AppendLine();

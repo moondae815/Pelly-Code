@@ -4,7 +4,7 @@ namespace PellyCoder.Eval;
 
 /// <summary>What one run left in <c>.pelly/runs/&lt;runId&gt;/</c> (summary.json and events.jsonl, see RunLogger).</summary>
 public sealed record RunArtifacts(int Attempts, double TtftSeconds, int ThinkTokens, bool ThinkTruncated, string? FailureKind,
-    IReadOnlyList<string> EditOutcomes)
+    IReadOnlyList<string> EditOutcomes, int FormatErrors = 0)
 {
     public static RunArtifacts Empty { get; } = new(0, 0, 0, false, null, []);
 
@@ -29,7 +29,8 @@ public sealed record RunArtifacts(int Attempts, double TtftSeconds, int ThinkTok
             Int(s, "thinkTokens"),
             s.TryGetProperty("thinkTruncated", out var tr) && tr.ValueKind == JsonValueKind.True,
             s.TryGetProperty("failureKind", out var fk) && fk.ValueKind == JsonValueKind.String ? fk.GetString() : null,
-            edits);
+            edits,
+            Int(s, "formatErrors"));
     }
 
     /// <summary>The <c>outcome</c> of every <c>events.jsonl</c> line whose <c>phase</c> is <c>Edit</c>, in order.</summary>

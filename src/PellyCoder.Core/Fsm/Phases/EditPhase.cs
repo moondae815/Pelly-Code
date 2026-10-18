@@ -50,6 +50,7 @@ public sealed class EditPhase(PromptBuilder prompts, QwenStreamClient client, Fe
         {
             ctx.Feedback = feedback.ForPatchFailure(parsed.Failure);
             ctx.FailureKind = parsed.Failure.Kind;
+            ctx.FormatErrors++;
             return PhaseOutcome.FormatError;
         }
         ctx.Blocks = parsed.Blocks;

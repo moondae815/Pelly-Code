@@ -80,7 +80,7 @@ public sealed class BenchmarkRunner(RunnerSetup setup)
 
         var result = new TaskResult(task.Id, task.Kind, passed ? VerificationResult.Passed : VerificationResult.Failed, exit,
             artifacts.Attempts, reasons, independent, outcome.BuildCheck, outcome.InvariantViolated, failureType,
-            wall, artifacts.TtftSeconds, artifacts.ThinkTokens, artifacts.ThinkTruncated, artifacts.EditOutcomes, null, task.IsLegacy);
+            wall, artifacts.TtftSeconds, artifacts.ThinkTokens, artifacts.ThinkTruncated, artifacts.EditOutcomes, null, task.IsLegacy, artifacts.FormatErrors);
         setup.Log($"[{task.Id}] {result.Status} (종료 {exit}, 시도 {result.Attempts}, {wall:0.0}초, 독립 검증 {independent.Status})"
             + (reasons.Count > 0 ? " — " + string.Join("; ", reasons) : ""));
         return result;

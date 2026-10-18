@@ -61,6 +61,9 @@ public sealed class RunContext(string runId, RunRequest request, PellyOptions op
     /// <summary>Number of EDIT entries so far; EDIT increments it before building the prompt.</summary>
     public int Attempt { get; set; }
 
+    /// <summary>Number of EDIT results that were <c>FormatError</c> (unparseable model output).</summary>
+    public int FormatErrors { get; set; }
+
     public int ExitCode { get; set; }
 
     /// <summary>Full path of the target file (set by Preflight).</summary>

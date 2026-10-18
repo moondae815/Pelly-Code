@@ -160,6 +160,13 @@ public sealed class FeedbackBuilder(ITokenCounter tokens, int budget)
         return Done(Prefix + Truncate(reason, r => Prefix + r));
     }
 
+    /// <summary><c>SQL SAFETY REJECTED: </c> and the guard's reason, cut to the budget.</summary>
+    public Feedback ForSqlSafety(string reason)
+    {
+        const string Prefix = "SQL SAFETY REJECTED: ";
+        return Done(Prefix + Truncate(reason, r => Prefix + r));
+    }
+
     private static string Entry(Diagnostic e, List<string> lines, int radius, Shrink shrink)
     {
         var sb = new StringBuilder();

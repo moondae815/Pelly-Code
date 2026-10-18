@@ -129,6 +129,24 @@ public sealed class FeedbackBuilderTests
     }
 
     [Fact]
+    public void SqlSafety_IsPrefixed()
+    {
+        var fb = new FeedbackBuilder(Counter, 296).ForSqlSafety("the edit added or removed a GO batch separator.");
+
+        Assert.Equal("SQL SAFETY REJECTED: the edit added or removed a GO batch separator.", fb.Text);
+        Assert.Equal(Counter.Count(fb.Text), fb.Tokens);
+    }
+
+    [Fact]
+    public void ForSqlSafety_FitsBudget()
+    {
+        var fb = new FeedbackBuilder(Counter, 20).ForSqlSafety(new string('r', 400));
+
+        Assert.StartsWith("SQL SAFETY REJECTED: ", fb.Text);
+        Assert.True(fb.Tokens <= 20);
+    }
+
+    [Fact]
     public void ShapeRejection_OverBudget_IsTruncated()
     {
         var reason = "member " + string.Join(", ", Enumerable.Range(0, 200).Select(i => "M" + i)) + " was removed or changed.";

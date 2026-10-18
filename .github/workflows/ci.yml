@@ -111,30 +111,24 @@ jobs:
           name: pelly-publish-win-x64
           path: artifacts/publish/win-x64
       - name: License gate rejects a changed exception (dry run)
-        # 승인한 예외의 버전이나 라이선스 파일 해시가 바뀌면 패키지 빌드가 실패해야 한다
+        # 승인한 예외의 버전이나 라이선스 파일 해시가 바뀌면 패키지 빌드가 실패해야 한다. 저장소 파일은 건드리지 않는다
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $path = 'deploy/license-exceptions.json'
-          $full = (Resolve-Path $path).Path
-          $orig = [System.IO.File]::ReadAllText($full)
-          try {
-            foreach ($case in @(@{ key = 'version'; value = '7.0.0' }, @{ key = 'licenseFileSha256'; value = ('0' * 64) })) {
-              $ex = @($orig | ConvertFrom-Json -AsHashtable)
-              $ex[0][$case.key] = $case.value
-              [System.IO.File]::WriteAllText($full, (ConvertTo-Json -InputObject $ex -Depth 8))
-              $out = & pwsh -NoProfile -File ./deploy/build-package.ps1 -PublishDir artifacts/publish/win-x64 -OutDir artifacts/gate-check 2>&1 | Out-String
-              $code = $LASTEXITCODE
-              [System.IO.File]::WriteAllText($full, $orig)
-              if ($code -eq 0) { throw "gate passed with a changed $($case.key)" }
-              foreach ($want in 'license exception matched no component', 'license not allowed: Microsoft.Data.SqlClient.SNI.runtime 7.1.0') {
-                if (-not $out.Contains($want)) { Write-Host $out; throw "changed $($case.key): output lacks '$want'" }
-              }
-              Write-Host "changed $($case.key): gate failed as expected (exit $code)"
+          $orig = Get-Content -Raw deploy/license-exceptions.json
+          foreach ($case in @(@{ key = 'version'; value = '7.0.0' }, @{ key = 'licenseFileSha256'; value = ('0' * 64) })) {
+            $ex = @($orig | ConvertFrom-Json -AsHashtable)
+            $ex[0][$case.key] = $case.value
+            $altered = Join-Path $env:RUNNER_TEMP "exceptions-$($case.key).json"
+            ConvertTo-Json -InputObject $ex -Depth 8 | Set-Content $altered
+            $out = & pwsh -NoProfile -File ./deploy/build-package.ps1 -PublishDir artifacts/publish/win-x64 -OutDir (Join-Path $env:RUNNER_TEMP 'gate-check') -LicenseExceptions $altered 2>&1 | Out-String
+            $code = $LASTEXITCODE
+            if ($code -eq 0) { throw "gate passed with a changed $($case.key)" }
+            foreach ($want in 'license exception matched no component', 'license not allowed: Microsoft.Data.SqlClient.SNI.runtime 7.1.0') {
+              if (-not $out.Contains($want)) { Write-Host $out; throw "changed $($case.key): output lacks '$want'" }
             }
+            Write-Host "changed $($case.key): gate failed as expected (exit $code)"
           }
-          finally { [System.IO.File]::WriteAllText($full, $orig) }
-          if ([System.IO.File]::ReadAllText($full) -cne $orig) { throw 'license-exceptions.json was not restored' }
           # 마지막 네이티브 명령(일부러 실패시킨 빌드)의 종료 코드가 스텝 종료 코드가 되지 않게 끝낸다
           exit 0
       - name: Build package

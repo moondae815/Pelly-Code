@@ -20,11 +20,16 @@
 
 .PARAMETER OutDir
   Folder for the staging folder, the zip and intermediate files. Recreated.
+
+.PARAMETER LicenseExceptions
+  Approved license exceptions. Default deploy/license-exceptions.json. CI passes altered copies to check that a
+  changed version or license hash fails the gate.
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$PublishDir,
-    [Parameter(Mandatory)][string]$OutDir
+    [Parameter(Mandatory)][string]$OutDir,
+    [string]$LicenseExceptions = (Join-Path $PSScriptRoot 'license-exceptions.json')
 )
 
 $ErrorActionPreference = 'Stop'
@@ -148,9 +153,9 @@ $sbom['components'] = $components.ToArray()
 [System.IO.File]::WriteAllText($sbomPath, ($sbom | ConvertTo-Json -Depth 64), $Utf8)
 
 # --- 2. licenses -------------------------------------------------------------------------------------------
-$exceptionsPath = Join-Path $PSScriptRoot 'license-exceptions.json'
 $exceptions = @()
-if (Test-Path $exceptionsPath) { $exceptions = @(Get-Content -Raw $exceptionsPath | ConvertFrom-Json -AsHashtable) }
+if (Test-Path $LicenseExceptions) { $exceptions = @(Get-Content -Raw $LicenseExceptions | ConvertFrom-Json -AsHashtable) }
+Write-Host "license exceptions: $LicenseExceptions ($($exceptions.Count))"
 
 function Test-Expression([string]$Expr) {
     # Plain id, "A OR B" (one allowed is enough) or "A AND B" (all must be allowed). Anything else is unknown.

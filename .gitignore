@@ -489,3 +489,4 @@ spikes/**/merges.txt
 eval/corpus/Sql/.env
 .superpowers/
 eval/corpus/Legacy/packages/
+eval/results/

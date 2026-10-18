@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.RegularExpressions;
+using PellyCoder.Eval;
 using PellyCoder.Integration.Tests.Corpus;
 
 namespace PellyCoder.Integration.Tests.Benchmark;
@@ -11,11 +12,11 @@ public class BenchmarkDefinitionTests
     private static readonly string EvalRoot = Directory.GetParent(CorpusPaths.Root)!.FullName;
     private static readonly string TasksDir = Path.Combine(EvalRoot, "benchmark", "tasks");
 
-    private static IReadOnlyList<(string Path, BenchmarkTaskDefinition Task)> LoadAll()
+    private static IReadOnlyList<(string Path, BenchmarkTask Task)> LoadAll()
     {
         var files = Directory.GetFiles(TasksDir, "*.yaml");
         Assert.NotEmpty(files);
-        return files.Select(f => (f, BenchmarkTaskDefinition.Load(f))).ToList();
+        return files.Select(f => (f, BenchmarkTask.Load(f))).ToList();
     }
 
     [Fact]

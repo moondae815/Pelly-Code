@@ -1,13 +1,15 @@
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
 
-namespace PellyCoder.Integration.Tests.Benchmark;
+namespace PellyCoder.Eval;
 
-/// <summary>eval/benchmark/tasks/*.yaml 한 건 (스키마: eval/benchmark/README.md)</summary>
-public sealed class BenchmarkTaskDefinition
+/// <summary>One <c>eval/benchmark/tasks/*.yaml</c> entry (schema: eval/benchmark/README.md).</summary>
+public sealed class BenchmarkTask
 {
     public string Id { get; set; } = "";
     public string Kind { get; set; } = "";
+
+    /// <summary>Path relative to <c>eval/</c>, with forward slashes.</summary>
     public string File { get; set; } = "";
     public string? Method { get; set; }
     public int? Line { get; set; }
@@ -15,13 +17,19 @@ public sealed class BenchmarkTaskDefinition
     public string Request { get; set; } = "";
     public BenchmarkJudge? Judge { get; set; }
 
-    public static BenchmarkTaskDefinition Load(string path)
+    public bool IsLegacy => Id.StartsWith("cs-legacy-", StringComparison.Ordinal);
+
+    public static BenchmarkTask Load(string path)
     {
         var deserializer = new DeserializerBuilder()
             .WithNamingConvention(CamelCaseNamingConvention.Instance)
             .Build();
-        return deserializer.Deserialize<BenchmarkTaskDefinition>(System.IO.File.ReadAllText(path));
+        return deserializer.Deserialize<BenchmarkTask>(System.IO.File.ReadAllText(path));
     }
+
+    /// <summary>Every <c>*.yaml</c> in <paramref name="tasksDir"/>, ordered by id.</summary>
+    public static IReadOnlyList<BenchmarkTask> LoadAll(string tasksDir) =>
+        [.. Directory.GetFiles(tasksDir, "*.yaml").Select(Load).OrderBy(t => t.Id, StringComparer.Ordinal)];
 }
 
 public sealed class BenchmarkJudge

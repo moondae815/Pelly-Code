@@ -1,6 +1,6 @@
 # 벤치마크 작업 정의
 
-`tasks/*.yaml` 한 파일이 작업 한 건입니다. M3의 `PellyCoder.Eval`이 이 정의를 읽어 실행하고 판정합니다.
+`tasks/*.yaml` 한 파일이 작업 한 건입니다. 실행기 `eval/PellyCoder.Eval`이 이 정의를 읽어 실행하고 판정합니다(`dotnet run --project eval/PellyCoder.Eval -- --help`).
 정의 형식은 `tests/PellyCoder.Integration.Tests/Benchmark/BenchmarkDefinitionTests.cs`가 검증합니다.
 
 ## 스키마

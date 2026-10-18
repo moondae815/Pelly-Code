@@ -20,6 +20,10 @@ public sealed class DoctorSettings : CommandSettings
     [CommandOption("--endpoint <URL>")]
     [Description("Ollama 주소 (llm.endpoint 덮어쓰기)")]
     public string? Endpoint { get; init; }
+
+    [CommandOption("--project <CSPROJ>")]
+    [Description("타겟팅 팩을 확인할 프로젝트 파일")]
+    public string? Project { get; init; }
 }
 
 /// <summary><c>pelly doctor</c>: prints the environment checks as a table; exit 4 when any check failed.</summary>
@@ -31,6 +35,12 @@ public sealed class DoctorCommand(
     {
         // The workspace is the current directory; the placeholder file name is never read.
         var anchor = fs.Path.Combine(fs.Directory.GetCurrentDirectory(), "pelly-doctor");
+        if (settings.Project is { } project && !fs.File.Exists(project))
+        {
+            console.MarkupLine($"[red]프로젝트 파일을 찾을 수 없습니다: {Markup.Escape(project)}[/]");
+            return ExitCodes.EnvError;
+        }
+
         var loaded = resolver.Resolve(anchor, settings.Config, null, settings.Model, settings.Endpoint);
         if (loaded.Options is null)
         {
@@ -38,10 +48,16 @@ public sealed class DoctorCommand(
             return ExitCodes.EnvError;
         }
 
+        var doctorContext = new DoctorContext(
+            resolver.UserConfigPath,
+            resolver.WorkspaceConfigPath(anchor, settings.Config),
+            Environment.GetEnvironmentVariable("ProgramFiles(x86)"),
+            settings.Project is null ? null : fs.Path.GetFullPath(settings.Project));
+
         IReadOnlyList<DoctorCheck> checks;
         try
         {
-            checks = await doctor.RunAsync(loaded.Options, cancellation);
+            checks = await doctor.RunAsync(loaded.Options, doctorContext, cancellation);
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
         {
@@ -61,6 +77,18 @@ public sealed class DoctorCommand(
         }
         console.Write(table);
 
+        console.WriteLine();
+        console.MarkupLine("[bold]서버 관리자 확인 사항[/]");
+        console.MarkupLine(Markup.Escape(ReadChecklist()));
+
         return checks.Any(c => c.Status == DoctorStatus.Fail) ? ExitCodes.EnvError : ExitCodes.Success;
+    }
+
+    private static string ReadChecklist()
+    {
+        using var stream = typeof(DoctorCommand).Assembly.GetManifestResourceStream("PellyCoder.Cli.server-checklist.md")
+            ?? throw new InvalidOperationException("Embedded resource not found: server-checklist.md");
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd();
     }
 }

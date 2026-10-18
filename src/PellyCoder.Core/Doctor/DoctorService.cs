@@ -4,13 +4,16 @@ using PellyCoder.Core.Builds;
 using PellyCoder.Core.Config;
 using PellyCoder.Core.Llm;
 using PellyCoder.Core.Sql;
-using System.Text.RegularExpressions;
+using System.Security.Cryptography;
 
 namespace PellyCoder.Core.Doctor;
 
 public enum DoctorStatus { Ok, Warn, Fail }
 
 public sealed record DoctorCheck(string Name, DoctorStatus Status, string Detail, string? Action);
+
+/// <summary>Facts the CLI passes in so Core never reads the environment: config file locations, <c>%ProgramFiles(x86)%</c>, optional <c>--project</c>.</summary>
+public sealed record DoctorContext(string? UserConfigPath, string WorkspaceConfigPath, string? ProgramFilesX86 = null, string? ProjectPath = null);
 
 /// <summary>Runs the environment checks behind <c>pelly doctor</c> (design §8.13, M1 scope).</summary>
 public sealed class DoctorService(
@@ -23,7 +26,8 @@ public sealed class DoctorService(
     IFileSystem fs,
     IProcessRunner processes,
     Func<bool>? isWindows = null,
-    ISqlExecutor? sql = null)
+    ISqlExecutor? sql = null,
+    DoctorContext? context = null)
 {
     private static readonly TimeSpan DotnetTimeout = TimeSpan.FromSeconds(10);
     private readonly Func<bool> _isWindows = isWindows ?? OperatingSystem.IsWindows;
@@ -81,18 +85,54 @@ public sealed class DoctorService(
             checks.Add(await CheckLatencyAsync(ct));
         }
 
+        checks.Add(new("pelly", DoctorStatus.Ok, $"{PellyInfo.Version}, 토크나이저 {TokenizerHash()}", null));
+        checks.Add(CheckSettings());
         checks.Add(await CheckDotnetAsync(ct));
         checks.Add(await CheckMsBuildAsync(ct));
 
+        if (context?.ProjectPath is { } project)
+            checks.Add(TargetingPackCheck.Run(fs, _isWindows, context.ProgramFilesX86, project));
+
         checks.Add(new("서버 설정 확인 필요", DoctorStatus.Warn,
-            "서버에서 직접 확인할 수 없음: OLLAMA_FLASH_ATTENTION, OLLAMA_KV_CACHE_TYPE, OLLAMA_NUM_PARALLEL, OLLAMA_KEEP_ALIVE",
+            "서버에서 직접 확인할 수 없음: OLLAMA_FLASH_ATTENTION, OLLAMA_KV_CACHE_TYPE, OLLAMA_NUM_PARALLEL, OLLAMA_KEEP_ALIVE. 아래 체크리스트를 서버 관리자와 확인하세요",
             "서버 관리자에게 PRD §7.1 값을 확인하세요"));
         checks.Add(await CheckSqlAsync(ct));
         return checks;
     }
 
-    private static readonly Regex PasswordText =
-        new(@"(password|pwd)\s*=\s*[^;]*", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    /// <summary>SHA-256 over the embedded vocab.json bytes then merges.txt bytes, first 12 lowercase hex chars.</summary>
+    private static string TokenizerHash()
+    {
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        foreach (var file in new[] { "vocab.json", "merges.txt" })
+        {
+            using var stream = typeof(DoctorService).Assembly.GetManifestResourceStream("PellyCoder.Core.Llm.Resources." + file)
+                ?? throw new InvalidOperationException($"Embedded resource not found: {file}");
+            var buffer = new byte[81920];
+            int read;
+            while ((read = stream.Read(buffer, 0, buffer.Length)) > 0)
+                hash.AppendData(buffer, 0, read);
+        }
+        return Convert.ToHexStringLower(hash.GetHashAndReset())[..12];
+    }
+
+    private DoctorCheck CheckSettings()
+    {
+        var lines = new List<string>();
+        if (context is not null)
+        {
+            lines.Add(context.UserConfigPath is { } user
+                ? $"사용자 설정: {user} ({(fs.File.Exists(user) ? "있음" : "없음")})"
+                : "사용자 설정: 경로를 알 수 없음");
+            lines.Add($"작업 공간 설정: {context.WorkspaceConfigPath} ({(fs.File.Exists(context.WorkspaceConfigPath) ? "있음" : "없음")})");
+        }
+        var cs = options.Sql.ConnectionString;
+        lines.Add($"llm.endpoint={options.Llm.Endpoint}, llm.model={options.Llm.Model}, llm.thinkMode={options.Llm.ThinkMode}");
+        lines.Add($"budget.inputTotal={options.Budget.InputTotal}, retry.max={options.Retry.Max}, " +
+                  $"build.timeoutSeconds={options.Build.TimeoutSeconds}, test.timeoutSeconds={options.Test.TimeoutSeconds}");
+        lines.Add($"sql.compatLevel={options.Sql.CompatLevel}, sql.connectionString={(string.IsNullOrWhiteSpace(cs) ? "(없음)" : SqlConnectionText.Mask(cs))}");
+        return new("설정", DoctorStatus.Ok, string.Join('\n', lines), null);
+    }
 
     private async Task<DoctorCheck> CheckSqlAsync(CancellationToken ct)
     {
@@ -118,8 +158,7 @@ public sealed class DoctorService(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            var text = ex.Message.Replace(cs, SqlConnectionText.Mask(cs), StringComparison.Ordinal);
-            text = PasswordText.Replace(text, "$1=***");
+            var text = SqlConnectionText.MaskInText(ex.Message, cs);
             return new(name, DoctorStatus.Fail, $"{endpoint.DataSource}/{endpoint.Database} 에 연결할 수 없음: {text}",
                 "연결 문자열과 서버 상태를 확인하세요");
         }

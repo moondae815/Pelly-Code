@@ -30,7 +30,7 @@ public class SqlCommandTests
 
     private sealed class FakeDoctor : IDoctorRunner
     {
-        public Task<IReadOnlyList<DoctorCheck>> RunAsync(PellyOptions options, CancellationToken ct) =>
+        public Task<IReadOnlyList<DoctorCheck>> RunAsync(PellyOptions options, DoctorContext context, CancellationToken ct) =>
             Task.FromResult<IReadOnlyList<DoctorCheck>>([]);
     }
 

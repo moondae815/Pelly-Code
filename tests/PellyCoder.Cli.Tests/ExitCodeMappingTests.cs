@@ -26,7 +26,7 @@ public class ExitCodeMappingTests
 
     private sealed class CancellingDoctor : IDoctorRunner
     {
-        public Task<IReadOnlyList<DoctorCheck>> RunAsync(PellyOptions options, CancellationToken ct)
+        public Task<IReadOnlyList<DoctorCheck>> RunAsync(PellyOptions options, DoctorContext context, CancellationToken ct)
         {
             ct.ThrowIfCancellationRequested();
             return Task.FromResult<IReadOnlyList<DoctorCheck>>([]);

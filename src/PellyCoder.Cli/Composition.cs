@@ -62,14 +62,14 @@ public static class Composition
 
     private sealed class DoctorRunner(IFileSystem fs, TimeProvider time, HttpClientHolder http, IProcessRunner processes) : IDoctorRunner
     {
-        public Task<IReadOnlyList<DoctorCheck>> RunAsync(PellyOptions options, CancellationToken ct)
+        public Task<IReadOnlyList<DoctorCheck>> RunAsync(PellyOptions options, DoctorContext context, CancellationToken ct)
         {
             var backend = new OllamaBackend(http.Get(options.Llm), options.Llm, time);
             var template = options.Llm.Template is { } path ? QwenChatTemplate.LoadFromFile(fs, path) : QwenChatTemplate.LoadDefault();
             ISqlExecutor? sql = string.IsNullOrWhiteSpace(options.Sql.ConnectionString)
                 ? null
                 : new SqlServerExecutor(options.Sql.ConnectionString);
-            return new DoctorService(backend, backend, template, QwenTokenCounter.Shared, options, time, fs, processes, sql: sql).RunAsync(ct);
+            return new DoctorService(backend, backend, template, QwenTokenCounter.Shared, options, time, fs, processes, sql: sql, context: context).RunAsync(ct);
         }
     }
 }

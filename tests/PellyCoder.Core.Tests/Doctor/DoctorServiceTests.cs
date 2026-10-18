@@ -61,11 +61,11 @@ public sealed class DoctorServiceTests
         var checks = await Create().RunAsync(CancellationToken.None);
 
         Assert.Equal(
-            ["Ollama 서버", "모델", "렌더러", "템플릿 일치", "토크나이저 일치", "응답 시간", ".NET SDK", "MSBuild (레거시)", "서버 설정 확인 필요", "SQL 연결"],
+            ["Ollama 서버", "모델", "렌더러", "템플릿 일치", "토크나이저 일치", "응답 시간", "pelly", "설정", ".NET SDK", "MSBuild (레거시)", "서버 설정 확인 필요", "SQL 연결"],
             checks.Select(c => c.Name));
-        Assert.All(checks.Take(7), c => Assert.Equal(DoctorStatus.Ok, c.Status));
-        Assert.Equal(DoctorStatus.Warn, checks[7].Status);
-        var settings = checks[8];
+        Assert.All(checks.Take(9), c => Assert.Equal(DoctorStatus.Ok, c.Status));
+        Assert.Equal(DoctorStatus.Warn, checks[9].Status);
+        var settings = checks[10];
         Assert.Equal(DoctorStatus.Warn, settings.Status);
         foreach (var name in new[] { "OLLAMA_FLASH_ATTENTION", "OLLAMA_KV_CACHE_TYPE", "OLLAMA_NUM_PARALLEL", "OLLAMA_KEEP_ALIVE" })
             Assert.Contains(name, settings.Detail);

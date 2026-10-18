@@ -32,7 +32,7 @@ public class CsCommandTests
 
     private sealed class FakeDoctor(params DoctorCheck[] checks) : IDoctorRunner
     {
-        public Task<IReadOnlyList<DoctorCheck>> RunAsync(PellyOptions options, CancellationToken ct) =>
+        public Task<IReadOnlyList<DoctorCheck>> RunAsync(PellyOptions options, DoctorContext context, CancellationToken ct) =>
             Task.FromResult<IReadOnlyList<DoctorCheck>>(checks);
     }
 

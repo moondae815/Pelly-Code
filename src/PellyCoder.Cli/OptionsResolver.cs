@@ -7,6 +7,11 @@ namespace PellyCoder.Cli;
 /// <summary>Merges config sources for a command (design 8.1): user file, workspace or --config file, environment, CLI flags.</summary>
 public sealed class OptionsResolver(IFileSystem fs, ConfigSources sources)
 {
+    public string? UserConfigPath => sources.UserConfigPath;
+
+    public string WorkspaceConfigPath(string anchorPath, string? configPath) =>
+        configPath ?? fs.Path.Combine(WorkspaceLocator.Resolve(fs, anchorPath).Root, "pelly.json");
+
     /// <param name="anchorPath">A path inside the workspace (the target file, or a placeholder in the current directory).</param>
     public OptionsLoadResult Resolve(string anchorPath, string? configPath, string? think, string? model, string? endpoint,
         bool strictBaseline = false, bool warnAsError = false)
@@ -14,7 +19,7 @@ public sealed class OptionsResolver(IFileSystem fs, ConfigSources sources)
         if (configPath is not null && !fs.File.Exists(configPath))
             return new OptionsLoadResult(null, [$"config file not found: {configPath}"]);
 
-        var workspaceConfig = configPath ?? fs.Path.Combine(WorkspaceLocator.Resolve(fs, anchorPath).Root, "pelly.json");
+        var workspaceConfig = WorkspaceConfigPath(anchorPath, configPath);
         var overrides = new Dictionary<string, string?>();
         if (think is not null) overrides["llm:thinkMode"] = think;
         if (model is not null) overrides["llm:model"] = model;

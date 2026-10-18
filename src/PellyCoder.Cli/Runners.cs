@@ -13,7 +13,7 @@ public interface IRunner
 /// <summary>Runs the <c>pelly doctor</c> checks for the given options.</summary>
 public interface IDoctorRunner
 {
-    Task<IReadOnlyList<DoctorCheck>> RunAsync(PellyOptions options, CancellationToken ct);
+    Task<IReadOnlyList<DoctorCheck>> RunAsync(PellyOptions options, DoctorContext context, CancellationToken ct);
 }
 
 /// <summary>Where configuration values come from besides the workspace file: the user config path and the environment.</summary>

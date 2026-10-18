@@ -71,7 +71,9 @@ public class SqlSafetyGuardTests
         // A function parses a trailing statement as a second top-level statement.
         var fn = Run("CREATE FUNCTION dbo.f() RETURNS int AS BEGIN RETURN 1; END", "CREATE FUNCTION dbo.f() RETURNS int AS BEGIN RETURN 1; END; DROP TABLE x");
         Assert.False(fn.Ok);
-        Assert.True(fn.Reason is not null || fn.ParseErrors.Count > 0);
+        Assert.False(fn.Ok);
+        Assert.Null(fn.Reason);
+        Assert.NotEmpty(fn.ParseErrors);
     }
 
     [Fact]
@@ -118,7 +120,14 @@ public class SqlSafetyGuardTests
         { "EXEC master..xp_cmdshell 'dir';", "xp_cmdshell" },
         { "SELECT * FROM OPENROWSET('SQLNCLI', 'Server=x;', 'SELECT 1') AS r;", "OPENROWSET" },
         { "SELECT * FROM OPENDATASOURCE('SQLNCLI', 'Data Source=x;').db.dbo.t;", "OPENDATASOURCE" },
+        { "EXEC OPENDATASOURCE('SQLNCLI', 'Data Source=x;').db.dbo.sp_x;", "OPENDATASOURCE" },
         { "ALTER DATABASE d SET RECOVERY SIMPLE;", "ALTER DATABASE" },
+        { "ALTER DATABASE SCOPED CONFIGURATION SET MAXDOP = 1;", "ALTER DATABASE" },
+        { "ALTER DATABASE ENCRYPTION KEY REGENERATE WITH ALGORITHM = AES_256;", "ALTER DATABASE" },
+        { "ALTER DATABASE AUDIT SPECIFICATION s WITH (STATE = ON);", "ALTER DATABASE" },
+        { "SET NOEXEC, FMTONLY ON;", "SET NOEXEC" },
+        { "EXEC sys.xp_cmdshell 'dir';", "xp_cmdshell" },
+        { "EXEC [master].[sys].[xp_cmdshell] 'dir';", "xp_cmdshell" },
         { "CREATE LOGIN l WITH PASSWORD = 'x';", "CREATE LOGIN" },
         { "ALTER LOGIN l DISABLE;", "ALTER LOGIN" },
         { "DROP LOGIN l;", "DROP LOGIN" },
@@ -154,6 +163,20 @@ public class SqlSafetyGuardTests
         Assert.Null(result.Reason);
         Assert.NotEmpty(result.ParseErrors);
         Assert.Equal(5, result.ParseErrors[0].Line);
+    }
+
+    [Fact]
+    public void ForbiddenIn_CombinedSetOptions_ListsBoth()
+    {
+        var script = SqlBatchSplitter.Split(Proc("SET NOEXEC, FMTONLY ON;"), Compat);
+        Assert.Equal(["SET NOEXEC", "SET FMTONLY"], SqlSafetyGuard.ForbiddenIn(script.ObjectBatches[0], Compat));
+    }
+
+    [Fact]
+    public void ForbiddenIn_ExecOpenDataSource_Listed()
+    {
+        var script = SqlBatchSplitter.Split(Proc("EXEC OPENDATASOURCE('SQLNCLI','Data Source=x').db.dbo.sp_x;"), Compat);
+        Assert.Equal(["OPENDATASOURCE"], SqlSafetyGuard.ForbiddenIn(script.ObjectBatches[0], Compat));
     }
 
     [Fact]

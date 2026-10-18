@@ -128,7 +128,13 @@ public static partial class SqlSafetyGuard
                 case AdHocTableReference:
                     Add("OPENDATASOURCE");
                     break;
-                case AlterDatabaseStatement:
+                case ExecutableProcedureReference { AdHocDataSource: not null }:
+                    Add("OPENDATASOURCE");
+                    break;
+                case AlterDatabaseStatement
+                    or AlterDatabaseScopedConfigurationStatement
+                    or AlterDatabaseEncryptionKeyStatement
+                    or AlterDatabaseAuditSpecificationStatement:
                     Add("ALTER DATABASE");
                     break;
                 case CreateLoginStatement:

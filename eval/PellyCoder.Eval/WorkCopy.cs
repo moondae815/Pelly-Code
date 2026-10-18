@@ -45,4 +45,19 @@ public static class WorkCopy
         Directory.CreateDirectory(Path.Combine(workRoot, ".svn"));
         return Path.Combine([workRoot, .. parts[1..]]);
     }
+
+    /// <summary>
+    /// Copies the judge test projects of a top-level corpus folder (<c>eval/benchmark/judges/&lt;folder&gt;</c>) to
+    /// <c>&lt;workRoot&gt;/judges/&lt;folder&gt;</c>, beside the copied corpus, so they are built against the work copy and never
+    /// in place. Kept outside the corpus so the corpus build, CI and pelly <c>--test</c> never see them (R2).
+    /// </summary>
+    /// <returns>The copied folder, or null when the corpus folder has no judge projects.</returns>
+    public static string? CopyJudges(string evalRoot, string corpusFolder, string workRoot)
+    {
+        var source = Path.Combine(evalRoot, "benchmark", "judges", corpusFolder);
+        if (!Directory.Exists(source)) return null;
+        var target = Path.Combine(workRoot, "judges", corpusFolder);
+        if (!Directory.Exists(target)) CopyDirectory(source, target);
+        return target;
+    }
 }

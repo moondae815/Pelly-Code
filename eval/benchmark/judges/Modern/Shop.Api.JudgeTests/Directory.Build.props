@@ -1,0 +1,7 @@
+<Project>
+  <!-- 판정 프로젝트는 저장소 루트 빌드 설정을 상속하지 않는다(코퍼스와 같은 방식). -->
+  <PropertyGroup>
+    <!-- 실행하지 않는 판정 코드이므로, 새 보안 공지로 판정이 깨지지 않게 감사를 끈다. -->
+    <NuGetAudit>false</NuGetAudit>
+  </PropertyGroup>
+</Project>

@@ -16,7 +16,8 @@
 | `request` | 문자열 | 한국어 요청문 (사용자가 입력하는 그대로) |
 | `judge.build` | bool | `cs` 전용. 빌드 통과 필요 |
 | `judge.sqlCompile` | bool | `sql` 전용. NOEXEC 컴파일 통과 필요 |
-| `judge.tests` | 문자열 목록 (선택) | 통과해야 하는 테스트 전체 이름 |
+| `judge.tests` | 문자열 목록 (선택) | 수정 뒤 통과해야 하는 테스트 전체 이름. 판정 프로젝트(`judges/`)와 코퍼스 테스트에서 찾음. **원본에서는 실패해야 함** |
+| `judge.failingTests` | 문자열 목록 (선택) | 수정 뒤 **실패해야** 하는 코퍼스 테스트 전체 이름(수정 전 동작을 고정한 `*_CurrentlyCancels` 등). 코퍼스 테스트 프로젝트에서만 찾음. **원본에서는 통과해야 함** |
 | `judge.mustContain` | 문자열 목록 (선택) | 수정된 대상에 있어야 하는 문자열. **원본 대상에는 없어야 함** |
 | `judge.mustAdd` | 문자열 목록 (선택) | 수정된 대상에서 원본보다 **더 많이** 나와야 하는 문자열 (원본에 이미 있는 문자열을 새로 추가했는지 확인) |
 | `judge.mustNotContain` | 문자열 목록 (선택) | 수정된 대상에 없어야 하는 문자열. **원본 대상에는 있어야 함** |
@@ -27,8 +28,20 @@
 * **공백 차이뿐인 수정(줄바꿈·들여쓰기만 바뀐 재포맷)도 "원본과 같음"으로 셉니다**(공백 연속을 한 칸으로 접어 비교).
 * 정의의 `mustContain`·`mustNotContain`이 원본 대상(실행기와 같은 범위) 기준으로 의미가 있는지는 `BenchmarkDefinitionTests.Judges_RejectUnmodifiedTarget`이, sql 대상이 객체 배치 하나인지는 `SqlTasks_TargetIsAnObjectBatch`가 검사합니다.
 
+## 동작 판정 (`tests`·`failingTests`)
+* Modern C# 작업에만 둡니다(R1). Legacy·SQL은 문자열 판정을 유지합니다.
+* 판정 테스트는 코퍼스 밖 `judges/Modern/Shop.Api.JudgeTests`에 있습니다(R2). 원본에서 실패하는 테스트라 코퍼스 CI와 pelly `--test`가 보지 않게 하기 위함입니다. 설명은 그 폴더의 `README.md`에 있습니다.
+* 종료 0 작업에 `tests`나 `failingTests`가 있으면 독립 검증이 다음을 합니다.
+  1. 판정 프로젝트를 `work/<id>/judges/Modern/`으로 복사합니다.
+  2. `-p:JudgeTargetRoot=<work/<id>/Modern>`으로 복원·빌드합니다.
+  3. 테스트 프로젝트마다 한 번 실행하고 TRX로 테스트별 결과를 읽습니다.
+* `tests`는 모두 Passed, `failingTests`는 모두 Failed여야 합니다. **이름이 결과(TRX)에 없으면 실패**로 봅니다.
+* 문자열 판정·빌드 판정과 함께 적용합니다. 동작 판정과 어긋나는 문자열 판정은 두지 않습니다. 예: cs-modern-001의 `mustAdd: OrderStatus.Shipped`는 올바른 수정(Shipped 예외를 넣고, 죽은 환불 조건의 `|| Shipped`를 지움)을 실패시켜 뺐습니다(2026-10-18 실측).
+* 통과하면 보고서의 독립 검증 칸에 실행한 판정 테스트 수가 나옵니다.
+* `JudgeTestDefinitionTests`가 원본 코퍼스 복사본에서 `tests`는 실패하고 `failingTests`는 통과하는지 검사합니다.
+
 ## 주의
-* 코퍼스의 `*_CurrentlyCancels` 테스트는 **수정 전** 동작을 고정한 것입니다. 해당 벤치마크 작업이 성공하면 이 테스트는 실패하는 것이 정상이므로 `judge.tests`에 넣지 않습니다.
+* 코퍼스의 `*_CurrentlyCancels` 테스트는 **수정 전** 동작을 고정한 것입니다. 해당 벤치마크 작업이 성공하면 이 테스트는 실패하는 것이 정상이므로 `judge.tests`가 아니라 `judge.failingTests`에 넣습니다.
 * 레거시 작업(`cs-legacy-*`)의 빌드 판정은 Windows에서만 가능합니다. Mac에서는 "빌드 판정 생략" 모드로 실행합니다(설계 §10.6).
 
 ## 실행
@@ -51,7 +64,7 @@ dotnet run --project eval/PellyCoder.Eval -- --tasks sql --config <pelly.json> #
 
 ## 현재 구성 (M2, 30건)
 C# 18건(Legacy 10, Modern 8) + SQL 12건. 시그니처를 바꾸는 요청(async 전환 등)은 넣지 않습니다(MemberShapeGuard가 막는 의도된 동작). SQL 매개변수 추가는 허용합니다.
-모든 작업에 내용 판정(`mustContain`·`mustAdd`·`mustNotContain`)이 하나 이상 있습니다(`AllTasks_HaveContentCriterion`) — 빌드·컴파일만으로는 의미 없는 수정도 통과하기 때문입니다.
+모든 작업에 내용 판정(`mustContain`·`mustAdd`·`mustNotContain`) 또는 동작 판정(`tests`)이 하나 이상 있습니다(`AllTasks_HaveContentCriterion`) — 빌드·컴파일만으로는 의미 없는 수정도 통과하기 때문입니다. `tests`는 원본에서 실패해야 하므로 같은 역할을 합니다.
 
 | id | 대상 | 지정 방식 | 요청 종류 |
 | :--- | :--- | :--- | :--- |

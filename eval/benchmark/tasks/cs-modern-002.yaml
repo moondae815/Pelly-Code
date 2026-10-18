@@ -5,5 +5,6 @@ method: CalculateRefundAsync
 request: "환불액의 10원 미만을 버리지 말고 10원 단위로 반올림하도록 바꿔줘"
 judge:
   build: true
+  tests: ["Shop.Api.JudgeTests.OrderServiceJudgeTests.CalculateRefundAsync_RoundsToNearestTen"]
   mustAdd: ["Math.Round"]
   mustNotContain: ["Math.Floor"]

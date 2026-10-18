@@ -126,6 +126,16 @@ public class KpiReportTests
         Assert.False(TaskResult.Skipped(modern, "r").IsLegacy);
     }
 
+    [Fact]
+    public void Kpi_Report_ShowsJudgeTestDetailOfAPassedCheck()
+    {
+        var judged = new VerificationResult(VerificationResult.Passed, "판정 테스트 통과 1건, 수정 전 동작 테스트 실패 확인 1건");
+
+        var report = KpiReport.Render([Result("cs-modern-001", "cs", "Passed", 0, ttft: 0.8, wall: 12, independent: judged)], "테스트");
+
+        Assert.Contains("| Passed (판정 테스트 통과 1건, 수정 전 동작 테스트 실패 확인 1건) |", report, StringComparison.Ordinal);
+    }
+
     private static TaskResult Result(string id, string kind, string status, int exit, double ttft, double wall,
         string? failure = null, bool invariant = false, VerificationResult? independent = null) =>
         new(id, kind, status, exit, 1, [], independent ?? VerificationResult.Pass, (independent ?? VerificationResult.Pass).Status,

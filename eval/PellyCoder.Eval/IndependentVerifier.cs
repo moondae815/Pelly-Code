@@ -5,6 +5,7 @@ using PellyCoder.Core.Config;
 using PellyCoder.Core.CSharp;
 using PellyCoder.Core.Files;
 using PellyCoder.Core.Sql;
+using PellyCoder.Core.Testing;
 
 namespace PellyCoder.Eval;
 
@@ -17,21 +18,29 @@ public interface IIndependentVerifier
     Task<VerificationResult> VerifySqlAsync(BenchmarkTask task, string file, CancellationToken ct);
 }
 
+/// <summary>Per-test outcomes of a judge run by full name, or why the tests could not be run.</summary>
+public sealed record JudgeTestRun(IReadOnlyDictionary<string, TestCaseResult> Results, string? Error);
+
 /// <summary>
 /// Re-verifies a finished task without the orchestrator: a fresh build (and the judge's tests) for C#, NOEXEC compile and
 /// object existence for SQL. Its verdict is what the "검증 불변 조건" KPI compares the run's exit code against.
 /// </summary>
+/// <param name="evalRoot">The <c>eval/</c> folder; its <c>benchmark/judges</c> projects are copied next to the work copy. Null: corpus tests only.</param>
 public sealed class IndependentVerifier(IFileSystem fs, IProcessRunner processes, PellyOptions options, ISqlExecutor? sql,
-    Func<bool>? isWindows = null) : IIndependentVerifier
+    Func<bool>? isWindows = null, string? evalRoot = null) : IIndependentVerifier
 {
-    private static readonly TimeSpan TestTimeout = TimeSpan.FromMinutes(5);
+    /// <summary>MSBuild property of a judge project naming the corpus folder it is built against (its default is <c>eval/corpus/&lt;folder&gt;</c>).</summary>
+    public const string JudgeTargetRootProperty = "JudgeTargetRoot";
+
+    private static readonly TimeSpan RestoreTimeout = TimeSpan.FromMinutes(5);
     private readonly Func<bool> _isWindows = isWindows ?? OperatingSystem.IsWindows;
 
     public async Task<VerificationResult> VerifyCsAsync(BenchmarkTask task, string file, string corpusRoot, CancellationToken ct)
     {
         var judge = task.Judge ?? new BenchmarkJudge();
         var tests = judge.Tests ?? [];
-        if (judge.Build != true && tests.Count == 0)
+        var failing = judge.FailingTests ?? [];
+        if (judge.Build != true && tests.Count == 0 && failing.Count == 0)
             return VerificationResult.Skip("판정 요구 없음");
 
         var csproj = ProjectFileLocator.FindNearestCsproj(fs, file);
@@ -48,20 +57,99 @@ public sealed class IndependentVerifier(IFileSystem fs, IProcessRunner processes
             if (resolved.Tool is null)
                 return VerificationResult.Skip(resolved.Error ?? "MSBuild를 찾지 못함");
             var legacy = await BuildAsync(resolved.Tool, csproj, corpusRoot, ct);
-            return legacy.Status == VerificationResult.Passed && tests.Count > 0
+            return legacy.Status == VerificationResult.Passed && (tests.Count > 0 || failing.Count > 0)
                 ? VerificationResult.Skip("빌드 통과, 레거시 테스트 판정 생략")
                 : legacy;
         }
 
         var build = await BuildAsync(new BuildTool(BuildToolKind.Dotnet, "dotnet"), csproj, corpusRoot, ct);
-        if (build.Status != VerificationResult.Passed)
+        if (build.Status != VerificationResult.Passed || (tests.Count == 0 && failing.Count == 0))
             return build;
+
+        var run = await RunJudgeTestsAsync(tests, failing, corpusRoot, ct);
+        return run.Error is not null ? VerificationResult.Fail(run.Error) : Verdict(tests, failing, run.Results);
+    }
+
+    /// <summary>
+    /// <paramref name="tests"/> must all be Passed, <paramref name="failingTests"/> all Failed; a name missing from the
+    /// results counts as failed either way (a typo or a deleted test must not pass the judge).
+    /// </summary>
+    internal static VerificationResult Verdict(IReadOnlyCollection<string> tests, IReadOnlyCollection<string> failingTests,
+        IReadOnlyDictionary<string, TestCaseResult> results)
+    {
+        var failures = new List<string>();
         foreach (var name in tests)
         {
-            var failure = await RunTestAsync(name, corpusRoot, ct);
-            if (failure is not null) return VerificationResult.Fail(failure);
+            if (!results.TryGetValue(name, out var r)) failures.Add($"판정 테스트가 결과에 없음: {name}");
+            else if (!r.Passed) failures.Add($"판정 테스트 실패: {name}" + (r.Message is { Length: > 0 } m ? $" ({m})" : ""));
         }
-        return VerificationResult.Pass;
+        foreach (var name in failingTests)
+        {
+            if (!results.TryGetValue(name, out var r)) failures.Add($"수정 전 동작 테스트가 결과에 없음: {name}");
+            else if (r.Passed) failures.Add($"수정 전 동작 테스트가 여전히 통과: {name}");
+        }
+        return failures.Count > 0
+            ? VerificationResult.Fail(string.Join("; ", failures))
+            : new VerificationResult(VerificationResult.Passed,
+                $"판정 테스트 통과 {tests.Count}건, 수정 전 동작 테스트 실패 확인 {failingTests.Count}건");
+    }
+
+    /// <summary>
+    /// Runs every test project that holds one of the names, once each, through <see cref="TestRunner"/> (build, then
+    /// <c>--no-build</c> run with a TRX). <paramref name="tests"/> are looked up in the judge projects and the corpus,
+    /// <paramref name="failingTests"/> in the corpus only (R3); the project is the one whose name is the longest prefix
+    /// of the test name. Judge projects are copied to <c>&lt;work&gt;/judges/&lt;folder&gt;</c>, then restored and built with
+    /// <c>-p:JudgeTargetRoot=&lt;corpusRoot&gt;</c>; corpus projects are expected to be restored already (the runner restores the solution).
+    /// </summary>
+    /// <param name="corpusRoot">The copied top-level corpus folder (<c>work/&lt;id&gt;/Modern</c>).</param>
+    public async Task<JudgeTestRun> RunJudgeTestsAsync(IReadOnlyCollection<string> tests, IReadOnlyCollection<string> failingTests,
+        string corpusRoot, CancellationToken ct)
+    {
+        var root = Path.GetFullPath(corpusRoot);
+        var workRoot = Path.GetDirectoryName(root)!;
+        var judgeDir = tests.Count > 0 && evalRoot is not null ? WorkCopy.CopyJudges(evalRoot, Path.GetFileName(root), workRoot) : null;
+        var judgeProjects = judgeDir is null ? [] : Directory.GetFiles(judgeDir, "*.csproj", SearchOption.AllDirectories);
+        var corpusProjects = Directory.GetFiles(root, "*.csproj", SearchOption.AllDirectories);
+
+        var projects = new List<string>();
+        foreach (var (name, candidates) in tests.Select(n => (n, judgeProjects.Concat(corpusProjects)))
+                     .Concat(failingTests.Select(n => (n, corpusProjects.AsEnumerable()))))
+        {
+            var project = candidates
+                .Where(p => name.StartsWith(Path.GetFileNameWithoutExtension(p) + ".", StringComparison.Ordinal))
+                .OrderByDescending(p => Path.GetFileNameWithoutExtension(p).Length)
+                .FirstOrDefault();
+            if (project is null) return new JudgeTestRun(new Dictionary<string, TestCaseResult>(), $"테스트 프로젝트를 찾지 못함: {name}");
+            if (!projects.Contains(project)) projects.Add(project);
+        }
+
+        var results = new Dictionary<string, TestCaseResult>(StringComparer.Ordinal);
+        var dotnet = new BuildTool(BuildToolKind.Dotnet, "dotnet");
+        foreach (var project in projects)
+        {
+            var name = Path.GetFileNameWithoutExtension(project);
+            IReadOnlyDictionary<string, string>? properties = null;
+            if (judgeProjects.Contains(project))
+            {
+                properties = new Dictionary<string, string> { [JudgeTargetRootProperty] = root };
+                var restore = await processes.RunAsync(new ProcessSpec("dotnet",
+                    ["restore", project, "--nologo", $"-p:{JudgeTargetRootProperty}={root}"], Path.GetDirectoryName(project)!, RestoreTimeout), ct);
+                if (restore.TimedOut || restore.ExitCode != 0)
+                    return new JudgeTestRun(results, $"판정 프로젝트 복원 실패(종료 {restore.ExitCode}): {name}");
+            }
+
+            var trx = Path.Combine(workRoot, "judge-results", name + ".trx");
+            var run = await new TestRunner(processes, options.Build, options.Test).RunAsync(dotnet, project, workRoot, trx, properties, ct);
+            var error = run.TimedOut ? $"테스트 시간 초과: {name}"
+                : run.BuildErrors.Count > 0 ? $"테스트 프로젝트 빌드 오류: {name}: "
+                    + string.Join("; ", run.BuildErrors.Take(3).Select(e => $"{e.Code} {Path.GetFileName(e.File)}({e.Line}) {e.Message}"))
+                : run.Error is not null ? $"{run.Error}: {name}"
+                : !run.PerTestResults ? $"테스트별 결과를 얻지 못함(종료 {run.ExitCode}): {name}"
+                : null;
+            if (error is not null) return new JudgeTestRun(results, error);
+            foreach (var r in run.Results) results[r.FullName] = r;
+        }
+        return new JudgeTestRun(results, null);
     }
 
     public async Task<VerificationResult> VerifySqlAsync(BenchmarkTask task, string file, CancellationToken ct)
@@ -98,21 +186,5 @@ public sealed class IndependentVerifier(IFileSystem fs, IProcessRunner processes
         return run.Errors.Count == 0
             ? VerificationResult.Pass
             : VerificationResult.Fail("빌드 오류: " + string.Join("; ", run.Errors.Take(3).Select(e => $"{e.Code} {Path.GetFileName(e.File)}({e.Line}) {e.Message}")));
-    }
-
-    /// <summary>Runs one test by full name in the test project whose name is the longest prefix of it; null when it passed.</summary>
-    private async Task<string?> RunTestAsync(string name, string corpusRoot, CancellationToken ct)
-    {
-        var project = Directory.GetFiles(corpusRoot, "*.csproj", SearchOption.AllDirectories)
-            .Where(p => name.StartsWith(Path.GetFileNameWithoutExtension(p) + ".", StringComparison.Ordinal))
-            .OrderByDescending(p => Path.GetFileNameWithoutExtension(p).Length)
-            .FirstOrDefault();
-        if (project is null) return $"테스트 프로젝트를 찾지 못함: {name}";
-
-        var result = await processes.RunAsync(new ProcessSpec("dotnet",
-            ["test", project, "--no-restore", "--filter", $"FullyQualifiedName={name}"],
-            Path.GetDirectoryName(project)!, TestTimeout), ct);
-        if (result.TimedOut) return $"테스트 시간 초과: {name}";
-        return result.ExitCode == 0 ? null : $"테스트 실패(종료 {result.ExitCode}): {name}";
     }
 }

@@ -67,6 +67,23 @@ public class TestRunnerTests : IDisposable
     private const string XunitV3Ref = """<ItemGroup><PackageReference Include="xunit.v3.mtp-v2" Version="4.0.2" /></ItemGroup>""";
 
     [Fact]
+    public async Task Runner_Properties_PassedToTheBuild()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(Proj)!);
+        File.WriteAllText(Proj, $"""<Project Sdk="Microsoft.NET.Sdk">{XunitV3Ref}</Project>""");
+        _procs.Enqueue(Ok());
+        _procs.Enqueue(Ok(), () => File.WriteAllText(Trx, TrxParserTests.Fixture("modern-pass.trx")));
+
+        var run = await Runner().RunAsync(Dotnet, Proj, _dir, Trx, new Dictionary<string, string> { ["JudgeTargetRoot"] = "/w/Modern" },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(["build", Proj, "--no-restore", "--nologo", "-v", "q", "-clp:NoSummary;ErrorsOnly", "-p:JudgeTargetRoot=/w/Modern"],
+            _procs.Calls[0].Arguments);
+        Assert.Equal(["run", "--project", Proj, "--no-build", "--", "-result-trx", Trx], _procs.Calls[1].Arguments);
+        Assert.True(run.PerTestResults);
+    }
+
+    [Fact]
     public async Task MultiTarget_DotnetRunGetsFirstFramework()
     {
         Directory.CreateDirectory(Path.GetDirectoryName(Proj)!);

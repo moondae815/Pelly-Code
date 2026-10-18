@@ -90,13 +90,15 @@ public class BenchmarkDefinitionTests
 
     /// <summary>
     /// 빌드·컴파일만 통과하면 되는 작업은 아무 의미 없는 수정(공백·주석)으로도 성공한다:
-    /// 모든 작업에 내용 판정(mustContain·mustAdd·mustNotContain) 하나 이상을 요구한다.
+    /// 모든 작업에 내용 판정(mustContain·mustAdd·mustNotContain) 또는 동작 판정(tests) 하나 이상을 요구한다.
+    /// tests는 원본에서 실패해야 하므로(JudgeTestDefinitionTests) 의미 없는 수정을 똑같이 막는다.
     /// </summary>
     [Fact]
     public void AllTasks_HaveContentCriterion()
     {
         var missing = LoadAll().Select(x => x.Task)
-            .Where(t => (t.Judge!.MustContain?.Count ?? 0) + (t.Judge.MustAdd?.Count ?? 0) + (t.Judge.MustNotContain?.Count ?? 0) == 0)
+            .Where(t => (t.Judge!.MustContain?.Count ?? 0) + (t.Judge.MustAdd?.Count ?? 0) + (t.Judge.MustNotContain?.Count ?? 0)
+                + (t.Judge.Tests?.Count ?? 0) == 0)
             .Select(t => t.Id)
             .ToList();
         Assert.Empty(missing);

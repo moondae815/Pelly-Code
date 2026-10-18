@@ -37,7 +37,11 @@ public sealed class BenchmarkJudge
 {
     public bool? Build { get; set; }
     public bool? SqlCompile { get; set; }
+    /// <summary>Tests that must pass after the edit; searched in the judge projects (<c>eval/benchmark/judges</c>) and the corpus.</summary>
     public List<string>? Tests { get; set; }
+
+    /// <summary>Corpus tests that pin the pre-edit behaviour (<c>*_CurrentlyCancels</c>): they must fail after the edit.</summary>
+    public List<string>? FailingTests { get; set; }
     public List<string>? MustContain { get; set; }
     public List<string>? MustAdd { get; set; }
     public List<string>? MustNotContain { get; set; }

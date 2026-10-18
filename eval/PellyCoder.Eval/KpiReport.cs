@@ -70,7 +70,7 @@ public static class KpiReport
         sb.AppendLine("| :--- | :--- | ---: | ---: | :--- | ---: | ---: | :--- |");
         foreach (var r in results)
             sb.AppendLine($"| {r.Id} | {r.Status} | {r.ExitCode?.ToString(CultureInfo.InvariantCulture) ?? "—"} | {r.Attempts} | "
-                + $"{r.Independent?.Status ?? "—"} | {Num(r.WallSeconds)} | {Num(r.TtftSeconds)} | {Cell(r.SkipReason ?? string.Join("; ", r.Reasons))} |");
+                + $"{IndependentCell(r.Independent)} | {Num(r.WallSeconds)} | {Num(r.TtftSeconds)} | {Cell(r.SkipReason ?? string.Join("; ", r.Reasons))} |");
         return sb.ToString();
     }
 
@@ -107,6 +107,10 @@ public static class KpiReport
     private static string Pct(double ratio) => (ratio * 100).ToString("0.0", CultureInfo.InvariantCulture) + "%";
 
     private static string Num(double? value) => value is { } v ? v.ToString("0.00", CultureInfo.InvariantCulture) : "—";
+
+    /// <summary>The check's status; a passed check with a detail (the judge tests that ran) shows it, a failed one is already in the reasons.</summary>
+    private static string IndependentCell(VerificationResult? v) =>
+        v is null ? "—" : v.Status == VerificationResult.Passed && v.Detail is { Length: > 0 } d ? $"{v.Status} ({Cell(d)})" : v.Status;
 
     private static string Cell(string text) => text.Replace("|", "\\|", StringComparison.Ordinal).Replace("\n", " ", StringComparison.Ordinal);
 }

@@ -43,7 +43,12 @@ public sealed class TestRunner(IProcessRunner processes, BuildOptions build, Tes
         "An error occurred trying to start process",
     ];
 
-    public async Task<TestRun> RunAsync(BuildTool tool, string testProject, string workDir, string trxPath, CancellationToken ct)
+    public Task<TestRun> RunAsync(BuildTool tool, string testProject, string workDir, string trxPath, CancellationToken ct) =>
+        RunAsync(tool, testProject, workDir, trxPath, null, ct);
+
+    /// <param name="properties">Global MSBuild properties for the build step only (the run itself is <c>--no-build</c>).</param>
+    public async Task<TestRun> RunAsync(BuildTool tool, string testProject, string workDir, string trxPath,
+        IReadOnlyDictionary<string, string>? properties, CancellationToken ct)
     {
         var legacy = tool.Kind == BuildToolKind.MsBuild;
         // 「Windows 미확인」: 레거시 경로(MSBuild 빌드와 test.command 실행)는 실기 Windows에서 재지 못했다.
@@ -56,7 +61,7 @@ public sealed class TestRunner(IProcessRunner processes, BuildOptions build, Tes
         BuildRun built;
         try
         {
-            built = await new BuildVerifier(processes, build).BuildAsync(tool, testProject, workDir, ct);
+            built = await new BuildVerifier(processes, build).BuildAsync(tool, testProject, workDir, properties, ct);
         }
         catch (ProcessStartException ex)
         {

@@ -96,7 +96,7 @@ public sealed class BenchmarkRunner(RunnerSetup setup)
     /// </summary>
     private async Task<VerificationResult> VerifyAsync(BenchmarkTask task, string file, string corpusRoot, bool isSql, CancellationToken ct)
     {
-        var verifier = setup.Verifier ?? new IndependentVerifier(setup.Fs, setup.Processes, setup.Options, setup.Sql, setup.IsWindows);
+        var verifier = setup.Verifier ?? new IndependentVerifier(setup.Fs, setup.Processes, setup.Options, setup.Sql, setup.IsWindows, setup.EvalRoot);
         try
         {
             return isSql ? await verifier.VerifySqlAsync(task, file, ct) : await verifier.VerifyCsAsync(task, file, corpusRoot, ct);

@@ -23,11 +23,16 @@ public sealed class BuildVerifier(IProcessRunner processes, BuildOptions options
         ["VSLANG"] = "1033",
     };
 
-    public async Task<BuildRun> BuildAsync(BuildTool tool, string csprojPath, string workspaceRoot, CancellationToken ct)
+    public Task<BuildRun> BuildAsync(BuildTool tool, string csprojPath, string workspaceRoot, CancellationToken ct) =>
+        BuildAsync(tool, csprojPath, workspaceRoot, null, ct);
+
+    /// <param name="properties">Global MSBuild properties (<c>-p:Name=Value</c>), e.g. the judge project's <c>JudgeTargetRoot</c>.</param>
+    public async Task<BuildRun> BuildAsync(BuildTool tool, string csprojPath, string workspaceRoot,
+        IReadOnlyDictionary<string, string>? properties, CancellationToken ct)
     {
         var spec = new ProcessSpec(
             tool.Executable,
-            ArgumentsFor(tool, csprojPath),
+            [.. ArgumentsFor(tool, csprojPath), .. PropertyArguments(tool, properties)],
             Path.GetDirectoryName(csprojPath) ?? ".",
             TimeSpan.FromSeconds(options.TimeoutSeconds),
             EnglishEnv);
@@ -97,6 +102,10 @@ public sealed class BuildVerifier(IProcessRunner processes, BuildOptions options
         // Windows 미확인(실기): MSBuild 인자는 CI windows-integration 테스트로만 확인한다.
         _ => [csproj, "/t:Build", "/nologo", "/v:q", "/clp:NoSummary;ErrorsOnly", "/nr:true", "/m"],
     };
+
+    private static IEnumerable<string> PropertyArguments(BuildTool tool, IReadOnlyDictionary<string, string>? properties) =>
+        (properties ?? new Dictionary<string, string>())
+            .Select(p => (tool.Kind == BuildToolKind.Dotnet ? "-p:" : "/p:") + p.Key + "=" + p.Value);
 
     // Legacy toolchains on Korean Windows may emit CP949 even with VSLANG=1033 for file paths / messages.
     private static string DecodeStdOut(ProcessResult r)

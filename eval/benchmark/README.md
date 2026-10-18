@@ -24,6 +24,7 @@
 ## 공통 판정 규칙
 * **대상(멤버 또는 SQL 객체 배치)이 원본과 같으면 실패**입니다. 아무것도 고치지 않은 패치가 성공으로 집계되지 않게 하기 위함입니다.
 * 대상 범위: `method` 지정이면 그 멤버, `line` 지정이면 그 줄을 감싸는 멤버, `sql`이면 대상 객체 배치.
+* **공백 차이뿐인 수정(줄바꿈·들여쓰기만 바뀐 재포맷)도 "원본과 같음"으로 셉니다**(공백 연속을 한 칸으로 접어 비교).
 * 정의의 `mustContain`·`mustNotContain`이 원본 대상(실행기와 같은 범위) 기준으로 의미가 있는지는 `BenchmarkDefinitionTests.Judges_RejectUnmodifiedTarget`이, sql 대상이 객체 배치 하나인지는 `SqlTasks_TargetIsAnObjectBatch`가 검사합니다.
 
 ## 주의
@@ -38,6 +39,7 @@ dotnet run --project eval/PellyCoder.Eval -- --tasks sql --config <pelly.json> #
 ```
 * 결과 폴더: `eval/results/<yyyyMMdd-HHmmss>/`(`--out`으로 변경, git 추적 제외)
   * `report.md`(KPI 표·실패 유형·작업별 결과), `results.json`, `work/<id>/`(작업별 코퍼스 복사본과 `.pelly/runs` 로그)
+* 검증 불변 조건(종료 0 = 검증 통과)은 실행기가 결과를 pelly와 별개로 다시 검증해 판정합니다. **분모는 독립 검증이 `Passed`/`Failed`인 종료 0 실행만**이고, 생략된 실행(Windows가 아닌 환경의 Legacy, 검증기 예외)은 "독립 검증 생략 N건"으로 따로 표시되며 판정된 것이 없으면 "판정 불가"입니다.
 * 종료 코드: 0 실행 완료 · 1 검증 불변 조건 위반 · 2 중단 · 4 설정 오류 또는 LLM 서버 연결 불가
 * **`sql` 작업에는 SQL Server가 필요합니다.**
   * 연결은 환경 변수 `PELLY_SQL_CONNECTION`(비밀번호가 있는 연결은 환경 변수로만).

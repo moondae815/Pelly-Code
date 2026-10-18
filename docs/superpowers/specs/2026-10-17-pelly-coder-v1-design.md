@@ -66,7 +66,7 @@ PRD §1.4의 "v1 제외" 항목 전부. 특히 다중 파일 수정, 새 파일 
 | D14 | **멤버 모양 검사(MemberShapeGuard):** APPLY 후 대상 멤버의 시그니처가 바뀌었거나, 허용되지 않은 멤버가 추가·삭제되면 거부하고 교정 피드백. 빌드가 대상 프로젝트만 검사하므로, 다른 프로젝트의 호출부를 깨는 변경을 구조적으로 막기 위함 (§8.7.1) | 설계 |
 | D15 | **SQL 파일은 `GO`로 나눈 배치 단위로 다룸.** SSMS가 스크립트한 형태(`SET ANSI_NULLS ON` / `GO` / `CREATE PROC` / `GO`)와 한 파일 여러 객체를 지원. 편집 가능 영역·안전 가드·NOEXEC 검증은 **대상 객체 배치에만** 적용하고, 나머지 배치는 바뀌면 안 됨 (§8.10) | 설계 |
 | D16 | `pelly sql`은 DB 연결이 필수. 연결할 수 없으면 PREFLIGHT에서 EnvError(4). ScriptDom만으로 "검증 통과"를 주지 않음(검증 불변 조건 유지) | 설계 |
-| D17 | 설정 파일의 `sql.connectionString`은 **비밀번호가 없는 연결(Windows 통합 인증)만** 허용. `Password`/`Pwd`가 있으면 설정 오류(4). 비밀번호가 있는 연결은 `PELLY_SQL_CONNECTION` 또는 user-secrets로만 받음 (PRD FR-07) | 설계 |
+| D17 | 설정 파일의 `sql.connectionString`은 **비밀번호가 없는 연결(Windows 통합 인증)만** 허용. `Password`/`Pwd`가 있으면 설정 오류(4). 비밀번호가 있는 연결은 환경 변수 `PELLY_SQL_CONNECTION`으로만 받음. `dotnet user-secrets`는 전역 도구에서 의미가 없어 제외 (PRD FR-07, M2b R3) | 설계 |
 | D19 | **IDE 연동은 External Tools 방식.** 사용자들은 Visual Studio와 Rider를 혼용하므로 IDE별 플러그인 대신 두 IDE 공통 기능인 External Tools로 `pelly cs <파일> --line <커서 줄>`을 실행. v1 UI는 콘솔 창. GUI 승인 창(`pelly ui`, Avalonia)은 v1 다음 단계 | 사용자 |
 | D20 | `Core`는 콘솔에 직접 출력하지 않음. 모든 진행 표시·입력은 `IUserInteraction`을 통해서만 함 (다음 단계의 GUI 승인 창이 같은 `Core`를 쓰기 위함) | 설계 |
 | D21 | **Think 단계는 교정 시도부터 사용** (`llm.thinkMode = retry` 기본, `off`/`always` 선택 가능). 첫 시도는 빈 think 프리필로 바로 코드 생성. 근거: S3 — 이 모델은 512토큰 안에 생각을 끝내지 못하고(30/30), 생략해도 10건 결과가 같았으며 평균 9.0초 → 1.7초 | 사용자 |
@@ -74,6 +74,9 @@ PRD §1.4의 "v1 제외" 항목 전부. 특히 다중 파일 수정, 새 파일 
 | D22 | **Think 예산은 서버 `num_predict`로 제한**하고 `done_reason == "length"`로 잘림을 판단. 클라이언트가 스트림을 끊지 않음(Ctrl+C 제외). 근거: S2 — 클라이언트 취소 시 다음 요청이 약 2초 늦어짐 | 설계 |
 | D24 | **모델 제어 토큰 문자열 차단.** raw 모드에서는 서버가 프롬프트 안의 `<|im_end|>` 같은 문자열을 실제 제어 토큰으로 읽으므로, 요청문이나 대상 파일에 토크나이저 특수 토큰(26개) 문자열이 있으면 서버를 부르기 전에 PREFLIGHT에서 종료 코드 4로 끝냄 (요청문: "요청문에 모델 제어 토큰 '…'이(가) 있어 실행할 수 없습니다", 파일: "파일에 모델 제어 토큰 문자열 '…'이(가) 있어 안전하게 편집할 수 없습니다 (줄 N)"). 근거: M1 최종 리뷰 (M2a T10) | 설계 |
 | D25 | **Baseline 빌드는 LOCATE 끝에서 시작.** 대상 프로젝트와 빌드 도구를 확정한 뒤에야 시작할 수 있고, 모델 생성(SLICE·EDIT) 동안 병렬로 돌며 APPLY가 첫 쓰기 전에 기다림. 드라이런은 도구만 확인하고 Baseline을 시작하지 않음. 실행이 끝날 때 오케스트레이터가 취소하고 최대 10초 기다린 뒤 롤백·잠금 해제 (M2a T6, §7.3) | 설계 |
+| D26 | **`ISqlExecutor`는 범용 질의 대신 목적별 메서드.** 가짜 구현으로 단위 테스트하기 쉽게 하려는 것(D6의 목적). 새 질의가 필요하면 메서드를 하나 더 추가한다 (M2b R1, §5) | 설계 |
+| D27 | **접속 대상 허용 목록이 비어 있으면 아무 데도 접속하지 않음**(종료 5, "sql.allowedHosts(또는 allowedDatabases)에 추가하세요"). 연결 문자열에 서버·데이터베이스 키가 둘 이상(`Server`/`Data Source`/`Address`/`Addr`/`Network Address`, `Database`/`Initial Catalog`)이거나 `Failover Partner`가 있으면 SqlClient의 마지막 값 우선을 흉내 내지 않고 거부(종료 5) — fail closed (M2b R4, 허용 목록 검토 판정, §8.1) | 설계 |
+| D28 | **원본 대상 배치에 금지 구문이 이미 있으면 LOCATE에서 종료 5로 끝냄**("대상 객체에 이미 금지 구문(…)이 있어 pelly로 편집할 수 없습니다 (PRD FR-07)", FailureKind `SqlForbiddenInOriginal`). 재시도해도 매번 거부되기 때문. 본문에 `GRANT`·`xp_cmdshell` 등을 가진 프로시저는 pelly로 고칠 수 없다 (M2b R2, §8.10) | 설계 |
 | D18 | `--test`의 테스트 프로젝트는 솔루션 안에서 대상 프로젝트를 `ProjectReference`(레거시는 `<ProjectReference Include>`)로 참조하는 프로젝트 중 이름이 `Test`를 포함하는 것. 설정 `test.projects`로 직접 지정 가능 | 설계 |
 
 ---
@@ -160,10 +163,15 @@ public interface ILlmBackend
 public interface ITokenCounter { int Count(string text); }
 
 // SQL
+// M2b R1: 범용 QueryAsync<T> 대신 목적별 메서드 (D26). 문장은 항상 매개변수로 보내고,
+// 문자열에 이어 붙이는 것은 CompileWithNoExecAsync의 대상 배치 하나뿐
 public interface ISqlExecutor
 {
-    Task<IReadOnlyList<T>> QueryAsync<T>(string sql, object? param, CancellationToken ct);
-    Task<SqlCompileResult> CompileWithNoExecAsync(string batch, CancellationToken ct); // 트랜잭션+ROLLBACK 포함
+    Task<SqlServerProbe> ProbeAsync(CancellationToken ct);                       // 버전·DB 이름·VIEW DEFINITION 보유 여부
+    Task<IReadOnlyList<SqlObjectName>> FindMissingAsync(IReadOnlyList<SqlObjectName> names, CancellationToken ct); // OBJECT_ID가 NULL인 이름
+    Task<IReadOnlyList<SqlTableSchema>> GetSchemasAsync(IReadOnlyList<SqlObjectName> names, CancellationToken ct); // 테이블·뷰의 컬럼·인덱스
+    Task<IReadOnlyList<SqlObjectName>> GetReferencedEntitiesAsync(SqlObjectName obj, CancellationToken ct);       // sys.dm_sql_referenced_entities
+    Task<IReadOnlyList<SqlCompileError>> CompileWithNoExecAsync(string batch, SqlSessionSettings settings, CancellationToken ct); // 트랜잭션+ROLLBACK 포함, 심각도 11 이상
 }
 
 // 사용자 상호작용 — Cli가 Spectre로 구현, 테스트는 스크립트형 가짜
@@ -229,6 +237,7 @@ public enum RunPhase { Preflight, Locate, Slice, Edit, Apply, Verify, Review, Do
 | Edit | FormatError (블록 파싱 실패) | 시도 < 1+max ? Slice : Rollback→Failed(1) |
 | Apply | Ok | Verify |
 | Apply | MatchFailed | 시도 < 1+max ? Slice : Rollback→Failed(1) |
+| Preflight, Locate | SafetyRejected (접속 대상 허용 목록 위반 · 원본 대상의 금지 구문, M2b T6·T7) | Failed(5) |
 | Apply | SafetyRejected (SQL 가드) | 시도 < 1+max ? Slice : Rollback→Failed(5) |
 | Apply | ShapeRejected (멤버 모양 검사, D14) | 시도 < 1+max ? Slice : Rollback→Failed(1) |
 | Apply | NotFound (멤버 모양 검사에서 원본에 대상이 없음, M2a T7) | Rollback→Failed(3) |
@@ -243,6 +252,7 @@ public enum RunPhase { Preflight, Locate, Slice, Edit, Apply, Verify, Review, Do
 * "시도"는 EDIT 단계 진입 횟수입니다. 최초 1회 + 교정 최대 `maxRetries`(기본 3)회.
 * `--dry-run`은 첫 APPLY 직전에 diff를 보여주고 Done(0)으로 끝납니다(파일 변경 없음, 빌드 검증 없음).
 * SQL 안전 가드 위반은 모델 출력 문제이므로 교정 기회를 주되, 최종 실패 시 종료 코드 5입니다.
+* SQL 파싱 오류는 안전 위반이 아니라 `MatchFailed`입니다(APPLY, 전이표 변경 없음). 파싱되지 않은 텍스트는 안전 가드로 검사할 수 없으므로 쓰기 전에 걸러 교정 기회를 주고, 소진하면 종료 코드 1입니다 (M2b R5).
 
 ### 7.2 오케스트레이터 골격
 ```csharp
@@ -314,11 +324,16 @@ public async Task<int> RunAsync(RunRequest req, CancellationToken ct)
   "build": { "msbuildPath": null, "timeoutSeconds": 120, "warnAsError": false },
   "test": { "command": null, "projects": [] },   // projects: 비어 있으면 D18 규칙으로 탐색
   "sql": { "allowedHosts": [], "allowedDatabases": [], "compatLevel": 160,
-           "connectionString": null },            // D17: 비밀번호 없는 연결만 허용
+           "connectionString": null },            // D17: 비밀번호 없는 연결만 허용. allowedHosts/allowedDatabases가 비면 아무 데도 접속하지 않음 (D27)
   "log": { "retentionDays": 30 }
 }
 ```
 * 설정 로드 시 검증 실패(예산 합계가 `numCtx` 초과, 알 수 없는 키)는 종료 코드 4와 함께 어떤 키가 문제인지 출력합니다.
+* **`sql` 설정 검증과 연결 문자열 (M2b T3·T6):**
+  * `sql.compatLevel`은 `90, 100, 110, 120, 130, 140, 150, 160, 170` 중 하나여야 합니다("sql:compatLevel 값은 90, 100, …, 170 중 하나여야 합니다").
+  * **비밀번호 (D17):** 설정에서 온 `sql.connectionString`에 `Password`/`Pwd` 키가 있으면 종료 4와 "sql:connectionString에 비밀번호가 있습니다 — 비밀번호가 있는 연결은 환경 변수 PELLY_SQL_CONNECTION으로만 지정하세요". 키는 `DbConnectionStringBuilder`로 해석해 대소문자를 구분하지 않고, 파싱이 안 되는 문자열도 정규식으로 비밀번호 키를 찾습니다. 로그·메시지·doctor에서는 비밀번호 값을 `***`로 가립니다(파싱이 안 되면 문자열 전체를 가림).
+  * **`PELLY_SQL_CONNECTION` 우선 (R3):** 이 환경 변수(접두사 `PELLY__`와 별개)가 비어 있지 않으면 `sql.connectionString`보다 우선하고, 비밀번호가 있어도 됩니다. `dotnet user-secrets`는 지원하지 않습니다.
+  * **허용 목록 (R4, D27):** 접속 전에 연결 문자열의 서버(`tcp:`/`np:`/`lpc:` 접두사·포트·인스턴스 이름을 뗀 호스트 또는 인스턴스 포함 이름)가 `allowedHosts`에, 데이터베이스가 `allowedDatabases`에 있어야 합니다(대소문자 무시, 빈 항목은 무시). 둘 중 하나라도 비어 있거나 없으면 SafetyRejected(5, FailureKind `SqlTargetNotAllowed`)이고 "… sql.allowedHosts에 추가하세요"/"… sql.allowedDatabases에 추가하세요"로 안내합니다. 서버 키(`Server`, `Data Source`, `Address`, `Addr`, `Network Address`)나 데이터베이스 키(`Database`, `Initial Catalog`)가 둘 이상이거나 `Failover Partner`가 있으면 허용 목록 밖으로 바뀔 수 있으므로 거부합니다(종료 5). 연결 문자열에 `Database`가 없으면 설정 오류(4)입니다.
 
 ### 8.2 LLM 계층
 
@@ -426,7 +441,8 @@ public void Cancel(int orderId) { ...원문 그대로... }
 6. 후보 2개 이상: `IsInteractive`면 선택 UI, 아니면 Ambiguous(3, FailureKind `TargetAmbiguous`).
 * **재시도 때 재탐색:** 교정 시도에서 파일이 바뀐 뒤에는 포함 타입과 이름으로 대상을 다시 찾되, 오버로드가 여럿이면 처음의 Display와 정확히 같은 것을 우선합니다 (M2a T8).
 * **요청문 입력:** `pelly cs <파일> --line <n>`처럼 요청문 없이 실행하면(External Tools 사용 시) 대화형 콘솔에서 "수정 요청을 입력하세요:"로 입력받습니다. 비대화형이면 설정 오류(4). `--method`·요청문은 모두 선택입니다 (M2a T9).
-* SQL: 파일을 `GO` 줄(대소문자 무시, 앞뒤 공백 허용, `GO <숫자>` 포함)로 배치로 나눈 뒤 ScriptDom으로 각 배치를 파싱합니다. `CREATE/ALTER/CREATE OR ALTER PROCEDURE|FUNCTION|VIEW` 배치가 정확히 1개면 그것이 대상입니다. 0개면 NotFound, 2개 이상이면 `--object`로 지정해야 합니다(비대화형이 아니면 선택 UI). `GO` 분리는 문자열·주석 안의 `GO`를 무시하도록 ScriptDom 토큰 스트림 기준으로 합니다.
+* SQL (M2b T1·T7): 파일을 `GO` 줄(대소문자 무시, 앞뒤 공백 허용, `GO <숫자>` 포함)로 배치로 나눈 뒤 ScriptDom으로 각 배치를 파싱합니다. 공백뿐인 조각(마지막 `GO` 뒤, 연속된 `GO` 사이)은 배치로 세지 않습니다(R-P1). `CREATE/ALTER/CREATE OR ALTER PROCEDURE|FUNCTION|VIEW` 배치가 정확히 1개면 그것이 대상입니다. 0개면 NotFound("파일에 프로시저·함수·뷰 정의가 없습니다", 구문 오류가 있는 배치의 줄 범위를 덧붙임), 2개 이상이면 `--object`(또는 `--line`)로 지정해야 합니다: 대화형이면 선택 UI, 비대화형이면 Ambiguous(3, FailureKind `TargetAmbiguous`, "객체가 N개입니다. --object로 지정하세요: …"). **모델 선택(위 5단계)은 SQL에 넣지 않습니다** (M2b R8). `--line`은 그 줄을 포함하는 객체 배치(정의 안이 아니면 NotFound), `--object`는 이름이 같은 배치(없으면 NotFound)입니다. `--line`과 `--object`를 함께 주면 설정 오류(4)입니다. `GO` 분리는 문자열·주석 안의 `GO`를 무시하도록 ScriptDom 토큰 스트림 기준으로 합니다.
+* **편집할 수 없는 원본 대상 (M2b T7, R-T3):** 고른 원본 대상 배치에 구문 오류가 있거나, 객체 이름이 없거나, 최상위 문장이 둘 이상이면 NotFound(3)로 끝납니다("대상 객체 배치에 정의 외의 문장이 있거나 구문 오류가 있어 편집할 수 없습니다 (줄 a-b)"). VERIFY가 원본 배치를 컴파일해 기준선을 만들기 때문입니다. 원본의 금지 구문은 §8.10을 보십시오.
 * `EditTarget.ProjectPath`: 대상 파일에서 위로 올라가며 처음 나오는 `*.csproj`. 레거시 csproj가 `<Compile Include>`로 파일을 나열하는 경우, 그 목록에 대상 파일이 있는지 확인(없으면 경고).
 
 ### 8.5 RoslynSlicer
@@ -462,7 +478,12 @@ public void Cancel(int orderId) { ...원문 그대로... }
    TABLE dbo.Orders (OrderId int NOT NULL PK, Status tinyint NOT NULL, ShippedAt datetime2 NULL, ...)
    INDEX IX_Orders_Status (Status)
    ```
-4. 예산 초과 시 인덱스 → 대상 SP가 직접 쓰지 않는 컬럼 순으로 제거.
+4. 예산 초과 시 아래 순서로 줄입니다(M2b T8). 각 단계는 **마지막 테이블부터** 하나씩 줄이다가 예산 안에 들어오면 멈춥니다. 대상 객체 배치는 줄이지 않으며, 대상 혼자서 예산을 넘으면 스키마 전체를 뺍니다(`SliceResult.TargetTooLarge`, SLICE가 BudgetExceeded→종료 4).
+   1. 모든 인덱스 줄 (`Omitted` 종류 `schema-indexes`)
+   2. 기본 키도 아니고 대상이 참조하지도 않는 컬럼 (`schema-columns`). **이 단계에서 컬럼이 전부 사라질 테이블은 건드리지 않고** 빈 컬럼 목록이 모델을 오도하지 않게 3단계로 넘깁니다.
+   3. 테이블 줄 통째 (`schema-tables`)
+   4. 대상 혼자서 예산 초과 (`schema`)
+   `Omitted`에 올라간 줄은 `Slice.Omitted`에 종류별로 기록됩니다. 컬럼 줄은 `TABLE|VIEW 이름 (컬럼 타입 NULL|NOT NULL [PK], …)`, 인덱스는 `[UNIQUE ]INDEX 이름 (키 컬럼, …)` 형식입니다. 참조 수집은 같은 DB 객체만 대상이며(3·4부 이름은 R7에 따라 제외) 테이블과 뷰가 아닌 참조는 스키마 요약에서 조용히 빠집니다.
 5. 편집 가능 영역은 **대상 객체 배치 범위**입니다(D15). 같은 파일의 다른 배치(`SET ANSI_NULLS ON`, 다른 객체, 권한 부여 등)는 `[READ-ONLY]`로도 넣지 않습니다.
 
 ### 8.7 SearchReplaceParser·Patcher
@@ -566,15 +587,16 @@ public void Cancel(int orderId) { ...원문 그대로... }
 
 #### SqlSafetyGuard (APPLY 단계, 파일 쓰기 전)
 * 수정된 파일을 다시 배치로 나눕니다(§8.4와 같은 방식). **대상 배치를 뺀 나머지 배치는 원본과 바이트 단위로 같아야** 합니다(D15). 다르면 SafetyRejected.
-* 대상 배치를 ScriptDom(`sql.compatLevel`에 맞는 `TSqlNNNParser`)으로 파싱. 파싱 에러는 교정 피드백.
-* 대상 배치의 최상위 문장 수 = 1, 그 문장은 대상 객체 이름의 `CREATE/ALTER/CREATE OR ALTER PROCEDURE|FUNCTION|VIEW`. 대상 배치 안에 `GO`가 새로 생겨 배치가 늘어나면 거부.
-* 방문자로 금지 요소 검사(PRD FR-07 목록): `SetOnOffStatement`의 NOEXEC/PARSEONLY/FMTONLY, `ShutdownStatement`, `ReconfigureStatement`, `xp_cmdshell` 실행, `OPENROWSET`/`OPENDATASOURCE`, `AlterDatabaseStatement`, 로그인·권한 문장.
-* 위반 → SafetyRejected.
+* 대상 배치를 ScriptDom(`sql.compatLevel`에 맞는 `TSqlNNNParser`, `QUOTED_IDENTIFIER`는 파일에서 대상보다 앞선 마지막 설정)으로 파싱. **파싱 에러는 SafetyRejected가 아니라 `MatchFailed`**: 피드백 `SQL PARSE FAILED`(진단 코드 `SQL{번호}`), FailureKind `SqlParseErrors`, 소진 시 종료 1 (M2b T5·T9, R5).
+* 대상 배치의 최상위 문장 수 = 1, 그 문장은 원본과 같은 종류(`CREATE`/`ALTER`/`CREATE OR ALTER`)이며 대상 객체 이름과 같아야 합니다. 대상 배치 안에 `GO`가 새로 생겨 배치가 늘거나 줄면 거부. 거부 사유는 모델에 영어 피드백으로 갑니다(예: "text outside the target object batch changed. Only the target object may change.").
+* 방문자로 금지 요소를 **대상 배치 전체(객체 본문 포함)**에서 검사(PRD FR-07 목록): `SET NOEXEC`/`PARSEONLY`/`FMTONLY`, `SHUTDOWN`, `RECONFIGURE`, `xp_cmdshell` 실행, `OPENROWSET`(`OPENROWSET`·`BULK`·내부 형태 포함)/`OPENDATASOURCE`(테이블 참조 형태와 **`EXEC … OPENDATASOURCE(…)` 형태** 둘 다), `ALTER DATABASE`(`ALTER DATABASE SCOPED CONFIGURATION`·`ALTER DATABASE ENCRYPTION KEY`·`ALTER DATABASE AUDIT SPECIFICATION`도 같은 항목으로 셈 — 「위치 무관」 목록의 보수적 해석이며, 이것들을 정당하게 쓰는 프로시저는 pelly로 고칠 수 없음, M2b T5), `CREATE|ALTER|DROP LOGIN`, `GRANT`/`REVOKE`/`DENY`.
+* 위반 → SafetyRejected(`SqlSafetyRejected`, 교정 기회 후 종료 5).
+* **원본의 금지 구문 (M2b R2, D28):** 같은 검사를 LOCATE에서 **원본 대상 배치**에도 한 번 돌립니다. 이미 금지 구문이 있으면 모델을 부르지 않고 SafetyRejected(5, FailureKind `SqlForbiddenInOriginal`)로 끝납니다. PRD FR-07이 "위치 무관"이라 했고, 재시도해도 매번 거부될 뿐이기 때문입니다.
 
 #### SqlSyntaxVerifier (VERIFY 단계)
 0. **검증 대상은 대상 배치 하나뿐**입니다. 파일의 다른 배치(`SET ANSI_NULLS` 등)는 실행하지 않고, 대신 연결에 `SET ANSI_NULLS ON; SET QUOTED_IDENTIFIER ON;`을 기본으로 설정합니다. 원본 파일에 이 두 설정의 `OFF`가 있으면 그 값을 따릅니다.
-1. 연결 문자열이 없거나 접속할 수 없으면 PREFLIGHT에서 EnvError(4) (D16). 접속 대상이 `allowedHosts`/`allowedDatabases`에 없으면 SafetyRejected(5) — 역시 PREFLIGHT에서 검사.
-2. 객체 존재 검사: 참조 객체 이름을 `OBJECT_ID(@name)`로 확인. 없으면 `Msg 208 Invalid object name '...'` 형식으로 NewErrors.
+1. 연결 문자열이 없거나 접속할 수 없으면 PREFLIGHT에서 EnvError(4) (D16). 접속 대상이 `allowedHosts`/`allowedDatabases`에 없으면 SafetyRejected(5, `SqlTargetNotAllowed`) — 역시 PREFLIGHT에서 검사(§8.1, D27). 순서는 연결 문자열 → 허용 목록 → 서버 접속 → `VIEW DEFINITION` 확인이고, **모두 모델 생성 요청 전에** 끝납니다(모델 서버 상태 확인은 포함 안 함). 접속은 `ProbeAsync`가 하며 실패하면 `pelly doctor` 안내와 함께 EnvError(4)입니다. 이 권한이 없으면(`ProbeAsync`의 `CanViewDefinition` 거짓) EnvError(4, FailureKind `SqlPermission`, "검증 계정에 VIEW DEFINITION 권한이 없어 객체 존재 검사를 할 수 없습니다…") (M2b T6).
+2. 객체 존재 검사(`SqlObjectStep`, 단계 이름 `SqlObjects`, FailureKind `SqlObjectsErrors`): 참조 객체 이름을 `OBJECT_ID(@name)`로 확인. 없으면 `Msg208 Invalid object name '...'` 형식으로 NewErrors(피드백 `SQL CHECK FAILED`). **원본 대비 새 오류만 셉니다** — 원본 대상이 이미 없는 객체를 참조하면 알림("원본 객체가 이미 없는 객체(…)를 참조합니다 — 새로 생긴 것만 검사합니다")을 남기고 그 이름은 기준선으로 뺍니다. **3부·4부 이름(다른 DB·연결된 서버)은 존재 검사에서 빼고 알림만** 합니다("다른 데이터베이스·연결된 서버 객체(…)는 존재를 검사하지 않습니다", M2b R7 — 그런 참조의 오타는 잡지 못함). 함수 호출은 호출 대상이 2부 이상이면 메서드 호출로 보아 무시하고, 1부면 스키마 없는 함수로 보되 테이블 별칭이면 제외합니다(컬럼과의 모호함을 메타데이터 없이 풀 수 없음, 새로 생긴 이름만 세므로 잡음은 제한적).
 3. NOEXEC 컴파일 (**S5에서 확정**): 같은 연결에서 배치를 다음 순서로 따로 보냅니다.
    1. `BEGIN TRAN;`
    2. `SET NOEXEC ON;`
@@ -582,10 +604,12 @@ public void Cancel(int orderId) { ...원문 그대로... }
    4. `SET NOEXEC OFF;`
    5. `IF @@TRANCOUNT > 0 ROLLBACK;`
    트랜잭션은 결과에 영향이 없었지만(S5) 안전장치로 유지합니다. NOEXEC 컴파일은 `ALTER` 권한을 검사하지 않습니다.
-   `SqlException.Errors`를 `Diagnostic(Code = "Msg" + Number, Line = SqlError.LineNumber + (파일 안 대상 배치의 시작 줄 − 1))`로 변환합니다(`LineNumber`는 배치 기준, S5).
+   `SqlException.Errors`(심각도 11 이상)를 `Diagnostic(Code = "Msg" + Number, Line = SqlError.LineNumber + (파일 안 대상 배치의 시작 줄 − 1))`로 변환합니다(`LineNumber`는 배치 기준, S5). 단계 이름 `SqlCompile`, FailureKind `SqlCompileErrors`. **원본 대비 새 오류만 셉니다:** 원본 대상 배치를 같은 방법으로 먼저 컴파일해 기준선("원본 객체에 이미 컴파일 오류가 N개 있습니다 — 새로 생긴 오류만 검사합니다")으로 삼고, 비교에서 줄 번호는 무시합니다(편집으로 줄이 밀려도 옛 오류가 새 오류가 되지 않게). 명령 시간 제한은 30초입니다.
+   **VERIFY는 쓰인 파일을 다시 나눠** 현재 대상 배치(`Batches[TargetIndex]`)를 얻습니다. SLICE가 정한 `CurrentTarget`은 편집 전 텍스트이므로 APPLY 뒤에는 낡았습니다. 안전 가드가 배치 수와 대상 위치를 지켜 주므로 인덱스가 유지됩니다 (M2b T10).
    **S5 검출 결과:** 없는 컬럼 207, 구문 오류 102는 잡히고, **없는 테이블은 NOEXEC·실제 ALTER 모두 잡지 못합니다**(지연 이름 확인) → 2번 객체 존재 검사가 필수입니다.
    **최소 권한: DB 수준 `VIEW DEFINITION`.** 이 권한이 없으면 `OBJECT_ID`가 NULL, `sys.columns`가 0건이 되어 존재 검사·스키마 요약이 모두 틀어집니다(S5).
-4. 동적 SQL(`ExecuteStatement`의 문자열 실행, `sp_executesql`)이나 `#temp` 사용이 있으면 Notices에 경고 추가.
+4. 동적 SQL(`ExecuteStatement`의 문자열 실행, `sp_executesql`)이나 `#temp` 사용이 있으면 Notices에 경고 추가(한 실행에 한 번): "동적 SQL 안의 문장은 검증하지 않습니다", "임시 테이블(#)의 컬럼은 검증하지 않습니다".
+5. 두 단계 중 서버를 쓸 수 없으면(`SqlUnavailableException`) 모델에 되묻지 않고 EnvError(4)입니다. 그 밖의 예외도 같습니다.
 
 ### 8.11 REVIEW·사용자 상호작용
 * DiffPlex로 원본·수정본의 unified diff(문맥 3줄)를 만들어 Spectre로 색 표시.
@@ -599,6 +623,9 @@ public void Cancel(int orderId) { ...원문 그대로... }
   * `summary.json`: `RunSummary` (아래)
 * `retentionDays`보다 오래된 run 폴더는 **실행이 끝날 때**, 작업 공간 잠금을 쥔 채로만 삭제합니다(현재 실행은 지우지 않음) (M2a T12).
 * `FailureKind` 값에는 M2a에서 `BuildErrors`(빌드 신규 오류), `BuildToolUnavailable`, `BaselineErrors`, `BuildUnverifiable`, `ShapeRejected`, `TargetNotFound`(LOCATE·APPLY 모두)가 더해졌습니다 (M2a T6, T7). 검증 단계의 값은 `{단계 Name}Errors`(`SyntaxErrors`, `BuildErrors`)입니다.
+* `FailureKind` 값에는 M2b에서 SQL용 `SqlTargetNotAllowed`(PREFLIGHT 허용 목록), `SqlPermission`(`VIEW DEFINITION` 없음), `SqlForbiddenInOriginal`(LOCATE, R2), `SqlParseErrors`(APPLY 파싱 오류, R5), `SqlSafetyRejected`(APPLY 가드), `SqlObjectsErrors`·`SqlCompileErrors`(VERIFY 단계 `{Name}Errors`)가 더해졌습니다. 객체를 못 찾음·모호함은 기존 `TargetNotFound`·`TargetAmbiguous`입니다 (M2b T5~T10).
+* **진단 코드 (R6):** DB 오류는 `Msg{번호}`(예: `Msg207`, `Msg208`), ScriptDom 파싱 오류는 `SQL{번호}`(예: `SQL46010`)로 `ErrorCodes`에 남습니다.
+* **요약의 종류 (M2b T9):** LOCATE가 대상을 정하지 못하고 끝난 실행의 `Kind`와 프롬프트 버전은 `ctx.Target?.Kind ?? ctx.Request.Kind`를 따릅니다(요청 종류). 앞의 `?? CSharp`로 두면 일찍 실패한 SQL 실행이 C#으로 집계되어 벤치마크·KPI 집계가 틀어집니다.
 * 연결 문자열은 `Password=`, `Pwd=` 값을 마스킹.
 
 ```csharp
@@ -612,13 +639,14 @@ public sealed record RunSummary(
     string? FailureKind);
 ```
 * **`pelly report`:** `summary.json`들을 모아 PRD §2.2 지표와 실패 유형 분포를 표로 출력.
-* **`--sanitize` (D11):** `RunSummary`에서 문자열 필드는 `PellyVersion`, `OllamaVersion`, `PromptVersion`, `Kind`, `ProjectStyle`, `ThinkMode`, `FailureKind`(열거 이름)와 `ErrorCodes`(정규식 `^(CS|MSB|NU|Msg)\d+$` 통과 값만)만 출력. `ModelName`은 출력하지 않음. 다른 파일(`events.jsonl` 등)은 읽지 않습니다. 결과는 JSON과 Markdown 두 파일.
+* **`--sanitize` (D11):** `RunSummary`에서 문자열 필드는 `PellyVersion`, `OllamaVersion`, `PromptVersion`, `Kind`, `ProjectStyle`, `ThinkMode`, `FailureKind`(열거 이름)와 `ErrorCodes`(정규식 `^(CS|MSB|NU|Msg|SQL)\d+$` 통과 값만 — `SQL`은 ScriptDom 파싱 오류, M2b R6. 구현은 M3의 `report --sanitize`)만 출력. `ModelName`은 출력하지 않음. 다른 파일(`events.jsonl` 등)은 읽지 않습니다. 결과는 JSON과 Markdown 두 파일.
 
 ### 8.13 doctor
 PRD FR-08 항목을 순서대로 검사하고 표로 출력합니다. 각 항목은 `Ok / Warn / Fail`과 조치 안내 한 줄. 추가로:
 * **템플릿 일치:** 고정된 짧은 대화를 `/api/chat`과 raw(`QwenChatTemplate` 조립)로 각각 `num_predict: 1`로 보내 `prompt_eval_count`가 같으면 Ok, 다르면 Warn(S1 방식). `/api/show`의 `RENDERER`/`PARSER` 이름도 표시.
 * **토크나이저 일치:** 고정 문자열 1개의 로컬 토큰 수와 서버 `prompt_eval_count`가 같으면 Ok, 다르면 Fail(S4 — 모델과 내장 토크나이저 불일치).
 * **SQL 권한:** 설정된 DB에서 `OBJECT_ID`가 알려진 테이블에 대해 NULL이면 "VIEW DEFINITION 권한 필요"로 Fail(S5).
+* **SQL 연결 (M2b T11):** 한 행 `SQL 연결`. 연결 문자열이 없으면 Warn("pelly sql을 쓰려면 sql.connectionString 또는 PELLY_SQL_CONNECTION을 설정하세요"), 허용 목록 위반이면 Fail(§8.1과 같은 메시지), 접속·`VIEW DEFINITION` 실패는 Fail(연결 문자열의 비밀번호는 `***`로 가림), 통과하면 Ok(`서버/DB, 서버 버전`). **전체 doctor 완성은 M3입니다.**
 * 1회 짧은 생성(`num_predict: 8`)으로 TTFT 실측.
 * 서버 설정 체크리스트(`deploy/server-checklist.md` 내용)를 표시.
 
@@ -748,10 +776,14 @@ S1~S5는 M0, S6·S7은 M3에 수행합니다.
     mustContain: ["InvalidOperationException"]                                  # 선택 — 원본 대상에 없어야 함
     mustAdd: ["OrderStatus.Shipped"]                                            # 선택 — 원본보다 많이 나와야 함
   ```
-* 공통 규칙: 대상이 원본과 같으면 실패(아무것도 안 고친 패치 차단). 정의 형식과 규칙은 `eval/benchmark/README.md`.
+* 공통 규칙: 대상이 원본과 같으면 실패(아무것도 안 고친 패치 차단). **공백 차이뿐인 수정(줄바꿈·들여쓰기만 바뀐 재포맷)도 "같다"로 셉니다**(공백 연속을 한 칸으로 접어 비교). **모든 작업은 내용 판정(`mustContain`·`mustAdd`·`mustNotContain`)을 하나 이상 가집니다** — 빌드·컴파일 판정만으로는 의미 없는 수정도 통과합니다(`AllTasks_HaveContentCriterion`, M2b T14). 정의 형식과 규칙은 `eval/benchmark/README.md`.
 * `PellyCoder.Eval`은 코퍼스를 임시 폴더로 복사 → 작업마다 `FsmOrchestrator.RunAsync`(`--yes`) 실행 → 판정 → `summary.json`과 판정 결과를 모아 KPI 표 출력.
-* 작업 비율: C# 30건 = Legacy 18건(MVC 컨트롤러·서비스 8, ADO.NET 배치 5, Dapper 리포지토리 5) + Modern 12건. SQL 20건.
-* Legacy 작업은 Mac에서 빌드 판정을 할 수 없으므로, 로컬 Mac에서는 "빌드 판정 생략" 모드(패치 적용·모양 검사까지만)로 측정합니다. 전체 판정은 Windows 환경에서 실행합니다(CI 수동 워크플로 `benchmark-legacy`. LLM이 필요하므로 셀프 호스티드 러너가 생기기 전까지는 미실행). 폐쇄망 벤치마크는 같은 실행기로 M4에서 작성합니다.
+* **작업 구성 (M2b R9):** M2는 **30건** = C# 18건(Legacy 10, Modern 8) + SQL 12건. 설계 초안의 "C# 30 + SQL 20"은 M2 완료 기준("30건 이상 실행 가능")에 맞춰 줄였고, **50건 확장은 M3이 맡습니다.** 시그니처를 바꾸는 요청(async 전환 등)은 넣지 않습니다 — MemberShapeGuard가 막는 의도된 동작입니다. SQL 매개변수 추가는 허용합니다.
+* **실행기 사용법 (M2b T13):** `dotnet run --project eval/PellyCoder.Eval -- [--tasks <접두사|글롭,…>] [--kind cs|sql] [--out <폴더>] [--config <pelly.json>]`. 결과는 `eval/results/<yyyyMMdd-HHmmss>/`(git 추적 제외)의 `report.md`(KPI 표·실패 유형·작업별 결과), `results.json`, `work/<id>/`(작업별 코퍼스 복사본과 `.pelly/runs`). 종료 코드는 0 실행 완료 · 1 검증 불변 조건 위반 · 2 중단 · 4 설정 오류 또는 LLM 서버 연결 불가입니다. SQL 연결은 `PELLY_SQL_CONNECTION`, 허용 목록은 `--config`의 pelly.json에 둡니다.
+* **SQL 작업은 허용 목록이 비어 있으면 건너뜁니다**(보고서에 사유). 실행기가 스스로 허용 목록을 넓히지 않습니다 — 허용 목록이 비면 연결이 없거나 목록에 없는 것과 같은 취급입니다 (M2b T13).
+* **독립 재검증 (M2b T13):** 모델 실행이 종료 0으로 끝난 작업은 실행기가 결과 파일을 pelly와 별개 경로로 다시 검증합니다(C#: 빌드, SQL: 원본과 같은 방식의 NOEXEC 컴파일에서 새 오류 없음). 이것이 "검증 불변 조건"(종료 0 = 검증 통과)의 판정자입니다. **분모는 독립 검증이 `Passed` 또는 `Failed`인 종료 0 실행만**이고, 검증이 생략된 실행(Windows가 아닌 환경의 Legacy, 검증기 예외)은 분모에서 빼 따로 "독립 검증 생략 N건"으로 보입니다. 판정된 것이 하나도 없으면 "판정 불가"로 표시해 미검증 실행이 100%로 보이지 않게 합니다. 검증기 예외는 위반이 아니라 생략으로 기록합니다(검증기가 죽었다는 것이 수정이 틀렸다는 증거는 아님).
+* Legacy 작업은 Mac에서 빌드 판정을 할 수 없으므로, 로컬 Mac에서는 "빌드 판정 생략" 모드(패치 적용·모양 검사까지만)로 측정합니다. 이때 검증 불변 조건의 분모는 Modern 8 + SQL 12 = 20건입니다. 전체 판정은 Windows 환경에서 실행합니다(CI 수동 워크플로 `benchmark-legacy`. LLM이 필요하므로 셀프 호스티드 러너가 생기기 전까지는 미실행). 폐쇄망 벤치마크는 같은 실행기로 M4에서 작성합니다.
+* **첫 측정(기준선):** `docs/m2b-benchmark.md` — 28/30(93.3%), 검증 불변 조건 위반 0건. 약한 판정 4건을 강화한 뒤 해당 작업만 다시 돌린 결과는 기준선을 바꾸지 않고 별도 기록으로 덧붙입니다(약한 판정으로 잰 사실을 숨기지 않기 위함).
 
 ---
 

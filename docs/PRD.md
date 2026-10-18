@@ -3,7 +3,7 @@
 > **타겟 런타임:** .NET 10 (LTS) CLI  
 > **운영 환경:** 폐쇄망 Windows 11 x64 개발 PC + 폐쇄망 내부 원격 Ollama 서버  
 > **개발 환경:** 외부 개발 노트북(macOS) → 검증 후 폐쇄망으로 이관  
-> **문서 버전:** v1.7 (2026-10-18)
+> **문서 버전:** v1.8 (2026-10-18)
 
 ### 변경 이력
 | 버전 | 날짜 | 주요 변경 |
@@ -16,6 +16,7 @@
 | v1.5 | 2026-10-17 | IDE 연동(Visual Studio·Rider External Tools, `--line`, `--pause-on-exit`) 추가, v2 로드맵에 V2-0 GUI 승인 창 추가 |
 | v1.6 | 2026-10-17 | M0 스파이크 결과 반영: think 단계를 교정 시도부터 사용(`llm.thinkMode`), think 예산은 서버 `num_predict`로 제한, SQL 최소 권한 `VIEW DEFINITION`, 토크나이저 확정, 미결 사항 Q1~Q4 해소 |
 | v1.7 | 2026-10-18 | M2a 반영(상세는 설계 문서 §3 D24·D25, §7.3, §8.4, §8.7.1, §8.9): FR-00 옵션 정리(`--line`, `--strict-baseline`, `--warn-as-error`, `--method`·요청문 선택, 요청문 생략 시 대화형 입력), FR-06 Baseline을 LOCATE 끝에서 시작하고 CS 외 오류면 `BuildUnverifiable`로 중단, 모델 제어 토큰 문자열 차단(종료 코드 4), 멤버 모양 검사 구체화 |
+| v1.8 | 2026-10-18 | M2b 반영(상세는 설계 문서 §3 D26~D28, §5, §8.1, §8.4, §8.6, §8.10, §8.12, §10.6): FR-00 `pelly sql` 옵션 정리, FR-07 `dotnet user-secrets` 제외(R3)·허용 목록이 비면 접속 안 함(R4)·서버/데이터베이스 키 중복과 Failover Partner 거부·원본 대상의 금지 구문은 LOCATE에서 종료 5(R2)·금지 구문 범위(`ALTER DATABASE` 변형, `EXEC … OPENDATASOURCE`), §8.1 벤치마크 30건(M2b, R9)·50건(M3) |
 
 ---
 
@@ -149,11 +150,12 @@ Ollama에는 공개된 토큰화 전용 엔드포인트가 없으므로 다음�
 * **명령 형식:**
   ```text
   pelly cs     <file.cs>  ["<요청>"] [--class <Name>] [--method <Name>] [--line <n>]
-  pelly sql    <file.sql> [--object <Name>] [--line <n>] ["<요청>"]
+  pelly sql    <file.sql> ["<요청>"] [--object <Name>] [--line <n>]
   pelly doctor                       # 환경 점검 (FR-08)
   pelly report [--sanitize] [--since <date>]   # 실행 기록 요약 (FR-09)
   ```
 * **대상 지정 (`pelly cs`):** `--method`(+선택 `--class`), `--line <n>`(커서 줄이 속한 멤버, `--class`/`--method`와 함께 쓸 수 없고 1 이상), 또는 둘 다 생략(요청문의 식별자 → 없으면 모델이 멤버 목록에서 선택, 최대 60개). `--method`와 요청문은 모두 선택입니다. 요청문을 생략하면 대화형 실행에서는 입력을 묻고 비대화형이면 종료 코드 4입니다.
+* **대상 지정 (`pelly sql`, M2b):** 파일에 프로시저·함수·뷰 정의가 하나면 자동으로 정하고, 여럿이면 `--object <이름>`(예: `dbo.MyProc`) 또는 `--line <n>`(그 줄을 포함하는 정의)으로 지정합니다. `--line`과 `--object`는 함께 쓸 수 없고(종료 4), 여러 객체에서 지정이 없으면 대화형은 선택 UI, 비대화형은 종료 코드 3입니다. SQL에는 모델이 대상을 고르는 단계가 없습니다. 편집은 대상 객체 배치 하나에만 적용되며 `--strict-baseline`·`--warn-as-error`는 없습니다(`pelly cs` 전용). 공통 옵션(`--yes`, `--dry-run`, `--max-retries`, `--config`, `--think`, `--model`, `--endpoint`)은 같습니다. 요청문 생략은 `pelly cs`와 같이 대화형에서만 허용됩니다.
 * **빌드 검증 옵션:** `--strict-baseline`(원본에 이미 있던 CS 오류도 종료 코드 4로 처리), `--warn-as-error`(새 경고도 오류로 취급).
 * **입력 제한:** 요청문이나 대상 파일에 모델 제어 토큰 문자열(`<|im_end|>` 등)이 있으면 서버를 부르기 전에 종료 코드 4로 끝납니다.
 * **공통 옵션:** `--dry-run`(패치만 보여주고 적용 안 함), `--yes`(최종 승인 생략), `--test`(검증 시 테스트 실행), `--max-retries <n>`(기본 3), `--warn-as-error`, `--verbose`(단계별 타이밍·프롬프트 출력), `--config <path>`
@@ -250,11 +252,12 @@ Ollama에는 공개된 토큰화 전용 엔드포인트가 없으므로 다음�
 
 ### FR-07. SQL 안전 가드 (`SqlSafetyGuard`)
 * **문장 허용 목록:** 배치의 최상위는 **대상 객체에 대한 단일 `CREATE`/`ALTER PROCEDURE|FUNCTION|VIEW` 문**만 허용합니다. `GO` 구분자로 나뉜 다중 배치는 거부합니다.
-* **금지 구문 (위치 무관):** `SET NOEXEC`, `SET PARSEONLY`, `SET FMTONLY`, `SHUTDOWN`, `RECONFIGURE`, `xp_cmdshell`, `OPENROWSET`/`OPENDATASOURCE`, `ALTER DATABASE`/`ALTER LOGIN`/`CREATE LOGIN`, `GRANT`/`REVOKE`/`DENY`
-* **접속 대상 제한:** 설정의 `sql.allowedHosts`/`sql.allowedDatabases` 화이트리스트에 있는 대상에만 접속합니다. 없으면 종료 코드 5로 끝냅니다.
+* **금지 구문 (위치 무관):** `SET NOEXEC`, `SET PARSEONLY`, `SET FMTONLY`, `SHUTDOWN`, `RECONFIGURE`, `xp_cmdshell`, `OPENROWSET`/`OPENDATASOURCE`(`EXEC … OPENDATASOURCE(…)` 형태 포함), `ALTER DATABASE`/`ALTER LOGIN`/`CREATE LOGIN`, `GRANT`/`REVOKE`/`DENY`. `ALTER DATABASE SCOPED CONFIGURATION`·`ALTER DATABASE ENCRYPTION KEY`·`ALTER DATABASE AUDIT SPECIFICATION`도 `ALTER DATABASE` 항목으로 셉니다(보수적 해석, M2b).
+* **원본의 금지 구문 (M2b, R2):** "위치 무관"이므로 수정 전 원본 대상 객체에 이미 금지 구문이 있으면 모델을 부르기 전에 종료 코드 5로 끝납니다. 본문에 `GRANT`·`xp_cmdshell` 등이 있는 프로시저는 pelly로 고칠 수 없고, 안내 문구가 그 사실을 밝힙니다. 또 원본 대상 배치에 구문 오류가 있거나 최상위 문장이 둘 이상이면 편집할 수 없어 종료 코드 3입니다.
+* **접속 대상 제한:** 설정의 `sql.allowedHosts`/`sql.allowedDatabases` 화이트리스트에 있는 대상에만 접속합니다. 없으면 종료 코드 5로 끝냅니다. **목록이 비어 있으면 아무 데도 접속하지 않습니다**(처음 쓸 때 설정 한 줄이 필요, M2b R4). 연결 문자열에 서버 키나 데이터베이스 키가 둘 이상 있거나 `Failover Partner`가 있으면 허용 목록을 우회할 수 있어 거부합니다(종료 코드 5).
 * **최소 권한 계정:** 검증 전용 계정에 **DB 수준 `VIEW DEFINITION`만** 부여합니다. `ALTER`·`SHOWPLAN`은 필요 없습니다. 이 권한이 없으면 객체 존재 검사와 스키마 요약이 동작하지 않습니다(S5).
 * **Windows 통합 인증 (기본):** 폐쇄망에서는 `Integrated Security=true`를 기본으로 사용합니다. 연결 문자열에 비밀번호가 없으므로 설정 파일에 두어도 됩니다.
-* **SQL 인증 (외부 개발용):** 비밀번호가 필요한 연결 문자열은 환경 변수 `PELLY_SQL_CONNECTION` 또는 `dotnet user-secrets`로만 받으며, 설정 파일·로그에 평문으로 남기지 않습니다.
+* **SQL 인증 (외부 개발용):** 비밀번호가 필요한 연결 문자열은 환경 변수 `PELLY_SQL_CONNECTION`으로만 받으며, 설정 파일·로그에 평문으로 남기지 않습니다. 설정 파일의 `sql.connectionString`에 `Password`/`Pwd`가 있으면 설정 오류(종료 코드 4)입니다. `dotnet user-secrets`는 전역 도구에서 의미가 없어 지원하지 않습니다(M2b R3). `PELLY_SQL_CONNECTION`이 있으면 `sql.connectionString`보다 우선합니다.
 
 ### FR-08. 환경 점검 (`pelly doctor`)
 폐쇄망에서는 문제가 생겨도 외부에서 원격 지원을 받기 어려우므로, 사용자가 스스로 환경 문제를 찾을 수 있게 합니다.
@@ -400,9 +403,9 @@ pelly가 요청마다 지정하는 값: `options.num_ctx = 8192`, `keep_alive = 
   * 레거시 .NET Framework 프로젝트(SDK 스타일 아님, `packages.config`, C# 7.3)와 SDK 스타일 프로젝트를 모두 포함
   * CP949 인코딩·CRLF 파일, Dapper 사용 코드, 실제와 비슷한 명명 규칙
   * 샘플 DB 스키마와 SP (SQL Server 컨테이너에 배포)
-* **구성:** C# 30건(메서드 로직 수정, null 처리 추가, Dapper 쿼리 변경, async 전환 등) + SQL 20건(SP 조건 추가, 컬럼 추가 조회, JOIN 변경 등)
+* **구성:** **M2b에서 30건**(C# 18건 = Legacy 10 + Modern 8, SQL 12건 — 메서드 로직 수정, null 처리 추가, Dapper 쿼리 변경, SP 조건·컬럼 추가, JOIN 변경 등), **M3에서 50건**으로 확장합니다. 시그니처를 바꾸는 요청(async 전환 등)은 멤버 모양 검사가 막는 의도된 동작이라 넣지 않습니다. 모든 작업은 빌드·컴파일 외에 내용 판정을 하나 이상 가집니다.
 * **작업 정의:** 요청문, 대상 파일·심볼, 판정 기준(빌드/검증 통과 + 지정 테스트 통과 또는 기대 diff와의 의미 비교)
-* **수집 지표:** §2.2의 모든 KPI를 실행 로그(`.pelly/runs`)에서 자동 집계
+* **수집 지표:** §2.2의 모든 KPI를 실행 로그(`.pelly/runs`)에서 자동 집계. 검증 불변 조건은 실행기가 결과를 pelly와 별개로 다시 검증해 판정하며, 독립 검증이 생략된 실행(Windows가 아닌 환경의 Legacy 등)은 분모에서 빼고 따로 표시합니다. 실행 방법과 첫 측정은 `eval/benchmark/README.md`, `docs/m2b-benchmark.md`.
 * **폐쇄망 벤치마크:** M4에서 같은 형식으로 실제 코드 기반 세트를 폐쇄망 안에서 작성합니다. 평가 실행기는 폐쇄망에서도 그대로 동작해야 합니다.
 
 ### 8.2 회귀 평가

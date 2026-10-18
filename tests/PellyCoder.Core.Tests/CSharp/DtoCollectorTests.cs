@@ -187,4 +187,126 @@ public sealed class DtoCollectorTests
     {
         Assert.Null(CollectMock(new MockFileSystem(), Service, "Run"));
     }
+
+    [Fact]
+    public void SkippedDirectoryNames_AreNotEntered_CaseInsensitively()
+    {
+        var fs = new MockFileSystem();
+        foreach (var dir in new[] { "BIN", "node_modules", "packages", ".vs", "TestResults", "Obj" })
+            fs.AddFile($"/repo/{dir}/Foo.cs", new MockFileData("public class Foo { public int A { get; set; } }"));
+
+        Assert.Null(CollectMock(fs, Service, "Run"));
+    }
+
+    [Fact]
+    public void WideTreeWithoutCsFiles_StopsAtMaxDirectories()
+    {
+        var fs = new MockFileSystem();
+        for (var i = 0; i < 50; i++) fs.AddDirectory($"/repo/a{i:D2}");
+        fs.AddFile("/repo/z/Foo.cs", new MockFileData("public class Foo { public int A { get; set; } }"));
+
+        Assert.Null(CollectMock(fs, Service, "Run", new DtoLimits(MaxDirectories: 10)));
+        Assert.NotNull(CollectMock(fs, Service, "Run"));
+    }
+
+    [Fact]
+    public void DeepTreeWithoutCsFiles_StopsAtMaxDirectories()
+    {
+        var fs = new MockFileSystem();
+        var path = "/repo";
+        for (var i = 0; i < 30; i++) path += "/d";
+        fs.AddFile(path + "/Foo.cs", new MockFileData("public class Foo { public int A { get; set; } }"));
+
+        Assert.Null(CollectMock(fs, Service, "Run", new DtoLimits(MaxDirectories: 10)));
+        Assert.NotNull(CollectMock(fs, Service, "Run"));
+    }
+
+    [Fact]
+    public void SymlinkedDirectory_IsNotFollowed()
+    {
+        var fs = new MockFileSystem();
+        fs.AddFile("/other/Foo.cs", new MockFileData("public class Foo { public int A { get; set; } }"));
+        fs.AddDirectory("/repo");
+        fs.Directory.CreateSymbolicLink("/repo/link", "/other");
+        Assert.NotNull(fs.DirectoryInfo.New("/repo/link").LinkTarget); // the mock models links, so the real check is exercised
+
+        Assert.Null(CollectMock(fs, Service, "Run"));
+    }
+
+    [Fact]
+    public void ReparsePointDirectory_IsNotFollowed()
+    {
+        var fs = new MockFileSystem();
+        fs.AddFile("/repo/junction/Foo.cs", new MockFileData("public class Foo { public int A { get; set; } }"));
+        fs.DirectoryInfo.New("/repo/junction").Attributes |= FileAttributes.ReparsePoint;
+
+        Assert.Null(CollectMock(fs, Service, "Run"));
+    }
+
+    [Fact]
+    public void CancelledToken_Propagates()
+    {
+        var fs = new MockFileSystem();
+        fs.AddFile("/repo/Foo.cs", new MockFileData("public class Foo { public int A { get; set; } }"));
+        var target = Assert.Single(MemberLocator.FindByName(Service, V, null, "Run"));
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        Assert.ThrowsAny<OperationCanceledException>(() => DtoCollector.Collect(fs, "/repo", Service, target, V, ct: cts.Token));
+    }
+
+    [Fact]
+    public void LaterDeclarationWithData_ReplacesEmptyOne()
+    {
+        var fs = new MockFileSystem();
+        fs.AddFile("/repo/A.cs", new MockFileData("public partial class Foo { }"));
+        fs.AddFile("/repo/B.cs", new MockFileData("public partial class Foo { public int X { get; set; } }"));
+
+        Assert.Equal("class Foo: int X", CollectMock(fs, Service, "Run"));
+    }
+
+    private const string RepoService = """
+        public class Svc
+        {
+            private readonly Repo _repo;
+            public void Run() { var x = _repo.Get(); }
+        }
+        """;
+
+    [Fact]
+    public void Expansion_OneHopThroughDatalessTypeFollowsCalledMethodsOnly()
+    {
+        var fs = new MockFileSystem();
+        fs.AddFile("/repo/Repo.cs", new MockFileData("public interface Repo { Item1 Get(); Item2 Other(); }"));
+        fs.AddFile("/repo/Items.cs", new MockFileData("public class Item1 { public int A { get; set; } }\npublic class Item2 { public int B { get; set; } }"));
+
+        Assert.Equal("class Item1: int A", CollectMock(fs, RepoService, "Run"));
+    }
+
+    [Fact]
+    public void Expansion_TypeWithDataMembersDoesNotExpand()
+    {
+        var fs = new MockFileSystem();
+        fs.AddFile("/repo/Repo.cs", new MockFileData("public class Repo { public int Count { get; set; } public Item1 Get() => null; }"));
+        fs.AddFile("/repo/Items.cs", new MockFileData("public class Item1 { public int A { get; set; } }"));
+
+        Assert.Equal("class Repo: int Count", CollectMock(fs, RepoService, "Run"));
+    }
+
+    [Fact]
+    public void Expansion_StopsAfterTwoRounds()
+    {
+        var fs = new MockFileSystem();
+        const string src = """
+            public class Svc
+            {
+                private readonly Repo _repo;
+                public void Run() { var x = _repo.Get().Next(); }
+            }
+            """;
+        fs.AddFile("/repo/Repo.cs", new MockFileData("public interface Repo { Mid Get(); }\npublic interface Mid { Deep Next(); }"));
+        fs.AddFile("/repo/Deep.cs", new MockFileData("public class Deep { public int D { get; set; } }"));
+
+        Assert.Null(CollectMock(fs, src, "Run"));
+    }
 }

@@ -7,8 +7,9 @@ using PellyCoder.Core.Files;
 
 namespace PellyCoder.Core.CSharp;
 
+/// <param name="MaxDirectories">Directories listed in one scan round; the walk stops there. Links and reparse points are never entered.</param>
 /// <param name="MaxMembers">Per type: members past it are replaced by a trailing <c>…</c>.</param>
-public sealed record DtoLimits(int MaxTypes = 5, int MaxMembers = 30, int MaxFiles = 5000, long MaxFileBytes = 1_048_576);
+public sealed record DtoLimits(int MaxTypes = 5, int MaxMembers = 30, int MaxFiles = 5000, long MaxFileBytes = 1_048_576, int MaxDirectories = 2000);
 
 /// <summary>
 /// Finds the project-declared types the target member mentions and renders their data members (properties, public fields,
@@ -17,9 +18,10 @@ public sealed record DtoLimits(int MaxTypes = 5, int MaxMembers = 30, int MaxFil
 /// </summary>
 public static class DtoCollector
 {
-    private static readonly string[] SkippedDirectories = ["bin", "obj", ".pelly", ".git"];
+    private static readonly string[] SkippedDirectories = ["bin", "obj", ".pelly", ".git", ".vs", "node_modules", "packages", "TestResults"];
 
-    public static string? Collect(IFileSystem fs, string searchRoot, string sourceLf, MemberCandidate target, LanguageVersion version, DtoLimits? limits = null)
+    public static string? Collect(IFileSystem fs, string searchRoot, string sourceLf, MemberCandidate target, LanguageVersion version, DtoLimits? limits = null,
+        CancellationToken ct = default)
     {
         try
         {
@@ -44,14 +46,19 @@ public static class DtoCollector
                 if (pending.Count == 0) break;
                 var pattern = new Regex(@"\b(class|record|struct|interface|enum)\s+(" + string.Join('|', pending.Select(Regex.Escape)) + @")\b", RegexOptions.CultureInvariant);
                 var wanted = pending.ToHashSet(StringComparer.Ordinal);
-                var scanned = 0;
-                Scan(fs, searchRoot, limits, ref scanned, file =>
+                var state = new ScanState();
+                Scan(fs, searchRoot, limits, state, ct, file =>
                 {
                     var text = ReadText(fs, file, limits.MaxFileBytes);
                     if (text is null || !pattern.IsMatch(text)) return;
                     foreach (var d in Declarations(text, parseOptions, wanted, used, limits))
                     {
-                        if (!found.TryAdd(d.Name, d.Line)) continue;
+                        if (!found.TryAdd(d.Name, d.Line))
+                        {
+                            // A later declaration with data replaces an empty one found first (partial or marker type).
+                            if (found[d.Name] is not null || d.Line is null) continue;
+                            found[d.Name] = d.Line;
+                        }
                         foreach (var extra in d.Expansion.Where(x => !own.Contains(x) && !names.Contains(x)))
                             names.Add(extra);
                     }
@@ -122,8 +129,18 @@ public static class DtoCollector
             _ => null,
         }).OfType<string>();
 
-    private static void Scan(IFileSystem fs, string dir, DtoLimits limits, ref int scanned, Action<string> visit)
+    private sealed class ScanState
     {
+        public int Files;
+        public int Directories;
+    }
+
+    private static void Scan(IFileSystem fs, string dir, DtoLimits limits, ScanState state, CancellationToken ct, Action<string> visit)
+    {
+        ct.ThrowIfCancellationRequested();
+        if (state.Directories >= limits.MaxDirectories) return;
+        state.Directories++;
+
         string[] files, dirs;
         try
         {
@@ -139,8 +156,9 @@ public static class DtoCollector
         Array.Sort(dirs, StringComparer.Ordinal);
         foreach (var file in files)
         {
-            if (scanned >= limits.MaxFiles) return;
-            scanned++;
+            ct.ThrowIfCancellationRequested();
+            if (state.Files >= limits.MaxFiles) return;
+            state.Files++;
             try
             {
                 visit(file);
@@ -153,10 +171,25 @@ public static class DtoCollector
 
         foreach (var sub in dirs)
         {
-            if (scanned >= limits.MaxFiles) return;
+            ct.ThrowIfCancellationRequested();
+            if (state.Files >= limits.MaxFiles || state.Directories >= limits.MaxDirectories) return;
             var name = fs.Path.GetFileName(sub.TrimEnd('/', '\\'));
-            if (SkippedDirectories.Contains(name, StringComparer.OrdinalIgnoreCase)) continue;
-            Scan(fs, sub, limits, ref scanned, visit);
+            if (SkippedDirectories.Contains(name, StringComparer.OrdinalIgnoreCase) || IsLink(fs, sub)) continue;
+            Scan(fs, sub, limits, state, ct, visit);
+        }
+    }
+
+    /// <summary>Symlinks, junctions and other reparse points are not entered (cycles); an unreadable entry counts as a link.</summary>
+    private static bool IsLink(IFileSystem fs, string dir)
+    {
+        try
+        {
+            var info = fs.DirectoryInfo.New(dir);
+            return info.Attributes.HasFlag(FileAttributes.ReparsePoint) || info.LinkTarget is not null;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return true;
         }
     }
 

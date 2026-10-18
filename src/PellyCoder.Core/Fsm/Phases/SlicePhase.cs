@@ -43,7 +43,7 @@ public sealed class SlicePhase(IFileSystem fs, FileGuard fileGuard, ITokenCounte
         ctx.Target = ctx.Target! with { SymbolDisplay = candidate.Display, MemberSpan = candidate.Span };
 
         var slice = RoslynSlicer.Build(current.Text, candidate, language, tokens, budget.Context, ctx.AddedHelpers,
-            CollectDto(ctx, current.Text, candidate, language));
+            CollectDto(ctx, current, candidate, language, ct));
         ctx.SliceResult = slice;
         if (slice.TargetTooLarge)
         {
@@ -55,15 +55,19 @@ public sealed class SlicePhase(IFileSystem fs, FileGuard fileGuard, ITokenCounte
     }
 
     /// <summary>Project types the target uses, for the dto part. Any failure means no part, silently.</summary>
-    private string? CollectDto(RunContext ctx, string sourceLf, MemberCandidate candidate, LanguageTarget language)
+    private string? CollectDto(RunContext ctx, FileSnapshot current, MemberCandidate candidate, LanguageTarget language, CancellationToken ct)
     {
+        if (ctx.DtoCache is { } cache && cache.Display == candidate.Display && cache.Sha256 == current.Sha256)
+            return cache.Text;
         try
         {
             var root = ctx.Target?.ProjectPath is { Length: > 0 } project
                 ? (fs.Directory.Exists(project) ? project : fs.Path.GetDirectoryName(project))
                 : null;
             root = string.IsNullOrEmpty(root) ? fs.Path.GetDirectoryName(ctx.FilePath) : root;
-            return string.IsNullOrEmpty(root) ? null : DtoCollector.Collect(fs, root, sourceLf, candidate, language.Version);
+            var text = string.IsNullOrEmpty(root) ? null : DtoCollector.Collect(fs, root, current.Text, candidate, language.Version, ct: ct);
+            ctx.DtoCache = (candidate.Display, current.Sha256, text);
+            return text;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

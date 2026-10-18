@@ -91,6 +91,9 @@ public sealed class RunContext(string runId, RunRequest request, PellyOptions op
     /// <summary>Set by SQL LOCATE; null in C# runs.</summary>
     public SqlRunState? Sql { get; set; }
     public MemberCandidate? Candidate { get; set; }
+
+    /// <summary>SLICE's dto text with the (member display, file sha) it was built for; a retry with both unchanged reuses it.</summary>
+    public (string Display, string Sha256, string? Text)? DtoCache { get; set; }
     public LanguageTarget? Language { get; set; }
 
     /// <summary>Syntax errors already in <see cref="Original"/> (set by Locate); VERIFY reports only errors beyond these.</summary>

@@ -206,8 +206,11 @@ public sealed class FeedbackBuilder(ITokenCounter tokens, int budget)
     /// <summary>The patched target reads the same as the original target (whitespace-insensitive, M3a T14).</summary>
     public Feedback ForNoChange() => Done("NO CHANGE: the edit leaves the target identical to the original. Make the requested change.");
 
-    /// <summary><c>TESTS FAILED (exit n)</c>: the test command reports only its exit code (design R7).</summary>
-    public Feedback ForTestExitCode(int exitCode) => Done($"TESTS FAILED (exit {exitCode})");
+    /// <summary>
+    /// <c>TESTS FAILED (exit n)</c>: the test command reports only its exit code (design R7), then <see cref="KeepRequest"/>
+    /// (the same undo evasion applies without per-test results).
+    /// </summary>
+    public Feedback ForTestExitCode(int exitCode) => Done($"TESTS FAILED (exit {exitCode})\n{KeepRequest}");
 
     private static string Entry(Diagnostic e, List<string> lines, int radius, Shrink shrink)
     {

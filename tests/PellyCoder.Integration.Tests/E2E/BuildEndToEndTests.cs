@@ -29,9 +29,6 @@ public sealed class BuildEndToEndTests(ITestOutputHelper output) : IDisposable
     private const string NoSuchLine = "            // pelly-e2e: this line does not exist in the file";
     private const string UndefinedStatement = "undefinedVar++;";
 
-    private static readonly System.Text.RegularExpressions.Regex ShippedThrow =
-        new(@"(==|is|or)\s*OrderStatus\.Shipped\s*\)\s*\{?\s*throw\s+new\s+InvalidOperationException", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
-
     private static readonly System.Text.RegularExpressions.Regex DeliveredThrow =
         new(@"OrderStatus\.Delivered[^{;]*\)\s*\{?\s*throw\s+new\s+InvalidOperationException", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
@@ -68,7 +65,7 @@ public sealed class BuildEndToEndTests(ITestOutputHelper output) : IDisposable
         Assert.False(run.HasAttemptFile(1, "think.txt"), "1번째 시도에 think.txt가 있습니다 (retry 모드는 2번째부터)");
         Assert.True(run.Summary.GetProperty("thinkTokens").GetInt32() > 0, "summary의 thinkTokens가 0입니다");
 
-        AssertShippedGuardAdded(copy.Before, File.ReadAllText(copy.File));
+        await AssertShippedGuardAdded(copy);
     }
 
     [OllamaFact]
@@ -90,7 +87,7 @@ public sealed class BuildEndToEndTests(ITestOutputHelper output) : IDisposable
 
         var after = File.ReadAllText(copy.File);
         Assert.DoesNotContain("undefinedVar", after, StringComparison.Ordinal);
-        AssertShippedGuardAdded(copy.Before, after);
+        await AssertShippedGuardAdded(copy);
     }
 
     [OllamaFact]
@@ -101,7 +98,7 @@ public sealed class BuildEndToEndTests(ITestOutputHelper output) : IDisposable
         var run = await RunAsync(copy, new RunRequest(copy.File, null, null, line, Request, Yes: true, DryRun: false, MaxRetries: null));
 
         Assert.Equal(ExitCodes.Success, run.Exit);
-        AssertShippedGuardAdded(copy.Before, File.ReadAllText(copy.File));
+        await AssertShippedGuardAdded(copy);
     }
 
     [OllamaFact]
@@ -116,7 +113,7 @@ public sealed class BuildEndToEndTests(ITestOutputHelper output) : IDisposable
         Assert.Equal(ExitCodes.Success, run.Exit);
         Assert.DoesNotContain(recording!.Requests, IsPickRequest); // the identifier decides; the model is not asked
         Assert.DoesNotContain(run.Ui.Lines, l => l.Contains("모델이 선택", StringComparison.Ordinal));
-        AssertShippedGuardAdded(copy.Before, File.ReadAllText(copy.File));
+        await AssertShippedGuardAdded(copy);
     }
 
     [OllamaFact]
@@ -132,26 +129,28 @@ public sealed class BuildEndToEndTests(ITestOutputHelper output) : IDisposable
         Assert.Single(recording!.Requests, IsPickRequest);
         Assert.Contains("warn: 대상: OrderService.CancelAsync(int, string) (모델이 선택)", run.Ui.Lines);
         Assert.Contains("대상: OrderService.CancelAsync(int, string) (모델이 선택)", run.Messages, StringComparison.Ordinal);
-        AssertShippedGuardAdded(copy.Before, File.ReadAllText(copy.File));
+        await AssertShippedGuardAdded(copy);
     }
 
     /// <summary>
-    /// The request's meaning, not a token count: CancelAsync changed and nothing else did, it still parses, it now throws
-    /// <c>InvalidOperationException</c> under a condition ending in <c>== / is / or OrderStatus.Shipped</c>, and the existing Delivered
-    /// guard still throws (alone or or-ed with Shipped). Counting tokens (the benchmark's mustAdd) misjudged two correct
-    /// edits on 2026-10-18 — dropping the dead <c>|| Shipped</c> refund branch, and merging the guard into Delivered's —
-    /// while the one real defect seen (the Shipped guard replacing the Delivered guard) fails the Delivered check.
+    /// The request's meaning: CancelAsync changed and nothing else did, it still parses, the existing Delivered guard still
+    /// throws (alone or or-ed with Shipped, in either order), and — by behaviour, not by a regex (M3a T14 ruling) — the corpus
+    /// test pinning the old behaviour now fails with InvalidOperationException while the other corpus tests pass
+    /// (<see cref="CsEndToEndTests.AssertShippedOrdersNoLongerCancelledAsync"/>). The earlier Shipped regex accepted only a
+    /// condition ending in <c>OrderStatus.Shipped)</c> and rejected a correct <c>Shipped || Delivered</c> guard (2026-10-18);
+    /// the Delivered check stays because no corpus test covers it (it caught the Shipped guard replacing the Delivered guard).
     /// </summary>
-    private static void AssertShippedGuardAdded(string before, string after)
+    private async Task AssertShippedGuardAdded(ModernCopy copy)
     {
-        var (beforeTarget, beforeRest) = CsEndToEndTests.Split(CsEndToEndTests.Lf(before), LanguageVersion.Latest, "CancelAsync");
+        var after = File.ReadAllText(copy.File);
+        var (beforeTarget, beforeRest) = CsEndToEndTests.Split(CsEndToEndTests.Lf(copy.Before), LanguageVersion.Latest, "CancelAsync");
         var (afterTarget, afterRest) = CsEndToEndTests.Split(CsEndToEndTests.Lf(after), LanguageVersion.Latest, "CancelAsync");
         Assert.NotEqual(beforeTarget, afterTarget);
         Assert.Equal(beforeRest, afterRest);
-        Assert.Matches(ShippedThrow, afterTarget);
         Assert.Matches(DeliveredThrow, afterTarget);
         var outcome = SyntaxVerifier.Verify(CsEndToEndTests.Lf(after), LanguageVersion.Latest, "OrderService.cs");
         Assert.True(outcome.Passed, string.Join("\n", outcome.NewErrors.Select(e => $"{e.Line}:{e.Column} {e.Code} {e.Message}")));
+        await CsEndToEndTests.AssertShippedOrdersNoLongerCancelledAsync(copy.Root, output);
     }
 
     // ---- request classification (R6: inspect the request, not a fixed index) ----
@@ -262,7 +261,10 @@ public sealed class BuildEndToEndTests(ITestOutputHelper output) : IDisposable
 
     private async Task<ModernCopy> ModernCopyAsync()
     {
-        var root = Path.Combine(Path.GetTempPath(), "pelly-e2e-" + Guid.NewGuid().ToString("N"));
+        // Link-free root: the behaviour oracle builds and runs the corpus test project (TestRunnerSdkTests explains the /var link).
+        var temp = Path.Combine(Path.GetTempPath(), "pelly-e2e-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temp);
+        var root = CsEndToEndTests.RealPath(temp);
         _temps.Add(root);
         CsEndToEndTests.CopyDirectory(CorpusPaths.Get("Modern"), root);
         await CsEndToEndTests.RestoreAsync(Path.Combine(root, "Modern.sln")); // pelly builds with --no-restore

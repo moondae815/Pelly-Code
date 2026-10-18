@@ -78,8 +78,9 @@ public sealed class M3aEndToEndTests(ITestOutputHelper output) : IDisposable
     }
 
     /// <summary>
-    /// Known evasion pelly cannot detect: the model comments out its throw (the target still differs) and the tests pass.
-    /// Its rate is recorded in docs/m3a-e2e.md; the expectation stays exit 1.
+    /// Known evasion pelly cannot detect: the model keeps a changed target but drops the throw — mostly replacing it with a
+    /// log call, once commenting the guard out — and the tests pass. Its rate is recorded in docs/m3a-e2e.md; the
+    /// expectation stays exit 1.
     /// </summary>
     [OllamaFact]
     public async Task Test_ContradictingEdit_FailsWithTestErrors_Restored()

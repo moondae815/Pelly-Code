@@ -51,15 +51,18 @@ public sealed class CsEndToEndTests(ITestOutputHelper output) : IDisposable
         var after = File.ReadAllText(file);
         Assert.Equal(ExitCodes.Success, exit);
         AssertTargetChangedAndRestUntouched(before, after, "CancelAsync", LanguageVersion.Latest, mustAdd: null);
-        await AssertShippedOrdersNoLongerCancelledAsync(root);
+        await AssertShippedOrdersNoLongerCancelledAsync(root, output);
     }
 
     /// <summary>
-    /// Behaviour oracle (M3a T14 ruling, replaces the <c>OrderStatus.Shipped</c> count: the model may also drop the refund
-    /// branch for shipped orders that the guard makes dead). <c>CancelAsync_WhenShipped_CurrentlyCancels</c> pins the
-    /// pre-edit behaviour, so on the edited copy it must now fail with the requested InvalidOperationException.
+    /// Behaviour oracle for the CancelAsync Shipped request (M3a T14 rulings; replaces token counts and condition regexes,
+    /// which rejected correct edits: dropping the now-dead <c>|| Shipped</c> refund branch, and <c>Shipped || Delivered</c>).
+    /// Builds and runs the corpus tests on the edited copy (<paramref name="root"/> must be link-free):
+    /// <c>CancelAsync_WhenShipped_CurrentlyCancels</c> pins the pre-edit behaviour, so it must now fail with the requested
+    /// <c>InvalidOperationException</c>; every other corpus test (the two CalculateRefundAsync tests) must still pass.
+    /// It does not check the Delivered guard (no corpus test covers it).
     /// </summary>
-    private async Task AssertShippedOrdersNoLongerCancelledAsync(string root)
+    internal static async Task AssertShippedOrdersNoLongerCancelledAsync(string root, ITestOutputHelper output)
     {
         var csproj = Path.Combine(root, "Shop.Api.Tests", "Shop.Api.Tests.csproj");
         var run = await new TestRunner(new SystemProcessRunner(TimeProvider.System), new BuildOptions(), new TestOptions())
@@ -67,9 +70,13 @@ public sealed class CsEndToEndTests(ITestOutputHelper output) : IDisposable
         foreach (var r in run.Results) output.WriteLine($"oracle {(r.Passed ? "passed" : "failed")} {r.FullName}: {r.Message}");
         Assert.Null(run.Error);
         Assert.Empty(run.BuildErrors);
+        Assert.True(run.PerTestResults);
         var pinned = Assert.Single(run.Results, r => r.FullName.EndsWith(".CancelAsync_WhenShipped_CurrentlyCancels", StringComparison.Ordinal));
         Assert.False(pinned.Passed, "a shipped order is still cancelled");
         Assert.Contains("InvalidOperationException", pinned.Message ?? "", StringComparison.Ordinal);
+        var others = run.Results.Where(r => !ReferenceEquals(r, pinned)).ToList();
+        Assert.True(others.Count >= 2, "other corpus tests: " + others.Count);
+        Assert.All(others, r => Assert.True(r.Passed, r.FullName + ": " + r.Message));
     }
 
     [OllamaFact]

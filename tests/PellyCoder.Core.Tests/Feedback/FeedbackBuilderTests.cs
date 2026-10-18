@@ -205,5 +205,5 @@ public sealed class FeedbackBuilderTests
 
     [Fact]
     public void ForTestExitCode_Format() =>
-        Assert.Equal("TESTS FAILED (exit 3)", new FeedbackBuilder(Counter, 296).ForTestExitCode(3).Text);
+        Assert.Equal("TESTS FAILED (exit 3)\n" + KeepRequest, new FeedbackBuilder(Counter, 296).ForTestExitCode(3).Text);
 }

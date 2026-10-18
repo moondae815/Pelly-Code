@@ -9,7 +9,8 @@ namespace PellyCoder.Core.Verification;
 /// Rejects an edit that leaves the target as it was in the original file (M3a T14): a no-op block (REPLACE equals SEARCH),
 /// a reformat, or a later attempt that undoes an earlier one. Compared with the original, never the previous attempt, and
 /// whitespace-insensitive with the benchmark judge's rule (whitespace runs, line breaks included, collapse to one space).
-/// A commented-out change still differs and is not caught here.
+/// A commented-out change still differs and is not caught here. Whitespace inside string literals is collapsed too, so an
+/// edit that only changes spaces in a literal (e.g. a message) is reported as no change — an accepted limitation.
 /// </summary>
 public static partial class NoChangeGuard
 {

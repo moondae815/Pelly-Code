@@ -1,0 +1,9 @@
+id: cs-legacy-015
+kind: cs
+category: adonet
+file: corpus/Legacy/Shop.Batch/SettlementBatch.cs
+line: 44
+request: "중복 정산 확인 쿼리와 정산 INSERT 명령에도 집계 쿼리와 같은 명령 시간 제한(CommandTimeoutSeconds)을 적용해줘"
+judge:
+  build: true
+  mustAdd: ["CommandTimeoutSeconds"]

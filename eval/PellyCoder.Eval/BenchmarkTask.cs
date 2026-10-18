@@ -15,6 +15,9 @@ public sealed class BenchmarkTask
     public int? Line { get; set; }
     public string? Object { get; set; }
     public string Request { get; set; } = "";
+
+    /// <summary>Legacy app kind (<c>mvc</c>, <c>adonet</c>, <c>dapper</c>) for the composition count; not an acceptance group.</summary>
+    public string? Category { get; set; }
     public BenchmarkJudge? Judge { get; set; }
 
     /// <summary>The one Legacy rule everywhere (runner, report): the target lives in the Legacy corpus.</summary>

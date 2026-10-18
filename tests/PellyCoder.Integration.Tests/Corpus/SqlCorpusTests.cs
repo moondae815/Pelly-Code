@@ -11,7 +11,8 @@ public class SqlCorpusTests
     [
         "dbo.usp_CancelOrder", "dbo.usp_SearchOrders", "dbo.usp_GetOrderDetail", "dbo.fn_OrderTotal",
         "dbo.vw_ShippedOrders", "dbo.usp_SearchOrdersDynamic", "dbo.usp_BuildSettlement",
-        "dbo.usp_SettleDaily", "dbo.usp_SettleMonthly",
+        "dbo.usp_SettleDaily", "dbo.usp_SettleMonthly", "dbo.usp_ShipOrder", "dbo.usp_ExpirePendingOrders",
+        "dbo.fn_CustomerOrders", "dbo.usp_SetSellerCommission",
     ];
 
     [SqlServerFact]

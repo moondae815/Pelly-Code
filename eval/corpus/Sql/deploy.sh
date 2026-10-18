@@ -17,7 +17,8 @@ docker exec "$container" "${sqlcmd[@]}" -Q "IF DB_ID(N'$db') IS NOT NULL BEGIN A
 for f in schema/01-tables.sql schema/02-seed.sql \
          objects/fn_OrderTotal.sql objects/vw_ShippedOrders.sql \
          objects/usp_CancelOrder.sql objects/usp_SearchOrders.sql objects/usp_GetOrderDetail.sql \
-         objects/usp_SearchOrdersDynamic.sql objects/usp_BuildSettlement.sql objects/Settlement_All.sql; do
+         objects/usp_SearchOrdersDynamic.sql objects/usp_BuildSettlement.sql objects/Settlement_All.sql \
+         objects/Order_Batch.sql objects/fn_CustomerOrders.sql objects/usp_SetSellerCommission.sql; do
   echo "== $f"
   docker exec "$container" "${sqlcmd[@]}" -d "$db" -i "/tmp/corpus-sql/$f"
 done

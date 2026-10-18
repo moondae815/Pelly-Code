@@ -13,6 +13,21 @@ public class TaskJudgeTests
         Judge = judge ?? new BenchmarkJudge { Build = true },
     };
 
+    // A behaviour judge that could not run (tooling failure: Skipped) proved nothing: not a success, not an invariant violation.
+    [Fact]
+    public void Judge_BehaviourJudgeSkipped_NotPassedAndNoViolation()
+    {
+        var task = Cs(judge: new BenchmarkJudge { Build = true, Tests = ["Shop.Api.JudgeTests.T.cs_modern_001_X"] });
+
+        var outcome = TaskJudge.Judge(task, Original, Fixed, 0, VerificationResult.Skip("판정 도구 오류: 판정 프로젝트 복원 실패"));
+
+        Assert.False(outcome.Passed);
+        Assert.Contains(outcome.Reasons, r => r.Contains("동작 판정 생략", StringComparison.Ordinal) && r.Contains("복원 실패", StringComparison.Ordinal));
+        Assert.False(outcome.InvariantViolated);
+        // Without a behaviour judge a Skipped build check (Legacy on macOS) keeps the string verdict.
+        Assert.True(TaskJudge.Judge(Cs(), Original, Fixed, 0, VerificationResult.Skip(VerificationResult.LegacyBuildSkipped)).Passed);
+    }
+
     [Fact]
     public void Judge_UnchangedTarget_Fails()
     {

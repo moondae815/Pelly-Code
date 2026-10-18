@@ -5,4 +5,4 @@ method: GetItemsAsync
 request: "주문 상품 목록에서 사은품(IsGiftItem = 1)은 일반 상품 뒤에 오도록 정렬해줘"
 judge:
   build: true
-  mustAdd: ["IsGiftItem"]
+  tests: ["Shop.Data.JudgeTests.DataAccessJudgeTests.cs_modern_003_GiftItemsAfterRegularItems"]

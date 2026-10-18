@@ -77,28 +77,46 @@ public class BenchmarkDefinitionTests
         Assert.Equal(ids.Count, ids.Distinct().Count());
     }
 
+    /// <summary>
+    /// M3b 구성: C# 30(Legacy 18, Modern 12) + SQL 20. Legacy 범주(YAML <c>category</c>, 앱 종류)는 MVC 8 / ADO.NET 5 / Dapper 5이고,
+    /// 범주는 Legacy에만 둔다(합격 판정의 범주 cs-legacy·cs-modern·sql은 id 접두사다). Modern은 모두 동작 판정을 가진다(R1).
+    /// </summary>
     [Fact]
-    public void Composition_Is18Cs12Sql_With10Legacy()
+    public void Composition_Is30Cs20Sql_With18Legacy()
     {
         var tasks = LoadAll().Select(x => x.Task).ToList();
-        Assert.Equal(18, tasks.Count(t => t.Kind == "cs"));
-        Assert.Equal(12, tasks.Count(t => t.Kind == "sql"));
-        Assert.Equal(10, tasks.Count(t => t.Id.StartsWith("cs-legacy-", StringComparison.Ordinal)));
-        Assert.True(tasks.Count(t => t.Line is not null) >= 2, "line 지정 작업 2건 이상");
-        Assert.True(tasks.Count(t => t.Object is not null) >= 2, "object 지정 작업 2건 이상");
+        Assert.Equal(30, tasks.Count(t => t.Kind == "cs"));
+        Assert.Equal(20, tasks.Count(t => t.Kind == "sql"));
+        var legacy = tasks.Where(t => t.Id.StartsWith("cs-legacy-", StringComparison.Ordinal)).ToList();
+        var modern = tasks.Where(t => t.Id.StartsWith("cs-modern-", StringComparison.Ordinal)).ToList();
+        Assert.Equal(18, legacy.Count);
+        Assert.Equal(12, modern.Count);
+        Assert.All(legacy, t => Assert.True(t.IsLegacy, $"{t.Id}: Legacy 코퍼스 대상이어야 함"));
+        Assert.All(modern, t => Assert.StartsWith("corpus/Modern/", t.File, StringComparison.Ordinal));
+
+        Assert.Equal(8, legacy.Count(t => t.Category == "mvc"));
+        Assert.Equal(5, legacy.Count(t => t.Category == "adonet"));
+        Assert.Equal(5, legacy.Count(t => t.Category == "dapper"));
+        Assert.All(tasks.Where(t => !t.IsLegacy), t => Assert.True(t.Category is null, $"{t.Id}: category는 Legacy 작업에만"));
+
+        Assert.True(tasks.Count(t => t.Line is not null) >= 3, "line 지정 작업 3건 이상");
+        Assert.True(tasks.Count(t => t.Object is not null) >= 3, "object 지정 작업 3건 이상");
+
+        var unjudged = modern.Where(t => (t.Judge!.Tests?.Count ?? 0) + (t.Judge.FailingTests?.Count ?? 0) == 0).Select(t => t.Id).ToList();
+        Assert.Empty(unjudged);
     }
 
     /// <summary>
     /// 빌드·컴파일만 통과하면 되는 작업은 아무 의미 없는 수정(공백·주석)으로도 성공한다:
-    /// 모든 작업에 내용 판정(mustContain·mustAdd·mustNotContain) 또는 동작 판정(tests) 하나 이상을 요구한다.
-    /// tests는 원본에서 실패해야 하므로(JudgeTestDefinitionTests) 의미 없는 수정을 똑같이 막는다.
+    /// 모든 작업에 내용 판정(mustContain·mustAdd·mustNotContain) 또는 동작 판정(tests·failingTests) 하나 이상을 요구한다.
+    /// tests는 원본에서 실패하고 failingTests는 원본에서 통과해야 하므로(JudgeTestDefinitionTests) 의미 없는 수정을 똑같이 막는다.
     /// </summary>
     [Fact]
     public void AllTasks_HaveContentCriterion()
     {
         var missing = LoadAll().Select(x => x.Task)
             .Where(t => (t.Judge!.MustContain?.Count ?? 0) + (t.Judge.MustAdd?.Count ?? 0) + (t.Judge.MustNotContain?.Count ?? 0)
-                + (t.Judge.Tests?.Count ?? 0) == 0)
+                + (t.Judge.Tests?.Count ?? 0) + (t.Judge.FailingTests?.Count ?? 0) == 0)
             .Select(t => t.Id)
             .ToList();
         Assert.Empty(missing);

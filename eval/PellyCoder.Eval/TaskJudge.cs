@@ -32,6 +32,9 @@ public static partial class TaskJudge
 
         if (independent.Status == VerificationResult.Failed)
             reasons.Add($"독립 검증 실패: {independent.Detail}");
+        // A behaviour judge that did not run (judge tooling failure) proved nothing: no success, but no invariant violation either.
+        else if (independent.Status == VerificationResult.Skipped && (judge.Tests?.Count ?? 0) + (judge.FailingTests?.Count ?? 0) > 0)
+            reasons.Add($"동작 판정 생략: {independent.Detail}");
 
         var checkRequired = judge.Build == true || judge.SqlCompile == true;
         var buildCheck = checkRequired ? independent.Status : VerificationResult.NotRequired;

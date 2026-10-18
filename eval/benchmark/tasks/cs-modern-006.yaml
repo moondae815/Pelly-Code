@@ -5,4 +5,4 @@ method: Search
 request: "pageSize가 100을 넘으면 검색하지 말고 BadRequest를 반환해줘"
 judge:
   build: true
-  mustContain: ["BadRequest"]
+  tests: ["Shop.Api.JudgeTests.OrdersControllerJudgeTests.cs_modern_006_PageSizeOver100IsBadRequest"]

@@ -1,0 +1,8 @@
+id: cs-modern-012
+kind: cs
+file: corpus/Modern/Shop.Api/Services/OrderService.cs
+method: SearchAsync
+request: "고객 번호, 상태, 기간(From·To), 키워드가 하나도 지정되지 않으면 전체 주문을 검색하지 말고 ArgumentException을 던져줘"
+judge:
+  build: true
+  tests: ["Shop.Api.JudgeTests.OrderServiceJudgeTests.cs_modern_012_SearchWithoutAnyConditionThrows"]

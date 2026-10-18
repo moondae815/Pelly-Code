@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Shop.Api.Data;
 using Shop.Api.Models;
+using Shop.Api.Services;
 
 namespace Shop.Api.JudgeTests
 {
@@ -19,10 +20,42 @@ namespace Shop.Api.JudgeTests
 
         public Task<Order> GetByIdAsync(int orderId) => Task.FromResult(orderId == Order.OrderId ? Order : null);
         public Task<IReadOnlyList<OrderItem>> GetItemsAsync(int orderId) => Task.FromResult<IReadOnlyList<OrderItem>>(Order.Items.ToList());
-        public Task<IReadOnlyList<Order>> SearchAsync(OrderSearchRequest request) => Task.FromResult<IReadOnlyList<Order>>(new[] { Order });
+        public List<OrderSearchRequest> Searches { get; } = new List<OrderSearchRequest>();
+
+        public Task<IReadOnlyList<Order>> SearchAsync(OrderSearchRequest request)
+        {
+            Searches.Add(request);
+            return Task.FromResult<IReadOnlyList<Order>>(new[] { Order });
+        }
         public Task UpdateStatusAsync(int orderId, OrderStatus status, string reason) { StatusUpdates++; Order.Status = status; Order.CancelReason = reason; return Task.CompletedTask; }
         public Task AddHistoryAsync(int orderId, string message) { History.Add(message); return Task.CompletedTask; }
         public Task AddRefundAsync(int orderId, decimal amount) { RefundRequested = amount; return Task.CompletedTask; }
+    }
+
+    /// <summary>
+    /// 컨트롤러 판정용 주문 서비스. 검색은 주문 한 건(<see cref="Order"/>)을 돌려주고, 취소는 <see cref="CancelThrows"/>가 있으면 그것을 던진다.
+    /// </summary>
+    public sealed class FakeOrderService : IOrderService
+    {
+        public Order Order { get; set; } = JudgeOrders.New(OrderStatus.Paid);
+        public Exception CancelThrows { get; set; }
+        public List<OrderSearchRequest> Searches { get; } = new List<OrderSearchRequest>();
+        public List<(int OrderId, string Reason)> Cancels { get; } = new List<(int, string)>();
+
+        public Task CancelAsync(int orderId, string reason)
+        {
+            Cancels.Add((orderId, reason));
+            if (CancelThrows != null) throw CancelThrows;
+            return Task.CompletedTask;
+        }
+
+        public Task<decimal> CalculateRefundAsync(int orderId) => Task.FromResult(0m);
+
+        public Task<IReadOnlyList<Order>> SearchAsync(OrderSearchRequest request)
+        {
+            Searches.Add(request);
+            return Task.FromResult<IReadOnlyList<Order>>(new[] { Order });
+        }
     }
 
     /// <summary>남긴 로그를 모아 두는 로거. 판정 테스트가 로그 수준·문구를 확인할 때 쓴다.</summary>

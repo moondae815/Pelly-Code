@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <Nullable>disable</Nullable>
+    <!-- 판정 대상 코퍼스 폴더. 실행기는 작업 복사본(work/<id>/Modern)을 -p:JudgeTargetRoot=... 로 넘긴다. -->
+    <JudgeTargetRoot Condition="'$(JudgeTargetRoot)' == ''">$(MSBuildThisFileDirectory)../../../../corpus/Modern</JudgeTargetRoot>
+  </PropertyGroup>
+
+  <!--
+    데이터 접근 코드는 프로젝트 참조가 아니라 소스로 컴파일한다. Dapper·Microsoft.Data.SqlClient 대신 같은 이름의 가짜(FakeSql.cs)에
+    묶여 DB 없이 SQL 문과 매개변수를 기록한다. 그래서 Dapper·SqlClient 패키지를 참조하지 않는다.
+  -->
+  <ItemGroup>
+    <Compile Include="$(JudgeTargetRoot)/Shop.Api/Models/*.cs" Link="Corpus/Models/%(Filename)%(Extension)" />
+    <Compile Include="$(JudgeTargetRoot)/Shop.Api/Data/IOrderRepository.cs" Link="Corpus/Data/IOrderRepository.cs" />
+    <Compile Include="$(JudgeTargetRoot)/Shop.Api/Data/OrderRepository.cs" Link="Corpus/Data/OrderRepository.cs" />
+    <Compile Include="$(JudgeTargetRoot)/Shop.Jobs/DailySettlementJob.cs" Link="Corpus/Jobs/DailySettlementJob.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3.mtp-v2" Version="4.0.2" />
+  </ItemGroup>
+
+</Project>

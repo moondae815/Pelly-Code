@@ -1,0 +1,8 @@
+id: sql-018
+kind: sql
+file: corpus/Sql/objects/Order_Batch.sql
+object: dbo.usp_ExpirePendingOrders
+request: "자동 취소한 주문마다 주문 이력(OrderHistories)에 \"결제 기한 만료로 자동 취소\"를 남겨줘"
+judge:
+  sqlCompile: true
+  mustContain: ["OrderHistories"]

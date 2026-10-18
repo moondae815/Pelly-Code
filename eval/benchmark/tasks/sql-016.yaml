@@ -1,0 +1,7 @@
+id: sql-016
+kind: sql
+file: corpus/Sql/objects/vw_ShippedOrders.sql
+request: "택배 정보가 없는 주문은 뷰에서 빠지도록 Shipments와의 LEFT JOIN을 INNER JOIN으로 바꿔줘"
+judge:
+  sqlCompile: true
+  mustNotContain: ["LEFT JOIN"]

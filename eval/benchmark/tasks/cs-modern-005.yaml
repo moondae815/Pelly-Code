@@ -5,4 +5,4 @@ method: Get
 request: "id가 0 이하이면 검색하지 말고 BadRequest(\"주문 번호가 올바르지 않습니다.\")를 반환해줘"
 judge:
   build: true
-  mustContain: ["BadRequest"]
+  tests: ["Shop.Api.JudgeTests.OrdersControllerJudgeTests.cs_modern_005_NonPositiveIdIsBadRequest"]

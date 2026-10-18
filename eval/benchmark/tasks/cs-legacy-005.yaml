@@ -1,5 +1,6 @@
 id: cs-legacy-005
 kind: cs
+category: mvc
 file: corpus/Legacy/Shop.Web/Controllers/OrderController.cs
 line: 26
 request: "주문 번호(id)가 0 이하이면 주문을 조회하지 말고 바로 HttpNotFound()를 반환하게 해줘"

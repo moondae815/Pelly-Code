@@ -1,0 +1,7 @@
+id: sql-013
+kind: sql
+file: corpus/Sql/objects/usp_GetOrderDetail.sql
+request: "두 번째 결과 집합(상품)에 사은품 여부(IsGiftItem) 열을 추가해줘"
+judge:
+  sqlCompile: true
+  mustContain: ["IsGiftItem"]

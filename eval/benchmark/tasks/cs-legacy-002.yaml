@@ -1,5 +1,6 @@
 id: cs-legacy-002
 kind: cs
+category: adonet
 file: corpus/Legacy/Shop.Batch/SettlementBatch.cs
 line: 82
 request: "판매자 이름이 NULL이면 예외가 나지 않고 \"(이름 없음)\"으로 처리되게 수정해줘"

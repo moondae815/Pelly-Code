@@ -1,5 +1,6 @@
 id: cs-legacy-010
 kind: cs
+category: dapper
 file: corpus/Legacy/Shop.Data/OrderDao.cs
 method: UpdateStatus
 request: "이미 취소된 주문(Status = 9)은 상태가 다시 바뀌지 않도록 UPDATE의 WHERE 조건에 추가해줘"

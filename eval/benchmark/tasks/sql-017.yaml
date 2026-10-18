@@ -1,0 +1,8 @@
+id: sql-017
+kind: sql
+file: corpus/Sql/objects/Order_Batch.sql
+object: dbo.usp_ShipOrder
+request: "@TrackingNo가 NULL이거나 빈 문자열이면 배송 처리하지 말고 오류를 발생시켜줘"
+judge:
+  sqlCompile: true
+  mustAdd: ["@TrackingNo"]

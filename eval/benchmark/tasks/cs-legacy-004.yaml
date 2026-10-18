@@ -1,5 +1,6 @@
 id: cs-legacy-004
 kind: cs
+category: mvc
 file: corpus/Legacy/Shop.Web/Controllers/OrderController.cs
 method: Cancel
 request: "취소 사유가 200자를 넘으면 서비스를 호출하지 말고 TempData[\"Error\"]에 \"취소 사유는 200자 이내로 입력하세요.\"를 넣고 상세 화면으로 돌아가게 해줘"

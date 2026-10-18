@@ -1,0 +1,8 @@
+id: cs-modern-009
+kind: cs
+file: corpus/Modern/Shop.Api/Controllers/OrdersController.cs
+line: 46
+request: "서비스가 ArgumentException(주문 번호가 잘못된 경우 등)을 던지면 예외를 그대로 내보내지 말고 BadRequest(예외 메시지)를 반환해줘"
+judge:
+  build: true
+  tests: ["Shop.Api.JudgeTests.OrdersControllerJudgeTests.cs_modern_009_ArgumentExceptionIsBadRequestWithMessage"]

@@ -9,6 +9,7 @@
 | :--- | :--- | :--- |
 | `id` | 문자열 | 파일 이름(확장자 제외)과 같음. 형식 `^(cs-(modern\|legacy)\|sql)-\d{3}$` |
 | `kind` | `cs` \| `sql` | 작업 종류 |
+| `category` | `mvc` \| `adonet` \| `dapper` (선택) | Legacy 작업의 앱 종류(MVC 컨트롤러·서비스 / ADO.NET 배치 / Dapper 리포지토리). Legacy 작업에만 두고 구성 테스트가 셉니다. 합격 판정의 범주(cs-legacy·cs-modern·sql)는 id 접두사입니다 |
 | `file` | 문자열 | `eval/` 기준 상대 경로 |
 | `method` | 문자열 (선택) | `cs`: 대상 메서드 이름. `method`와 `line` 중 하나만 |
 | `line` | 정수 (선택) | `cs`: 대상 멤버 안의 줄 번호(1부터). IDE External Tools 사용을 흉내 냄 |
@@ -30,13 +31,21 @@
 
 ## 동작 판정 (`tests`·`failingTests`)
 * Modern C# 작업에만 둡니다(R1). Legacy·SQL은 문자열 판정을 유지합니다.
-* 판정 테스트는 코퍼스 밖 `judges/Modern/Shop.Api.JudgeTests`에 있습니다(R2). 원본에서 실패하는 테스트라 코퍼스 CI와 pelly `--test`가 보지 않게 하기 위함입니다. 설명은 그 폴더의 `README.md`에 있습니다.
+* 판정 테스트는 코퍼스 밖 `judges/Modern/`에 있습니다(R2). 원본에서 실패하는 테스트라 코퍼스 CI와 pelly `--test`가 보지 않게 하기 위함입니다.
+  * `Shop.Api.JudgeTests`: `Shop.Api`를 참조해 서비스·컨트롤러를 가짜 저장소·서비스로 실행합니다.
+  * `Shop.Data.JudgeTests`: 데이터 접근 코드(`OrderRepository`, `Shop.Jobs`의 `DailySettlementJob`)를 소스로 컴파일해 가짜 Dapper·`SqlConnection`에 묶습니다. DB 없이 보낸 SQL·매개변수와 결과를 봅니다(가짜 DB가 `ORDER BY`를 행에 적용).
+  * 규칙·현재 테스트 표는 `judges/Modern/Shop.Api.JudgeTests/README.md`에 있습니다.
 * 종료 0 작업에 `tests`나 `failingTests`가 있으면 독립 검증이 다음을 합니다.
   1. 판정 프로젝트를 `work/<id>/judges/Modern/`으로 복사합니다.
   2. `-p:JudgeTargetRoot=<work/<id>/Modern>`으로 복원·빌드합니다.
   3. 테스트 프로젝트마다 한 번 실행하고 TRX로 테스트별 결과를 읽습니다.
 * `tests`는 모두 Passed, `failingTests`는 모두 Failed여야 합니다. **이름이 결과(TRX)에 없으면 실패**로 봅니다.
-* 문자열 판정·빌드 판정과 함께 적용합니다. 동작 판정과 어긋나는 문자열 판정은 두지 않습니다. 예: cs-modern-001의 `mustAdd: OrderStatus.Shipped`는 올바른 수정(Shipped 예외를 넣고, 죽은 환불 조건의 `|| Shipped`를 지움)을 실패시켜 뺐습니다(2026-10-18 실측).
+* 판정 프로젝트 빌드 오류, 시간 초과, TRX 없이 끝난 실행은 실패입니다(수정한 코드가 원인일 수 있음).
+* 판정 도구 오류(판정 프로젝트 복원 실패, 테스트 프로젝트 없음, 테스트 호스트를 띄우지 못함)는 독립 검증 **생략**(`판정 도구 오류: …`)입니다. 일시적인 NuGet 문제가 검증 불변 조건 위반으로 세지지 않게 하기 위함입니다. 이때 작업은 성공으로 세지 않습니다(사유 `동작 판정 생략`).
+* 문자열 판정·빌드 판정과 함께 적용합니다. **동작 판정이 있으면, 다른 올바른 수정을 떨어뜨릴 수 있는 문자열 판정은 두지 않습니다.** 테스트가 못 보는 것을 확인할 때만 남깁니다.
+  * 예: cs-modern-001의 `mustAdd: OrderStatus.Shipped`는 올바른 수정(Shipped 예외를 넣고, 죽은 환불 조건의 `|| Shipped`를 지움)을 실패시켜 뺐습니다(2026-10-18 실측).
+  * cs-modern-002의 `mustAdd: Math.Round`·`mustNotContain: Math.Floor`도 뺐습니다. `Math.Floor(refund / 10m + 0.5m) * 10m`도 올바른 반올림입니다.
+  * 그래서 지금 Modern 12건은 모두 빌드 + 동작 판정만 씁니다.
 * 통과하면 보고서의 독립 검증 칸에 실행한 판정 테스트 수가 나옵니다.
 * `JudgeTestDefinitionTests`가 원본 코퍼스 복사본에서 `tests`는 실패하고 `failingTests`는 통과하는지 검사합니다.
 
@@ -47,7 +56,7 @@
 ## 실행
 ```bash
 export PELLY_SQL_CONNECTION="Server=localhost,14333;Database=PellyCorpus;User Id=sa;Password=<sa 비밀번호>;TrustServerCertificate=True"
-dotnet run --project eval/PellyCoder.Eval -- --config <pelly.json>            # 30건 전체
+dotnet run --project eval/PellyCoder.Eval -- --config <pelly.json>            # 50건 전체
 dotnet run --project eval/PellyCoder.Eval -- --tasks sql --config <pelly.json> # 일부 (id 접두사·글롭, --kind cs|sql)
 ```
 * 결과 폴더: `eval/results/<yyyyMMdd-HHmmss>/`(`--out`으로 변경, git 추적 제외)
@@ -62,39 +71,70 @@ dotnet run --project eval/PellyCoder.Eval -- --tasks sql --config <pelly.json> #
   * 독립 검증은 pelly의 참조 수집기·실행기를 그대로 재사용하므로 둘의 사각지대(3·4부 이름, 동적 SQL, `#temp`, 별칭과 같은 이름의 테이블)를 공유합니다. 또 절대 기준이라 코퍼스 원본이 오류 없이 컴파일된다고 가정합니다.
 * 첫 측정 기록: `docs/m2b-benchmark.md`
 
-## 현재 구성 (M2, 30건)
-C# 18건(Legacy 10, Modern 8) + SQL 12건. 시그니처를 바꾸는 요청(async 전환 등)은 넣지 않습니다(MemberShapeGuard가 막는 의도된 동작). SQL 매개변수 추가는 허용합니다.
-모든 작업에 내용 판정(`mustContain`·`mustAdd`·`mustNotContain`) 또는 동작 판정(`tests`)이 하나 이상 있습니다(`AllTasks_HaveContentCriterion`) — 빌드·컴파일만으로는 의미 없는 수정도 통과하기 때문입니다. `tests`는 원본에서 실패해야 하므로 같은 역할을 합니다.
+## 현재 구성 (M3b, 50건)
+C# 30건(Legacy 18, Modern 12) + SQL 20건. 시그니처를 바꾸는 요청(async 전환 등)은 넣지 않습니다(MemberShapeGuard가 막는 의도된 동작). SQL 매개변수 추가는 허용합니다.
+모든 작업에 내용 판정(`mustContain`·`mustAdd`·`mustNotContain`) 또는 동작 판정(`tests`·`failingTests`)이 하나 이상 있습니다(`AllTasks_HaveContentCriterion`) — 빌드·컴파일만으로는 의미 없는 수정도 통과하기 때문입니다. `tests`는 원본에서 실패해야 하므로 같은 역할을 합니다.
+Modern 12건은 모두 동작 판정을 가집니다(R1). 구성은 `Composition_Is30Cs20Sql_With18Legacy`가 검사합니다.
 
-| id | 대상 | 지정 방식 | 요청 종류 |
-| :--- | :--- | :--- | :--- |
-| cs-legacy-001 | Shop.Web `OrderService.Cancel` (CP949) | method | 로직 수정 |
-| cs-legacy-002 | Shop.Batch `SettlementBatch.Execute` (CP949, ADO.NET) | line | null 처리 |
-| cs-legacy-003 | Shop.Data `OrderDao.SearchOrders` (Dapper 1.50) | method | Dapper 쿼리 변경 |
-| cs-legacy-004 | Shop.Web `OrderController.Cancel` (MVC) | method | 로직 수정 |
-| cs-legacy-005 | Shop.Web `OrderController.Detail` (MVC) | line | 로직 수정 |
-| cs-legacy-006 | Shop.Web `OrderService.Cancel` (CP949) | line | 로직 수정 |
-| cs-legacy-007 | Shop.Batch `SettlementBatch.Execute` (CP949, ADO.NET) | method | 쿼리 조건 |
-| cs-legacy-008 | Shop.Batch `SettlementBatch.BuildReport` (CP949, 긴 멤버) | method | 로직 수정 |
-| cs-legacy-009 | Shop.Data `OrderDao.GetOrder` (Dapper 1.50) | method | Dapper 쿼리 변경 |
-| cs-legacy-010 | Shop.Data `OrderDao.UpdateStatus` (Dapper 1.50) | method | Dapper 쿼리 변경 |
-| cs-modern-001 | Shop.Api `OrderService.CancelAsync` | method | 로직 수정 |
-| cs-modern-002 | Shop.Api `OrderService.CalculateRefundAsync` | method | 로직 수정 |
-| cs-modern-003 | Shop.Api `OrderRepository.GetItemsAsync` | method | Dapper 쿼리 변경 |
-| cs-modern-004 | Shop.Api `OrderRepository.SearchAsync` | line | null 처리 |
-| cs-modern-005 | Shop.Api `OrdersController.Get` | method | 로직 수정 |
-| cs-modern-006 | Shop.Api `OrdersController.Search` | method | 로직 수정 |
-| cs-modern-007 | Shop.Api `OrderService.SearchAsync` | method | null 처리 |
-| cs-modern-008 | Shop.Jobs `DailySettlementJob.Run` | method | 로직 수정 |
-| sql-001 | `usp_CancelOrder` (SSMS 스크립트 형태) | 파일 | 조건 추가 |
-| sql-002 | `usp_SearchOrders` | 파일 | 매개변수·조건 추가 |
-| sql-003 | `fn_OrderTotal` (함수) | 파일 | 조건 추가 |
-| sql-004 | `Settlement_All.sql`의 `usp_SettleMonthly` (한 파일 여러 객체) | object | 컬럼 추가 |
-| sql-005 | `usp_SearchOrdersDynamic` (동적 SQL) | 파일 | 로직 수정 |
-| sql-006 | `usp_SearchOrders` | 파일 | 조건 추가 |
-| sql-007 | `usp_BuildSettlement` (#temp 테이블) | 파일 | 조건 추가 |
-| sql-008 | `usp_GetOrderDetail` (결과 집합 3개) | 파일 | 컬럼 추가 |
-| sql-009 | `usp_SearchOrders` | 파일 | 컬럼 추가 |
-| sql-010 | `Settlement_All.sql`의 `usp_SettleMonthly` | object | JOIN 변경 |
-| sql-011 | `vw_ShippedOrders` (뷰) | 파일 | 컬럼 추가 |
-| sql-012 | `Settlement_All.sql`의 `usp_SettleDaily` | object | 조건 추가 |
+### Legacy 범주 (`category`)
+| 범주 | 건수 | 대상 |
+| :--- | :--- | :--- |
+| `mvc` (MVC 컨트롤러·서비스) | 8 | Shop.Web `OrderController`, `OrderService` |
+| `adonet` (ADO.NET 배치) | 5 | Shop.Batch `SettlementBatch` |
+| `dapper` (Dapper 리포지토리) | 5 | Shop.Data `OrderDao` (Dapper 1.50) |
+
+### 작업 목록
+| id | 대상 | 지정 방식 | 요청 종류 | 판정 |
+| :--- | :--- | :--- | :--- | :--- |
+| cs-legacy-001 | Shop.Web `OrderService.Cancel` (CP949) | method | 로직 수정 | 문자열 |
+| cs-legacy-002 | Shop.Batch `SettlementBatch.Execute` (CP949, ADO.NET) | line | null 처리 | 문자열 |
+| cs-legacy-003 | Shop.Data `OrderDao.SearchOrders` (Dapper 1.50) | method | Dapper 쿼리 변경 | 문자열 |
+| cs-legacy-004 | Shop.Web `OrderController.Cancel` (MVC) | method | 검증 추가 | 문자열 |
+| cs-legacy-005 | Shop.Web `OrderController.Detail` (MVC) | line | 검증 추가 | 문자열 |
+| cs-legacy-006 | Shop.Web `OrderService.Cancel` (CP949) | line | 로직 수정 | 문자열 |
+| cs-legacy-007 | Shop.Batch `SettlementBatch.Execute` (CP949, ADO.NET) | method | 쿼리 조건 | 문자열 |
+| cs-legacy-008 | Shop.Batch `SettlementBatch.BuildReport` (CP949, 긴 멤버) | method | 로직 수정 | 문자열 |
+| cs-legacy-009 | Shop.Data `OrderDao.GetOrder` (Dapper 1.50) | method | Dapper 쿼리 변경 | 문자열 |
+| cs-legacy-010 | Shop.Data `OrderDao.UpdateStatus` (Dapper 1.50) | method | Dapper 쿼리 변경 | 문자열 |
+| cs-legacy-011 | Shop.Web `OrderService.GetOrder` (CP949) | method | 검증 추가 | 문자열 |
+| cs-legacy-012 | Shop.Web `OrderService.Cancel` (CP949) | line | 로그 추가 | 문자열 |
+| cs-legacy-013 | Shop.Web `OrderController.Cancel` (MVC) | method | 예외 처리 | 문자열 |
+| cs-legacy-014 | Shop.Web `OrderController.Detail` (MVC) | method | 로직 수정 | 문자열 |
+| cs-legacy-015 | Shop.Batch `SettlementBatch.Execute` (CP949, ADO.NET) | line | 명령 설정 | 문자열 |
+| cs-legacy-016 | Shop.Batch `SettlementBatch.BuildReport` (CP949, 긴 멤버) | method | 정렬 변경 | 문자열 |
+| cs-legacy-017 | Shop.Data `OrderDao.AddHistory` (Dapper 1.50) | method | null 처리 | 문자열 |
+| cs-legacy-018 | Shop.Data `OrderDao.SearchOrders` (Dapper 1.50) | line | Dapper 쿼리 변경 | 문자열 |
+| cs-modern-001 | Shop.Api `OrderService.CancelAsync` | method | 로직 수정 | 동작(+ failingTests) |
+| cs-modern-002 | Shop.Api `OrderService.CalculateRefundAsync` | method | 로직 수정(반올림) | 동작 |
+| cs-modern-003 | Shop.Api `OrderRepository.GetItemsAsync` | method | Dapper 쿼리 변경(정렬) | 동작 |
+| cs-modern-004 | Shop.Api `OrderRepository.SearchAsync` | line | null·공백 처리 | 동작 |
+| cs-modern-005 | Shop.Api `OrdersController.Get` | method | 검증 추가(경계값) | 동작 |
+| cs-modern-006 | Shop.Api `OrdersController.Search` | method | 검증 추가(경계값) | 동작 |
+| cs-modern-007 | Shop.Api `OrderService.SearchAsync` | method | null 처리 | 동작 |
+| cs-modern-008 | Shop.Jobs `DailySettlementJob.Run` | method | 검증 추가(경계값) | 동작 |
+| cs-modern-009 | Shop.Api `OrdersController.Cancel` | line | 예외 처리 | 동작 |
+| cs-modern-010 | Shop.Api `OrderService.CancelAsync` | method | 검증 추가(경계값) | 동작 |
+| cs-modern-011 | Shop.Api `OrderRepository.SearchAsync` | method | Dapper 쿼리 매개변수 | 동작 |
+| cs-modern-012 | Shop.Api `OrderService.SearchAsync` | method | 조건 결합 검증 | 동작 |
+| sql-001 | `usp_CancelOrder` (SSMS 스크립트 형태) | 파일 | 조건 추가 | 문자열 |
+| sql-002 | `usp_SearchOrders` | 파일 | 매개변수·조건 추가 | 문자열 |
+| sql-003 | `fn_OrderTotal` (함수) | 파일 | 조건 추가 | 문자열 |
+| sql-004 | `Settlement_All.sql`의 `usp_SettleMonthly` (한 파일 여러 객체) | object | 컬럼 추가 | 문자열 |
+| sql-005 | `usp_SearchOrdersDynamic` (동적 SQL) | 파일 | 로직 수정 | 문자열 |
+| sql-006 | `usp_SearchOrders` | 파일 | 조건 추가 | 문자열 |
+| sql-007 | `usp_BuildSettlement` (#temp 테이블) | 파일 | 조건 추가 | 문자열 |
+| sql-008 | `usp_GetOrderDetail` (결과 집합 3개) | 파일 | 컬럼 추가 | 문자열 |
+| sql-009 | `usp_SearchOrders` | 파일 | 컬럼 추가 | 문자열 |
+| sql-010 | `Settlement_All.sql`의 `usp_SettleMonthly` | object | JOIN 변경 | 문자열 |
+| sql-011 | `vw_ShippedOrders` (뷰) | 파일 | 컬럼 추가 | 문자열 |
+| sql-012 | `Settlement_All.sql`의 `usp_SettleDaily` | object | 조건 추가 | 문자열 |
+| sql-013 | `usp_GetOrderDetail` (결과 집합 3개) | 파일 | 컬럼 추가 | 문자열 |
+| sql-014 | `Settlement_All.sql`의 `usp_SettleMonthly` | object | 매개변수·조건 추가 | 문자열 |
+| sql-015 | `usp_SearchOrdersDynamic` (동적 SQL) | 파일 | 매개변수 추가(sp_executesql) | 문자열 |
+| sql-016 | `vw_ShippedOrders` (뷰) | 파일 | JOIN 변경 | 문자열 |
+| sql-017 | `Order_Batch.sql`의 `usp_ShipOrder` (TRY/CATCH, 트랜잭션) | object | 검증 추가 | 문자열 |
+| sql-018 | `Order_Batch.sql`의 `usp_ExpirePendingOrders` (커서) | object | 이력 추가 | 문자열 |
+| sql-019 | `fn_CustomerOrders` (인라인 테이블 함수) | 파일 | 조건 추가 | 문자열 |
+| sql-020 | `usp_SetSellerCommission` | 파일 | 검증 추가 | 문자열 |
+
+M3b에서 코퍼스에 더한 것: SQL 객체 넷(`Order_Batch.sql`의 `usp_ShipOrder`·`usp_ExpirePendingOrders`, `fn_CustomerOrders`, `usp_SetSellerCommission`, `deploy.sh` 목록에 추가). C# 코퍼스는 바꾸지 않았습니다.

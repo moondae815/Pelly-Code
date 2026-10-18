@@ -5,5 +5,4 @@ line: 86
 request: "검색 키워드가 공백뿐이면 키워드 조건을 넣지 않도록 IsNullOrWhiteSpace로 검사해줘"
 judge:
   build: true
-  mustContain: ["IsNullOrWhiteSpace"]
-  mustNotContain: ["IsNullOrEmpty"]
+  tests: ["Shop.Data.JudgeTests.DataAccessJudgeTests.cs_modern_004_WhitespaceKeywordAddsNoCondition"]

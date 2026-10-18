@@ -30,6 +30,9 @@ public sealed class TestRunner(IProcessRunner processes, BuildOptions build, Tes
 {
     public const string LegacyCommandMissing = "레거시 테스트 프로젝트는 test.command 설정이 필요합니다";
 
+    /// <summary>The test process ran but wrote no TRX; followed by the exit code.</summary>
+    public const string ReportNotWritten = "테스트 결과 파일(TRX)이 만들어지지 않았습니다";
+
     /// <summary>A multi-target test project whose first target framework could not be launched; followed by <c>({tfm})</c>.</summary>
     public const string MultiTargetCannotRun = "멀티 타깃 테스트 프로젝트를 실행할 수 없습니다";
 
@@ -95,7 +98,7 @@ public sealed class TestRunner(IProcessRunner processes, BuildOptions build, Tes
         if (!wantsTrx) return new TestRun([], [], result.ExitCode, false, false, null);
 
         if (!File.Exists(trxPath))
-            return new TestRun([], [], result.ExitCode, false, false, $"테스트 결과 파일(TRX)이 만들어지지 않았습니다 (종료 코드 {result.ExitCode})",
+            return new TestRun([], [], result.ExitCode, false, false, $"{ReportNotWritten} (종료 코드 {result.ExitCode})",
                 ReportMissing: result.ExitCode != 0);
         try
         {

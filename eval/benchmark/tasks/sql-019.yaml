@@ -1,0 +1,7 @@
+id: sql-019
+kind: sql
+file: corpus/Sql/objects/fn_CustomerOrders.sql
+request: "취소된 주문(Status = 9)은 결과에서 빼줘"
+judge:
+  sqlCompile: true
+  mustContain: ["9"]

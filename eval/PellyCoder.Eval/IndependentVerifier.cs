@@ -18,8 +18,13 @@ public interface IIndependentVerifier
     Task<VerificationResult> VerifySqlAsync(BenchmarkTask task, string file, CancellationToken ct);
 }
 
-/// <summary>Per-test outcomes of a judge run by full name, or why the tests could not be run.</summary>
-public sealed record JudgeTestRun(IReadOnlyDictionary<string, TestCaseResult> Results, string? Error);
+/// <summary>
+/// Per-test outcomes of a judge run by full name, or why the tests could not be run. <paramref name="ToolingError"/>: the
+/// failure is the judge tooling's (restore, a test project that is not there, a host that could not start), not the edited
+/// code's; the verdict is then Skipped, so a transient NuGet problem never counts as an invariant violation. Build errors,
+/// timeouts and a run without a per-test report stay failures: the edited code can cause each of them.
+/// </summary>
+public sealed record JudgeTestRun(IReadOnlyDictionary<string, TestCaseResult> Results, string? Error, bool ToolingError = false);
 
 /// <summary>
 /// Re-verifies a finished task without the orchestrator: a fresh build (and the judge's tests) for C#, NOEXEC compile and
@@ -67,7 +72,9 @@ public sealed class IndependentVerifier(IFileSystem fs, IProcessRunner processes
             return build;
 
         var run = await RunJudgeTestsAsync(tests, failing, corpusRoot, ct);
-        return run.Error is not null ? VerificationResult.Fail(run.Error) : Verdict(tests, failing, run.Results);
+        return run.Error is null ? Verdict(tests, failing, run.Results)
+            : run.ToolingError ? VerificationResult.Skip("판정 도구 오류: " + run.Error)
+            : VerificationResult.Fail(run.Error);
     }
 
     /// <summary>
@@ -119,7 +126,7 @@ public sealed class IndependentVerifier(IFileSystem fs, IProcessRunner processes
                 .Where(p => name.StartsWith(Path.GetFileNameWithoutExtension(p) + ".", StringComparison.Ordinal))
                 .OrderByDescending(p => Path.GetFileNameWithoutExtension(p).Length)
                 .FirstOrDefault();
-            if (project is null) return new JudgeTestRun(new Dictionary<string, TestCaseResult>(), $"테스트 프로젝트를 찾지 못함: {name}");
+            if (project is null) return new JudgeTestRun(new Dictionary<string, TestCaseResult>(), $"테스트 프로젝트를 찾지 못함: {name}", ToolingError: true);
             if (!projects.Contains(project)) projects.Add(project);
         }
 
@@ -135,7 +142,7 @@ public sealed class IndependentVerifier(IFileSystem fs, IProcessRunner processes
                 var restore = await processes.RunAsync(new ProcessSpec("dotnet",
                     ["restore", project, "--nologo", $"-p:{JudgeTargetRootProperty}={root}"], Path.GetDirectoryName(project)!, RestoreTimeout), ct);
                 if (restore.TimedOut || restore.ExitCode != 0)
-                    return new JudgeTestRun(results, $"판정 프로젝트 복원 실패(종료 {restore.ExitCode}): {name}");
+                    return new JudgeTestRun(results, $"판정 프로젝트 복원 실패(종료 {restore.ExitCode}): {name}", ToolingError: true);
             }
 
             var trx = Path.Combine(workRoot, "judge-results", name + ".trx");
@@ -146,11 +153,18 @@ public sealed class IndependentVerifier(IFileSystem fs, IProcessRunner processes
                 : run.Error is not null ? $"{run.Error}: {name}"
                 : !run.PerTestResults ? $"테스트별 결과를 얻지 못함(종료 {run.ExitCode}): {name}"
                 : null;
-            if (error is not null) return new JudgeTestRun(results, error);
+            // A run-level error that is neither a build error nor a missing report (the host wrote no TRX: possibly the edited
+            // code crashed it) is the tooling's: the host could not start, the old TRX could not be deleted or read.
+            var tooling = !run.TimedOut && run.BuildErrors.Count == 0 && run.Error is not null && !RunWroteNoReport(run);
+            if (error is not null) return new JudgeTestRun(results, error, tooling);
             foreach (var r in run.Results) results[r.FullName] = r;
         }
         return new JudgeTestRun(results, null);
     }
+
+    /// <summary>The test process ran but left no TRX (<see cref="TestRunner"/>'s missing-report error, whatever the exit code).</summary>
+    private static bool RunWroteNoReport(TestRun run) =>
+        run.ReportMissing || run.Error?.StartsWith(TestRunner.ReportNotWritten, StringComparison.Ordinal) == true;
 
     public async Task<VerificationResult> VerifySqlAsync(BenchmarkTask task, string file, CancellationToken ct)
     {

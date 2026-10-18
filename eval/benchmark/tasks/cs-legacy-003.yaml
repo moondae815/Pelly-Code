@@ -1,5 +1,6 @@
 id: cs-legacy-003
 kind: cs
+category: dapper
 file: corpus/Legacy/Shop.Data/OrderDao.cs
 method: SearchOrders
 request: "키워드 검색 때 고객 이름뿐 아니라 주문 상품명(OrderItems.ProductName)도 검색되게 해줘"

@@ -1,0 +1,9 @@
+id: cs-legacy-016
+kind: cs
+category: adonet
+file: corpus/Legacy/Shop.Batch/SettlementBatch.cs
+method: BuildReport
+request: "보고서의 [이월 판매자] 목록을 이월 금액이 큰 판매자부터 나오게 정렬해줘"
+judge:
+  build: true
+  mustAdd: ["OrderByDescending"]

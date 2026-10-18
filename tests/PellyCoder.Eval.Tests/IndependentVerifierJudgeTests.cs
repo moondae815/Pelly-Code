@@ -145,16 +145,94 @@ public sealed class IndependentVerifierJudgeTests : IDisposable
         Assert.DoesNotContain(_procs.Calls, c => c.Arguments[0] is "run" or "restore");
     }
 
+    // Judge tooling failures (not the edited code's fault) are Skipped, so a transient NuGet problem is never an invariant violation.
+    [Fact]
+    public async Task Judge_RestoreFails_Skipped()
+    {
+        _procs.RestoreExitCode = 1;
+
+        var result = await VerifyAsync(Task([JudgeTest], null));
+
+        Assert.Equal(VerificationResult.Skipped, result.Status);
+        Assert.Contains("복원 실패", result.Detail);
+    }
+
+    [Fact]
+    public async Task Judge_TestProjectNotFound_Skipped()
+    {
+        var result = await VerifyAsync(Task(["Shop.Nowhere.JudgeTests.X.Y"], null));
+
+        Assert.Equal(VerificationResult.Skipped, result.Status);
+        Assert.Contains("테스트 프로젝트를 찾지 못함", result.Detail);
+    }
+
+    [Fact]
+    public async Task Judge_TestHostCannotStart_Skipped()
+    {
+        _procs.StartFailsFor.Add("Shop.Api.JudgeTests");
+
+        var result = await VerifyAsync(Task([JudgeTest], null));
+
+        Assert.Equal(VerificationResult.Skipped, result.Status);
+        Assert.Contains("Shop.Api.JudgeTests", result.Detail);
+    }
+
+    // The edited code is what the judge project compiles: its build errors stay a failure.
+    [Fact]
+    public async Task Judge_JudgeProjectBuildError_Failed()
+    {
+        _procs.BuildErrorFor.Add("Shop.Api.JudgeTests");
+
+        var result = await VerifyAsync(Task([JudgeTest], null));
+
+        Assert.Equal(VerificationResult.Failed, result.Status);
+        Assert.Contains("빌드 오류", result.Detail);
+        Assert.Contains("CS0103", result.Detail);
+    }
+
+    // A test host that wrote no TRX (killed or crashed by the edited code) never passes the judge.
+    [Theory]
+    [InlineData(1)]
+    [InlineData(0)]
+    public async Task Judge_RunWithoutTrx_Failed(int exitCode)
+    {
+        _procs.NoTrxExitCode["Shop.Api.JudgeTests"] = exitCode;
+
+        var result = await VerifyAsync(Task([JudgeTest], null));
+
+        Assert.Equal(VerificationResult.Failed, result.Status);
+        Assert.Contains("TRX", result.Detail);
+    }
+
     /// <summary>Every process succeeds; a <c>dotnet run --project P … -result-trx T</c> writes T from <see cref="Outcomes"/>[name of P].</summary>
     private sealed class FakeProcesses : IProcessRunner
     {
         public Dictionary<string, List<(string Name, string Outcome)>> Outcomes { get; } = [];
         public List<ProcessSpec> Calls { get; } = [];
+        public int RestoreExitCode { get; set; }
+        /// <summary>Projects whose <c>dotnet build</c> reports a compiler error.</summary>
+        public HashSet<string> BuildErrorFor { get; } = [];
+        /// <summary>Projects whose test run cannot be started at all.</summary>
+        public HashSet<string> StartFailsFor { get; } = [];
+        /// <summary>Projects whose test run exits with this code and writes no TRX.</summary>
+        public Dictionary<string, int> NoTrxExitCode { get; } = [];
 
         public Task<ProcessResult> RunAsync(ProcessSpec spec, CancellationToken ct)
         {
             Calls.Add(spec);
             var args = spec.Arguments;
+            if (args.Count > 0 && args[0] == "restore")
+                return System.Threading.Tasks.Task.FromResult(new ProcessResult(RestoreExitCode, "", "restore failed", [], TimeSpan.FromMilliseconds(1), false));
+            if (args.Count > 1 && args[0] == "build" && BuildErrorFor.Contains(Path.GetFileNameWithoutExtension(args[1])))
+            {
+                var source = Path.Combine(Path.GetDirectoryName(args[1])!, "JudgeFakes.cs");
+                return System.Threading.Tasks.Task.FromResult(new ProcessResult(1,
+                    $"{source}(3,4): error CS0103: The name 'x' does not exist in the current context [{args[1]}]", "", [], TimeSpan.FromMilliseconds(1), false));
+            }
+            if (args.Count > 2 && args[0] == "run" && StartFailsFor.Contains(Path.GetFileNameWithoutExtension(args[2])))
+                throw new ProcessStartException("dotnet", new InvalidOperationException("cannot start"));
+            if (args.Count > 2 && args[0] == "run" && NoTrxExitCode.TryGetValue(Path.GetFileNameWithoutExtension(args[2]), out var code))
+                return System.Threading.Tasks.Task.FromResult(new ProcessResult(code, "", "", [], TimeSpan.FromMilliseconds(1), false));
             if (args.Count > 0 && args[0] == "run" && args.ToList().IndexOf("-result-trx") is var i and >= 0)
             {
                 var project = Path.GetFileNameWithoutExtension(args[2]);

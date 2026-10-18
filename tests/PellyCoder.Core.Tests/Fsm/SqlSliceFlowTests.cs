@@ -174,6 +174,9 @@ public sealed class SqlSliceFlowTests : IDisposable
         Assert.Contains("[READ-ONLY: schema]", prompt);
         Assert.Contains("dbo.usp_P (PROCEDURE) — file: a.sql", prompt);
         Assert.Contains("Target: T-SQL, SQL Server compatibility level 160.", prompt);
+        Assert.DoesNotContain("[READ-ONLY: fields]", prompt);
+        Assert.DoesNotContain("[READ-ONLY: signatures]", prompt);
+        Assert.DoesNotContain("[EDITABLE: usings]", prompt);
         Assert.Single(ctx.Blocks);
     }
 

@@ -114,4 +114,16 @@ public sealed class RunLoggerTests
         Assert.Equal("cs-v2", RunLogger.Summarize(cs).PromptVersion);
         Assert.Equal("cs-v2", RunLogger.Summarize(NewContext()).PromptVersion);
     }
+
+    [Fact]
+    public void Summary_SqlRequestWithoutTarget_RecordsSql()
+    {
+        var request = new RunRequest(P(@"C:\ws\a.sql"), null, null, null, "req", true, false, null, null, EditKind.Sql);
+        var ctx = new RunContext("r1", request, new PellyOptions());
+
+        var summary = RunLogger.Summarize(ctx);
+
+        Assert.Equal(EditKind.Sql, summary.Kind);
+        Assert.Equal("sql-v1", summary.PromptVersion);
+    }
 }

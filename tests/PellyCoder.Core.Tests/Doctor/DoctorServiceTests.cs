@@ -4,6 +4,7 @@ using PellyCoder.Core.Abstractions;
 using PellyCoder.Core.Config;
 using PellyCoder.Core.Doctor;
 using PellyCoder.Core.Llm;
+using PellyCoder.Core.Sql;
 using PellyCoder.Core.Tests.Fakes;
 
 namespace PellyCoder.Core.Tests.Doctor;
@@ -27,11 +28,13 @@ public sealed class DoctorServiceTests
     private readonly MockFileSystem _fs = new();
     private bool _windows;
 
+    private FakeSqlExecutor? _sql;
+
     private DoctorService Create(int localCount = 12)
     {
         if (_processes.Calls.Count == 0 && !_dotnetQueued)
             _processes.Enqueue(Proc(0, "10.0.100\n"));
-        return new(_backend, _diag, _template, new FixedCounter(localCount), _options, _time, _fs, _processes, () => _windows);
+        return new(_backend, _diag, _template, new FixedCounter(localCount), _options, _time, _fs, _processes, () => _windows, _sql);
     }
 
     private bool _dotnetQueued;
@@ -58,7 +61,7 @@ public sealed class DoctorServiceTests
         var checks = await Create().RunAsync(CancellationToken.None);
 
         Assert.Equal(
-            ["Ollama 서버", "모델", "렌더러", "템플릿 일치", "토크나이저 일치", "응답 시간", ".NET SDK", "MSBuild (레거시)", "서버 설정 확인 필요"],
+            ["Ollama 서버", "모델", "렌더러", "템플릿 일치", "토크나이저 일치", "응답 시간", ".NET SDK", "MSBuild (레거시)", "서버 설정 확인 필요", "SQL 연결"],
             checks.Select(c => c.Name));
         Assert.All(checks.Take(7), c => Assert.Equal(DoctorStatus.Ok, c.Status));
         Assert.Equal(DoctorStatus.Warn, checks[7].Status);
@@ -275,5 +278,79 @@ public sealed class DoctorServiceTests
         Assert.Equal(DoctorStatus.Warn, c.Status);
         Assert.Contains("MSBuild.exe를 찾을 수 없습니다", c.Detail);
         Assert.Equal("레거시 .NET Framework 프로젝트를 고치려면 Visual Studio Build Tools가 필요합니다", c.Action);
+    }
+
+    private void SqlOptionsAllowed(string cs = "Server=localhost,14333;Database=PellyCorpus;User Id=sa;Password=Secret!1")
+    {
+        _options.Sql.ConnectionString = cs;
+        _options.Sql.AllowedHosts.Add("localhost");
+        _options.Sql.AllowedDatabases.Add("PellyCorpus");
+        _sql = new FakeSqlExecutor();
+    }
+
+    [Fact]
+    public async Task Sql_NoConnection_Warn()
+    {
+        EnqueueProbes();
+
+        var c = Get(await Create().RunAsync(CancellationToken.None), "SQL 연결");
+
+        Assert.Equal(DoctorStatus.Warn, c.Status);
+        Assert.Equal("pelly sql을 쓰려면 sql.connectionString 또는 PELLY_SQL_CONNECTION을 설정하세요", c.Detail);
+    }
+
+    [Fact]
+    public async Task Sql_NotAllowed_Fail()
+    {
+        EnqueueProbes();
+        SqlOptionsAllowed();
+        _options.Sql.AllowedHosts.Clear();
+
+        var c = Get(await Create().RunAsync(CancellationToken.None), "SQL 연결");
+
+        Assert.Equal(DoctorStatus.Fail, c.Status);
+        Assert.Contains("sql.allowedHosts", c.Detail);
+        Assert.DoesNotContain("Secret", c.Detail);
+        Assert.DoesNotContain("Probe", _sql!.Calls);
+    }
+
+    [Fact]
+    public async Task Sql_ProbeFails_Fail_Masked()
+    {
+        EnqueueProbes();
+        SqlOptionsAllowed();
+        _sql!.ThrowOnProbe(new InvalidOperationException("login failed for Password=Secret!1;"));
+
+        var c = Get(await Create().RunAsync(CancellationToken.None), "SQL 연결");
+
+        Assert.Equal(DoctorStatus.Fail, c.Status);
+        Assert.DoesNotContain("Secret", c.Detail + c.Action);
+    }
+
+    [Fact]
+    public async Task Sql_NoViewDefinition_Fail()
+    {
+        EnqueueProbes();
+        SqlOptionsAllowed();
+        _sql!.Probe = new SqlServerProbe("Microsoft SQL Server 2022\nx", "PellyCorpus", false);
+
+        var c = Get(await Create().RunAsync(CancellationToken.None), "SQL 연결");
+
+        Assert.Equal(DoctorStatus.Fail, c.Status);
+        Assert.Equal("VIEW DEFINITION 권한 필요", c.Detail);
+    }
+
+    [Fact]
+    public async Task Sql_Ok_ShowsTarget()
+    {
+        EnqueueProbes();
+        SqlOptionsAllowed();
+        _sql!.Probe = new SqlServerProbe("Microsoft SQL Server 2022\n\tCopyright", "PellyCorpus", true);
+
+        var c = Get(await Create().RunAsync(CancellationToken.None), "SQL 연결");
+
+        Assert.Equal(DoctorStatus.Ok, c.Status);
+        Assert.Equal("localhost/PellyCorpus, Microsoft SQL Server 2022", c.Detail);
+        Assert.DoesNotContain("Secret", c.Detail);
     }
 }

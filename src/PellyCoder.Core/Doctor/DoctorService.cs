@@ -3,6 +3,8 @@ using PellyCoder.Core.Abstractions;
 using PellyCoder.Core.Builds;
 using PellyCoder.Core.Config;
 using PellyCoder.Core.Llm;
+using PellyCoder.Core.Sql;
+using System.Text.RegularExpressions;
 
 namespace PellyCoder.Core.Doctor;
 
@@ -20,7 +22,8 @@ public sealed class DoctorService(
     TimeProvider time,
     IFileSystem fs,
     IProcessRunner processes,
-    Func<bool>? isWindows = null)
+    Func<bool>? isWindows = null,
+    ISqlExecutor? sql = null)
 {
     private static readonly TimeSpan DotnetTimeout = TimeSpan.FromSeconds(10);
     private readonly Func<bool> _isWindows = isWindows ?? OperatingSystem.IsWindows;
@@ -84,7 +87,42 @@ public sealed class DoctorService(
         checks.Add(new("서버 설정 확인 필요", DoctorStatus.Warn,
             "서버에서 직접 확인할 수 없음: OLLAMA_FLASH_ATTENTION, OLLAMA_KV_CACHE_TYPE, OLLAMA_NUM_PARALLEL, OLLAMA_KEEP_ALIVE",
             "서버 관리자에게 PRD §7.1 값을 확인하세요"));
+        checks.Add(await CheckSqlAsync(ct));
         return checks;
+    }
+
+    private static readonly Regex PasswordText =
+        new(@"(password|pwd)\s*=\s*[^;]*", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    private async Task<DoctorCheck> CheckSqlAsync(CancellationToken ct)
+    {
+        const string name = "SQL 연결";
+        var cs = options.Sql.ConnectionString;
+        if (string.IsNullOrWhiteSpace(cs))
+            return new(name, DoctorStatus.Warn, "pelly sql을 쓰려면 sql.connectionString 또는 PELLY_SQL_CONNECTION을 설정하세요", null);
+
+        var endpoint = SqlConnectionText.Endpoint(cs);
+        var check = SqlTargetPolicy.Check(endpoint, options.Sql);
+        if (!check.Allowed)
+            return new(name, DoctorStatus.Fail, check.Message ?? "허용되지 않은 SQL 대상", "sql.allowedHosts·sql.allowedDatabases 설정을 확인하세요");
+        if (sql is null)
+            return new(name, DoctorStatus.Warn, "SQL 점검기가 없어 확인하지 못함", null);
+
+        try
+        {
+            var probe = await sql.ProbeAsync(ct);
+            if (!probe.CanViewDefinition)
+                return new(name, DoctorStatus.Fail, "VIEW DEFINITION 권한 필요", "접속 계정에 VIEW DEFINITION 권한을 부여하세요");
+            var firstLine = probe.Version.Split('\n', 2)[0].Trim();
+            return new(name, DoctorStatus.Ok, $"{endpoint.DataSource}/{endpoint.Database}, {firstLine}", null);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            var text = ex.Message.Replace(cs, SqlConnectionText.Mask(cs), StringComparison.Ordinal);
+            text = PasswordText.Replace(text, "$1=***");
+            return new(name, DoctorStatus.Fail, $"{endpoint.DataSource}/{endpoint.Database} 에 연결할 수 없음: {text}",
+                "연결 문자열과 서버 상태를 확인하세요");
+        }
     }
 
     private async Task<DoctorCheck> CheckDotnetAsync(CancellationToken ct)

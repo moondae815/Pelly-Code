@@ -5,7 +5,9 @@ using PellyCoder.Core.Config;
 using PellyCoder.Core.Doctor;
 using PellyCoder.Core.Fsm;
 using PellyCoder.Core.Llm;
+using PellyCoder.Core.Models;
 using PellyCoder.Core.Processes;
+using PellyCoder.Core.Sql;
 using Spectre.Console;
 
 namespace PellyCoder.Cli;
@@ -51,6 +53,9 @@ public static class Composition
         public Task<int> RunAsync(RunRequest request, PellyOptions options, CancellationToken ct)
         {
             var backend = new OllamaBackend(http.Get(options.Llm), options.Llm, time);
+            if (request.Kind == EditKind.Sql)
+                return FsmOrchestratorFactory.CreateSql(fs, backend, ui, options, time, new SqlServerExecutor(options.Sql.ConnectionString))
+                    .RunAsync(request, ct);
             return FsmOrchestratorFactory.Create(fs, backend, ui, options, time, processes).RunAsync(request, ct);
         }
     }
@@ -61,7 +66,10 @@ public static class Composition
         {
             var backend = new OllamaBackend(http.Get(options.Llm), options.Llm, time);
             var template = options.Llm.Template is { } path ? QwenChatTemplate.LoadFromFile(fs, path) : QwenChatTemplate.LoadDefault();
-            return new DoctorService(backend, backend, template, QwenTokenCounter.Shared, options, time, fs, processes).RunAsync(ct);
+            ISqlExecutor? sql = string.IsNullOrWhiteSpace(options.Sql.ConnectionString)
+                ? null
+                : new SqlServerExecutor(options.Sql.ConnectionString);
+            return new DoctorService(backend, backend, template, QwenTokenCounter.Shared, options, time, fs, processes, sql: sql).RunAsync(ct);
         }
     }
 }

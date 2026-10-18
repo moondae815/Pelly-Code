@@ -87,6 +87,8 @@ jobs:
           $out = (& $exe doctor --endpoint http://127.0.0.1:1 --model none | Out-String)
           if ($LASTEXITCODE -ne 4) { throw "doctor (no server) exit $LASTEXITCODE, expected 4" }
           if (-not $out.Contains('OLLAMA_KV_CACHE_TYPE')) { Write-Host $out; throw 'server checklist resource missing' }
+          # 마지막 네이티브 명령이 의도대로 4로 끝났으므로, 그 값이 스텝 종료 코드가 되지 않게 끝낸다
+          exit 0
 
   sql-integration:
     runs-on: ubuntu-latest

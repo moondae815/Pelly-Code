@@ -131,6 +131,21 @@ jobs:
           }
           # 마지막 네이티브 명령(일부러 실패시킨 빌드)의 종료 코드가 스텝 종료 코드가 되지 않게 끝낸다
           exit 0
+      - name: License gate rejects a provisional approval in 1.0 (dry run)
+        # 버전이 1.0.0 이상이면 approvedBy에 「잠정」이 든 예외로는 패키지가 만들어지면 안 된다. 저장소 파일은 건드리지 않는다
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not ((Get-Content -Raw deploy/license-exceptions.json) -match '잠정')) { throw 'precondition: no provisional approval to test with' }
+          $props = Join-Path $env:RUNNER_TEMP 'Directory.Build.1.0.0.props'
+          (Get-Content -Raw Directory.Build.props) -replace '<Version>[^<]*</Version>', '<Version>1.0.0</Version>' | Set-Content $props
+          if (-not ((Get-Content -Raw $props) -match '<Version>1\.0\.0</Version>')) { throw 'altered props lacks Version 1.0.0' }
+          $out = & pwsh -NoProfile -File ./deploy/build-package.ps1 -PublishDir artifacts/publish/win-x64 -OutDir (Join-Path $env:RUNNER_TEMP 'gate-check-1.0') -BuildProps $props 2>&1 | Out-String
+          $code = $LASTEXITCODE
+          if ($code -eq 0) { throw 'gate passed a provisional approval in 1.0.0' }
+          if (-not $out.Contains('provisional approval cannot ship in 1.0.0')) { Write-Host $out; throw "output lacks the provisional-approval message" }
+          Write-Host "version 1.0.0: gate failed as expected (exit $code)"
+          exit 0
       - name: Build package
         shell: pwsh
         run: |
@@ -138,6 +153,13 @@ jobs:
           $zip = @(Get-ChildItem artifacts/package -Filter 'pelly-*-win-x64.zip')
           if ($zip.Count -ne 1) { throw "expected one zip, found $($zip.Count)" }
           "PELLY_TEST_PACKAGE=$($zip[0].FullName)" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          # zip 자체의 SHA-256: 로그에 남기고, zip과 따로 전달할 수 있게 별도 아티팩트 파일로 둔다 (install.md 2절)
+          $hash = (Get-FileHash $zip[0].FullName -Algorithm SHA256).Hash.ToLower()
+          Write-Host "zip sha256: $hash  $($zip[0].Name)"
+          $shaDir = New-Item -ItemType Directory -Force artifacts/package-sha256
+          $shaFile = Join-Path $shaDir "$($zip[0].Name).sha256"
+          [System.IO.File]::WriteAllText($shaFile, "$hash  $($zip[0].Name)`n")
+          "PELLY_PACKAGE_SHA256_FILE=$shaFile" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
       - name: Check SHA256SUMS the way install.md does
         shell: pwsh
         run: |
@@ -170,6 +192,12 @@ jobs:
         with:
           name: pelly-package
           path: ${{ env.PELLY_TEST_PACKAGE }}
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pelly-package-sha256
+          path: ${{ env.PELLY_PACKAGE_SHA256_FILE }}
           if-no-files-found: error
           retention-days: 14
 

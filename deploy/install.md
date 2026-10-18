@@ -32,6 +32,20 @@
 
 ## 2. 체크섬 확인
 
+### zip 자체
+
+zip 안의 `SHA256SUMS.txt`는 zip이 바뀌면 함께 바뀔 수 있습니다. 그래서 zip 자체의 SHA-256을 zip과 **다른 경로**(메일·사내 문서 등)로 받아 먼저 비교하십시오.
+CI는 패키지를 만들 때 이 값을 로그(`zip sha256:` 줄)에 남기고, zip 옆에 별도 아티팩트 `pelly-<버전>-win-x64.zip.sha256`(`pelly-package-sha256`)으로 둡니다. 형식은 `<소문자 SHA-256>  <zip 이름>` 한 줄입니다.
+
+```powershell
+Get-FileHash .\pelly-0.9.0-win-x64.zip -Algorithm SHA256
+Get-Content .\pelly-0.9.0-win-x64.zip.sha256
+```
+
+두 값이 같아야 합니다(대소문자 무시). 1절에서 풀기 전에 확인해도 됩니다.
+
+### zip 안의 파일
+
 PowerShell에서 실행합니다.
 
 ```powershell

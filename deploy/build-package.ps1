@@ -24,12 +24,17 @@
 .PARAMETER LicenseExceptions
   Approved license exceptions. Default deploy/license-exceptions.json. CI passes altered copies to check that a
   changed version or license hash fails the gate.
+
+.PARAMETER BuildProps
+  Directory.Build.props to read the Version from. Default the repository's. CI passes an altered copy (Version 1.0.0)
+  to check that a provisional approval cannot ship in 1.0.
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$PublishDir,
     [Parameter(Mandatory)][string]$OutDir,
-    [string]$LicenseExceptions = (Join-Path $PSScriptRoot 'license-exceptions.json')
+    [string]$LicenseExceptions = (Join-Path $PSScriptRoot 'license-exceptions.json'),
+    [string]$BuildProps = (Join-Path (Split-Path -Parent $PSScriptRoot) 'Directory.Build.props')
 )
 
 $ErrorActionPreference = 'Stop'
@@ -53,7 +58,7 @@ function Write-Utf8Lf([string]$Path, [string[]]$Lines) {
 }
 
 # --- version -----------------------------------------------------------------------------------------------
-$props = [xml](Get-Content -Raw (Join-Path $Repo 'Directory.Build.props'))
+$props = [xml](Get-Content -Raw $BuildProps)
 $Version = @($props.Project.PropertyGroup | ForEach-Object { $_.SelectSingleNode('Version') } | Where-Object { $_ })[0].InnerText
 if ($Version -notmatch '\A[0-9]+\.[0-9]+\.[0-9]+\z') { throw "unexpected Version in Directory.Build.props: '$Version'" }
 $Name = "pelly-$Version-$Rid"
@@ -238,6 +243,10 @@ if ($rejected.Count -gt 0 -or $stale.Count -gt 0) {
 foreach ($a in $approved) {
     foreach ($key in 'licenseName', 'reason', 'approvedBy', 'shipAs') {
         if ([string]::IsNullOrWhiteSpace($a.Exception[$key])) { throw "license exception $($a.Component['name']): '$key' is empty" }
+    }
+    # R6: 1.0 ships only after the field check (M4); a provisional (잠정) approval must be replaced by a human one first.
+    if ([int]$Version.Split('.')[0] -ge 1 -and $a.Exception['approvedBy'].Contains('잠정')) {
+        throw "license exception $($a.Component['name']): provisional approval cannot ship in $Version (approvedBy: $($a.Exception['approvedBy']))"
     }
     $dest = Join-Path $Generated $a.Exception['shipAs']
     $null = New-Item -ItemType Directory -Force (Split-Path $dest)

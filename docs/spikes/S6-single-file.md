@@ -6,7 +6,7 @@
 ## 환경
 | 항목 | 값 |
 | :--- | :--- |
-| SDK | `10.0.302` (`net10.0`) |
+| SDK | CI 측정 판(run 39131686427, 39131990441): `actions/setup-dotnet`가 설치한 `10.0.402`(런타임 `10.0.13`). `global.json`은 `10.0.302` + `rollForward: latestFeature`라 더 높은 기능 대역이 쓰였다. 로컬 참고 판은 `10.0.302`. 대상 `net10.0` |
 | 판정 | GitHub Actions `windows-latest`, 잡 `publish-check` |
 | 참고 | 로컬 macOS arm64 (`osx-arm64` 단일 파일) |
 | 클라이언트 | `Microsoft.Data.SqlClient` 7.1.1 |

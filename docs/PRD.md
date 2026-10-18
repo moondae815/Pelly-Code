@@ -18,7 +18,7 @@
 | v1.7 | 2026-10-18 | M2a 반영(상세는 설계 문서 §3 D24·D25, §7.3, §8.4, §8.7.1, §8.9): FR-00 옵션 정리(`--line`, `--strict-baseline`, `--warn-as-error`, `--method`·요청문 선택, 요청문 생략 시 대화형 입력), FR-06 Baseline을 LOCATE 끝에서 시작하고 CS 외 오류면 `BuildUnverifiable`로 중단, 모델 제어 토큰 문자열 차단(종료 코드 4), 멤버 모양 검사 구체화 |
 | v1.8 | 2026-10-18 | M2b 반영(상세는 설계 문서 §3 D26~D28, §5, §8.1, §8.4, §8.6, §8.10, §8.12, §10.6): FR-00 `pelly sql` 옵션 정리, FR-07 `dotnet user-secrets` 제외(R3)·허용 목록이 비면 접속 안 함(R4)·서버/데이터베이스 키 중복과 Failover Partner 거부·원본 대상의 금지 구문은 LOCATE에서 종료 5(R2)·금지 구문 범위(`ALTER DATABASE` 변형, `EXEC … OPENDATASOURCE`), §8.1 벤치마크 30건(M2b, R9)·50건(M3) |
 | v1.9 | 2026-10-18 | M3a 반영(상세는 설계 문서 §8.2, §8.5, §8.7, §8.9, §8.10, §8.12~§8.14, §11): FR-00 `--test`(C# 전용)·`--verbose`·`--pause-on-exit`·`report`(`--since`·`--sanitize`·`--out`) 구현 상태, FR-02 DTO 슬라이스(enum·public 필드·시그니처 한 단계), FR-06 5번 `--test` 구체화(프로젝트 종류별 실행, 새로 실패한 테스트만, `test.timeoutSeconds`, 요청과 모순되는 테스트의 알려진 한계 25%)와 변화 없음 가드, FR-08 전체 doctor(`--project`·`--sanitize`·숨은 `--offline-selftest`), FR-09 비식별 허용 목록(`TEST`, 앵커·ASCII 숫자·버전은 숫자로 시작), §5 대기 시간 `QueueSeconds`, 로드맵 M3를 M3a(완료)·M3b로 분리 (M3a R1~R11) |
-| v1.10 | 2026-10-19 | M3b 반영(상세는 설계 문서 §8.1, §8.2, §8.13, §9.2, §10.4, §10.6, §11): §2.2·§8.1 검증 불변 조건은 독립 빌드·컴파일 결과로만 판정하고 동작 판정 실패는 모델 실패(`Judge`)로 센다, 외부 벤치마크 50건(Legacy 18 · Modern 12 동작 판정 · SQL 20)과 3회 반복 기준선(평균 47.67건, 위반 0), §7.2·§8.2 튜닝 후보 3개 모두 R4로 거절돼 기본값 유지와 회귀 차단 절차(`--repeat 3` + `compare`), §11.1 실제 반입 패키지 구성(`pelly-0.9.0-win-x64.zip` 13개 파일, SBOM 도구 버전 고정, 라이선스 게이트와 잠정 예외 하나, 버전 기록은 모델 digest — GGUF SHA-256은 M4), CI 6잡, 로드맵 M3b 결과 (M3b T1~T11) |
+| v1.10 | 2026-10-19 | M3b 반영(상세는 설계 문서 §8.1, §8.2, §8.13, §9.2, §10.4, §10.6, §11): §2.2·§8.1 검증 불변 조건은 독립 빌드·컴파일 결과로만 판정하고 동작 판정 실패는 모델 실패(`Judge`)로 센다, 외부 벤치마크 50건(Legacy 18 · Modern 12 동작 판정 · SQL 20)과 3회 반복 기준선(평균 47.67건, 위반 0), §7.2·§8.2 튜닝 후보 3개 모두 R4로 거절돼 기본값 유지와 회귀 차단 절차(`--repeat 3` + `compare`), §11.1 실제 반입 패키지 구성(`pelly-0.9.0-win-x64.zip` 13개 파일, SBOM 도구 버전 고정, 라이선스 게이트와 잠정 예외 하나, 버전 기록은 모델 digest — GGUF SHA-256은 M4), CI 실행 6회(잡 키 5개), 로드맵 M3b 결과 (M3b T1~T11) |
 
 ---
 
@@ -62,7 +62,7 @@
 * **벤치마크 세트:**
   * **외부용:** 실제 코드 구조를 모사한 샘플 코퍼스 기반 30건(M2b: C# 18건 + SQL 12건) → **50건(M3b, 완료: C# 30건 + SQL 20건)**(§8.1 참조)
   * **폐쇄망용:** 실제 코드베이스 기반 같은 규모의 세트(M4에서 폐쇄망 안에서 작성)
-* 같은 모델 파일(GGUF SHA-256 일치)과 같은 Ollama 버전으로 측정합니다(Q10). 외부 사전 측정의 모델은 GGUF가 아니라 `nvfp4`라 digest로 기록하고 GGUF 해시는 M4에서 맞춥니다(§11.1).
+* 같은 모델 파일(GGUF SHA-256 일치)과 같은 Ollama 버전으로 측정합니다(Q10). 외부 사전 측정의 모델은 GGUF가 아니라 `nvfp4`라 digest로 기록하고 GGUF 해시 대조는 M4 작업입니다(§11.1).
 
 ### 2.2 지표
 | 지표 항목 | 목표 수치 (Target) | 측정 기준 및 달성 전략 |
@@ -276,7 +276,7 @@ Ollama에는 공개된 토큰화 전용 엔드포인트가 없으므로 다음�
 * **pelly 자체:** 버전, 내장 토크나이저 해시, 설정 파일 경로와 적용 값
 * **구현 (M3a):** 위 항목 전부를 한 표로 보입니다(Ollama 서버·모델·렌더러·템플릿 일치·토크나이저 일치·응답 시간·pelly·설정·.NET SDK·MSBuild·타겟팅 팩·서버 설정 체크리스트·SQL 연결). `--project <csproj>`는 타겟팅 팩을 확인할 프로젝트를 지정합니다(Windows 전용, Windows 미확인). Fail이 있으면 종료 4입니다.
 * **`--sanitize [--out <폴더>]`:** 화면 대신 `json`·`md` 파일로 저장합니다. 행 이름(알려진 목록)·상태와 행마다 정한 사실(버전·지연 ms·로드 여부·일치 여부 등 짧은 토큰)만 남기고 설명·조치 문장, 경로, 연결 문자열은 남기지 않습니다. 버전은 숫자로 시작하는 규칙을, 타겟팅 팩 프레임워크 버전은 `v4.8` 형태의 모니커 규칙을 통과해야 하며 아니면 `invalid`입니다.
-* **`--offline-selftest` (숨은 옵션):** 네트워크·설정 없이 내장 토크나이저·Roslyn·ScriptDom·인코딩·리소스를 확인합니다. 단일 파일 배포본 점검용(M3b)입니다.
+* **`--offline-selftest` (숨은 옵션):** 네트워크·설정 없이 내장 토크나이저·Roslyn·ScriptDom·인코딩·리소스와 SqlClient 네이티브 계층(여섯 행, M3b T7)을 확인합니다. 단일 파일 배포본 점검용이며 CI `publish-check`에서 모두 Ok로 통과했습니다.
 
 ### FR-09. 실행 기록 요약 및 비식별 리포트 (`pelly report`)
 폐쇄망의 실행 로그에는 소스 코드가 들어 있어 외부로 반출할 수 없습니다. 외부에서 개선 작업을 하려면 코드 없이 문제를 파악할 수 있는 자료가 필요합니다.
@@ -386,7 +386,7 @@ v1은 Ollama만 지원합니다(`/api/generate`, `raw: true`). 서버 설정은 
 | 설정 | 권장 값 | 이유 | 확인 방법 |
 | :--- | :--- | :--- | :--- |
 | Ollama 버전 | 외부 개발 환경과 동일 버전 | raw 모드·캐시 동작이 버전마다 다를 수 있음 | `/api/version` (doctor 자동) |
-| 모델 | `Qwen3.6-35B-A3B` GGUF `Q4_K_M`, 외부와 같은 파일 | 결과 재현성 | 관리자에게 GGUF SHA-256 확인 (Q10) |
+| 모델 | `Qwen3.6-35B-A3B` GGUF `Q4_K_M`, 외부와 같은 파일 | 결과 재현성 | 관리자에게 GGUF SHA-256 확인 (Q10, M4에서 버전 기록에 기록) |
 | `OLLAMA_FLASH_ATTENTION` | `1` | KV 캐시 양자화를 쓰려면 필요 | 관리자 확인 |
 | `OLLAMA_KV_CACHE_TYPE` | `q8_0` (4비트 금지) | 변수명 철자·괄호 짝 기억력 유지하면서 VRAM 절약 | 관리자 확인 |
 | `OLLAMA_NUM_PARALLEL` | 동시 사용자 수에 맞춰 협의 | 슬롯 수만큼 KV 메모리(8K × 슬롯)가 늘어남. 1이면 요청이 대기 | 관리자 확인 (Q9) |
@@ -490,7 +490,7 @@ pelly가 요청마다 지정하는 값: `options.num_ctx = 8192`, `keep_alive = 
 * **Milestone 3a (완료, 2026-10-18) — 제품 기능:** DTO 슬라이스, `--test`, `pelly report`·`--sanitize`, `pelly doctor` 완성(`--project`·`--sanitize`), `--verbose`, `--pause-on-exit`, 대기 시간 분리. 벤치마크 30건 회귀 30/30·불변 조건 위반 0건 (`docs/m3a-benchmark.md`, `docs/m3a-e2e.md`).
 * **Milestone 3b (완료, 2026-10-19 — S7 Rider 확인 결과 대기) — 튜닝 및 반입 패키지 (M3 중 남은 부분):**
   * 외부 벤치마크 50건과 3회 반복 기준선, 튜닝 후보 3개 측정(모두 거절, 기본값 유지), 동작 판정 연동 (`docs/m3b-baseline.md`, `docs/m3b-tuning.md`)
-  * `win-x64` 단일 파일 publish(S6)·CI 6잡, self-contained 패키지·SBOM·라이선스 목록·체크섬·버전 기록 생성(`pelly-0.9.0-win-x64.zip`). **반입 신청은 사람이 진행합니다**(§11)
+  * `win-x64` 단일 파일 publish(S6)·CI(실행 6회 = 잡 키 5개, unit은 macOS·Windows 매트릭스), self-contained 패키지·SBOM·라이선스 목록·체크섬·버전 기록 생성(`pelly-0.9.0-win-x64.zip`). **반입 신청은 사람이 진행합니다**(§11)
   * S7(Rider External Tools) 확인표 준비 완료, 결과는 사용자가 확인하는 대로 기입
 * **Milestone 4 (5주 차 이후, 반입 승인 시점에 따라 조정) — 폐쇄망 이관 및 현장 검증:**
   * 설치, `pelly doctor`로 서버·빌드 도구·SQL·Windows 인증 점검
@@ -524,12 +524,12 @@ pelly가 요청마다 지정하는 값: `options.num_ctx = 8192`, `keep_alive = 
 ### 11.1 반입 패키지 구성
 | 항목 | 내용 |
 | :--- | :--- |
-| 실행 파일 | `dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true` 결과 `pelly.exe` (트리밍 사용 안 함). 단일 파일 모드에서 Roslyn·ScriptDom·토크나이저 리소스가 정상 동작하는지 M3b에서 확인 |
+| 실행 파일 | `dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true` 결과 `pelly.exe` (트리밍 사용 안 함). 단일 파일 모드에서 Roslyn·ScriptDom·토크나이저 리소스·SqlClient가 정상 동작함을 M3b에서 확인했다(S6 통과, M3b T7, CI `publish-check` 녹색) |
 | 기본 설정 | `pelly.json` 템플릿 (Ollama 주소·모델명·SQL 화이트리스트 자리 표시) |
 | 문서 | 설치 가이드, 사용 가이드, `server-checklist.md`(서버 관리자용) |
 | 무결성 | 모든 파일의 SHA-256 체크섬 목록 |
 | 보안 심사 자료 | SBOM(CycloneDX), 서드파티 라이선스 목록, "실행 중 외부 통신 없음" 명세(§5) |
-| 버전 기록 | pelly 버전, 외부 검증에 쓴 Ollama 버전과 모델 GGUF SHA-256, 벤치마크 결과 요약 |
+| 버전 기록 | `version-record.json`(`pellyVersion`, `ollamaVersion`, `model`, `modelDigest`, `modelFormat`, `modelQuantization`, `recordedAt`)과 벤치마크 결과 요약. 모델 GGUF SHA-256은 M4에서 현장 모델로 기록 |
 
 **M3b 실제 구성 (M3b T9·T10, 버전 `0.9.0`, M4 현장 확인 뒤 `1.0.0`):** CI `package` 잡이 `pelly-0.9.0-win-x64.zip`을 만들고, 들어가는 파일은 `deploy/package-files.txt`의 허용 목록 13개뿐입니다.
 

@@ -80,10 +80,12 @@ public sealed class SqlSchemaSlicerTests
 
         // Stage 2: unused non-PK columns go; PK and referenced stay. Customers (last) loses columns first.
         var r2 = await Build(f, refs, Used(noIndexes) - 1, batch);
-        var s2 = SchemaText(r2);
-        Assert.Contains("TABLE dbo.Customers (CustomerId int NOT NULL PK)", s2);
-        Assert.Contains("TABLE dbo.Orders (OrderId int NOT NULL PK, Status tinyint NOT NULL, ShippedAt datetime2 NULL)", s2);
+        Assert.Equal(
+            "TABLE dbo.Orders (OrderId int NOT NULL PK, Status tinyint NOT NULL, ShippedAt datetime2 NULL)\n"
+            + "TABLE dbo.Customers (CustomerId int NOT NULL PK)",
+            SchemaText(r2));
         Assert.Equal(["schema-indexes", "schema-columns"], r2.Slice.Omitted.Select(p => p.Kind));
+        Assert.Equal("TABLE dbo.Customers: Email nvarchar(100) NOT NULL, Note nvarchar(max) NULL", r2.Slice.Omitted[1].Text);
 
         var allReduced = "TABLE dbo.Orders (OrderId int NOT NULL PK, Status tinyint NOT NULL)\nTABLE dbo.Customers (CustomerId int NOT NULL PK)";
         var r2b = await Build(f, refs, Used(allReduced), batch);
@@ -93,6 +95,8 @@ public sealed class SqlSchemaSlicerTests
         var r3 = await Build(f, refs, Used(allReduced) - 1, batch);
         Assert.Equal("TABLE dbo.Orders (OrderId int NOT NULL PK, Status tinyint NOT NULL)", SchemaText(r3));
         Assert.Equal(["schema-indexes", "schema-columns", "schema-tables"], r3.Slice.Omitted.Select(p => p.Kind));
+        Assert.Equal("TABLE dbo.Orders: ShippedAt datetime2 NULL", r3.Slice.Omitted[1].Text.Split('\n')[1]);
+        Assert.Equal("TABLE dbo.Customers (CustomerId int NOT NULL PK)", r3.Slice.Omitted[2].Text);
 
         var r4 = await Build(f, refs, batch.Text.Length, batch);
         Assert.Equal(["target"], r4.Slice.Included.Select(p => p.Kind));
@@ -132,5 +136,57 @@ public sealed class SqlSchemaSlicerTests
         Assert.Equal(1, text.Split("TABLE dbo.Orders (").Length - 1);
         Assert.True(text.IndexOf("dbo.Orders", StringComparison.Ordinal) < text.IndexOf("dbo.Customers", StringComparison.Ordinal));
         Assert.Contains("TABLE dbo.Customers (", text);
+    }
+
+    [Fact]
+    public async Task Stage1_PartialDrop_RemovesOnlyLastTablesIndexes()
+    {
+        var f = Fake();
+        var refs = Refs([Orders, Customers]);
+        var batch = Batch("X");
+        var full = SchemaText(await Build(f, refs, 100_000, batch));
+        var partial = full.Replace("\nUNIQUE INDEX UX_Customers_Email (Email)", "");
+
+        var r = await Build(f, refs, batch.Text.Length + partial.Length, batch);
+
+        Assert.Equal(partial, SchemaText(r));
+        Assert.Contains("INDEX IX_Orders_Status (Status)", SchemaText(r));
+        Assert.Equal("UNIQUE INDEX UX_Customers_Email (Email)", Assert.Single(r.Slice.Omitted).Text);
+    }
+
+    [Fact]
+    public async Task UnusedView_IsNeverRenderedWithZeroColumns_AndGoesInStage3()
+    {
+        var f = Fake();
+        var refs = Refs([Orders, Shipped], "Status");
+        var batch = Batch("X");
+        var orders = "TABLE dbo.Orders (OrderId int NOT NULL PK, Status tinyint NOT NULL)";
+        // Fits only once the view is gone and Orders is reduced.
+        var r = await Build(f, refs, batch.Text.Length + orders.Length, batch);
+
+        Assert.Equal(orders, SchemaText(r));
+        Assert.DoesNotContain("()", SchemaText(r));
+        Assert.Equal("VIEW dbo.vw_ShippedOrders (OrderId int NOT NULL)", r.Slice.Omitted.Single(p => p.Kind == "schema-tables").Text);
+    }
+
+    [Fact]
+    public async Task ReferencedProcedureWithoutSchema_IsSkipped_AndSchemaLessNameMergesWithDbo()
+    {
+        var f = Fake();
+        f.Referenced["dbo.usp_X"] = [SqlObjectName.Parse("dbo.usp_Other"), SqlObjectName.Parse("Orders")];
+
+        var r = await Build(f, Refs([Orders]), 100_000);
+
+        var text = SchemaText(r);
+        Assert.DoesNotContain("usp_Other", text);
+        Assert.Equal(1, text.Split("TABLE dbo.Orders (").Length - 1);
+    }
+
+    [Fact]
+    public async Task TargetTooLarge_LabelsOmittedSchemaAsSchema()
+    {
+        var r = await Build(Fake(), Refs([Orders]), 5);
+
+        Assert.Equal(["schema"], r.Slice.Omitted.Select(p => p.Kind));
     }
 }

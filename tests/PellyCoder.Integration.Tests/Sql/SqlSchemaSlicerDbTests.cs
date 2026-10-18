@@ -19,6 +19,6 @@ public class SqlSchemaSlicerDbTests
         var schema = r.Slice.Included.Single(p => p.Kind == "schema").Text;
         Assert.Contains("TABLE dbo.Orders (", schema);
         Assert.Contains("CancelReason nvarchar(200) NULL", schema);
-        Assert.Contains("Histor", schema);
+        Assert.Contains("OrderHistories", schema);
     }
 }

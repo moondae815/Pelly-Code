@@ -65,7 +65,8 @@ public static class SqlSchemaSlicer
                 foreach (var t in Enumerable.Reverse(tables))
                 {
                     var unused = t.Schema.Columns.Where(c => !c.IsPrimaryKey && !refs.Columns.Contains(c.Name)).ToList();
-                    if (unused.Count == 0) continue;
+                    // A table that would end up with no columns is left for stage 3, which removes it whole.
+                    if (unused.Count == 0 || unused.Count == t.Schema.Columns.Count) continue;
                     t.Hidden = unused;
                     dropped.Add($"{t.Schema.ObjectType} {t.Schema.Name.Display}: {string.Join(", ", unused.Select(ColumnText))}");
                     schema = Fits(out fits);
@@ -91,7 +92,7 @@ public static class SqlSchemaSlicer
         else if (tooLarge && schema.Length > 0)
         {
             // The target alone busts the budget: nothing else may ride along.
-            AddOmitted("schema-tables", schema.Split('\n'));
+            AddOmitted("schema", schema.Split('\n'));
             schema = "";
         }
 

@@ -1,0 +1,11 @@
+{
+  "llm": {
+    "endpoint": "http://ollama.internal:11434",
+    "model": "qwen3.6:35b-a3b"
+  },
+  "sql": {
+    "allowedHosts": [],
+    "allowedDatabases": [],
+    "connectionString": "Server=<서버>;Database=<DB>;Integrated Security=true;TrustServerCertificate=True"
+  }
+}

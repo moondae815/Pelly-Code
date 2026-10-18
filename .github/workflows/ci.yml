@@ -44,8 +44,8 @@ jobs:
         shell: pwsh
         run: ./eval/corpus/Legacy/build.ps1
       - name: Windows tests
-        # 환경이 빠져 Skip되거나 필터 오타로 0개가 되면 실패해야 한다
-        run: dotnet test tests/PellyCoder.Integration.Tests --no-build -- --filter-trait "Env=Windows" --fail-skips on --minimum-expected-tests 1
+        # 환경이 빠져 Skip되거나 필터 오타로 0개가 되면 실패해야 한다. 패키지 테스트는 zip이 있는 package 잡에서 돈다
+        run: dotnet test tests/PellyCoder.Integration.Tests --no-build -- --filter-trait "Env=Windows" --filter-not-class "PellyCoder.Integration.Tests.Package.PackageTests" --fail-skips on --minimum-expected-tests 1
 
   publish-check:
     # 반입본(PRD §11.1)이 SQL·Ollama 없이 자기 점검을 통과하는지 확인한다 (spike S6)
@@ -89,6 +89,60 @@ jobs:
           if (-not $out.Contains('OLLAMA_KV_CACHE_TYPE')) { Write-Host $out; throw 'server checklist resource missing' }
           # 마지막 네이티브 명령이 의도대로 4로 끝났으므로, 그 값이 스텝 종료 코드가 되지 않게 끝낸다
           exit 0
+      - name: Upload published exe for the package job
+        uses: actions/upload-artifact@v4
+        with:
+          name: pelly-publish-win-x64
+          path: artifacts/publish/win-x64/pelly.exe
+          if-no-files-found: error
+          retention-days: 1
+
+  package:
+    # 반입 zip (Task 9). publish-check가 만든 exe를 그대로 쓴다 (publish는 한 번만 한다)
+    needs: publish-check
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - uses: actions/download-artifact@v4
+        with:
+          name: pelly-publish-win-x64
+          path: artifacts/publish/win-x64
+      - name: Build package
+        shell: pwsh
+        run: |
+          ./deploy/build-package.ps1 -PublishDir artifacts/publish/win-x64 -OutDir artifacts/package
+          $zip = @(Get-ChildItem artifacts/package -Filter 'pelly-*-win-x64.zip')
+          if ($zip.Count -ne 1) { throw "expected one zip, found $($zip.Count)" }
+          "PELLY_TEST_PACKAGE=$($zip[0].FullName)" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+      - name: Check SHA256SUMS the way install.md does
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'pelly-unzip'
+          Expand-Archive $env:PELLY_TEST_PACKAGE $dir
+          Set-Location $dir
+          # install.md 2절의 명령 그대로
+          $result = Get-Content .\SHA256SUMS.txt | ForEach-Object {
+            $hash, $file = $_ -split '  ', 2
+            $actual = (Get-FileHash $file -Algorithm SHA256).Hash.ToLower()
+            if ($actual -eq $hash) { "OK  $file" } else { "다름  $file" }
+          }
+          $result | Out-Host
+          if ($result -notmatch '\AOK  ') { throw 'checksum mismatch' }
+          if (@($result).Count -ne 11) { throw "expected 11 checked files, got $(@($result).Count)" }
+      - name: Build tests
+        run: dotnet build tests/PellyCoder.Integration.Tests -warnaserror
+      - name: Package tests
+        # zip이 없거나 Skip되거나 필터 오타로 수가 모자라면 실패해야 한다
+        run: dotnet test tests/PellyCoder.Integration.Tests --no-build -- --filter-class "PellyCoder.Integration.Tests.Package.PackageTests" --fail-skips on --minimum-expected-tests 6
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pelly-package
+          path: ${{ env.PELLY_TEST_PACKAGE }}
+          if-no-files-found: error
+          retention-days: 14
 
   sql-integration:
     runs-on: ubuntu-latest

@@ -39,8 +39,20 @@ Get-FileHash .\pelly.exe -Algorithm SHA256
 Select-String -Path .\SHA256SUMS.txt -Pattern 'pelly.exe'
 ```
 
-두 해시가 같아야 합니다. 전체 파일을 한 번에 보려면 `SHA256SUMS.txt`의 각 줄을 `Get-FileHash` 결과와 대조하십시오.
-(Windows 미확인: `SHA256SUMS.txt`의 줄 형식에 따라 대조 방법이 조금 다를 수 있습니다.)
+두 해시가 같아야 합니다. `Get-FileHash`는 대문자, `SHA256SUMS.txt`는 소문자로 보여 줍니다. 대소문자는 무시하고 비교하십시오.
+
+`SHA256SUMS.txt`는 한 줄에 파일 하나입니다. 형식은 `<소문자 SHA-256>  <zip 안 경로>`입니다(공백 두 칸, 경로 구분은 `/`). `SHA256SUMS.txt` 자신은 들어 있지 않습니다.
+전체 파일을 한 번에 확인하려면 이렇게 실행합니다. 모든 줄이 `OK`여야 합니다.
+
+```powershell
+Get-Content .\SHA256SUMS.txt | ForEach-Object {
+  $hash, $file = $_ -split '  ', 2
+  $actual = (Get-FileHash $file -Algorithm SHA256).Hash.ToLower()
+  if ($actual -eq $hash) { "OK  $file" } else { "다름  $file" }
+}
+```
+
+(이 명령은 CI `windows-latest`의 PowerShell 7에서 확인했습니다. Windows PowerShell 5.1은 미확인입니다.)
 
 ## 3. PATH에 추가
 

@@ -94,8 +94,10 @@ foreach ($c in $sbom['components']) { $components.Add($c) }
 
 # Runtime packs carried by the self-contained single file. They are not package references: restore lists them
 # under downloadDependencies (NuGet cache), or the SDK already has them in <dotnet root>/packs (the apphost pack of
-# the machine's own RID, e.g. win-x64 on the Windows CI runner). The latter has no nuspec; its license is read from
-# the LICENSE.txt of the same .NET installation and must be the MIT License.
+# the machine's own RID, e.g. win-x64 on the Windows CI runner). The packs folder has no nuspec, and the LICENSE.txt
+# of a Windows .NET installation is the Microsoft Software License Terms of the installer, not the pack's license.
+# So the same id and version is fetched into the NuGet cache (PackageDownload) and resolved from its nuspec like
+# every other package.
 $dotnetRoot = $env:DOTNET_ROOT
 if (-not $dotnetRoot -or -not (Test-Path (Join-Path $dotnetRoot 'packs'))) {
     $cmd = (Get-Command dotnet).Source
@@ -109,7 +111,6 @@ foreach ($d in $downloads) {
 }
 foreach ($pack in $RuntimePacks) {
     $origin = 'self-contained .NET runtime pack (NuGet download, added by build-package.ps1)'
-    $licenses = $null
     if ($downloadVersions.Contains($pack)) {
         $ver = $downloadVersions[$pack]
     }
@@ -119,11 +120,18 @@ foreach ($pack in $RuntimePacks) {
         $known = @($dirs | Where-Object { $downloadVersions.Values -contains $_ })
         $ver = if ($known.Count -eq 1) { $known[0] } elseif ($dirs.Count -eq 1) { $dirs[0] } else { $null }
         if (-not $ver) { throw "runtime pack $pack not in downloadDependencies and no single version under $packDir (found: $($dirs -join ', '))" }
-        $licenseFile = Join-Path $dotnetRoot 'LICENSE.txt'
-        $first = if (Test-Path $licenseFile) { (Get-Content $licenseFile | Where-Object { $_.Trim() } | Select-Object -First 1).Trim() } else { '' }
-        if ($first -notmatch '\AThe MIT License') { throw "runtime pack $pack from SDK packs: $licenseFile is not the MIT License ('$first')" }
-        $licenses = @(@{ 'license' = @{ 'id' = 'MIT' } })
-        $origin = 'self-contained .NET runtime pack (SDK packs folder; license from the .NET installation LICENSE.txt; added by build-package.ps1)'
+        if (-not (Find-Nuspec $pack $ver)) {
+            $probeDir = Join-Path $OutDir 'runtime-pack-nuspec'
+            $null = New-Item -ItemType Directory -Force $probeDir
+            $probe = Join-Path $probeDir 'runtime-pack-nuspec.csproj'
+            Write-Utf8Lf $probe @(
+                '<Project Sdk="Microsoft.NET.Sdk">',
+                '  <PropertyGroup><TargetFramework>net10.0</TargetFramework><ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally></PropertyGroup>',
+                "  <ItemGroup><PackageDownload Include=`"$pack`" Version=`"[$ver]`" /></ItemGroup>",
+                '</Project>')
+            Invoke-Native 'dotnet' @('restore', $probe)
+        }
+        $origin = 'self-contained .NET runtime pack (SDK packs folder; license from the same id and version in the NuGet cache; added by build-package.ps1)'
     }
     $component = [ordered]@{
         'type'       = 'framework'
@@ -134,7 +142,6 @@ foreach ($pack in $RuntimePacks) {
         'purl'       = "pkg:nuget/$pack@$ver"
         'properties' = @(@{ 'name' = 'pelly:origin'; 'value' = $origin })
     }
-    if ($licenses) { $component['licenses'] = $licenses }
     $components.Add($component)
 }
 $sbom['components'] = $components.ToArray()
@@ -198,7 +205,7 @@ foreach ($c in ($sbom['components'] | Sort-Object { $_['name'] }, { $_['version'
     $r = Resolve-License $c
     $note = $r.Source
     $origin = if ($c.Contains('properties')) { @($c['properties'] | Where-Object { $_['name'] -eq 'pelly:origin' } | ForEach-Object { $_['value'] }) } else { @() }
-    if ($origin -match 'SDK packs') { $note = 'SDK packs 폴더, .NET 설치본 LICENSE.txt' }
+    if ($origin -match 'SDK packs') { $note = "$($r.Source) (SDK packs 폴더의 팩, 같은 id·버전의 nuspec)" }
     if (-not $r.Allowed) {
         $ex = $exceptions | Where-Object {
             $_['package'] -eq $c['name'] -and $_['version'] -eq $c['version'] -and

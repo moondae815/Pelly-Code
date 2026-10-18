@@ -36,6 +36,10 @@ public sealed class CsSettings : RunSettings
     [CommandOption("--warn-as-error")]
     [Description("빌드 경고를 오류로 취급 (build.warnAsError)")]
     public bool WarnAsError { get; init; }
+
+    [CommandOption("--test")]
+    [Description("검증 때 테스트도 실행 (새로 실패한 테스트만 실패로 봄)")]
+    public bool Test { get; init; }
 }
 
 /// <summary><c>pelly cs</c>: validates arguments, merges configuration, then hands the run to <see cref="IRunner"/>.</summary>
@@ -76,7 +80,7 @@ public sealed class CsCommand(
 
         var request = new RunRequest(
             file, settings.Class, settings.Method, settings.Line, requestText, settings.Yes, settings.DryRun, settings.MaxRetries,
-            Verbose: settings.Verbose);
+            Verbose: settings.Verbose, RunTests: settings.Test);
         try
         {
             return await runner.RunAsync(request, loaded.Options, cancellation);

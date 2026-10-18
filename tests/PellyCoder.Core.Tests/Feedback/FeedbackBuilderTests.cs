@@ -157,4 +157,44 @@ public sealed class FeedbackBuilderTests
         Assert.EndsWith("\u2026", fb.Text);
         Assert.True(fb.Tokens <= 20);
     }
+
+    [Fact]
+    public void ForTests_ListsFirstMessageLines()
+    {
+        var failures = new[]
+        {
+            new PellyCoder.Core.Testing.TestCaseResult("N.T.A", false, "Assert.Equal() Failure\nExpected: 1\nActual: 2"),
+            new PellyCoder.Core.Testing.TestCaseResult("N.T.B", false, null),
+        };
+
+        var fb = new FeedbackBuilder(Counter, 296).ForTests(failures);
+
+        Assert.Equal("TESTS FAILED (2 new failures)\nN.T.A: Assert.Equal() Failure\nN.T.B", fb.Text);
+        Assert.Equal("TESTS FAILED (1 new failure)\nN.T.A: m", new FeedbackBuilder(Counter, 296)
+            .ForTests([new PellyCoder.Core.Testing.TestCaseResult("N.T.A", false, "m")]).Text);
+    }
+
+    [Fact]
+    public void ForTests_FitsBudget()
+    {
+        var failures = Enumerable.Range(0, 200)
+            .Select(i => new PellyCoder.Core.Testing.TestCaseResult($"Shop.Api.Tests.OrderServiceTests.Case{i:000}", false, "Assert.True() Failure " + new string('x', 40)))
+            .ToList();
+
+        var fb = new FeedbackBuilder(Counter, 120).ForTests(failures);
+
+        Assert.True(fb.Tokens <= 120);
+        Assert.Equal(Counter.Count(fb.Text), fb.Tokens);
+        Assert.StartsWith("TESTS FAILED (200 new failures)\nShop.Api.Tests.OrderServiceTests.Case000: ", fb.Text);
+        Assert.DoesNotContain("Case199", fb.Text); // trailing entries are dropped first
+        Assert.DoesNotContain("\u2026", fb.Text); // whole entries dropped, nothing cut mid-line
+
+        var huge = new FeedbackBuilder(Counter, 30).ForTests([new PellyCoder.Core.Testing.TestCaseResult("N.T.A", false, new string('y', 5000))]);
+        Assert.True(huge.Tokens <= 30);
+        Assert.StartsWith("TESTS FAILED (1 new failure)", huge.Text);
+    }
+
+    [Fact]
+    public void ForTestExitCode_Format() =>
+        Assert.Equal("TESTS FAILED (exit 3)", new FeedbackBuilder(Counter, 296).ForTestExitCode(3).Text);
 }

@@ -6,6 +6,7 @@ using PellyCoder.Core.Files;
 using PellyCoder.Core.Llm;
 using PellyCoder.Core.Models;
 using PellyCoder.Core.Sql;
+using PellyCoder.Core.Testing;
 using PellyCoder.Core.Workspaces;
 
 namespace PellyCoder.Core.Fsm;
@@ -13,11 +14,11 @@ namespace PellyCoder.Core.Fsm;
 /// <summary>
 /// One <c>pelly cs</c> invocation. The target is <paramref name="Line"/> (1-based, not with a class or method name), else
 /// <paramref name="MethodName"/>, else found from the request text (design 8.4). <paramref name="MaxRetries"/> null means
-/// <c>retry.max</c> from the options.
+/// <c>retry.max</c> from the options. <paramref name="RunTests"/> (<c>--test</c>) adds the test step to VERIFY.
 /// </summary>
 public sealed record RunRequest(
     string FilePath, string? ClassName, string? MethodName, int? Line, string Request, bool Yes, bool DryRun, int? MaxRetries,
-    string? ObjectName = null, EditKind Kind = EditKind.CSharp, bool Verbose = false);
+    string? ObjectName = null, EditKind Kind = EditKind.CSharp, bool Verbose = false, bool RunTests = false);
 
 /// <summary>State of a <c>pelly sql</c> run (set by SQL LOCATE; null for C# runs).</summary>
 public sealed class SqlRunState(SqlScript originalScript, int targetIndex, SqlObjectName target, SqlObjectKind kind,
@@ -116,6 +117,21 @@ public sealed class RunContext(string runId, RunRequest request, PellyOptions op
 
     /// <summary>Finished <see cref="Baseline"/> (set by the first Apply that awaited it).</summary>
     public BaselineSnapshot? BaselineSnapshot { get; set; }
+
+    /// <summary>Test projects for the target (set by Locate with <c>--test</c>); empty means no test step.</summary>
+    public IReadOnlyList<string> TestProjects { get; set; } = [];
+
+    /// <summary>
+    /// Tests of the untouched code, one run per <see cref="TestProjects"/> entry. Started by Locate after <see cref="Baseline"/>
+    /// finishes, on the same cancellation source; awaited by Apply before the first write. Null without test projects or in a dry run.
+    /// </summary>
+    public Task<IReadOnlyList<TestRun>>? BaselineTests { get; set; }
+
+    /// <summary>Finished <see cref="BaselineTests"/> (set by the first Apply that awaited them); null entries could not run.</summary>
+    public IReadOnlyList<TestRun?>? BaselineTestRuns { get; set; }
+
+    /// <summary>The "cannot compare" notice of an exit-code-only test project was shown (once per run).</summary>
+    public bool TestNotComparableShown { get; set; }
 
     public SliceResult SliceResult { get; set; } = null!;
     public PromptBuildResult? Prompt { get; set; }

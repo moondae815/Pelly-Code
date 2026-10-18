@@ -10,7 +10,7 @@ namespace PellyCoder.Core.Fsm;
 /// <summary>
 /// Runs the phases through <see cref="Transitions"/> until Done or Failed (design §7.2). On Failed it restores the
 /// original bytes from the backup unless the file changed outside pelly; the restore ignores cancellation.
-/// A baseline build still running at the end is cancelled and awaited first, so no build process outlives the run.
+/// A baseline build or test run still running at the end is cancelled and awaited first, so no such process outlives the run.
 /// </summary>
 public sealed class FsmOrchestrator(
     IEnumerable<IPhase> phases, FileGuard fileGuard, RunLogger logger, IFileSystem fs,
@@ -125,7 +125,7 @@ public sealed class FsmOrchestrator(
     }
 
     /// <summary>
-    /// Cancels the baseline build (killing its process tree) and waits up to <see cref="BaselineStopWait"/> for it.
+    /// Cancels the baseline build and tests (killing their process trees) and waits up to <see cref="BaselineStopWait"/> for both.
     /// Runs before rollback and before the lock is released; its own failures are irrelevant at this point.
     /// </summary>
     private async Task StopBaselineAsync(RunContext ctx)
@@ -141,15 +141,21 @@ public sealed class FsmOrchestrator(
             {
                 // A cancellation callback threw; the build is still being stopped.
             }
-            if (ctx.Baseline is { } baseline)
+            // The baseline tests start only after the baseline build, so waiting for both shares one time limit.
+            var running = new List<Task>();
+            if (ctx.Baseline is { } baseline) running.Add(baseline);
+            if (ctx.BaselineTests is { } tests) running.Add(tests);
+            if (running.Count > 0)
             {
                 try
                 {
-                    await baseline.WaitAsync(BaselineStopWait, time, CancellationToken.None);
+                    await Task.WhenAll(running).WaitAsync(BaselineStopWait, time, CancellationToken.None);
                 }
                 catch (TimeoutException)
                 {
-                    ctx.Messages.Add($"원본 상태 빌드가 {BaselineStopWait.TotalSeconds:0}초 안에 멈추지 않았습니다. 남은 빌드 프로세스가 있는지 확인하세요");
+                    ctx.Messages.Add(ctx.BaselineTests is null
+                        ? $"원본 상태 빌드가 {BaselineStopWait.TotalSeconds:0}초 안에 멈추지 않았습니다. 남은 빌드 프로세스가 있는지 확인하세요"
+                        : $"원본 상태 빌드·테스트가 {BaselineStopWait.TotalSeconds:0}초 안에 멈추지 않았습니다. 남은 빌드·테스트 프로세스가 있는지 확인하세요");
                 }
                 catch (Exception)
                 {
@@ -226,7 +232,7 @@ public sealed class FsmOrchestrator(
             RunPhase.Edit => $"수정 생성 (시도 {ctx.Attempt + 1}/{1 + ctx.MaxRetries})",
             RunPhase.Apply => ctx.Request.DryRun ? "패치 미리 보기" : "패치 적용",
             RunPhase.Verify when ctx.Request.Kind == EditKind.Sql => "객체 존재·컴파일 검사",
-            RunPhase.Verify => ctx.BuildTool is null ? "구문 검사" : "구문 검사·빌드",
+            RunPhase.Verify => ctx.BuildTool is null ? "구문 검사" : ctx.TestProjects.Count > 0 ? "구문 검사·빌드·테스트" : "구문 검사·빌드",
             RunPhase.Review => "변경 검토",
             _ => phase.ToString(),
         };

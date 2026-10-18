@@ -5,17 +5,20 @@ using PellyCoder.Core.Builds;
 using PellyCoder.Core.CSharp;
 using PellyCoder.Core.Llm;
 using PellyCoder.Core.Models;
+using PellyCoder.Core.Testing;
+using PellyCoder.Core.Verification;
 
 namespace PellyCoder.Core.Fsm.Phases;
 
 /// <summary>
 /// Resolves the project, its C# version and the single member to edit (by line, by name, or from the request text with a
 /// model pick as the last resort — design §8.4), then the build tool. Unless this is a dry run it starts the baseline build
-/// of the untouched project, which runs while SLICE and EDIT proceed (design §7.3). A failed lookup returns before that.
+/// of the untouched project, which runs while SLICE and EDIT proceed (design §7.3), and with <c>--test</c> the baseline
+/// tests right after it. A failed lookup returns before that.
 /// </summary>
 public sealed class LocatePhase(
     IFileSystem fs, IUserInteraction ui, BuildToolResolver tools, BuildVerifier builds, ModelMemberPicker picker,
-    Func<bool>? isWindows = null) : IPhase
+    Func<bool>? isWindows = null, TestRunner? tests = null) : IPhase
 {
     /// <summary>Longest member list the model is asked to choose from (design §8.4, step 5).</summary>
     private const int MaxPickMembers = 60;
@@ -77,6 +80,7 @@ public sealed class LocatePhase(
         {
             // MSBuild for .NET Framework exists only on Windows: verify syntax only, like a project without csproj.
             ctx.Messages.Add("레거시 .NET Framework 프로젝트는 Windows에서만 빌드 검증합니다 — 구문 검사만 합니다");
+            if (ctx.Request.RunTests) ctx.Messages.Add("레거시 테스트는 Windows에서만 실행합니다 — 테스트를 건너뜁니다");
             return PhaseOutcome.Ok;
         }
 
@@ -89,13 +93,63 @@ public sealed class LocatePhase(
         }
 
         ctx.BuildTool = tool;
-        if (ctx.Request.DryRun) return PhaseOutcome.Ok; // a dry run never builds
+        if (ctx.Request.DryRun) return PhaseOutcome.Ok; // a dry run never builds or tests
+
+        if (ctx.Request.RunTests && tests is not null && FindTestProjects(ctx, csproj) is { } failed)
+            return failed;
 
         var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         ctx.BaselineCancellation = cts;
         // Started only; APPLY awaits it. The orchestrator cancels it and waits for it when the run ends.
-        ctx.Baseline = Task.Run(() => builds.BuildAsync(tool, csproj, ctx.Workspace!.Root, cts.Token), CancellationToken.None);
+        var baseline = Task.Run(() => builds.BuildAsync(tool, csproj, ctx.Workspace!.Root, cts.Token), CancellationToken.None);
+        ctx.Baseline = baseline;
+        if (ctx.TestProjects.Count > 0)
+        {
+            var projects = ctx.TestProjects;
+            // After the baseline build, never alongside it: both would build the target into the same obj/ folder.
+            ctx.BaselineTests = Task.Run(() => RunBaselineTestsAsync(ctx, tests!, tool, projects, baseline, cts.Token), CancellationToken.None);
+        }
         return PhaseOutcome.Ok;
+    }
+
+    /// <summary>Sets <see cref="RunContext.TestProjects"/>; null to go on, or the outcome when the configured list is wrong.</summary>
+    private PhaseOutcome? FindTestProjects(RunContext ctx, string csproj)
+    {
+        try
+        {
+            ctx.TestProjects = TestProjectLocator.Find(fs, ctx.Workspace!.Root, csproj, ctx.Options.Test);
+        }
+        catch (FileNotFoundException ex)
+        {
+            ctx.Messages.Add(ex.Message);
+            return PhaseOutcome.EnvError;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            ctx.Messages.Add($"테스트 프로젝트를 찾는 중 파일을 읽을 수 없습니다 ({ex.Message})");
+            return PhaseOutcome.EnvError;
+        }
+        if (ctx.TestProjects.Count == 0)
+            ctx.Messages.Add("테스트 프로젝트를 찾지 못해 테스트를 건너뜁니다 (빌드 결과로만 판정)");
+        return null;
+    }
+
+    private static async Task<IReadOnlyList<TestRun>> RunBaselineTestsAsync(RunContext ctx, TestRunner runner, BuildTool tool,
+        IReadOnlyList<string> projects, Task<BuildRun> baseline, CancellationToken ct)
+    {
+        try
+        {
+            await baseline;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return []; // APPLY reports the failed baseline build and ends the run; these results would never be used
+        }
+
+        var runs = new List<TestRun>();
+        for (var i = 0; i < projects.Count; i++)
+            runs.Add(await runner.RunAsync(tool, projects[i], ctx.Workspace!.Root, TestStep.TrxPath(ctx, $"baseline-{i + 1}"), ct));
+        return runs;
     }
 
     private static (PhaseOutcome, MemberCandidate?) AtLine(RunContext ctx, int line)

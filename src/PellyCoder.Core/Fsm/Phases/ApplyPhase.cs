@@ -6,12 +6,13 @@ using PellyCoder.Core.Feedbacks;
 using PellyCoder.Core.Files;
 using PellyCoder.Core.Models;
 using PellyCoder.Core.Patchers;
+using PellyCoder.Core.Testing;
 using PellyCoder.Core.Verification;
 
 namespace PellyCoder.Core.Fsm.Phases;
 
 /// <summary>
-/// Applies the blocks in memory, checks the member shape against the original file, then (unless dry run) waits for the baseline build, backs up once and writes atomically
+/// Applies the blocks in memory, checks the member shape against the original file, then (unless dry run) waits for the baseline build and tests, backs up once and writes atomically
 /// with external-change detection.
 /// </summary>
 public sealed class ApplyPhase(FileGuard fileGuard, FeedbackBuilder feedback, IUserInteraction ui, BuildOptions build) : IPhase
@@ -55,9 +56,10 @@ public sealed class ApplyPhase(FileGuard fileGuard, FeedbackBuilder feedback, IU
             return PhaseOutcome.DryRunCompleted;
         }
 
-        // The baseline must describe the untouched project, so it has to finish before the first write.
+        // The baseline build and tests must describe the untouched project, so they have to finish before the first write.
         if (await AwaitBaselineAsync(ctx, ct) is { } failed)
             return failed;
+        await AwaitBaselineTestsAsync(ctx, ct);
 
         return await PatchWriter.WriteAsync(ctx, fileGuard, feedback, patch, ct);
     }
@@ -116,6 +118,49 @@ public sealed class ApplyPhase(FileGuard fileGuard, FeedbackBuilder feedback, IU
         ctx.BaselineSnapshot = new BaselineSnapshot(run);
         return null;
     }
+
+    /// <summary>
+    /// Waits for the baseline tests once per run. Tests that could not run are announced and skipped by the test step (the
+    /// build still verifies the edit): failing the run here would keep <c>--test</c> from ever editing such a project.
+    /// </summary>
+    private async Task AwaitBaselineTestsAsync(RunContext ctx, CancellationToken ct)
+    {
+        if (ctx.BaselineTests is null || ctx.BaselineTestRuns is not null) return;
+
+        var usable = new TestRun?[ctx.TestProjects.Count];
+        IReadOnlyList<TestRun> runs;
+        try
+        {
+            runs = await ctx.BaselineTests.WaitAsync(ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw; // user cancel: the orchestrator maps it to exit 2
+        }
+        catch (Exception ex)
+        {
+            ctx.Messages.Add($"{CannotRunBaselineTests}: {ex.GetType().Name}: {ex.Message}");
+            ctx.BaselineTestRuns = usable;
+            return;
+        }
+
+        var reasons = new List<string>();
+        for (var i = 0; i < usable.Length && i < runs.Count; i++)
+        {
+            var reason = runs[i] switch
+            {
+                { Error: { } error } => error,
+                { TimedOut: true } => TestStep.TimedOutMessage(ctx.Options.Test),
+                _ => null,
+            };
+            if (reason is null) usable[i] = runs[i];
+            else if (!reasons.Contains(reason)) reasons.Add(reason);
+        }
+        foreach (var reason in reasons) ctx.Messages.Add($"{CannotRunBaselineTests}: {reason}");
+        ctx.BaselineTestRuns = usable;
+    }
+
+    private const string CannotRunBaselineTests = "원본 상태 테스트를 실행하지 못해 테스트 판정을 건너뜁니다";
 
     private PhaseOutcome Mismatch(RunContext ctx, PatchFailure failure)
     {

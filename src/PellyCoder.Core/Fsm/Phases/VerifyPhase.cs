@@ -2,7 +2,7 @@ using PellyCoder.Core.Verification;
 
 namespace PellyCoder.Core.Fsm.Phases;
 
-/// <summary>Runs the verifier steps (syntax, then build) in order and stops at the first one that fails.</summary>
+/// <summary>Runs the verifier steps (syntax, build, then tests with <c>--test</c>) in order and stops at the first one that fails.</summary>
 public sealed class VerifyPhase(IReadOnlyList<IVerifierStep> steps) : IPhase
 {
     public RunPhase Phase => RunPhase.Verify;

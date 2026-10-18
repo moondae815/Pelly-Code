@@ -72,6 +72,19 @@ public class CsCommandTests
     }
 
     [Fact]
+    public void TestFlag_SetsRunTests()
+    {
+        var h = Build();
+
+        Assert.Equal(0, h.App.Run("cs", File, "do it", "--test").ExitCode);
+        Assert.True(h.Runner.Request!.RunTests);
+
+        var off = Build();
+        Assert.Equal(0, off.App.Run("cs", File, "do it").ExitCode);
+        Assert.False(off.Runner.Request!.RunTests);
+    }
+
+    [Fact]
     public void NoMethodNoLine_PassesNullsToRunner()
     {
         var h = Build();

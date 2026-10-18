@@ -8,6 +8,7 @@ using PellyCoder.Core.Fsm.Phases;
 using PellyCoder.Core.Llm;
 using PellyCoder.Core.Logging;
 using PellyCoder.Core.Sql;
+using PellyCoder.Core.Testing;
 using PellyCoder.Core.Verification;
 
 namespace PellyCoder.Core.Fsm;
@@ -27,16 +28,17 @@ public static class FsmOrchestratorFactory
         var prompts = new PromptBuilder(template, resources, tokens, options.Budget);
         var client = new QwenStreamClient(backend, template, options.Llm, options.Budget, options.Sampling, time);
         var builds = new BuildVerifier(processes, options.Build);
+        var tests = new TestRunner(processes, options.Build, options.Test);
 
         IPhase[] phases =
         [
             new PreflightPhase(fs, fileGuard, backend, options.Llm, tokens.SpecialTokens),
             new LocatePhase(fs, ui, new BuildToolResolver(fs, processes, options.Build, isWindows), builds,
-                new ModelMemberPicker(backend, template, resources, options.Llm, options.Sampling), isWindows),
+                new ModelMemberPicker(backend, template, resources, options.Llm, options.Sampling), isWindows, tests),
             new SlicePhase(fs, fileGuard, tokens, options.Budget),
             new EditPhase(prompts, client, feedback, logger, ui),
             new ApplyPhase(fileGuard, feedback, ui, options.Build),
-            new VerifyPhase([new SyntaxStep(fs, feedback), new BuildStep(builds, feedback, options.Build)]),
+            new VerifyPhase([new SyntaxStep(fs, feedback), new BuildStep(builds, feedback, options.Build), new TestStep(tests, feedback, options.Test)]),
             new ReviewPhase(ui),
         ];
         return new FsmOrchestrator(phases, fileGuard, logger, fs, options, ui, time);

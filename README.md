@@ -53,7 +53,7 @@ pelly cs <파일> ["<요청문>"] [--class <클래스>] [--method <메서드>] [
 
 **실행 후 표시 옵션**
 * `--verbose`: 실행이 끝난 뒤 단계별 시간·토큰·시도 요약과 실행 폴더 경로를 보여줍니다. 프롬프트 원문은 출력하지 않고 `attempt-N/prompt.txt` 경로를 안내합니다(`pelly sql`에서도 같습니다).
-* `--pause-on-exit`: 결과를 보여준 뒤 키 입력을 기다립니다. IDE External Tools 창이 바로 닫히지 않게 할 때 씁니다. 입력이 리디렉션되면 기다리지 않으며 Ctrl+C로 중단한 실행도 기다리지 않습니다. 키 대기는 Windows에서 확인하지 않았습니다.
+* `--pause-on-exit`: 결과를 보여준 뒤 키 입력을 기다립니다. IDE External Tools 창이 바로 닫히지 않게 할 때 씁니다. `pelly doctor`와 `pelly report`에도 쓸 수 있습니다(`Program`이 원시 인자로 판정). 입력이 리디렉션되면 기다리지 않으며 Ctrl+C로 중단한 실행도 기다리지 않습니다. 키 대기는 Windows에서 확인하지 않았습니다.
 
 예:
 ```bash

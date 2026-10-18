@@ -43,6 +43,16 @@ public sealed class TestStep(TestRunner runner, FeedbackBuilder feedback, TestOp
             var run = await runner.RunAsync(tool, project, ctx.Workspace!.Root, TrxPath(ctx, $"verify-{ctx.Attempt}-{i + 1}"), ct);
             if (run.TimedOut)
                 return StepResult.Environment(TimedOutMessage(options));
+            if (run.ReportMissing && before.PerTestResults)
+            {
+                // The edit killed an in-process test host (stack overflow, fail-fast): no report exists, which is a test failure the
+                // model can fix, not a broken environment. Every test that passed before did not pass now.
+                var lost = before.Results.Where(r => r.Passed)
+                    .Select(r => new TestCaseResult(r.FullName, false, NotRunFeedback)).ToList();
+                if (lost.Count > 0) failures.AddRange(lost);
+                else exitFailures.Add((project, run.ExitCode));
+                continue;
+            }
             if (run.Error is { } error)
                 return StepResult.Environment($"테스트를 실행하지 못했습니다: {error}");
 

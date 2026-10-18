@@ -706,7 +706,7 @@ PRD FR-08 항목을 순서대로 검사하고 표로 출력합니다. 각 항목
 
 * SQL용 항목(`sql "$(ItemPath)" --line $(CurLine)`)도 같은 방식으로 하나 더 등록합니다.
 * **실행 전 저장:** 저장하지 않은 편집이 IDE에 있으면 pelly는 디스크의 파일만 보고 수정하게 됩니다. 가이드에서 실행 전 저장(VS: 단축키로 모두 저장 후 실행, Rider: 외부 도구 실행 전 자동 저장 설정)을 안내합니다. 저장되지 않은 IDE 편집과 충돌하는 경우에도 pelly 쪽 파일은 FileGuard가 보호합니다.
-* **실행이 끝나면 창을 바로 닫지 않습니다:** External Tools로 띄운 콘솔은 종료하면 바로 사라지므로, `--pause-on-exit`(External Tools 가이드 인수에 포함) 옵션이 있으면 "종료 코드 n. 아무 키나 누르면 창을 닫습니다…"를 보여주고 키 입력을 기다립니다 (M3a R10). 판정은 `Program`에서 **원시 인자**로 하므로 인자 해석 오류나 예외로 끝나도 창이 바로 닫히지 않습니다. 입력이 리디렉션되어 있으면 기다리지 않고(누를 사람이 없음), `--` 뒤의 인자는 무시합니다. **Ctrl+C·창 닫기(종료 신호)로 중단한 실행은 키를 기다리지 않고 바로 끝납니다**(알려진 한계). 콘솔 키 대기(`Console.KeyAvailable` 폴링)는 macOS에서만 확인했고 **Windows 미확인**입니다.
+* **실행이 끝나면 창을 바로 닫지 않습니다:** External Tools로 띄운 콘솔은 종료하면 바로 사라지므로, `--pause-on-exit`(External Tools 가이드 인수에 포함) 옵션이 있으면 "종료 코드 n. 아무 키나 누르면 창을 닫습니다…"를 보여주고 키 입력을 기다립니다 (M3a R10). 판정은 `Program`에서 **원시 인자**로 하므로 인자 해석 오류나 예외로 끝나도 창이 바로 닫히지 않습니다. `pelly doctor`와 `pelly report`도 같은 원시 인자 판정을 거치므로 `--pause-on-exit`가 똑같이 동작합니다(입력을 리디렉션해 실행해 종료 코드 0 확인, 키 대기 자체는 Windows 미확인). 입력이 리디렉션되어 있으면 기다리지 않고(누를 사람이 없음), `--` 뒤의 인자는 무시합니다. **Ctrl+C·창 닫기(종료 신호)로 중단한 실행은 키를 기다리지 않고 바로 끝납니다**(알려진 한계). 콘솔 키 대기(`Console.KeyAvailable` 폴링)는 macOS에서만 확인했고 **Windows 미확인**입니다.
 * 콘솔 창에서 한글 입력·출력이 깨지지 않는지(D20, §8.11 UTF-8 설정) 확인하는 것을 S7에 포함합니다.
 
 ### 8.15 v1의 알려진 한계 (사용자에게 안내)
@@ -733,10 +733,10 @@ PRD FR-08 항목을 순서대로 검사하고 표로 출력합니다. 각 항목
 | S3 | think/code 샘플링 기본값 (Q2) | 모델 카드 확인 + 샘플 작업 10건으로 think 반복·잘림 비율 비교 | `sampling` 기본값 |
 | S4 | .NET에서 Qwen 토크나이저 (—) | `Microsoft.ML.Tokenizers`로 `tokenizer.json` 로드, 문장 50개를 서버 `prompt_eval_count`와 비교 | 오차 ≤ 2% 이면 `QwenTokenCounter` 채택, 아니면 `CalibratedEstimator` |
 | S5 | NOEXEC 최소 권한·트랜잭션 처리 (Q4) | Docker SQL Server에서 권한 조합별로 `ALTER PROCEDURE` NOEXEC 컴파일 시험 | 필요 권한 목록, §8.10 배치 순서 확정 |
-| S7 | IDE External Tools 연동 (—, M3) | Mac의 Rider에서 External Tools로 `--line` 실행, 대화형 입력·한글·`--pause-on-exit`·파일 다시 불러오기 확인. Visual Studio는 M4 폐쇄망에서 확인 | `deploy/ide-external-tools.md` 확정 |
-| S6 | 단일 파일 publish (—, M3) | `win-x64` self-contained single-file로 Roslyn·ScriptDom·임베디드 토크나이저 동작 확인(CI windows 러너) | 동작 여부와 필요한 `IncludeNativeLibrariesForSelfExtract` 등 설정 |
+| S7 | IDE External Tools 연동 (—, M3b) | Mac의 Rider에서 External Tools로 `--line` 실행, 대화형 입력·한글·`--pause-on-exit`·파일 다시 불러오기 확인. Visual Studio는 M4 폐쇄망에서 확인 | `deploy/ide-external-tools.md` 확정 |
+| S6 | 단일 파일 publish (—, M3b) | `win-x64` self-contained single-file로 Roslyn·ScriptDom·임베디드 토크나이저 동작 확인(CI windows 러너) | 동작 여부와 필요한 `IncludeNativeLibrariesForSelfExtract` 등 설정 |
 
-S1~S5는 M0, S6·S7은 M3에 수행합니다.
+S1~S5는 M0, S6·S7은 M3b에 수행합니다.
 
 ### 9.1 M0 결과 (2026-10-17, `qwen3.6:35b-a3b-coding-nvfp4` — 폐쇄망 모델과 같은 모델을 받으면 S1·S2·S4 재실행)
 | ID | 결과 | 문서 |
@@ -784,7 +784,7 @@ S1~S5는 M0, S6·S7은 M3에 수행합니다.
 | unit | `macos-latest`, `windows-latest` | 빌드 + Unit 테스트 |
 | windows-integration | `windows-latest` | `eval/corpus/Legacy`·`Modern` 빌드(레거시는 `nuget restore` 후 MSBuild), Windows 테스트, `pelly`의 BuildVerifier를 코퍼스에 대해 실제 실행(LLM 없이 미리 정의된 패치 적용) |
 | sql-integration | `ubuntu-latest` + `mcr.microsoft.com/mssql/server:2022-latest` 서비스 | 코퍼스 SQL 배포 후 SqlServer 테스트 |
-| publish-check | `windows-latest` | `win-x64` self-contained single-file publish 후 `pelly doctor --offline-selftest` 실행 (M3부터) |
+| publish-check | `windows-latest` | `win-x64` self-contained single-file publish 후 `pelly doctor --offline-selftest` 실행 (M3b부터) |
 
 `pelly doctor --offline-selftest`는 네트워크 없이 토크나이저 로드, Roslyn 파싱, ScriptDom 파싱, 인코딩 provider를 확인하는 숨은 옵션입니다.
 
@@ -822,7 +822,7 @@ S1~S5는 M0, S6·S7은 M3에 수행합니다.
   ```
 * 공통 규칙: 대상이 원본과 같으면 실패(아무것도 안 고친 패치 차단). **공백 차이뿐인 수정(줄바꿈·들여쓰기만 바뀐 재포맷)도 "같다"로 셉니다**(공백 연속을 한 칸으로 접어 비교). **모든 작업은 내용 판정(`mustContain`·`mustAdd`·`mustNotContain`)을 하나 이상 가집니다** — 빌드·컴파일 판정만으로는 의미 없는 수정도 통과합니다(`AllTasks_HaveContentCriterion`, M2b T14). 정의 형식과 규칙은 `eval/benchmark/README.md`.
 * `PellyCoder.Eval`은 코퍼스를 임시 폴더로 복사 → 작업마다 `FsmOrchestrator.RunAsync`(`--yes`) 실행 → 판정 → `summary.json`과 판정 결과를 모아 KPI 표 출력.
-* **작업 구성 (M2b R9):** M2는 **30건** = C# 18건(Legacy 10, Modern 8) + SQL 12건. 설계 초안의 "C# 30 + SQL 20"은 M2 완료 기준("30건 이상 실행 가능")에 맞춰 줄였고, **50건 확장은 M3이 맡습니다.** 시그니처를 바꾸는 요청(async 전환 등)은 넣지 않습니다 — MemberShapeGuard가 막는 의도된 동작입니다. SQL 매개변수 추가는 허용합니다.
+* **작업 구성 (M2b R9):** M2는 **30건** = C# 18건(Legacy 10, Modern 8) + SQL 12건. 설계 초안의 "C# 30 + SQL 20"은 M2 완료 기준("30건 이상 실행 가능")에 맞춰 줄였고, **50건 확장은 M3b가 맡습니다.** 시그니처를 바꾸는 요청(async 전환 등)은 넣지 않습니다 — MemberShapeGuard가 막는 의도된 동작입니다. SQL 매개변수 추가는 허용합니다.
 * **실행기 사용법 (M2b T13):** `dotnet run --project eval/PellyCoder.Eval -- [--tasks <접두사|글롭,…>] [--kind cs|sql] [--out <폴더>] [--config <pelly.json>]`. 결과는 `eval/results/<yyyyMMdd-HHmmss>/`(git 추적 제외)의 `report.md`(KPI 표·실패 유형·작업별 결과), `results.json`, `work/<id>/`(작업별 코퍼스 복사본과 `.pelly/runs`). 종료 코드는 0 실행 완료 · 1 검증 불변 조건 위반 · 2 중단 · 4 설정 오류 또는 LLM 서버 연결 불가입니다. SQL 연결은 `PELLY_SQL_CONNECTION`, 허용 목록은 `--config`의 pelly.json에 둡니다.
 * **SQL 작업은 허용 목록이 비어 있으면 건너뜁니다**(보고서에 사유). 실행기가 스스로 허용 목록을 넓히지 않습니다 — 허용 목록이 비면 연결이 없거나 목록에 없는 것과 같은 취급입니다 (M2b T13).
 * **독립 재검증 (M2b T13):** 모델 실행이 종료 0으로 끝난 작업은 실행기가 결과 파일을 pelly와 별개 경로로 다시 검증합니다(C#: 빌드, SQL: 원본과 같은 방식의 NOEXEC 컴파일에서 새 오류 없음). 이것이 "검증 불변 조건"(종료 0 = 검증 통과)의 판정자입니다. **분모는 독립 검증이 `Passed` 또는 `Failed`인 종료 0 실행만**이고, 검증이 생략된 실행(Windows가 아닌 환경의 Legacy, 검증기 예외)은 분모에서 빼 따로 "독립 검증 생략 N건"으로 보입니다. 판정된 것이 하나도 없으면 "판정 불가"로 표시해 미검증 실행이 100%로 보이지 않게 합니다. 검증기 예외는 위반이 아니라 생략으로 기록합니다(검증기가 죽었다는 것이 수정이 틀렸다는 증거는 아님).

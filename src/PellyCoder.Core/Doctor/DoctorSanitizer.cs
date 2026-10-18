@@ -33,6 +33,20 @@ public static partial class DoctorSanitizer
     private static readonly HashSet<string> VersionKeys =
         [DoctorFacts.OllamaVersion, DoctorFacts.DotnetVersion, DoctorFacts.PellyVersion];
 
+    private static readonly HashSet<string> BooleanKeys =
+        [DoctorFacts.Loaded, DoctorFacts.Match, DoctorFacts.Found, DoctorFacts.CanViewDefinition, DoctorFacts.Installed];
+
+    private static readonly HashSet<string> IntegerKeys = [DoctorFacts.LatencyMs, DoctorFacts.TtftMs, DoctorFacts.ServerMajor];
+
+    /// <summary>A fact leaves the machine only in its key's shape (boolean, short ASCII integer, 12 hex digits); anything else is <c>invalid</c>.</summary>
+    private static string Typed(string key, string value)
+    {
+        if (BooleanKeys.Contains(key)) return value is "true" or "false" ? value : "invalid";
+        if (IntegerKeys.Contains(key)) return IntegerPattern.IsMatch(value) ? value : "invalid";
+        if (key == DoctorFacts.TokenizerHash) return HashPattern.IsMatch(value) ? value : "invalid";
+        return "invalid"; // a whitelisted key without a rule never passes free text
+    }
+
     private static readonly JsonSerializerOptions Options = new()
     {
         WriteIndented = true,
@@ -71,7 +85,7 @@ public static partial class DoctorSanitizer
                     if (!c.Facts.TryGetValue(key, out var value) || string.IsNullOrEmpty(value)) continue;
                     if (key == DoctorFacts.FrameworkVersion) facts[key] = FrameworkPattern.IsMatch(value) ? value : "invalid";
                     else if (VersionKeys.Contains(key)) facts[key] = Reporting.ReportSanitizer.Version(value);
-                    else if (ValuePattern.IsMatch(value)) facts[key] = value;
+                    else facts[key] = Typed(key, value);
                 }
             }
             var status = Enum.IsDefined(c.Status) ? c.Status.ToString() : nameof(DoctorStatus.Fail);
@@ -84,6 +98,9 @@ public static partial class DoctorSanitizer
     [GeneratedRegex(@"\A[vV][0-9]{1,2}(\.[0-9]{1,2}){1,2}\z", RegexOptions.CultureInvariant)]
     private static partial Regex FrameworkPattern { get; }
 
-    [GeneratedRegex(@"\A[0-9A-Za-z.:_+\-]{0,40}\z", RegexOptions.CultureInvariant)]
-    private static partial Regex ValuePattern { get; }
+    [GeneratedRegex(@"\A[0-9]{1,9}\z", RegexOptions.CultureInvariant)]
+    private static partial Regex IntegerPattern { get; }
+
+    [GeneratedRegex(@"\A[0-9a-f]{12}\z", RegexOptions.CultureInvariant)]
+    private static partial Regex HashPattern { get; }
 }

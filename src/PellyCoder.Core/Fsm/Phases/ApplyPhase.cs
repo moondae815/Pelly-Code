@@ -135,6 +135,7 @@ public sealed class ApplyPhase(FileGuard fileGuard, FeedbackBuilder feedback, IU
 
         var usable = new TestRun?[ctx.TestProjects.Count];
         IReadOnlyList<TestRun> runs;
+        if (!ctx.BaselineTests.IsCompleted) Announce(ctx, "원본 상태 테스트가 끝나기를 기다리는 중");
         try
         {
             runs = await ctx.BaselineTests.WaitAsync(ct);
@@ -170,6 +171,19 @@ public sealed class ApplyPhase(FileGuard fileGuard, FeedbackBuilder feedback, IU
                 ctx.Messages.Add($"{TestStep.BaselineNotBuilt}: {Path.GetFileName(ctx.TestProjects[i])}");
         }
         ctx.BaselineTestRuns = usable;
+    }
+
+    /// <summary>A status line is cosmetic: a console that cannot show it never fails the run.</summary>
+    private void Announce(RunContext ctx, string message)
+    {
+        try
+        {
+            ui.ShowStatus(RunPhase.Apply, ctx.Attempt, message);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // ignored
+        }
     }
 
     private const string CannotRunBaselineTests = "원본 상태 테스트를 실행하지 못해 테스트 판정을 건너뜁니다";

@@ -303,6 +303,36 @@ public sealed class TestFlowTests : IDisposable
     }
 
     [Fact]
+    public async Task ApplyWaitingForBaselineTests_SaysSo_Once()
+    {
+        var applyStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _ui.OnStatus = (phase, _) =>
+        {
+            if (phase == RunPhase.Apply) applyStarted.TrySetResult();
+        };
+        _processes.Enqueue(Ok());
+        _processes.Enqueue(Ok());
+        _processes.Enqueue(async (spec, ct) =>
+        {
+            await applyStarted.Task.WaitAsync(ct);
+            await Task.Delay(200, ct);
+            File.WriteAllText(TrxPathOf(spec), TrxParserTests.Fixture("modern-pass.trx"));
+            return Ok();
+        });
+        _processes.Enqueue(Ok());
+        _processes.Enqueue(Ok());
+        EnqueueTests("modern-pass.trx");
+        _backend.Enqueue(Block(Original, Guarded));
+
+        var exit = await Run(Req(CalcPath));
+
+        Assert.Equal(0, exit);
+        const string Waiting = "원본 상태 테스트가 끝나기를 기다리는 중";
+        var waits = _ui.Statuses.Where(x => x.Message == Waiting).ToList();
+        Assert.Equal((RunPhase.Apply, 1, Waiting), Assert.Single(waits));
+    }
+
+    [Fact]
     public async Task CancelDuringBaselineTests_Exit2_FileUntouched()
     {
         var originalBytes = File.ReadAllBytes(CalcPath);
@@ -471,6 +501,75 @@ public sealed class TestFlowTests : IDisposable
         Assert.Contains("TESTS FAILED (1 new failure)", prompt);
         Assert.Contains(CrashedTest + ": not run (test host may have crashed)", prompt);
         Assert.Equal("TestErrors", Summary().GetProperty("failureKind").GetString());
+    }
+
+    [Fact]
+    public async Task TestHostKilled_NoReportAtAll_RetriesAsTestFailure()
+    {
+        _processes.Enqueue(Ok());
+        _processes.Enqueue(Ok());
+        EnqueueTests("modern-pass.trx");
+        _processes.Enqueue(Ok());
+        _processes.Enqueue(Ok());
+        _processes.Enqueue(Result(exit: 134)); // attempt 1: the host died, no TRX was written
+        _processes.Enqueue(Ok());
+        _processes.Enqueue(Ok());
+        EnqueueTests("modern-pass.trx");
+        _backend.Enqueue(Block(Original, Wrong));
+        _backend.Enqueue("Avoid the crash.</think>", evalCount: 10);
+        _backend.Enqueue(Block(Wrong, Guarded));
+
+        var exit = await Run(Req(CalcPath));
+
+        Assert.Equal(0, exit);
+        Assert.Equal(CalcSource.Replace(Original, Guarded), File.ReadAllText(CalcPath));
+        var prompt = _backend.Requests[1].RawPrompt;
+        Assert.Contains("TESTS FAILED (3 new failures)", prompt);
+        Assert.Contains(CrashedTest + ": not run (test host may have crashed)", prompt);
+        Assert.DoesNotContain(_ui.Warnings, w => w.Contains("테스트를 실행하지 못했습니다", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task TestHostKilled_NoReportEveryAttempt_Exit1_Restored()
+    {
+        var originalBytes = File.ReadAllBytes(CalcPath);
+        _processes.Enqueue(Ok());
+        _processes.Enqueue(Ok());
+        EnqueueTests("modern-pass.trx");
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            _processes.Enqueue(Ok());
+            _processes.Enqueue(Ok());
+            _processes.Enqueue(Result(exit: 134));
+        }
+        _backend.Enqueue(Block(Original, Wrong));
+        _backend.Enqueue("Avoid the crash.</think>", evalCount: 10);
+        _backend.Enqueue(Block(Wrong, Guarded));
+
+        var exit = await Run(Req(CalcPath) with { MaxRetries = 1 });
+
+        Assert.Equal(1, exit);
+        Assert.Equal(originalBytes, File.ReadAllBytes(CalcPath));
+        Assert.Equal("TestErrors", Summary().GetProperty("failureKind").GetString());
+    }
+
+    [Fact]
+    public async Task TestProcessCannotStart_StaysEnvironment()
+    {
+        var originalBytes = File.ReadAllBytes(CalcPath);
+        _processes.Enqueue(Ok());
+        _processes.Enqueue(Ok());
+        EnqueueTests("modern-pass.trx");
+        _processes.Enqueue(Ok());
+        _processes.Enqueue(Ok());
+        _processes.EnqueueThrow(new ProcessStartException("dotnet", new IOException("nf")));
+        _backend.Enqueue(Block(Original, Guarded));
+
+        var exit = await Run(Req(CalcPath));
+
+        Assert.Equal(4, exit);
+        Assert.Single(_backend.Requests);
+        Assert.Equal(originalBytes, File.ReadAllBytes(CalcPath));
     }
 
     [Fact]

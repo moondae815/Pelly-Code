@@ -26,9 +26,6 @@ public class DoctorSanitizerTests
             foreach (var secret in Secrets) Assert.DoesNotContain(secret, text);
             Assert.DoesNotContain("12\\n", text);
             Assert.DoesNotContain("١٦", text);
-            Assert.DoesNotContain("latencyMs", text);
-            Assert.DoesNotContain("tokenizerHash", text);
-            Assert.DoesNotContain("serverMajor", text);
             Assert.Contains("0.9.1", text);
             Assert.Contains("기타", text);
         }
@@ -85,4 +82,35 @@ public class DoctorSanitizerTests
         var value = doc.RootElement.GetProperty("checks")[0].GetProperty("Facts").GetProperty(DoctorFacts.FrameworkVersion).GetString();
         Assert.Equal(expected, value);
     }
+
+    private static string? FactOf(string row, string key, string value)
+    {
+        var json = DoctorSanitizer.ToJson([new DoctorCheck(row, DoctorStatus.Ok, "d", null, new Dictionary<string, string> { [key] = value })]);
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        return doc.RootElement.GetProperty("checks")[0].GetProperty("Facts").TryGetProperty(key, out var v) ? v.GetString() : null;
+    }
+
+    [Theory]
+    [InlineData(DoctorFacts.Model, DoctorFacts.Loaded, "true", "true")]
+    [InlineData(DoctorFacts.Model, DoctorFacts.Loaded, "false", "false")]
+    [InlineData(DoctorFacts.Model, DoctorFacts.Loaded, "True", "invalid")]
+    [InlineData(DoctorFacts.Model, DoctorFacts.Loaded, "SECRETHOST", "invalid")]
+    [InlineData(DoctorFacts.TokenizerMatch, DoctorFacts.Match, "yes", "invalid")]
+    [InlineData(DoctorFacts.MsBuild, DoctorFacts.Found, "true\n", "invalid")]
+    [InlineData(DoctorFacts.TargetingPack, DoctorFacts.Installed, "1", "invalid")]
+    [InlineData(DoctorFacts.Sql, DoctorFacts.CanViewDefinition, "db.corp.local", "invalid")]
+    [InlineData(DoctorFacts.Sql, DoctorFacts.ServerMajor, "16", "16")]
+    [InlineData(DoctorFacts.Sql, DoctorFacts.ServerMajor, "١٦", "invalid")]
+    [InlineData(DoctorFacts.Sql, DoctorFacts.ServerMajor, "1234567890", "invalid")]
+    [InlineData(DoctorFacts.OllamaServer, DoctorFacts.LatencyMs, "12\n", "invalid")]
+    [InlineData(DoctorFacts.OllamaServer, DoctorFacts.LatencyMs, "-3", "invalid")]
+    [InlineData(DoctorFacts.OllamaServer, DoctorFacts.LatencyMs, "123456789", "123456789")]
+    [InlineData(DoctorFacts.Latency, DoctorFacts.TtftMs, "4.5", "invalid")]
+    [InlineData(DoctorFacts.Latency, DoctorFacts.TtftMs, "450", "450")]
+    [InlineData(DoctorFacts.Pelly, DoctorFacts.TokenizerHash, "0123456789ab", "0123456789ab")]
+    [InlineData(DoctorFacts.Pelly, DoctorFacts.TokenizerHash, "0123456789AB", "invalid")]
+    [InlineData(DoctorFacts.Pelly, DoctorFacts.TokenizerHash, "0123456789abc", "invalid")]
+    [InlineData(DoctorFacts.Pelly, DoctorFacts.TokenizerHash, "SECRETHOST/x", "invalid")]
+    public void TypedFacts_AreCheckedPerKey(string row, string key, string value, string expected) =>
+        Assert.Equal(expected, FactOf(row, key, value));
 }

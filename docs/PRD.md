@@ -415,7 +415,7 @@ pelly가 요청마다 지정하는 값: `options.num_ctx = 8192`, `keep_alive = 
   * 레거시 .NET Framework 프로젝트(SDK 스타일 아님, `packages.config`, C# 7.3)와 SDK 스타일 프로젝트를 모두 포함
   * CP949 인코딩·CRLF 파일, Dapper 사용 코드, 실제와 비슷한 명명 규칙
   * 샘플 DB 스키마와 SP (SQL Server 컨테이너에 배포)
-* **구성:** **M2b에서 30건**(C# 18건 = Legacy 10 + Modern 8, SQL 12건 — 메서드 로직 수정, null 처리 추가, Dapper 쿼리 변경, SP 조건·컬럼 추가, JOIN 변경 등), **M3에서 50건**으로 확장합니다. 시그니처를 바꾸는 요청(async 전환 등)은 멤버 모양 검사가 막는 의도된 동작이라 넣지 않습니다. 모든 작업은 빌드·컴파일 외에 내용 판정을 하나 이상 가집니다.
+* **구성:** **M2b에서 30건**(C# 18건 = Legacy 10 + Modern 8, SQL 12건 — 메서드 로직 수정, null 처리 추가, Dapper 쿼리 변경, SP 조건·컬럼 추가, JOIN 변경 등), **M3b에서 50건**으로 확장합니다. 시그니처를 바꾸는 요청(async 전환 등)은 멤버 모양 검사가 막는 의도된 동작이라 넣지 않습니다. 모든 작업은 빌드·컴파일 외에 내용 판정을 하나 이상 가집니다.
 * **작업 정의:** 요청문, 대상 파일·심볼, 판정 기준(빌드/검증 통과 + 지정 테스트 통과 또는 기대 diff와의 의미 비교)
 * **수집 지표:** §2.2의 모든 KPI를 실행 로그(`.pelly/runs`)에서 자동 집계. 검증 불변 조건은 실행기가 결과를 pelly와 별개로 다시 검증해 판정하며, 독립 검증이 생략된 실행(Windows가 아닌 환경의 Legacy 등)은 분모에서 빼고 따로 표시합니다. 실행 방법과 첫 측정은 `eval/benchmark/README.md`, `docs/m2b-benchmark.md`.
 * **폐쇄망 벤치마크:** M4에서 같은 형식으로 실제 코드 기반 세트를 폐쇄망 안에서 작성합니다. 평가 실행기는 폐쇄망에서도 그대로 동작해야 합니다.
@@ -516,7 +516,7 @@ pelly가 요청마다 지정하는 값: `options.num_ctx = 8192`, `keep_alive = 
 ### 11.1 반입 패키지 구성
 | 항목 | 내용 |
 | :--- | :--- |
-| 실행 파일 | `dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true` 결과 `pelly.exe` (트리밍 사용 안 함). 단일 파일 모드에서 Roslyn·ScriptDom·토크나이저 리소스가 정상 동작하는지 M3에서 확인 |
+| 실행 파일 | `dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true` 결과 `pelly.exe` (트리밍 사용 안 함). 단일 파일 모드에서 Roslyn·ScriptDom·토크나이저 리소스가 정상 동작하는지 M3b에서 확인 |
 | 기본 설정 | `pelly.json` 템플릿 (Ollama 주소·모델명·SQL 화이트리스트 자리 표시) |
 | 문서 | 설치 가이드, 사용 가이드, `server-checklist.md`(서버 관리자용) |
 | 무결성 | 모든 파일의 SHA-256 체크섬 목록 |

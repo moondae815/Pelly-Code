@@ -197,6 +197,24 @@ public sealed class QwenStreamClientTests
     }
 
     [Fact]
+    public async Task WaitingCallbackThatThrowsCancellation_DoesNotBreakGeneration()
+    {
+        var (client, backend, time, _) = Make(ThinkMode.Off);
+        backend.Enqueue("code");
+        DelayFirstChunk(backend, time, 5);
+        var calls = 0;
+
+        var r = await client.GenerateEditAsync(Base, 1, CancellationToken.None, _ =>
+        {
+            calls++;
+            throw new OperationCanceledException();
+        });
+
+        Assert.True(calls > 0);
+        Assert.Contains("code", r.Output);
+    }
+
+    [Fact]
     public async Task SlowFirstToken_SummaryTtftExcludesQueue()
     {
         var (client, backend, time, opts) = Make(ThinkMode.Off);

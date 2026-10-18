@@ -96,6 +96,36 @@ public class TestRunnerTests : IDisposable
     }
 
     [Fact]
+    public async Task Runner_ProcessRanButWroteNoReport_IsReportMissing()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(Proj)!);
+        File.WriteAllText(Proj, "<Project Sdk=\"Microsoft.NET.Sdk\" />");
+        _procs.Enqueue(Ok());
+        _procs.Enqueue(Ok(exit: 134)); // the host died: no TRX
+
+        var run = await Runner().RunAsync(Dotnet, Proj, _dir, Trx, TestContext.Current.CancellationToken);
+
+        Assert.True(run.ReportMissing);
+        Assert.Equal(134, run.ExitCode);
+        Assert.NotNull(run.Error);
+        Assert.False(run.PerTestResults);
+    }
+
+    [Fact]
+    public async Task Runner_CannotStartProcess_IsNotReportMissing()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(Proj)!);
+        File.WriteAllText(Proj, "<Project Sdk=\"Microsoft.NET.Sdk\" />");
+        _procs.Enqueue(Ok());
+        _procs.EnqueueThrow(new ProcessStartException("dotnet", new IOException("nf")));
+
+        var run = await Runner().RunAsync(Dotnet, Proj, _dir, Trx, TestContext.Current.CancellationToken);
+
+        Assert.False(run.ReportMissing);
+        Assert.NotNull(run.Error);
+    }
+
+    [Fact]
     public async Task Runner_Timeout_Reported()
     {
         _procs.Enqueue(Ok());

@@ -120,9 +120,10 @@ public sealed class QwenStreamClient(
                     {
                         onWaiting(time.GetElapsedTime(start));
                     }
-                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    catch (Exception)
                     {
-                        // a status callback must never break generation
+                        // A status callback must never break generation. This runs on a timer thread, so even a cancellation
+                        // thrown by the callback must stop here: nothing above it could catch it and the process would die.
                     }
                 }
             }, null, WaitingAfter, WaitingEvery);

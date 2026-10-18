@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 using System.Xml;
 using System.Xml.Linq;
 using PellyCoder.Core.Config;
+using PellyCoder.Core.Files;
 
 namespace PellyCoder.Core.Testing;
 
@@ -42,17 +43,16 @@ public static partial class TestProjectLocator
         return found.Distinct(comparer).ToList();
     }
 
+    private const int MaxDirectories = 2000;
+
     private static IEnumerable<string> Candidates(IFileSystem fs, string root)
     {
         var slns = fs.Directory.EnumerateFiles(root, "*.sln").Order(StringComparer.Ordinal).ToList();
         if (slns.Count == 0)
         {
-            foreach (var p in fs.Directory.EnumerateFiles(root, "*.csproj", SearchOption.AllDirectories).Order(StringComparer.Ordinal))
-            {
-                var relative = fs.Path.GetRelativePath(root, p).Split(fs.Path.DirectorySeparatorChar, fs.Path.AltDirectorySeparatorChar);
-                if (relative.Take(relative.Length - 1).Any(s => s.Equals("bin", StringComparison.OrdinalIgnoreCase) || s.Equals("obj", StringComparison.OrdinalIgnoreCase))) continue;
+            // The same bounded walk the DTO scan uses: no build or tool folders, no links, a capped directory count.
+            foreach (var p in BoundedWalker.Files(fs, root, "*.csproj", MaxDirectories))
                 yield return fs.Path.GetFullPath(p);
-            }
             yield break;
         }
 

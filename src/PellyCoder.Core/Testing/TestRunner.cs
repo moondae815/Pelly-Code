@@ -9,14 +9,18 @@ using PellyCoder.Core.Models;
 
 namespace PellyCoder.Core.Testing;
 
-/// <summary>One test run: per-test results, or the build errors that kept the tests from running.</summary>
+/// <summary>
+/// One test run: per-test results, or the build errors that kept the tests from running. <paramref name="ReportMissing"/>:
+/// the test process ran and exited non-zero but wrote no TRX (an in-process host that was killed), as opposed to a process that never ran.
+/// </summary>
 public sealed record TestRun(
     IReadOnlyList<TestCaseResult> Results,
     IReadOnlyList<Diagnostic> BuildErrors,
     int ExitCode,
     bool TimedOut,
     bool PerTestResults,
-    string? Error);
+    string? Error,
+    bool ReportMissing = false);
 
 /// <summary>
 /// Builds a test project and runs it: SDK projects through <c>dotnet test</c> with a TRX report, legacy projects
@@ -68,7 +72,8 @@ public sealed class TestRunner(IProcessRunner processes, BuildOptions build, Tes
         if (!wantsTrx) return new TestRun([], [], result.ExitCode, false, false, null);
 
         if (!File.Exists(trxPath))
-            return new TestRun([], [], result.ExitCode, false, false, $"테스트 결과 파일(TRX)이 만들어지지 않았습니다 (종료 코드 {result.ExitCode})");
+            return new TestRun([], [], result.ExitCode, false, false, $"테스트 결과 파일(TRX)이 만들어지지 않았습니다 (종료 코드 {result.ExitCode})",
+                ReportMissing: result.ExitCode != 0);
         try
         {
             return new TestRun(TrxParser.Parse(File.ReadAllText(trxPath)), [], result.ExitCode, false, true, null);

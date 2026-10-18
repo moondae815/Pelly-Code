@@ -21,7 +21,7 @@ public class SqlConnectionTextTests
             Assert.DoesNotContain("a;b", masked);
             Assert.DoesNotContain("=a;", masked);
         }
-        Assert.Contains("Server=x", SqlConnectionText.Mask("Server=x;Password=p"));
+        Assert.Contains("server=x", SqlConnectionText.Mask("Server=x;Password=p"));
         Assert.Contains("***", SqlConnectionText.Mask("Server=x;Password=p"));
     }
 

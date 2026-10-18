@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Globalization;
 using System.IO.Abstractions;
 using PellyCoder.Core.Doctor;
 using PellyCoder.Core.Fsm;
@@ -24,6 +25,19 @@ public sealed class DoctorSettings : CommandSettings
     [CommandOption("--project <CSPROJ>")]
     [Description("타겟팅 팩을 확인할 프로젝트 파일")]
     public string? Project { get; init; }
+
+    [CommandOption("--sanitize")]
+    [Description("허용 목록 방식의 비식별 결과(json·md)를 파일로 저장")]
+    public bool Sanitize { get; init; }
+
+    [CommandOption("--out <DIR>")]
+    [Description("--sanitize 출력 폴더(기본: 현재 폴더)")]
+    public string? Out { get; init; }
+
+    public override ValidationResult Validate() =>
+        Out is not null && !Sanitize
+            ? ValidationResult.Error("--out은 --sanitize와 함께 쓰세요.")
+            : ValidationResult.Success();
 }
 
 /// <summary><c>pelly doctor</c>: prints the environment checks as a table; exit 4 when any check failed.</summary>
@@ -81,7 +95,36 @@ public sealed class DoctorCommand(
         console.MarkupLine("[bold]서버 관리자 확인 사항[/]");
         console.MarkupLine(Markup.Escape(ReadChecklist()));
 
-        return checks.Any(c => c.Status == DoctorStatus.Fail) ? ExitCodes.EnvError : ExitCodes.Success;
+        var failed = checks.Any(c => c.Status == DoctorStatus.Fail);
+        if (settings.Sanitize && !WriteSanitized(checks, settings.Out)) return ExitCodes.EnvError;
+        return failed ? ExitCodes.EnvError : ExitCodes.Success;
+    }
+
+    private bool WriteSanitized(IReadOnlyList<DoctorCheck> checks, string? outDir)
+    {
+        string jsonPath, mdPath;
+        try
+        {
+            var dir = fs.Path.GetFullPath(outDir ?? fs.Directory.GetCurrentDirectory());
+            fs.Directory.CreateDirectory(dir);
+            var stem = fs.Path.Combine(dir, "pelly-doctor-" + DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture));
+            // Never overwrite an earlier result from the same second.
+            var suffix = "";
+            for (var n = 2; fs.File.Exists(stem + suffix + ".json") || fs.File.Exists(stem + suffix + ".md"); n++)
+                suffix = "-" + n.ToString(CultureInfo.InvariantCulture);
+            jsonPath = stem + suffix + ".json";
+            mdPath = stem + suffix + ".md";
+            fs.File.WriteAllText(jsonPath, DoctorSanitizer.ToJson(checks));
+            fs.File.WriteAllText(mdPath, DoctorSanitizer.ToMarkdown(checks));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            console.MarkupLine(Markup.Escape($"비식별 결과를 저장할 수 없습니다: {ex.Message}"));
+            return false;
+        }
+        console.MarkupLine(Markup.Escape($"비식별 결과를 저장했습니다: {jsonPath}"));
+        console.MarkupLine(Markup.Escape($"비식별 결과를 저장했습니다: {mdPath}"));
+        return true;
     }
 
     private static string ReadChecklist()

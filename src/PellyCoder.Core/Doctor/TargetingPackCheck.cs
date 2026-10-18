@@ -29,10 +29,12 @@ public static class TargetingPackCheck
 
             var folder = fs.Path.Combine(programFilesX86, "Reference Assemblies", "Microsoft", "Framework", ".NETFramework", version);
             if (fs.Directory.Exists(folder))
-                return new(Name, DoctorStatus.Ok, $"{version} ({folder})", null);
+                return new(Name, DoctorStatus.Ok, $"{version} ({folder})", null,
+                    new Dictionary<string, string> { ["frameworkVersion"] = version, ["installed"] = "true" });
             var digits = version.TrimStart('v', 'V').Replace(".", "");
             return new(Name, DoctorStatus.Fail, $"{version} 참조 어셈블리 폴더가 없습니다: {folder}",
-                $"Developer Pack을 설치하거나 Microsoft.NETFramework.ReferenceAssemblies.net{digits} 패키지를 쓰세요");
+                $"Developer Pack을 설치하거나 Microsoft.NETFramework.ReferenceAssemblies.net{digits} 패키지를 쓰세요",
+                new Dictionary<string, string> { ["frameworkVersion"] = version, ["installed"] = "false" });
         }
         catch (Exception ex) when (ex is XmlException or IOException or UnauthorizedAccessException)
         {

@@ -13,12 +13,16 @@ public class DoctorCommandTests
     private sealed class FakeDoctor : IDoctorRunner
     {
         public Task<IReadOnlyList<DoctorCheck>> RunAsync(PellyOptions options, DoctorContext context, CancellationToken ct) =>
-            Task.FromResult<IReadOnlyList<DoctorCheck>>([new DoctorCheck("Ollama 서버", DoctorStatus.Ok, "last-row-detail", null)]);
+            Task.FromResult<IReadOnlyList<DoctorCheck>>([new DoctorCheck("Ollama 서버", DoctorStatus.Ok, "last-row-detail", "SECRETACTION",
+                new Dictionary<string, string> { ["ollamaVersion"] = "0.9.1", ["latencyMs"] = "7" })]);
     }
 
-    private static CommandAppTester Build()
+    private static CommandAppTester Build() => Build(out _);
+
+    private static CommandAppTester Build(out MockFileSystem fs) => Build(fs = new MockFileSystem());
+
+    private static CommandAppTester Build(MockFileSystem fs)
     {
-        var fs = new MockFileSystem();
         fs.AddDirectory("/w/.git");
         fs.Directory.SetCurrentDirectory("/w");
         var services = new ServiceCollection();
@@ -52,5 +56,52 @@ public class DoctorCommandTests
 
         Assert.Equal(4, result.ExitCode);
         Assert.Contains("프로젝트 파일을 찾을 수 없습니다", result.Output);
+    }
+
+    [Fact]
+    public void Command_Sanitize_WritesTwoFiles()
+    {
+        var app = Build(out var fs);
+        var result = app.Run("doctor", "--sanitize", "--out", "/out");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("last-row-detail", result.Output);
+        var files = fs.Directory.GetFiles("/out").Order(StringComparer.Ordinal).ToList();
+        Assert.Equal(2, files.Count);
+        Assert.Matches(@"pelly-doctor-\d{8}-\d{6}\.json$", files[0]);
+        Assert.Matches(@"pelly-doctor-\d{8}-\d{6}\.md$", files[1]);
+        foreach (var f in files)
+        {
+            var text = fs.File.ReadAllText(f);
+            Assert.DoesNotContain("last-row-detail", text);
+            Assert.DoesNotContain("SECRETACTION", text);
+            Assert.Contains("0.9.1", text);
+        }
+    }
+
+    [Fact]
+    public void Sanitize_InvalidOutPath_Exit4()
+    {
+        var result = Build().Run("doctor", "--sanitize", "--out", "bad\0path");
+        Assert.Equal(4, CliApp.NormalizeExitCode(result.ExitCode));
+        Assert.Contains("저장할 수 없습니다", result.Output);
+    }
+
+    [Fact]
+    public void Out_WithoutSanitize_IsRejected()
+    {
+        var result = Build().Run("doctor", "--out", "/out");
+        Assert.Equal(4, CliApp.NormalizeExitCode(result.ExitCode));
+        Assert.Contains("--out은 --sanitize와 함께 쓰세요", result.Output);
+    }
+
+    [Fact]
+    public void Sanitize_SameSecond_DoesNotOverwrite()
+    {
+        var app = Build(out var fs);
+        Assert.Equal(0, app.Run("doctor", "--sanitize", "--out", "/out").ExitCode);
+        var second = Build(fs);
+        Assert.Equal(0, second.Run("doctor", "--sanitize", "--out", "/out").ExitCode);
+        Assert.Equal(4, fs.Directory.GetFiles("/out").Length);
     }
 }

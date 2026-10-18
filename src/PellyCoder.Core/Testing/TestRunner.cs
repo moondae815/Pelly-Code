@@ -30,6 +30,19 @@ public sealed class TestRunner(IProcessRunner processes, BuildOptions build, Tes
 {
     public const string LegacyCommandMissing = "레거시 테스트 프로젝트는 test.command 설정이 필요합니다";
 
+    /// <summary>A multi-target test project whose first target framework could not be launched; followed by <c>({tfm})</c>.</summary>
+    public const string MultiTargetCannotRun = "멀티 타깃 테스트 프로젝트를 실행할 수 없습니다";
+
+    /// <summary>
+    /// Output of a launch that never reached the tests (measured on macOS with .NET 10 only; 「Windows 미확인」): the host found no runtime for the
+    /// framework (exit 150), or <c>dotnet run</c> could not start the program (a .NET Framework target without mono).
+    /// </summary>
+    private static readonly string[] LaunchFailureSignals =
+    [
+        "You must install or update .NET to run this application",
+        "An error occurred trying to start process",
+    ];
+
     public async Task<TestRun> RunAsync(BuildTool tool, string testProject, string workDir, string trxPath, CancellationToken ct)
     {
         var legacy = tool.Kind == BuildToolKind.MsBuild;
@@ -54,7 +67,9 @@ public sealed class TestRunner(IProcessRunner processes, BuildOptions build, Tes
 
         if (!DeleteStale(trxPath))
             return Failed("이전 테스트 결과 파일(TRX)을 지울 수 없습니다");
-        var spec = legacy ? LegacySpec(testProject, workDir, trxPath) : SdkSpec(testProject, workDir, trxPath);
+        // Testing Platform projects run through `dotnet run`, which needs one framework when the project targets several.
+        var framework = !legacy && Kind(testProject) != TestProjectKind.VsTest ? FirstOfMultipleFrameworks(testProject) : null;
+        var spec = legacy ? LegacySpec(testProject, workDir, trxPath) : SdkSpec(testProject, workDir, trxPath, framework);
         ProcessResult result;
         try
         {
@@ -65,6 +80,9 @@ public sealed class TestRunner(IProcessRunner processes, BuildOptions build, Tes
             return Failed(ex.Message);
         }
         if (result.TimedOut) return new TestRun([], [], result.ExitCode, true, false, null);
+        if (framework is not null && result.ExitCode != 0
+            && LaunchFailureSignals.Any(sig => result.StdOut.Contains(sig, StringComparison.Ordinal) || result.StdErr.Contains(sig, StringComparison.Ordinal)))
+            return new TestRun([], [], result.ExitCode, false, false, $"{MultiTargetCannotRun} ({framework})");
 
         var wantsTrx = legacy
             ? test.Command!.Contains("{trx}", StringComparison.Ordinal)
@@ -101,21 +119,22 @@ public sealed class TestRunner(IProcessRunner processes, BuildOptions build, Tes
         return !File.Exists(trxPath);
     }
 
-    private ProcessSpec SdkSpec(string testProject, string workDir, string trxPath)
+    private ProcessSpec SdkSpec(string testProject, string workDir, string trxPath, string? framework)
     {
         var timeout = TimeSpan.FromSeconds(test.TimeoutSeconds);
+        List<string> Run(params string[] tail) =>
+            [.. new[] { "run", "--project", testProject, "--no-build" },
+             .. framework is null ? [] : new[] { "--framework", framework }, .. tail];
         switch (Kind(testProject))
         {
             // One path per project kind, independent of global.json, so behavior is the same inside and outside a repo.
             // `dotnet test` cannot be used: on .NET 10 it refuses VSTest options for Testing Platform projects, and its
             // own Testing Platform mode needs a global.json opt-in.
             case TestProjectKind.XunitV3:
-                return new ProcessSpec("dotnet", ["run", "--project", testProject, "--no-build", "--", "-result-trx", trxPath],
-                    workDir, timeout, BuildVerifier.EnglishEnv);
+                return new ProcessSpec("dotnet", Run("--", "-result-trx", trxPath), workDir, timeout, BuildVerifier.EnglishEnv);
             case TestProjectKind.OtherTestingPlatform:
                 // Per-test TRX for these (MSTest.Sdk, plain Microsoft.Testing.Platform) is unverified: exit code only (R7).
-                return new ProcessSpec("dotnet", ["run", "--project", testProject, "--no-build"],
-                    workDir, timeout, BuildVerifier.EnglishEnv);
+                return new ProcessSpec("dotnet", Run(), workDir, timeout, BuildVerifier.EnglishEnv);
             default:
                 return new ProcessSpec("dotnet",
                     ["test", testProject, "--no-build", "--nologo", "--logger", $"trx;LogFileName={trxPath}"],
@@ -138,19 +157,53 @@ public sealed class TestRunner(IProcessRunner processes, BuildOptions build, Tes
     internal static TestProjectKind Kind(string testProject)
     {
         var text = ReadSafe(testProject);
-        for (var dir = Path.GetDirectoryName(Path.GetFullPath(testProject)); dir is not null; dir = Path.GetDirectoryName(dir))
-        {
-            var props = Path.Combine(dir, "Directory.Build.props");
-            if (!File.Exists(props)) continue;
-            text += "\n" + ReadSafe(props);
-            break;
-        }
+        if (NearestBuildProps(testProject) is { } props) text += "\n" + ReadSafe(props);
 
         if (XunitV3Ref.IsMatch(text)) return TestProjectKind.XunitV3;
         if (TestingPlatformSignals.Any(sig => text.Contains(sig, StringComparison.OrdinalIgnoreCase))
             || GlobalJsonOptsIntoTestingPlatform(Path.GetDirectoryName(Path.GetFullPath(testProject))))
             return TestProjectKind.OtherTestingPlatform;
         return TestProjectKind.VsTest;
+    }
+
+    private static string? NearestBuildProps(string testProject)
+    {
+        for (var dir = Path.GetDirectoryName(Path.GetFullPath(testProject)); dir is not null; dir = Path.GetDirectoryName(dir))
+        {
+            var props = Path.Combine(dir, "Directory.Build.props");
+            if (File.Exists(props)) return props;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// The first entry of <c>TargetFrameworks</c> when it lists more than one: from the csproj, or from the nearest
+    /// Directory.Build.props when the csproj sets neither <c>TargetFramework</c> nor <c>TargetFrameworks</c>. Null for a
+    /// single-target project or one whose list cannot be read literally (an MSBuild property reference).
+    /// </summary>
+    internal static string? FirstOfMultipleFrameworks(string testProject)
+    {
+        var (single, multiple) = Frameworks(testProject);
+        if (single is null && multiple is null && NearestBuildProps(testProject) is { } props)
+            (single, multiple) = Frameworks(props);
+        if (!string.IsNullOrWhiteSpace(single) || multiple is null) return null;
+        var entries = multiple.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return entries.Length > 1 && !entries[0].Contains('$', StringComparison.Ordinal) ? entries[0] : null;
+    }
+
+    private static (string? Single, string? Multiple) Frameworks(string projectFile)
+    {
+        try
+        {
+            if (!File.Exists(projectFile)) return (null, null);
+            var elements = XDocument.Parse(File.ReadAllText(projectFile)).Descendants().ToList();
+            string? Value(string name) => elements.LastOrDefault(e => e.Name.LocalName == name)?.Value.Trim();
+            return (Value("TargetFramework"), Value("TargetFrameworks"));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or XmlException)
+        {
+            return (null, null); // unreadable: run as before, without a framework choice
+        }
     }
 
     private static string ReadSafe(string path)

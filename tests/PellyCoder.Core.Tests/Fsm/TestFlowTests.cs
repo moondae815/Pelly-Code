@@ -596,6 +596,86 @@ public sealed class TestFlowTests : IDisposable
         Assert.Contains("TESTS FAILED (exit 3)", _backend.Requests[1].RawPrompt);
     }
 
+    /// <summary><paramref name="fixture"/> without the results of <paramref name="testNames"/>.</summary>
+    private static string FixtureWithout(string fixture, params string[] testNames)
+    {
+        var xml = TrxParserTests.Fixture(fixture);
+        foreach (var name in testNames)
+            xml = System.Text.RegularExpressions.Regex.Replace(xml, "<UnitTestResult testName=\"" + System.Text.RegularExpressions.Regex.Escape(name) + "\"[^>]*/>", "");
+        return xml;
+    }
+
+    [Fact]
+    public async Task MissingTest_BaselineAlreadyFailing_NotCounted()
+    {
+        _processes.Enqueue(Ok());
+        _processes.Enqueue(Ok());
+        EnqueueTests("modern-fail.trx", exit: 1); // baseline: one test already fails, exit 1
+        _processes.Enqueue(Ok());
+        _processes.Enqueue(Ok());
+        // A test that passed before is missing, the known failure still fails, exit 1 as before: not a new failure.
+        EnqueueReport(FixtureWithout("modern-fail.trx", CrashedTest), exit: 1);
+        _backend.Enqueue(Block(Original, Guarded));
+
+        var exit = await Run(Req(CalcPath));
+
+        Assert.Equal(0, exit);
+        Assert.Single(_backend.Requests);
+        Assert.Equal(CalcSource.Replace(Original, Guarded), File.ReadAllText(CalcPath));
+    }
+
+    [Fact]
+    public async Task MissingTest_BaselineAlreadyFailing_NamedNewFailureStillCounts()
+    {
+        var originalBytes = File.ReadAllBytes(CalcPath);
+        var newlyFailing = TrxParserTests.Fixture("modern-fail.trx").Replace(
+            "testName=\"" + CrashedTest + "\" outcome=\"Passed\"", "testName=\"" + CrashedTest + "\" outcome=\"Failed\"", StringComparison.Ordinal);
+        Assert.NotEqual(TrxParserTests.Fixture("modern-fail.trx"), newlyFailing);
+        _processes.Enqueue(Ok());
+        _processes.Enqueue(Ok());
+        EnqueueTests("modern-fail.trx", exit: 1);
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            _processes.Enqueue(Ok());
+            _processes.Enqueue(Ok());
+            EnqueueReport(newlyFailing, exit: 1);
+        }
+        _backend.Enqueue(Block(Original, Wrong));
+        _backend.Enqueue("Fix it.</think>", evalCount: 10);
+        _backend.Enqueue(Block(Wrong, Guarded));
+
+        var exit = await Run(Req(CalcPath) with { MaxRetries = 1 });
+
+        Assert.Equal(1, exit);
+        Assert.Equal(originalBytes, File.ReadAllBytes(CalcPath));
+        Assert.Contains("TESTS FAILED (1 new failure)", _backend.Requests[1].RawPrompt);
+        Assert.Contains(CrashedTest, _backend.Requests[1].RawPrompt);
+    }
+
+    [Fact]
+    public async Task MissingTest_BaselinePassedExit0_NowExit1_Counted()
+    {
+        var originalBytes = File.ReadAllBytes(CalcPath);
+        _processes.Enqueue(Ok());
+        _processes.Enqueue(Ok());
+        EnqueueTests("modern-pass.trx"); // baseline: everything passes, exit 0
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            _processes.Enqueue(Ok());
+            _processes.Enqueue(Ok());
+            EnqueueReport(FixtureWithout("modern-pass.trx", CrashedTest), exit: 1);
+        }
+        _backend.Enqueue(Block(Original, Wrong));
+        _backend.Enqueue("Avoid the crash.</think>", evalCount: 10);
+        _backend.Enqueue(Block(Wrong, Guarded));
+
+        var exit = await Run(Req(CalcPath) with { MaxRetries = 1 });
+
+        Assert.Equal(1, exit);
+        Assert.Equal(originalBytes, File.ReadAllBytes(CalcPath));
+        Assert.Contains(CrashedTest + ": not run (test host may have crashed)", _backend.Requests[1].RawPrompt);
+    }
+
     [Fact]
     public async Task BaselineTestProjectDidNotBuild_NoticeOnce_NotCompared()
     {

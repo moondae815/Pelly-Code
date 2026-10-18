@@ -88,9 +88,10 @@ public sealed class TestStep(TestRunner runner, FeedbackBuilder feedback, TestOp
 
             var failedBefore = before.Results.Where(r => !r.Passed).Select(r => r.FullName).ToHashSet(StringComparer.Ordinal);
             var found = run.Results.Where(r => !r.Passed && !failedBefore.Contains(r.FullName)).ToList();
-            if (run.ExitCode != 0)
+            if (brokeExit)
             {
                 // A crashed test host leaves a partial report: tests that passed before and are missing now did not pass.
+                // Only when the baseline run passed: a project that already failed may legitimately report fewer tests.
                 var ran = run.Results.Select(r => r.FullName).ToHashSet(StringComparer.Ordinal);
                 found.AddRange(before.Results.Where(r => r.Passed && !ran.Contains(r.FullName))
                     .Select(r => new TestCaseResult(r.FullName, false, NotRunFeedback)));

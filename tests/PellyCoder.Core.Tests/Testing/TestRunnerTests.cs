@@ -64,6 +64,99 @@ public class TestRunnerTests : IDisposable
         Assert.Equal(3, run.Results.Count);
     }
 
+    private const string XunitV3Ref = """<ItemGroup><PackageReference Include="xunit.v3.mtp-v2" Version="4.0.2" /></ItemGroup>""";
+
+    [Fact]
+    public async Task MultiTarget_DotnetRunGetsFirstFramework()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(Proj)!);
+        File.WriteAllText(Proj, $"""<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFrameworks> net10.0 ; net9.0 </TargetFrameworks></PropertyGroup>{XunitV3Ref}</Project>""");
+        _procs.Enqueue(Ok());
+        _procs.Enqueue(Ok(), () => File.WriteAllText(Trx, TrxParserTests.Fixture("modern-pass.trx")));
+
+        var run = await Runner().RunAsync(Dotnet, Proj, _dir, Trx, TestContext.Current.CancellationToken);
+
+        Assert.Equal(["run", "--project", Proj, "--no-build", "--framework", "net10.0", "--", "-result-trx", Trx], _procs.Calls[1].Arguments);
+        Assert.True(run.PerTestResults);
+        Assert.Null(run.Error);
+    }
+
+    [Fact]
+    public async Task MultiTarget_FromDirectoryBuildProps_OtherTestingPlatform()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(Proj)!);
+        File.WriteAllText(Path.Combine(_dir, "Directory.Build.props"),
+            """<Project><PropertyGroup><TargetFrameworks>net9.0;net10.0</TargetFrameworks></PropertyGroup></Project>""");
+        File.WriteAllText(Proj, """<Project Sdk="MSTest.Sdk/3.8.0" />""");
+        _procs.Enqueue(Ok());
+        _procs.Enqueue(Ok());
+
+        await Runner().RunAsync(Dotnet, Proj, _dir, Trx, TestContext.Current.CancellationToken);
+
+        Assert.Equal(["run", "--project", Proj, "--no-build", "--framework", "net9.0"], _procs.Calls[1].Arguments);
+    }
+
+    [Fact]
+    public async Task MultiTarget_CsprojSingleFrameworkWinsOverProps_NoFrameworkArgument()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(Proj)!);
+        File.WriteAllText(Path.Combine(_dir, "Directory.Build.props"),
+            """<Project><PropertyGroup><TargetFrameworks>net9.0;net10.0</TargetFrameworks></PropertyGroup></Project>""");
+        File.WriteAllText(Proj, $"""<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup>{XunitV3Ref}</Project>""");
+        _procs.Enqueue(Ok());
+        _procs.Enqueue(Ok(), () => File.WriteAllText(Trx, TrxParserTests.Fixture("modern-pass.trx")));
+
+        await Runner().RunAsync(Dotnet, Proj, _dir, Trx, TestContext.Current.CancellationToken);
+
+        Assert.Equal(["run", "--project", Proj, "--no-build", "--", "-result-trx", Trx], _procs.Calls[1].Arguments);
+    }
+
+    [Fact]
+    public async Task MultiTarget_VsTestPathUnchanged()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(Proj)!);
+        File.WriteAllText(Proj, """<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFrameworks>net10.0;net48</TargetFrameworks></PropertyGroup></Project>""");
+        _procs.Enqueue(Ok());
+        _procs.Enqueue(Ok(), () => File.WriteAllText(Trx, TrxParserTests.Fixture("modern-pass.trx")));
+
+        await Runner().RunAsync(Dotnet, Proj, _dir, Trx, TestContext.Current.CancellationToken);
+
+        Assert.Equal(["test", Proj, "--no-build", "--nologo", "--logger", $"trx;LogFileName={Trx}"], _procs.Calls[1].Arguments);
+    }
+
+    [Theory]
+    // Measured (macOS, .NET 10 only): the host cannot find the first TFM's runtime (exit 150) ...
+    [InlineData(150, "You must install or update .NET to run this application.\n\nApp: /w/T/bin/Debug/net9.0/T")]
+    // ... and dotnet run cannot launch a .NET Framework TFM without mono.
+    [InlineData(1, "Unhandled exception: An error occurred trying to start process 'mono' with working directory '/w'. No such file or directory")]
+    public async Task MultiTarget_FirstFrameworkCannotRun_ReportsError(int exit, string output)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(Proj)!);
+        File.WriteAllText(Proj, $"""<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFrameworks>net9.0;net10.0</TargetFrameworks></PropertyGroup>{XunitV3Ref}</Project>""");
+        _procs.Enqueue(Ok());
+        _procs.Enqueue(new ProcessResult(exit, "", output, [], TimeSpan.FromMilliseconds(5), false));
+
+        var run = await Runner().RunAsync(Dotnet, Proj, _dir, Trx, TestContext.Current.CancellationToken);
+
+        Assert.Equal("멀티 타깃 테스트 프로젝트를 실행할 수 없습니다 (net9.0)", run.Error);
+        Assert.False(run.ReportMissing);
+        Assert.False(run.PerTestResults);
+    }
+
+    [Fact]
+    public async Task MultiTarget_CrashWithoutLaunchFailure_StaysReportMissing()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(Proj)!);
+        File.WriteAllText(Proj, $"""<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFrameworks>net10.0;net9.0</TargetFrameworks></PropertyGroup>{XunitV3Ref}</Project>""");
+        _procs.Enqueue(Ok());
+        _procs.Enqueue(Ok("Stack overflow.", exit: 134));
+
+        var run = await Runner().RunAsync(Dotnet, Proj, _dir, Trx, TestContext.Current.CancellationToken);
+
+        Assert.True(run.ReportMissing);
+        Assert.DoesNotContain("멀티 타깃", run.Error);
+    }
+
     [Theory]
     [InlineData("""<Project Sdk="MSTest.Sdk/3.8.0" />""")]
     [InlineData("""<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><IsTestingPlatformApplication>true</IsTestingPlatformApplication></PropertyGroup></Project>""")]

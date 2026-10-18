@@ -44,7 +44,7 @@ public class TestRunnerSdkTests
     }
 
     /// <summary>The path with every directory link resolved (macOS temp folders live under the /var link).</summary>
-    private static string RealPath(string path)
+    internal static string RealPath(string path)
     {
         var current = Path.GetPathRoot(path)!;
         foreach (var segment in path[current.Length..].Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))

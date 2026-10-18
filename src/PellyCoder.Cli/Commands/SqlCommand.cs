@@ -8,7 +8,7 @@ using Spectre.Console.Cli;
 
 namespace PellyCoder.Cli.Commands;
 
-public sealed class SqlSettings : CommandSettings
+public sealed class SqlSettings : RunSettings
 {
     [CommandArgument(0, "<FILE>")]
     [Description("수정할 SQL 파일")]
@@ -25,38 +25,6 @@ public sealed class SqlSettings : CommandSettings
     [CommandOption("--line <N>")]
     [Description("대상 줄 번호, IDE 커서 위치 (--object와 함께 쓸 수 없음)")]
     public int? Line { get; init; }
-
-    [CommandOption("--yes")]
-    [Description("검토 질문 없이 승인")]
-    public bool Yes { get; init; }
-
-    [CommandOption("--dry-run")]
-    [Description("파일을 쓰지 않고 diff만 보여줌")]
-    public bool DryRun { get; init; }
-
-    [CommandOption("--verbose")]
-    [Description("단계별 시간·토큰 요약과 실행 기록 폴더를 보여줌")]
-    public bool Verbose { get; init; }
-
-    [CommandOption("--max-retries <N>")]
-    [Description("교정 재시도 최대 횟수 (기본: retry.max)")]
-    public int? MaxRetries { get; init; }
-
-    [CommandOption("--config <PATH>")]
-    [Description("작업 공간 설정 파일 경로 (기본: <루트>/pelly.json)")]
-    public string? Config { get; init; }
-
-    [CommandOption("--think <MODE>")]
-    [Description("off | retry | always (llm.thinkMode 덮어쓰기)")]
-    public string? Think { get; init; }
-
-    [CommandOption("--model <TAG>")]
-    [Description("모델 태그 (llm.model 덮어쓰기)")]
-    public string? Model { get; init; }
-
-    [CommandOption("--endpoint <URL>")]
-    [Description("Ollama 주소 (llm.endpoint 덮어쓰기)")]
-    public string? Endpoint { get; init; }
 }
 
 /// <summary><c>pelly sql</c>: validates arguments, merges configuration, then hands the run to <see cref="IRunner"/>.</summary>

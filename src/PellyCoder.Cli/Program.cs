@@ -30,7 +30,11 @@ var app = new CommandApp(new DiTypeRegistrar(Composition.Services(new SpectreUse
 app.Configure(CliApp.Configure);
 try
 {
-    return CliApp.NormalizeExitCode(await app.RunAsync(args));
+    var exitCode = CliApp.NormalizeExitCode(await app.RunAsync(args));
+    // After the command (so after any rollback) and before SignalCompleted; the pause never changes the exit code.
+    if (ExitPause.ShouldPause(args, Console.IsInputRedirected))
+        ExitPause.Wait(console, exitCode, () => Console.KeyAvailable, () => Console.ReadKey(intercept: true), shutdown.Token);
+    return exitCode;
 }
 finally
 {

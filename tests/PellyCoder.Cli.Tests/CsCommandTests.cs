@@ -61,6 +61,17 @@ public class CsCommandTests
     }
 
     [Fact]
+    public void AcceptsPauseOnExitAndVerbose()
+    {
+        var h = Build();
+
+        var result = h.App.Run("cs", File, "do it", "--pause-on-exit", "--verbose");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(1, h.Runner.Calls);
+    }
+
+    [Fact]
     public void NoMethodNoLine_PassesNullsToRunner()
     {
         var h = Build();

@@ -56,6 +56,17 @@ public class SqlCommandTests
     }
 
     [Fact]
+    public void AcceptsPauseOnExitAndVerbose()
+    {
+        var h = Build();
+
+        var result = h.App.Run("sql", File, "do it", "--pause-on-exit", "--verbose");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(1, h.Runner.Calls);
+    }
+
+    [Fact]
     public void Sql_PassesKindObjectAndLine()
     {
         var h = Build();

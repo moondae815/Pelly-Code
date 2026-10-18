@@ -166,4 +166,33 @@ public class SqlServerExecutorTests
         await Assert.ThrowsAsync<SqlUnavailableException>(() =>
             executor.CompileWithNoExecAsync("SELECT 1", SqlSessionSettings.Default, CancellationToken.None));
     }
+
+    /// <summary>
+    /// A deployed proc whose table lost a column makes sys.dm_sql_referenced_entities raise Msg 207 on an open connection.
+    /// Uses tempdb so the PellyCorpus database never changes.
+    /// </summary>
+    [SqlServerFact]
+    public async Task ReferencedEntities_OfProcWithDroppedColumn_ReturnsEmptyInsteadOfThrowing()
+    {
+        var csb = new SqlConnectionStringBuilder(TestEnv.SqlConnection) { InitialCatalog = "tempdb" };
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        var table = $"pelly_t_{suffix}";
+        var proc = $"pelly_p_{suffix}";
+        await using var conn = new SqlConnection(csb.ConnectionString);
+        await conn.OpenAsync();
+        try
+        {
+            await conn.ExecuteAsync($"CREATE TABLE dbo.{table} (Id int, Gone int)");
+            await conn.ExecuteAsync($"CREATE PROCEDURE dbo.{proc} AS SELECT Id, Gone FROM dbo.{table}");
+            await conn.ExecuteAsync($"ALTER TABLE dbo.{table} DROP COLUMN Gone");
+
+            var refs = await new SqlServerExecutor(csb.ConnectionString).GetReferencedEntitiesAsync(SqlObjectName.Parse($"dbo.{proc}"), CancellationToken.None);
+
+            Assert.Empty(refs);
+        }
+        finally
+        {
+            await conn.ExecuteAsync($"DROP PROCEDURE IF EXISTS dbo.{proc}; DROP TABLE IF EXISTS dbo.{table};");
+        }
+    }
 }

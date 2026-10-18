@@ -54,6 +54,12 @@ public sealed class SqlSlicePhase(FileGuard fileGuard, ITokenCounter tokens, Bud
         {
             return NotFound(ctx, state);
         }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // E.g. a SqlException the executor did not classify; never let it surface as Crashed before the model is called.
+            ctx.Messages.Add($"스키마 정보를 가져오지 못했습니다: {SqlConnectionText.MaskInText(ex.Message, ctx.Options.Sql.ConnectionString)}");
+            return PhaseOutcome.EnvError;
+        }
 
         ctx.SliceResult = slice;
         ctx.Target = ctx.Target! with { MemberSpan = new TextSpanInfo(batch.StartLine, batch.EndLine) };

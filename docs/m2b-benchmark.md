@@ -97,7 +97,8 @@ Legacy 빌드 판정 생략: 10건 (설계 §10.6 — Windows가 아니면 패�
 * **작업 선정:** 모든 대상은 원본이 오류 없이 빌드·컴파일된다.
   * Modern: `dotnet build Modern.sln` 경고·오류 0.
   * SQL: `deploy.sh` 배포 성공, 즉 모든 객체 배치가 컴파일됨.
-  * 독립 검증은 이 전제 위에서 위반을 센다.
+  * 독립 검증은 이 전제 위에서 위반을 센다(절대 기준).
+  * 독립 검증은 pelly의 참조 수집기·실행기를 그대로 재사용하므로 둘의 사각지대(3·4부 이름, 동적 SQL, `#temp`, 별칭과 같은 이름의 테이블)를 공유합니다. 또 절대 기준이라 코퍼스 원본이 오류 없이 컴파일된다고 가정합니다.
 * **`deploy.sh` 재실행 실패(환경, 코퍼스는 읽기 전용이라 고치지 않음):** 같은 컨테이너에 두 번째로 실행하면 첫 단계 `rm -rf /tmp/corpus-sql`이 `Permission denied`로 실패한다.
   * 원인: `docker cp`가 호스트 uid(501)를 보존해, 컨테이너 사용자 `mssql`이 이전 사본을 지우지 못한다.
   * 이번 측정은 `docker exec -u root pelly-corpus-sql rm -rf /tmp/corpus-sql` 뒤 다시 배포했다.

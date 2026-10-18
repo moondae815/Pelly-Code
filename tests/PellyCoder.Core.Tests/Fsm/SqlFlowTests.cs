@@ -202,4 +202,52 @@ public sealed class SqlFlowTests : IDisposable
         Assert.Equal(2, exit);
         Assert.Equal(before, File.ReadAllText(PathA));
     }
+
+    [Fact]
+    public async Task OriginalCompileError_FixingEditStillPasses_Exit0()
+    {
+        Prepare();
+        // The deployed original references a dropped column; the edit removes the bad reference.
+        var broken = Script.Replace(Search, "    SELECT Old FROM dbo.T WHERE Id = @Id;");
+        Prepare(broken);
+        _sql.Compile = batch => batch.Contains("Old") ? [new SqlCompileError(207, 6, "Invalid column name 'Old'.")] : [];
+        _backend.Enqueue(Block("    SELECT Old FROM dbo.T WHERE Id = @Id;", Good));
+
+        var exit = await Run();
+
+        Assert.Equal(0, exit);
+        Assert.Equal(Script.Replace(Search, Good), File.ReadAllText(PathA));
+    }
+
+    [Fact]
+    public async Task ReferencedEntitiesFailure_IsEnvError_Exit4_NoSecretAnywhere()
+    {
+        Prepare();
+        _sql.ReferencedFailure = new InvalidOperationException("boom " + Conn);
+
+        var exit = await Run();
+
+        Assert.Equal(4, exit);
+        AssertNoSecretUnderRoot();
+    }
+
+    [Fact]
+    public async Task SuccessfulRun_LeavesNoSecretInRunFolder()
+    {
+        Prepare();
+        _backend.Enqueue(Block(Search, Good));
+
+        var exit = await Run();
+
+        Assert.Equal(0, exit);
+        AssertNoSecretUnderRoot();
+    }
+
+    private void AssertNoSecretUnderRoot()
+    {
+        var files = Directory.GetFiles(_root, "*", SearchOption.AllDirectories);
+        Assert.Contains(files, f => f.EndsWith("summary.json", StringComparison.Ordinal));
+        foreach (var f in files)
+            Assert.DoesNotContain("Secret123", File.ReadAllText(f));
+    }
 }

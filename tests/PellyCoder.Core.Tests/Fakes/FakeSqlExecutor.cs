@@ -12,6 +12,7 @@ public sealed class FakeSqlExecutor : ISqlExecutor
     public HashSet<SqlObjectName> Missing { get; } = [];
     public List<SqlTableSchema> Schemas { get; } = [];
     public Dictionary<string, IReadOnlyList<SqlObjectName>> Referenced { get; } = new(StringComparer.OrdinalIgnoreCase);
+    public Exception? ReferencedFailure { get; set; }
     public Func<string, IReadOnlyList<SqlCompileError>> Compile { get; set; } = _ => [];
 
     public List<string> Compiled { get; } = [];
@@ -43,6 +44,7 @@ public sealed class FakeSqlExecutor : ISqlExecutor
     public Task<IReadOnlyList<SqlObjectName>> GetReferencedEntitiesAsync(SqlObjectName obj, CancellationToken ct)
     {
         Calls.Add("GetReferencedEntities");
+        if (ReferencedFailure is not null) return Task.FromException<IReadOnlyList<SqlObjectName>>(ReferencedFailure);
         return Task.FromResult(Referenced.TryGetValue(obj.Display, out var r) ? r : []);
     }
 

@@ -77,11 +77,20 @@ public sealed class SqlServerExecutor(string? connectionString) : ISqlExecutor
             var name = Quote(obj);
             if (await conn.ExecuteScalarAsync<int?>(Cmd("SELECT OBJECT_ID(@name)", new { name }, ct)) is null)
                 return [];
-            var rows = await conn.QueryAsync<(string? Schema, string Name)>(Cmd(
-                "SELECT DISTINCT referenced_schema_name, referenced_entity_name FROM sys.dm_sql_referenced_entities(@name, 'OBJECT') " +
-                "WHERE referenced_minor_id = 0 AND referenced_server_name IS NULL AND referenced_database_name IS NULL " +
-                "AND referenced_entity_name IS NOT NULL", new { name }, ct));
-            return rows.Select(r => new SqlObjectName(r.Schema, r.Name)).ToList();
+            try
+            {
+                var rows = await conn.QueryAsync<(string? Schema, string Name)>(Cmd(
+                    "SELECT DISTINCT referenced_schema_name, referenced_entity_name FROM sys.dm_sql_referenced_entities(@name, 'OBJECT') " +
+                    "WHERE referenced_minor_id = 0 AND referenced_server_name IS NULL AND referenced_database_name IS NULL " +
+                    "AND referenced_entity_name IS NOT NULL", new { name }, ct));
+                return rows.Select(r => new SqlObjectName(r.Schema, r.Name)).ToList();
+            }
+            catch (SqlException ex) when (!IsConnectionLevel(ex, conn) && !ct.IsCancellationRequested)
+            {
+                // A deployed object that no longer compiles (dropped column, Msg 207) makes the DMF fail with the connection intact.
+                // The caller still has the references the collector found in the batch text.
+                return [];
+            }
         }, ct);
 
     public async Task<IReadOnlyList<SqlCompileError>> CompileWithNoExecAsync(string batch, SqlSessionSettings settings, CancellationToken ct)
@@ -97,7 +106,7 @@ public sealed class SqlServerExecutor(string? connectionString) : ISqlExecutor
                 {
                     await ExecAsync(conn, batch, ct);
                 }
-                catch (SqlException ex) when (ex.Number != TimeoutErrorNumber && conn.State == System.Data.ConnectionState.Open)
+                catch (SqlException ex) when (ex.Number != TimeoutErrorNumber && conn.State == System.Data.ConnectionState.Open && !ct.IsCancellationRequested)
                 {
                     foreach (SqlError e in ex.Errors)
                     {

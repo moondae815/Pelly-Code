@@ -143,6 +143,29 @@ public sealed class SqlSliceFlowTests : IDisposable
     }
 
     [Fact]
+    public async Task SqlSlice_UnexpectedExecutorFailure_IsEnvErrorWithMaskedMessage()
+    {
+        var ctx = await Located();
+        _sql.ReferencedFailure = new InvalidOperationException("boom Server=sql1;Password=Secret123;");
+
+        var outcome = await Slice().ExecuteAsync(ctx, TestContext.Current.CancellationToken);
+
+        Assert.Equal(PhaseOutcome.EnvError, outcome);
+        var message = Assert.Single(ctx.Messages);
+        Assert.StartsWith("스키마 정보를 가져오지 못했습니다: ", message);
+        Assert.DoesNotContain("Secret123", message);
+    }
+
+    [Fact]
+    public async Task SqlSlice_Cancellation_Propagates()
+    {
+        var ctx = await Located();
+        _sql.ReferencedFailure = new OperationCanceledException();
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() => Slice().ExecuteAsync(ctx, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public async Task SqlSlice_TargetTooLarge_IsBudgetExceeded()
     {
         var ctx = await Located();

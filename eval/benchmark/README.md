@@ -45,7 +45,8 @@ dotnet run --project eval/PellyCoder.Eval -- --tasks sql --config <pelly.json> #
   * 연결은 환경 변수 `PELLY_SQL_CONNECTION`(비밀번호가 있는 연결은 환경 변수로만).
   * `--config`의 pelly.json에 허용 목록을 둡니다: `{"sql":{"allowedHosts":["localhost"],"allowedDatabases":["PellyCorpus"]}}`
   * 연결이 없거나 허용 목록에 없으면 `sql` 작업은 건너뜁니다.
-  * DB는 실행 전에 `eval/corpus/Sql/deploy.sh`로 코퍼스와 맞춰 둡니다. 독립 검증은 원본 객체가 오류 없이 컴파일된다고 가정합니다.
+  * DB는 실행 전에 `eval/corpus/Sql/deploy.sh`로 코퍼스와 맞춰 둡니다. 독립 검증은 원본 객체가 오류 없이 컴파일된다고 가정합니다(절대 기준).
+  * 독립 검증은 pelly의 참조 수집기·실행기를 그대로 재사용하므로 둘의 사각지대(3·4부 이름, 동적 SQL, `#temp`, 별칭과 같은 이름의 테이블)를 공유합니다. 또 절대 기준이라 코퍼스 원본이 오류 없이 컴파일된다고 가정합니다.
 * 첫 측정 기록: `docs/m2b-benchmark.md`
 
 ## 현재 구성 (M2, 30건)

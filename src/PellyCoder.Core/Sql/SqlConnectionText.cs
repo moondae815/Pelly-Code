@@ -34,6 +34,17 @@ public static class SqlConnectionText
         return b.ConnectionString;
     }
 
+    private static readonly System.Text.RegularExpressions.Regex PasswordPair =
+        new(@"\b(password|pwd)(\s*=\s*)(""[^""]*""|'[^']*'|[^;]*)", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    /// <summary>Masks any connection-string text (or a bare Password=… pair) inside free text such as an exception message.</summary>
+    public static string MaskInText(string text, string? connectionString)
+    {
+        if (!string.IsNullOrEmpty(connectionString))
+            text = text.Replace(connectionString, Mask(connectionString), StringComparison.Ordinal);
+        return PasswordPair.Replace(text, "$1$2***");
+    }
+
     public static SqlEndpoint Endpoint(string cs)
     {
         var b = Parse(cs);

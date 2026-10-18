@@ -26,6 +26,7 @@ public sealed class SqlSliceFlowTests : IDisposable
     private readonly ScriptedLlmBackend _backend = new();
     private readonly SqlOptions _options = new() { AllowedHosts = ["sql1"], AllowedDatabases = ["Shop"] };
     private readonly BudgetOptions _budget = new();
+    private readonly ScriptedUserInteraction _ui = new();
 
     public SqlSliceFlowTests()
     {
@@ -178,6 +179,32 @@ public sealed class SqlSliceFlowTests : IDisposable
     }
 
     [Fact]
+    public async Task EditPhase_SlowServer_ShowsWaitingStatus()
+    {
+        var ctx = await Located();
+        await Slice().ExecuteAsync(ctx, TestContext.Current.CancellationToken);
+        _backend.Enqueue("    SELECT 1;\n=======\n    SELECT 2;\n>>>>>>> REPLACE\n");
+        var time = new Microsoft.Extensions.Time.Testing.FakeTimeProvider();
+        _backend.BeforeRespond = _ =>
+        {
+            for (var i = 0; i < 4; i++)
+                time.Advance(TimeSpan.FromSeconds(1));
+            return Task.CompletedTask;
+        };
+        var tokens = QwenTokenCounter.Shared;
+        var template = QwenChatTemplate.LoadDefault();
+        var edit = new EditPhase(new PromptBuilder(template, PromptResources.LoadDefault(), tokens, _budget),
+            new QwenStreamClient(_backend, template, new LlmOptions(), _budget, new SamplingSet(), time),
+            new FeedbackBuilder(tokens, _budget.Feedback), new RunLogger(_fs, time), _ui);
+
+        await edit.ExecuteAsync(ctx, TestContext.Current.CancellationToken);
+
+        var status = _ui.Statuses.First(s => s.Message.StartsWith("서버 응답 대기 중"));
+        Assert.Equal(PellyCoder.Core.Fsm.RunPhase.Edit, status.Phase);
+        Assert.Equal("서버 응답 대기 중 (3초) — 다른 요청을 처리 중이거나 모델을 불러오는 중일 수 있습니다", status.Message);
+    }
+
+    [Fact]
     public async Task EditPhase_SqlTarget_UsesSqlPrompt()
     {
         var ctx = await Located();
@@ -188,7 +215,7 @@ public sealed class SqlSliceFlowTests : IDisposable
         var template = QwenChatTemplate.LoadDefault();
         var edit = new EditPhase(new PromptBuilder(template, PromptResources.LoadDefault(), tokens, _budget),
             new QwenStreamClient(_backend, template, new LlmOptions(), _budget, new SamplingSet(), TimeProvider.System),
-            new FeedbackBuilder(tokens, _budget.Feedback), new RunLogger(_fs, TimeProvider.System));
+            new FeedbackBuilder(tokens, _budget.Feedback), new RunLogger(_fs, TimeProvider.System), _ui);
 
         var outcome = await edit.ExecuteAsync(ctx, TestContext.Current.CancellationToken);
 

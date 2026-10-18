@@ -8,7 +8,8 @@ using PellyCoder.Core.Patchers;
 namespace PellyCoder.Core.Fsm.Phases;
 
 /// <summary>One attempt: builds the prompt (with the latest feedback), generates, and parses the SEARCH/REPLACE blocks.</summary>
-public sealed class EditPhase(PromptBuilder prompts, QwenStreamClient client, FeedbackBuilder feedback, RunLogger logger) : IPhase
+public sealed class EditPhase(PromptBuilder prompts, QwenStreamClient client, FeedbackBuilder feedback, RunLogger logger,
+    IUserInteraction ui) : IPhase
 {
     public RunPhase Phase => RunPhase.Edit;
 
@@ -34,7 +35,9 @@ public sealed class EditPhase(PromptBuilder prompts, QwenStreamClient client, Fe
         GenerationResult gen;
         try
         {
-            gen = await client.GenerateEditAsync(prompt.BasePrompt, ctx.Attempt, ct);
+            gen = await client.GenerateEditAsync(prompt.BasePrompt, ctx.Attempt, ct,
+                elapsed => ui.ShowStatus(RunPhase.Edit, ctx.Attempt,
+                    $"서버 응답 대기 중 ({elapsed.TotalSeconds:0}초) — 다른 요청을 처리 중이거나 모델을 불러오는 중일 수 있습니다"));
         }
         catch (LlmUnavailableException ex)
         {

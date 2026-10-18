@@ -170,4 +170,104 @@ public sealed class QwenStreamClientTests
             Assert.False(t.IsCancellationRequested);
         });
     }
+
+    /// <summary>Makes the first chunk arrive after <paramref name="seconds"/> of fake time, one second at a time.</summary>
+    private static void DelayFirstChunk(ScriptedLlmBackend backend, FakeTimeProvider time, int seconds) =>
+        backend.BeforeRespond = _ =>
+        {
+            for (var i = 0; i < seconds; i++)
+                time.Advance(TimeSpan.FromSeconds(1));
+            return Task.CompletedTask;
+        };
+
+    [Fact]
+    public async Task SlowFirstToken_ShowsWaitingStatus_AndRecordsQueue()
+    {
+        var (client, backend, time, _) = Make(ThinkMode.Off);
+        backend.Enqueue("code", loadDuration: TimeSpan.FromSeconds(1), promptEvalDuration: TimeSpan.FromSeconds(0.5));
+        DelayFirstChunk(backend, time, 6);
+        var waits = new List<double>();
+
+        var r = await client.GenerateEditAsync(Base, 1, CancellationToken.None, e => waits.Add(e.TotalSeconds));
+
+        // at the 6 s tie the timer fires before the chunk is consumed, so 6 is reported too
+        Assert.Equal([3.0, 4.0, 5.0, 6.0], waits);
+        Assert.Equal(TimeSpan.FromSeconds(6), r.CodeUsage.Ttft);
+        Assert.Equal(TimeSpan.FromSeconds(4.5), r.CodeUsage.Queue);
+    }
+
+    [Fact]
+    public async Task SlowFirstToken_SummaryTtftExcludesQueue()
+    {
+        var (client, backend, time, opts) = Make(ThinkMode.Off);
+        backend.Enqueue("code", loadDuration: TimeSpan.FromSeconds(1), promptEvalDuration: TimeSpan.FromSeconds(0.5));
+        DelayFirstChunk(backend, time, 6);
+        var r = await client.GenerateEditAsync(Base, 1, CancellationToken.None);
+        var request = new PellyCoder.Core.Fsm.RunRequest("a.cs", null, "M", null, "req", true, false, null);
+        var ctx = new PellyCoder.Core.Fsm.RunContext("id", request, opts) { Generation = r };
+
+        var summary = PellyCoder.Core.Logging.RunLogger.Summarize(ctx);
+
+        Assert.Equal(1.5, summary.TtftSeconds, 6);
+        Assert.Equal(4.5, summary.QueueSeconds, 6);
+    }
+
+    [Fact]
+    public async Task FastFirstToken_NoWaitingCallback()
+    {
+        var (client, backend, time, _) = Make(ThinkMode.Off);
+        backend.Enqueue("code");
+        DelayFirstChunk(backend, time, 1);
+        var waits = new List<double>();
+
+        await client.GenerateEditAsync(Base, 1, CancellationToken.None, e => waits.Add(e.TotalSeconds));
+        time.Advance(TimeSpan.FromSeconds(30)); // the timer must be gone after the request
+
+        Assert.Empty(waits);
+    }
+
+    [Fact]
+    public async Task Queue_NeverNegative()
+    {
+        var (client, backend, time, _) = Make(ThinkMode.Off);
+        backend.Enqueue("code", loadDuration: TimeSpan.FromSeconds(5), promptEvalDuration: TimeSpan.FromSeconds(5));
+        DelayFirstChunk(backend, time, 2);
+
+        var r = await client.GenerateEditAsync(Base, 1, CancellationToken.None);
+
+        Assert.Equal(TimeSpan.Zero, r.CodeUsage.Queue);
+    }
+
+    [Fact]
+    public async Task Waiting_CountsThinkAndCodeRequestsSeparately()
+    {
+        var (client, backend, time, _) = Make(ThinkMode.Always);
+        backend.Enqueue("p\n</think>");
+        backend.Enqueue("code");
+        DelayFirstChunk(backend, time, 3);
+        var waits = new List<double>();
+
+        await client.GenerateEditAsync(Base, 1, CancellationToken.None, e => waits.Add(e.TotalSeconds));
+
+        Assert.Equal([3.0, 3.0], waits);
+    }
+
+    [Fact]
+    public async Task WaitingStops_WhenRequestThrows()
+    {
+        var (client, backend, time, _) = Make(ThinkMode.Off);
+        backend.Enqueue("code");
+        backend.BeforeRespond = _ =>
+        {
+            time.Advance(TimeSpan.FromSeconds(3));
+            throw new InvalidOperationException("boom");
+        };
+        var waits = new List<double>();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            client.GenerateEditAsync(Base, 1, CancellationToken.None, e => waits.Add(e.TotalSeconds)));
+        time.Advance(TimeSpan.FromSeconds(10));
+
+        Assert.Equal([3.0], waits);
+    }
 }

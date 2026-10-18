@@ -19,8 +19,9 @@ public sealed class ScriptedLlmBackend : ILlmBackend
     public LlmServerStatus Status { get; set; } =
         new(true, "0.40.0", true, true, "qwen3.5", TimeSpan.FromMilliseconds(1), null);
 
-    public void Enqueue(string text, string doneReason = "stop", int evalCount = 0, int promptEvalCount = 0, int promptEvalCachedCount = 0) =>
-        _queue.Enqueue(new Scripted(text, doneReason, evalCount, promptEvalCount, promptEvalCachedCount));
+    public void Enqueue(string text, string doneReason = "stop", int evalCount = 0, int promptEvalCount = 0, int promptEvalCachedCount = 0,
+        TimeSpan? loadDuration = null, TimeSpan? promptEvalDuration = null) =>
+        _queue.Enqueue(new Scripted(text, doneReason, evalCount, promptEvalCount, promptEvalCachedCount, loadDuration, promptEvalDuration));
 
     public void EnqueueException(Exception ex) => _queue.Enqueue(ex);
 
@@ -41,7 +42,7 @@ public sealed class ScriptedLlmBackend : ILlmBackend
             ct.ThrowIfCancellationRequested();
             yield return new LlmChunk(piece, false, null, null, null, null, null);
         }
-        yield return new LlmChunk("", true, s.PromptEvalCount, s.PromptEvalCachedCount, s.EvalCount, null, s.DoneReason);
+        yield return new LlmChunk("", true, s.PromptEvalCount, s.PromptEvalCachedCount, s.EvalCount, s.PromptEvalDuration, s.DoneReason, s.LoadDuration);
     }
 
     public int StatusCalls { get; private set; }
@@ -61,5 +62,6 @@ public sealed class ScriptedLlmBackend : ILlmBackend
             yield return text.Substring(i, Math.Min(size, text.Length - i));
     }
 
-    private sealed record Scripted(string Text, string DoneReason, int EvalCount, int PromptEvalCount, int PromptEvalCachedCount);
+    private sealed record Scripted(string Text, string DoneReason, int EvalCount, int PromptEvalCount, int PromptEvalCachedCount,
+        TimeSpan? LoadDuration, TimeSpan? PromptEvalDuration);
 }

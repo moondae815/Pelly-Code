@@ -279,13 +279,15 @@ public sealed partial class OllamaBackend : ILlmBackend, IOllamaDiagnostics
             var text = root.TryGetProperty("response", out var r) && r.ValueKind == JsonValueKind.String ? r.GetString()! : "";
             var done = root.TryGetProperty("done", out var d) && d.ValueKind == JsonValueKind.True;
             var durationNs = GetLong(root, "prompt_eval_duration");
+            var loadNs = GetLong(root, "load_duration");
             return new LlmChunk(
                 text, done,
                 GetInt(root, "prompt_eval_count"),
                 GetInt(root, "prompt_eval_cached_count"),
                 GetInt(root, "eval_count"),
                 durationNs is null ? null : TimeSpan.FromTicks(durationNs.Value / 100),
-                root.TryGetProperty("done_reason", out var dr) && dr.ValueKind == JsonValueKind.String ? dr.GetString() : null);
+                root.TryGetProperty("done_reason", out var dr) && dr.ValueKind == JsonValueKind.String ? dr.GetString() : null,
+                loadNs is null ? null : TimeSpan.FromTicks(loadNs.Value / 100));
         }
         catch (JsonException ex)
         {

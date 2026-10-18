@@ -11,7 +11,8 @@ public sealed record LlmUsage(
     int? EvalCount,
     string? DoneReason,
     TimeSpan Ttft,
-    TimeSpan Total);
+    TimeSpan Total,
+    TimeSpan Queue = default);
 
 /// <summary>Outcome of the optional THINK stage plus the CODE stage.</summary>
 public sealed record GenerationResult(
@@ -40,7 +41,12 @@ public sealed class QwenStreamClient(
     private const string ThinkCloseTag = "</think>";
 
     /// <param name="attempt">1-based attempt number.</param>
-    public async Task<GenerationResult> GenerateEditAsync(string basePrompt, int attempt, CancellationToken ct)
+    /// <param name="onWaiting">
+    /// Reports only (never cancels): per generate request, if no chunk has arrived 3 s after sending, called with the elapsed
+    /// time at 3 s and then every second until the first chunk arrives or the request ends.
+    /// </param>
+    public async Task<GenerationResult> GenerateEditAsync(string basePrompt, int attempt, CancellationToken ct,
+        Action<TimeSpan>? onWaiting = null)
     {
         var useThink = llm.ThinkMode == ThinkMode.Always || (llm.ThinkMode == ThinkMode.Retry && attempt >= 2);
 
@@ -54,7 +60,7 @@ public sealed class QwenStreamClient(
         {
             var req = new LlmRequest(basePrompt + template.ThinkOpen, sampling.Think, budget.Think,
                 [ThinkCloseTag], llm.NumCtx, llm.KeepAlive);
-            var (raw, usage) = await ReadAsync(backend, req, time, ct);
+            var (raw, usage) = await ReadAsync(backend, req, time, ct, onWaiting);
             thinkUsage = usage;
             thinkTokens = usage.EvalCount ?? 0;
 
@@ -83,35 +89,82 @@ public sealed class QwenStreamClient(
 
         var codeReq = new LlmRequest(basePrompt + prefill + SearchMarker, sampling.Code, budget.CodeOutput,
             [template.EndOfTurn], llm.NumCtx, llm.KeepAlive);
-        var (code, codeUsage) = await ReadAsync(backend, codeReq, time, ct);
+        var (code, codeUsage) = await ReadAsync(backend, codeReq, time, ct, onWaiting);
 
         return new GenerationResult(SearchMarker + code, useThink, thinkText, thinkTokens, thinkTruncated, thinkUsage, codeUsage);
     }
 
+    private static readonly TimeSpan WaitingAfter = TimeSpan.FromSeconds(3);
+    private static readonly TimeSpan WaitingEvery = TimeSpan.FromSeconds(1);
+
     /// <summary>Streams one request to the done chunk and collects its text and counters (shared with <see cref="ModelMemberPicker"/>).</summary>
     internal static async Task<(string Text, LlmUsage Usage)> ReadAsync(ILlmBackend backend, LlmRequest request, TimeProvider time,
-        CancellationToken ct)
+        CancellationToken ct, Action<TimeSpan>? onWaiting = null)
     {
         var start = time.GetTimestamp();
         TimeSpan? ttft = null;
         var sb = new StringBuilder();
         LlmChunk? last = null;
 
-        await foreach (var chunk in backend.GenerateAsync(request, ct))
+        var gate = new object();
+        var stopped = false;
+        ITimer? timer = null;
+        if (onWaiting is not null)
         {
-            if (ttft is null && chunk.Text.Length > 0)
-                ttft = time.GetElapsedTime(start);
-            sb.Append(chunk.Text);
-            if (chunk.Done)
+            timer = time.CreateTimer(_ =>
             {
-                last = chunk;
-                break;
+                lock (gate)
+                {
+                    if (stopped) return;
+                    try
+                    {
+                        onWaiting(time.GetElapsedTime(start));
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        // a status callback must never break generation
+                    }
+                }
+            }, null, WaitingAfter, WaitingEvery);
+        }
+
+        try
+        {
+            await foreach (var chunk in backend.GenerateAsync(request, ct))
+            {
+                if (ttft is null)
+                {
+                    // any chunk (even an empty keep-alive line) proves the server is answering
+                    StopTimer();
+                    if (chunk.Text.Length > 0)
+                        ttft = time.GetElapsedTime(start);
+                }
+                sb.Append(chunk.Text);
+                if (chunk.Done)
+                {
+                    last = chunk;
+                    break;
+                }
             }
+        }
+        finally
+        {
+            StopTimer();
         }
 
         var total = time.GetElapsedTime(start);
+        var first = ttft ?? total;
+        var server = (last?.LoadDuration ?? TimeSpan.Zero) + (last?.PromptEvalDuration ?? TimeSpan.Zero);
+        var queue = first - server;
+        if (queue < TimeSpan.Zero) queue = TimeSpan.Zero;
         var usage = new LlmUsage(last?.PromptEvalCount, last?.PromptEvalCachedCount, last?.EvalCount,
-            last?.DoneReason, ttft ?? total, total);
+            last?.DoneReason, first, total, queue);
         return (sb.ToString(), usage);
+
+        void StopTimer()
+        {
+            lock (gate) stopped = true;
+            timer?.Dispose();
+        }
     }
 }

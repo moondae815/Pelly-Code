@@ -9,11 +9,11 @@ using PellyCoder.Core.Workspaces;
 
 namespace PellyCoder.Core.Logging;
 
-/// <summary>Per-run summary written to <c>summary.json</c> (design §8.12, M1 subset: no QueueSeconds).</summary>
+/// <summary>Per-run summary written to <c>summary.json</c> (design §8.12, QueueSeconds is the server wait split out of the client TTFT, R3).</summary>
 public sealed record RunSummary(
     string RunId, string PellyVersion, string? OllamaVersion, string ModelName, string PromptVersion,
     EditKind Kind, string ProjectStyle, int ExitCode, int Attempts,
-    IReadOnlyDictionary<RunPhase, double> PhaseSeconds, double TtftSeconds,
+    IReadOnlyDictionary<RunPhase, double> PhaseSeconds, double TtftSeconds, double QueueSeconds,
     string ThinkMode, int ThinkTokens, bool ThinkTruncated,
     int InputTokensLocal, int? InputTokensServer, int? InputTokensCached,
     IReadOnlyList<MatchStage> MatchStages, IReadOnlyList<string> ErrorCodes, int FormatErrors, string? FailureKind);
@@ -110,11 +110,13 @@ public sealed class RunLogger(IFileSystem fs, TimeProvider time)
     public static RunSummary Summarize(RunContext ctx)
     {
         var gen = ctx.Generation;
-        var ttft = gen is null ? 0 : (gen.ThinkUsed && gen.ThinkUsage is not null ? gen.ThinkUsage : gen.CodeUsage).Ttft.TotalSeconds;
+        var first = gen is null ? null : gen.ThinkUsed && gen.ThinkUsage is not null ? gen.ThinkUsage : gen.CodeUsage;
+        var queue = first?.Queue.TotalSeconds ?? 0;
+        var ttft = first is null ? 0 : (first.Ttft - first.Queue).TotalSeconds;
         return new RunSummary(
             ctx.RunId, PellyInfo.Version, ctx.ServerStatus?.Version, ctx.Options.Llm.Model, Prompts.Value.VersionFor(ctx.Target?.Kind ?? ctx.Request.Kind),
             ctx.Target?.Kind ?? ctx.Request.Kind, ctx.ProjectStyle, ctx.ExitCode, ctx.Attempt,
-            new Dictionary<RunPhase, double>(ctx.PhaseSeconds), ttft,
+            new Dictionary<RunPhase, double>(ctx.PhaseSeconds), ttft, queue,
             ctx.Options.Llm.ThinkMode.ToString(), gen?.ThinkTokens ?? 0, gen?.ThinkTruncated ?? false,
             ctx.Prompt?.Tokens ?? 0, gen?.CodeUsage.PromptEvalCount, gen?.CodeUsage.PromptEvalCachedCount,
             [.. ctx.MatchStages], [.. ctx.ErrorCodes], ctx.FormatErrors, ctx.FailureKind);

@@ -140,6 +140,17 @@ public class OllamaBackendTests
     }
 
     [Fact]
+    public async Task OllamaBackend_ParsesLoadDuration()
+    {
+        var (backend, _) = Create(StreamHandler(Fixture("generate-stream.ndjson")));
+
+        var chunks = await Collect(backend.GenerateAsync(Request, CancellationToken.None));
+
+        Assert.Equal(TimeSpan.FromTicks(9028473167 / 100), chunks[^1].LoadDuration);
+        Assert.All(chunks.SkipLast(1), c => Assert.Null(c.LoadDuration));
+    }
+
+    [Fact]
     public async Task Generate_IgnoresUnknownFieldsAndBlankLines()
     {
         var text = "\n"

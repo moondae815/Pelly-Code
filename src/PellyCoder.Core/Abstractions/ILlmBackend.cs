@@ -25,7 +25,8 @@ public sealed record LlmChunk(
     int? PromptEvalCachedCount,
     int? EvalCount,
     TimeSpan? PromptEvalDuration,
-    string? DoneReason);
+    string? DoneReason,
+    TimeSpan? LoadDuration = null);
 
 /// <summary>Result of the server preflight. <see cref="Renderer"/> replaces the design's ModelTemplate (S1).</summary>
 public sealed record LlmServerStatus(

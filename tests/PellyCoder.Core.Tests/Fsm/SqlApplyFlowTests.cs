@@ -190,7 +190,7 @@ public sealed class SqlApplyFlowTests : IDisposable
             new SqlSlicePhase(_guard, tokens, _budget, _sql),
             new EditPhase(new PromptBuilder(template, PromptResources.LoadDefault(), tokens, _budget),
                 new QwenStreamClient(_backend, template, new LlmOptions(), _budget, new SamplingSet(), TimeProvider.System),
-                feedback, logger),
+                feedback, logger, _ui),
             new SqlApplyPhase(_guard, feedback, _ui),
             new VerifyPhase([]),
             new ReviewPhase(_ui),

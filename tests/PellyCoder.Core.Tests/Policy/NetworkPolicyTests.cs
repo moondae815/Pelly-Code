@@ -17,12 +17,18 @@ public sealed class NetworkPolicyTests
 
     private sealed record Rule(string Name, Regex Pattern, string[] AllowedFiles);
 
+    // Q: optional namespace qualifier (System.Net.Http.HttpClient). T: declared type followed by a target-typed `= new(`.
+    private const string Q = @"(?:[A-Za-z_][A-Za-z0-9_]*\s*\.\s*)*";
+
+    private static string Created(string type) =>
+        $@"\bnew\s+{Q}{type}\s*[({{]|\b{type}\s+[A-Za-z_][A-Za-z0-9_]*\s*=\s*new\s*\(";
+
     private static readonly Rule[] Rules =
     [
-        new("HttpClient/SocketsHttpHandler creation", new Regex(@"\bnew\s+HttpClient\s*\(|\bSocketsHttpHandler\b"), [Composition]),
-        new("SqlConnection creation", new Regex(@"\bnew\s+SqlConnection\s*\("), [SqlExecutor]),
-        new("raw socket / legacy web API", new Regex(@"\bTcpClient\b|\bUdpClient\b|\bnew\s+Socket\s*\(|WebRequest\b|\bWebClient\b|\bDns\s*\."), []),
-        new("process creation", new Regex(@"\bnew\s+Process\s*[({]|\bProcess\s*\.\s*Start\s*\(|\bnew\s+ProcessStartInfo\b"), [ProcessRunner]),
+        new("HttpClient/SocketsHttpHandler creation", new Regex(Created("HttpClient") + @"|\bSocketsHttpHandler\b"), [Composition]),
+        new("SqlConnection creation", new Regex(Created("SqlConnection")), [SqlExecutor]),
+        new("raw socket / legacy web API", new Regex(@"\bTcpClient\b|\bUdpClient\b|" + Created("Socket") + @"|WebRequest\b|\bWebClient\b|\bDns\s*\."), []),
+        new("process creation", new Regex(Created("Process") + @"|\bProcess\s*\.\s*Start\s*\(|\bnew\s+" + Q + @"ProcessStartInfo\b|\bProcessStartInfo\s+[A-Za-z_][A-Za-z0-9_]*\s*=\s*new\s*\("), [ProcessRunner]),
     ];
 
     [Fact]
@@ -65,13 +71,18 @@ public sealed class NetworkPolicyTests
                 void M(HttpClient injected, SqlConnectionStringBuilder b) { }
                 object p = new ProcessSpec("dotnet");
                 void Bad() { var h = new HttpClient(); Dns.GetHostEntry("x"); Process.Start("x"); }
+                void Qualified() { var h = new System.Net.Http.HttpClient(); var c = new Microsoft.Data.SqlClient.SqlConnection("x"); var p = new System.Diagnostics.Process(); var i = new System.Diagnostics.ProcessStartInfo("x"); }
+                void Targeted() { HttpClient a = new(); SqlConnection b = new(cs); Process p = new(); ProcessStartInfo i = new("x"); Socket s = new(1, 2, 3); }
             }
             """;
         var hits = Scan(code, "x.cs");
-        Assert.Equal(3, hits.Count);
+        Assert.Equal(3 + 4 + 5, hits.Count);
         Assert.Contains(hits, h => h.StartsWith("x.cs:9:") && h.Contains("HttpClient"));
         Assert.Contains(hits, h => h.Contains("raw socket"));
         Assert.Contains(hits, h => h.Contains("process creation"));
+        Assert.Contains(hits, h => h.StartsWith("x.cs:10:") && h.Contains("System.Net.Http.HttpClient"));
+        Assert.Contains(hits, h => h.StartsWith("x.cs:11:") && h.Contains("HttpClient a = new("));
+        Assert.Contains(hits, h => h.StartsWith("x.cs:11:") && h.Contains("SqlConnection b = new("));
     }
 
     [Fact]

@@ -10,9 +10,11 @@ pelly는 실행 중에 설정된 서버 둘에만 접속합니다. 그 밖의 �
 | Ollama 서버 하나 | HTTP | 설정 `llm.endpoint` | `pelly cs`, `pelly sql`, `pelly doctor` |
 | SQL Server 하나 | TDS (SQL Server 기본 프로토콜) | 설정 `sql.connectionString` 또는 환경 변수 `PELLY_SQL_CONNECTION` | `pelly sql`, `pelly doctor`(연결 문자열이 있을 때만) |
 
-* 두 주소 모두 사용자가 정합니다. 코드에 고정된 주소는 없습니다.
+* 두 주소 모두 사용자가 정합니다. 설정이 없을 때 `llm.endpoint` 기본값은 `http://localhost:11434`(같은 PC)입니다. SQL 기본 주소는 없습니다.
 * 업데이트 확인, 텔레메트리, 오류 보고, 라이선스 확인은 없습니다.
-* `pelly doctor`의 `SqlClient` 자체 점검은 존재하지 않는 로컬 이름 있는 파이프에 연결을 시도합니다. 네트워크로 나가지 않습니다.
+* 숨김 옵션 `pelly doctor --offline-selftest`(패키지 점검용)에만 SqlClient 자체 점검 행이 있습니다. 일반 `pelly doctor`에는 없습니다.
+  * Windows에서는 존재하지 않는 로컬 이름 있는 파이프(`np:\\.\pipe\pelly-selftest-none`)를 열어 봅니다. 네트워크로 나가지 않습니다. Windows 미확인(CI windows-latest에서만 실행).
+  * 그 밖의 OS에서는 연결 객체를 만들기만 하고 열지 않습니다.
 * 반입 zip 안의 실행 파일은 위 두 곳 말고 다른 곳에 접속하지 않습니다.
 * 빌드·패키징(CI)에서 NuGet과 도구를 내려받는 것은 예외입니다. 그것은 반입 전 단계입니다.
 
@@ -51,17 +53,41 @@ pelly는 프록시를 직접 설정하지 않습니다. `HttpClient`는 .NET 기
 
 ## 4. 디스크에서 읽고 쓰는 것
 
-| 위치 | 동작 | 내용 |
-| :--- | :--- | :--- |
-| `<작업 공간>/pelly.json` | 읽기 | 작업 공간 설정 |
-| 사용자 설정 (`%APPDATA%\pelly\config.json`, macOS는 `~/Library/Application Support/pelly/config.json`) | 읽기 | 사용자 설정 |
-| `<작업 공간>/.pelly/runs/<runId>/` | 쓰기 | 이벤트 로그, 시도별 텍스트, `summary.json`, 시험 결과 `tests/*.trx` |
-| `<작업 공간>/.pelly/backup/<runId>/` | 쓰기 | 수정 전 원본 파일 사본 |
-| `<작업 공간>/.pelly/lock`, `.pelly/.gitignore` | 쓰기 | 동시 실행 방지, 추적 제외 |
-| 수정 대상 파일 옆 `*.pelly-tmp` | 쓰기 | 원자적 저장용 임시 파일. 저장 뒤 이름이 바뀝니다 |
-| 환경 변수 | 읽기 | `PELLY__*`, `PELLY_SQL_CONNECTION`, 프록시 변수 |
+작성 방법: `src/`에서 `File.`, `Directory.`, `FileStream`, `IFileSystem`(`fs.File.`/`fs.Directory.`)의 읽기·쓰기·삭제·열거 호출을 grep으로 모두 뽑아 파일별로 분류했습니다. 임베디드 리소스(토크나이저)는 디스크 읽기가 아니라서 뺐습니다.
+쓰기는 아래 표가 전부입니다. 쓰는 곳은 모두 로컬 디스크입니다.
 
-* 시험 결과 임시 폴더는 시스템 임시 폴더가 아니라 위 `.pelly/runs/<runId>/tests/`입니다. `src/`는 시스템 임시 폴더를 쓰지 않습니다.
+### 쓰기
+
+| 위치 | 언제 | 내용 |
+| :--- | :--- | :--- |
+| 수정 대상 소스 파일 | `pelly cs`, `pelly sql`(`--dry-run` 제외) | 모델이 만든 수정. 임시 파일 `<파일>.pelly-tmp` 또는 같은 폴더의 `.<이름>.pelly-tmp`에 쓴 뒤 이름을 바꿉니다 |
+| `<작업 공간>/.pelly/runs/<runId>/` | 실행마다 | `events.jsonl`, `attempt-<n>/`의 `prompt.txt`·`think.txt`·`output.txt`·`feedback.txt`, `summary.json`, `messages.txt`, 시험 결과 `tests/*.trx` |
+| `<작업 공간>/.pelly/backup/<runId>/` | 파일 수정 전 | 원본 파일 사본 |
+| `<작업 공간>/.pelly/lock`, `.pelly/.gitignore` | 실행마다 | 동시 실행 방지, 추적 제외(`*`) |
+| `.pelly/runs/` 아래 오래된 실행 폴더 | 실행 종료 시 | `log.retentionDays`(기본 30일)가 지난 폴더를 삭제합니다 |
+| 시험 결과 파일 | `pelly cs`의 시험 단계 | 실행 전 이전 `.trx`를 지우고 시험 도구가 새로 씁니다(`.pelly/runs/<runId>/tests/`) |
+| `--out` 폴더, 없으면 현재 폴더 | `pelly doctor --sanitize` | `pelly-doctor-<날짜시각>.json`, `.md` (같은 초에 겹치면 `-2` 식 접미사) |
+| `--out` 폴더, 없으면 현재 폴더 | `pelly report --sanitize` | `pelly-report-<날짜시각>.json`, `.md` (같은 방식) |
+
+* `src/`는 시스템 임시 폴더(`GetTempPath`)를 쓰지 않습니다.
+* 두 `--sanitize` 출력은 허용 목록 방식의 비식별 결과입니다(`--help` 설명 기준).
+
+### 읽기
+
+| 위치 | 언제 | 내용 |
+| :--- | :--- | :--- |
+| `<작업 공간>/pelly.json` 또는 `--config`로 준 파일 | 모든 명령 | 작업 공간 설정 |
+| 사용자 설정 (Windows `%APPDATA%\pelly\config.json`, macOS `~/Library/Application Support/pelly/config.json`) | 모든 명령 | 사용자 설정 |
+| `llm.template`에 지정한 파일 | 지정했을 때 | 사용자가 정한 채팅 템플릿 |
+| 요청한 소스 파일(`pelly cs`/`sql`의 대상), 같은 작업 공간의 `*.cs` | `pelly cs`, `pelly sql` | 대상 파일과 DTO 수집 등 문맥 |
+| `*.csproj`, `Directory.Build.props`, `*.sln`, `global.json` | 빌드·시험 단계, `pelly doctor --project` | 프로젝트 종류·언어 버전·시험 프로젝트 찾기 |
+| `.pelly/runs/*/summary.json`, `.pelly/runs/<runId>/tests/*.trx` | `pelly report`, 시험 단계 | 실행 기록, 시험 결과 |
+| 작업 공간 루트 판정 | 모든 명령 | `.git`, `.svn`, `*.sln` 존재 여부와 폴더 열거 |
+| `%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe` | 레거시 빌드 검증(Windows) | MSBuild 위치 찾기. 있으면 실행합니다. Windows 미확인 |
+| `build.msbuildPath`로 지정한 MSBuild | 지정했을 때 | 존재 확인 |
+| `%ProgramFiles(x86)%\Reference Assemblies\Microsoft\Framework\.NETFramework\<버전>` | `pelly doctor --project`(Windows) | 존재 확인만 합니다. Windows 미확인 |
+| 환경 변수 | 시작 시 | `PELLY__*`, `PELLY_SQL_CONNECTION`, `ProgramFiles(x86)`, 프록시 변수. 전체 환경 변수를 한 번 읽어 설정에 반영합니다 |
+
 * 비밀번호가 있는 SQL 연결 문자열은 설정 파일에 두지 못하게 막고 `PELLY_SQL_CONNECTION`으로만 받습니다.
 
 ## 5. 확인 방법

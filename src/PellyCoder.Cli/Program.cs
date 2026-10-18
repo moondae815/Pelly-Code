@@ -13,8 +13,9 @@ try { Console.InputEncoding = Encoding.UTF8; } catch (Exception ex) when (ex is 
 using var shutdown = new ShutdownCoordinator();
 Console.CancelKeyPress += (_, e) =>
 {
-    // First Ctrl+C asks the run to stop (rollback, exit 2); a second one ends the process.
-    if (shutdown.Token.IsCancellationRequested) return;
+    // First Ctrl+C asks the run to stop (rollback, exit 2); a second one ends the process,
+    // except during the --pause-on-exit wait, where it only ends the wait.
+    if (shutdown.Token.IsCancellationRequested && !shutdown.Pausing) return;
     e.Cancel = true;
     shutdown.RequestCancel();
 };
@@ -32,8 +33,12 @@ try
 {
     var exitCode = CliApp.NormalizeExitCode(await app.RunAsync(args));
     // After the command (so after any rollback) and before SignalCompleted; the pause never changes the exit code.
-    if (ExitPause.ShouldPause(args, Console.IsInputRedirected))
-        ExitPause.Wait(console, exitCode, () => Console.KeyAvailable, () => Console.ReadKey(intercept: true), shutdown.Token);
+    // Ctrl+C still pauses (window stays readable); a termination signal never waits.
+    if (ExitPause.ShouldPause(args, Console.IsInputRedirected, shutdown.TerminationRequested))
+    {
+        shutdown.BeginPause();
+        ExitPause.Wait(console, exitCode, () => Console.KeyAvailable, () => Console.ReadKey(intercept: true), shutdown.PauseEnded);
+    }
     return exitCode;
 }
 finally

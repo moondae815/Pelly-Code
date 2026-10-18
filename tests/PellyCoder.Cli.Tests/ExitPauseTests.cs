@@ -62,4 +62,54 @@ public class ExitPauseTests
 
         Assert.Contains("종료 코드 4. 아무 키나 누르면 창을 닫습니다", console.Output);
     }
+
+    [Fact]
+    public void CtrlC_StillPauses()
+    {
+        using var shutdown = new ShutdownCoordinator(TimeSpan.FromMilliseconds(50));
+        shutdown.RequestCancel();
+        var polls = 0;
+
+        Assert.True(shutdown.Token.IsCancellationRequested);
+        Assert.True(ExitPause.ShouldPause(["cs", "--pause-on-exit"], false, shutdown.TerminationRequested));
+        shutdown.BeginPause();
+        ExitPause.Wait(new TestConsole(), 2, () => ++polls >= 4, () => { }, shutdown.PauseEnded);
+
+        Assert.Equal(4, polls); // the cancelled run token did not cut the wait short
+    }
+
+    [Fact]
+    public void TerminationSignal_SkipsPause()
+    {
+        using var shutdown = new ShutdownCoordinator(TimeSpan.FromMilliseconds(50));
+        shutdown.RequestShutdownAndWait();
+
+        Assert.True(shutdown.TerminationRequested);
+        Assert.False(ExitPause.ShouldPause(["cs", "--pause-on-exit"], false, shutdown.TerminationRequested));
+    }
+
+    [Fact]
+    public void SecondCtrlCDuringPause_EndsWait()
+    {
+        using var shutdown = new ShutdownCoordinator(TimeSpan.FromMilliseconds(50));
+        shutdown.RequestCancel();
+        shutdown.BeginPause();
+        var polls = 0;
+
+        ExitPause.Wait(new TestConsole(), 2, () => { if (++polls == 3) shutdown.RequestCancel(); return false; }, () => { }, shutdown.PauseEnded);
+
+        Assert.Equal(3, polls);
+    }
+
+    [Fact]
+    public void TerminationSignalDuringPause_EndsWait()
+    {
+        using var shutdown = new ShutdownCoordinator(TimeSpan.FromMilliseconds(50));
+        shutdown.BeginPause();
+        var polls = 0;
+
+        ExitPause.Wait(new TestConsole(), 0, () => { if (++polls == 2) shutdown.RequestShutdownAndWait(); return false; }, () => { }, shutdown.PauseEnded);
+
+        Assert.Equal(2, polls);
+    }
 }

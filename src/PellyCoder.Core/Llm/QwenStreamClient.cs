@@ -155,9 +155,14 @@ public sealed class QwenStreamClient(
 
         var total = time.GetElapsedTime(start);
         var first = ttft ?? total;
-        var server = (last?.LoadDuration ?? TimeSpan.Zero) + (last?.PromptEvalDuration ?? TimeSpan.Zero);
-        var queue = first - server;
-        if (queue < TimeSpan.Zero) queue = TimeSpan.Zero;
+        // Neither duration reported: the wait cannot be split, so Queue stays 0 and the whole wait is TTFT.
+        var queue = TimeSpan.Zero;
+        if (last?.LoadDuration is not null || last?.PromptEvalDuration is not null)
+        {
+            var server = (last.LoadDuration ?? TimeSpan.Zero) + (last.PromptEvalDuration ?? TimeSpan.Zero);
+            queue = first - server;
+            if (queue < TimeSpan.Zero) queue = TimeSpan.Zero;
+        }
         var usage = new LlmUsage(last?.PromptEvalCount, last?.PromptEvalCachedCount, last?.EvalCount,
             last?.DoneReason, first, total, queue);
         return (sb.ToString(), usage);

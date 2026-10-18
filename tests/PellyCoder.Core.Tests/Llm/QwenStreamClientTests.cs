@@ -245,6 +245,19 @@ public sealed class QwenStreamClientTests
     }
 
     [Fact]
+    public async Task NoDurationsReported_QueueIsZero_TtftKept()
+    {
+        var (client, backend, time, _) = Make(ThinkMode.Off);
+        backend.Enqueue("code");
+        DelayFirstChunk(backend, time, 6);
+
+        var r = await client.GenerateEditAsync(Base, 1, CancellationToken.None);
+
+        Assert.Equal(TimeSpan.Zero, r.CodeUsage.Queue);
+        Assert.Equal(TimeSpan.FromSeconds(6), r.CodeUsage.Ttft);
+    }
+
+    [Fact]
     public async Task Queue_NeverNegative()
     {
         var (client, backend, time, _) = Make(ThinkMode.Off);

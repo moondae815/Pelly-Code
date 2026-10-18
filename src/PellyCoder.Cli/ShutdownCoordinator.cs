@@ -21,6 +21,9 @@ public sealed class ShutdownCoordinator : IDisposable
     // Never disposed: a signal thread may still be waiting on it while the main thread disposes the coordinator.
     private readonly ManualResetEventSlim _completed = new(false);
     private volatile bool _disposed;
+    private volatile bool _terminationRequested;
+    private volatile bool _pausing;
+    private readonly CancellationTokenSource _pauseEnd = new();
 
     public ShutdownCoordinator() : this(DefaultCompletionWait) { }
 
@@ -28,7 +31,20 @@ public sealed class ShutdownCoordinator : IDisposable
     {
         _completionWait = completionWait;
         Token = _cts.Token;
+        PauseEnded = _pauseEnd.Token;
     }
+
+    /// <summary>True only after a termination signal (SIGTERM, SIGHUP, console close); Ctrl+C leaves it false.</summary>
+    public bool TerminationRequested => _terminationRequested;
+
+    /// <summary>True while the <c>--pause-on-exit</c> wait runs: Ctrl+C then ends the wait instead of the process.</summary>
+    public bool Pausing => _pausing;
+
+    /// <summary>Cancelled when the pause wait must end at once: a second Ctrl+C, a Ctrl+C during the wait, or a termination signal.</summary>
+    public CancellationToken PauseEnded { get; }
+
+    /// <summary>Marks the start of the pause wait.</summary>
+    public void BeginPause() => _pausing = true;
 
     /// <summary>Token for the command; captured at construction so it stays readable after dispose.</summary>
     public CancellationToken Token { get; }
@@ -39,6 +55,8 @@ public sealed class ShutdownCoordinator : IDisposable
         if (_disposed) return;
         try
         {
+            // A repeated Ctrl+C, or one during the pause wait, ends the wait (the run itself was cancelled already).
+            if (_cts.IsCancellationRequested || _pausing) _pauseEnd.Cancel();
             _cts.Cancel();
         }
         catch (ObjectDisposedException)
@@ -50,7 +68,10 @@ public sealed class ShutdownCoordinator : IDisposable
     /// <summary>Cancels and blocks until the command signalled completion; false when the wait timed out.</summary>
     public bool RequestShutdownAndWait()
     {
+        _terminationRequested = true;
         RequestCancel();
+        try { _pauseEnd.Cancel(); }
+        catch (ObjectDisposedException) { }
         return _completed.Wait(_completionWait);
     }
 
@@ -63,5 +84,6 @@ public sealed class ShutdownCoordinator : IDisposable
         _disposed = true;
         _completed.Set();
         _cts.Dispose();
+        _pauseEnd.Dispose();
     }
 }

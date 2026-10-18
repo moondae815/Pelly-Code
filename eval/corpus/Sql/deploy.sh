@@ -9,7 +9,7 @@ db="${3:-PellyCorpus}"
 here="$(cd "$(dirname "$0")" && pwd)"
 sqlcmd=(/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P "$password" -b)
 
-docker exec "$container" rm -rf /tmp/corpus-sql
+docker exec -u root "$container" rm -rf /tmp/corpus-sql
 docker cp "$here/." "$container:/tmp/corpus-sql"
 
 docker exec "$container" "${sqlcmd[@]}" -Q "IF DB_ID(N'$db') IS NOT NULL BEGIN ALTER DATABASE [$db] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$db]; END; CREATE DATABASE [$db];"

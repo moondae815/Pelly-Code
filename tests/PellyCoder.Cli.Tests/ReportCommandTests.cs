@@ -20,9 +20,9 @@ public class ReportCommandTests
         Converters = { new JsonStringEnumConverter() },
     };
 
-    private static (CommandAppTester App, TestConsole Console, MockFileSystem Fs) Build()
+    private static (CommandAppTester App, TestConsole Console, MockFileSystem Fs) Build(MockFileSystem? shared = null)
     {
-        var fs = new MockFileSystem(new Dictionary<string, MockFileData>(), "/w");
+        var fs = shared ?? new MockFileSystem(new Dictionary<string, MockFileData>(), "/w");
         fs.AddDirectory("/w/.git");
         var console = new TestConsole().Width(200);
         var services = new ServiceCollection();
@@ -117,5 +117,45 @@ public class ReportCommandTests
             Assert.DoesNotContain("aaaa", text);
             Assert.Contains("Other", text);
         }
+    }
+
+    [Fact]
+    public void Sanitize_SameSecond_DoesNotOverwrite()
+    {
+        var (app, _, fs) = Build();
+        AddRun(fs, "20261001-101010-aaaa", 0);
+        Assert.Equal(0, app.Run("report", "--sanitize", "--out", "/out").ExitCode);
+        var (second, _, _) = Build(fs);
+        Assert.Equal(0, second.Run("report", "--sanitize", "--out", "/out").ExitCode);
+        Assert.Equal(4, fs.Directory.GetFiles("/out").Length);
+    }
+
+    [Fact]
+    public void Sanitize_InvalidOutPath_Exit4()
+    {
+        var (app, _, fs) = Build();
+        AddRun(fs, "20261001-101010-aaaa", 0);
+        var result = app.Run("report", "--sanitize", "--out", "bad\0path");
+        Assert.Equal(ExitCodes.EnvError, CliApp.NormalizeExitCode(result.ExitCode));
+        Assert.Contains("저장할 수 없습니다", result.Output);
+    }
+
+    [Fact]
+    public void Out_WithoutSanitize_IsRejected()
+    {
+        var (app, _, _) = Build();
+        var result = app.Run("report", "--out", "/out");
+        Assert.Equal(ExitCodes.EnvError, CliApp.NormalizeExitCode(result.ExitCode));
+        Assert.Contains("--out은 --sanitize와 함께 쓰세요", result.Output);
+    }
+
+    [Fact]
+    public void Sanitize_NoRuns_WritesNothing_Exit0()
+    {
+        var (app, _, fs) = Build();
+        var result = app.Run("report", "--sanitize", "--out", "/out");
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("비식별 리포트를 쓰지 않았습니다 (실행 기록 없음)", result.Output);
+        Assert.False(fs.Directory.Exists("/out"));
     }
 }

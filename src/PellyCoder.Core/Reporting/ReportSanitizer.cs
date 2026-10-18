@@ -36,7 +36,6 @@ public sealed record SanitizedReport(SanitizedAggregate Aggregate, IReadOnlyList
     private static readonly JsonSerializerOptions Options = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        DictionaryKeyPolicy = JsonNamingPolicy.CamelCase,
         WriteIndented = true,
         Converters = { new JsonStringEnumConverter() },
     };
@@ -99,13 +98,13 @@ public sealed record SanitizedReport(SanitizedAggregate Aggregate, IReadOnlyList
 
 public static partial class ReportSanitizer
 {
-    [GeneratedRegex(@"^(CS|MSB|NU|Msg|SQL)\d+$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"\A(CS|MSB|NU|Msg|SQL)[0-9]{1,6}\z", RegexOptions.CultureInvariant)]
     private static partial Regex ErrorCodePattern { get; }
 
-    [GeneratedRegex(@"^[0-9A-Za-z.+\-]{1,40}$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"\A[0-9][0-9A-Za-z.+\-]{0,39}\z", RegexOptions.CultureInvariant)]
     private static partial Regex VersionPattern { get; }
 
-    [GeneratedRegex(@"^(cs|sql)-v\d+$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"\A(cs|sql)-v[0-9]{1,4}\z", RegexOptions.CultureInvariant)]
     private static partial Regex PromptVersionPattern { get; }
 
     private static readonly string[] ProjectStyles = ["Sdk", "Legacy", "None", "Sql"];
@@ -143,7 +142,7 @@ public static partial class ReportSanitizer
             s.FailureKind is null ? null : FailureKinds.IsKnown(s.FailureKind) ? s.FailureKind : "Other",
             Version(s.PellyVersion),
             s.OllamaVersion is null ? null : Version(s.OllamaVersion),
-            s.PromptVersion is not null && PromptVersionPattern.IsMatch(s.PromptVersion) ? s.PromptVersion : "invalid");
+            PromptVersion(s.PromptVersion));
     }
 
     private static SanitizedAggregate SanitizeAggregate(RunReportData d)
@@ -179,9 +178,11 @@ public static partial class ReportSanitizer
         return map;
     }
 
-    private static bool IsAllowedCode(string? code) => code is not null && (code == "TEST" || ErrorCodePattern.IsMatch(code));
+    public static bool IsAllowedCode(string? code) => code is not null && (code == "TEST" || ErrorCodePattern.IsMatch(code));
 
-    private static string Version(string? v) => v is not null && VersionPattern.IsMatch(v) ? v : "invalid";
+    public static string PromptVersion(string? v) => v is not null && PromptVersionPattern.IsMatch(v) ? v : "invalid";
+
+    public static string Version(string? v) => v is not null && VersionPattern.IsMatch(v) ? v : "invalid";
 
     private static string OneOf(string? value, string[] allowed, string otherwise) =>
         value is not null && allowed.Contains(value, StringComparer.Ordinal) ? value : otherwise;

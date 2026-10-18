@@ -27,6 +27,8 @@ public sealed class ReportSettings : CommandSettings
     {
         if (Since is not null && !DateOnly.TryParseExact(Since, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _))
             return ValidationResult.Error("--since는 yyyy-MM-dd 형식이어야 합니다.");
+        if (Out is not null && !Sanitize)
+            return ValidationResult.Error("--out은 --sanitize와 함께 쓰세요.");
         return ValidationResult.Success();
     }
 }
@@ -44,6 +46,7 @@ public sealed class ReportCommand(IFileSystem fs, IAnsiConsole console) : Comman
         if (history.Runs.Count == 0)
         {
             console.MarkupLine(Markup.Escape($"실행 기록이 없습니다: {fs.Path.Combine(ws.PellyDir, "runs")}"));
+            if (settings.Sanitize) console.MarkupLine("비식별 리포트를 쓰지 않았습니다 (실행 기록 없음)");
             if (history.Unreadable > 0) console.MarkupLine(Markup.Escape($"읽을 수 없는 기록 {history.Unreadable}건은 건너뛰었습니다."));
             return ExitCodes.Success;
         }
@@ -76,21 +79,28 @@ public sealed class ReportCommand(IFileSystem fs, IAnsiConsole console) : Comman
     private int WriteSanitized(IReadOnlyList<RunRecord> runs, RunReportData d, string? outDir)
     {
         var report = ReportSanitizer.Sanitize(runs, d);
-        var dir = fs.Path.GetFullPath(outDir ?? fs.Directory.GetCurrentDirectory());
-        var stem = fs.Path.Combine(dir, "pelly-report-" + DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture));
+        string jsonPath, mdPath;
         try
         {
+            var dir = fs.Path.GetFullPath(outDir ?? fs.Directory.GetCurrentDirectory());
             fs.Directory.CreateDirectory(dir);
-            fs.File.WriteAllText(stem + ".json", report.ToJson());
-            fs.File.WriteAllText(stem + ".md", report.ToMarkdown());
+            var stem = fs.Path.Combine(dir, "pelly-report-" + DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture));
+            // Never overwrite an earlier report from the same second.
+            var suffix = "";
+            for (var n = 2; fs.File.Exists(stem + suffix + ".json") || fs.File.Exists(stem + suffix + ".md"); n++)
+                suffix = "-" + n.ToString(CultureInfo.InvariantCulture);
+            jsonPath = stem + suffix + ".json";
+            mdPath = stem + suffix + ".md";
+            fs.File.WriteAllText(jsonPath, report.ToJson());
+            fs.File.WriteAllText(mdPath, report.ToMarkdown());
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {
             console.MarkupLine(Markup.Escape($"리포트를 저장할 수 없습니다: {ex.Message}"));
             return ExitCodes.EnvError;
         }
-        console.MarkupLine(Markup.Escape($"비식별 리포트를 저장했습니다: {stem}.json"));
-        console.MarkupLine(Markup.Escape($"비식별 리포트를 저장했습니다: {stem}.md"));
+        console.MarkupLine(Markup.Escape($"비식별 리포트를 저장했습니다: {jsonPath}"));
+        console.MarkupLine(Markup.Escape($"비식별 리포트를 저장했습니다: {mdPath}"));
         return ExitCodes.Success;
     }
 

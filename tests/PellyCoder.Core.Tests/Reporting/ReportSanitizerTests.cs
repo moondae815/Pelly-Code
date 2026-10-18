@@ -66,19 +66,65 @@ public sealed class ReportSanitizerTests
         finally { Thread.CurrentThread.CurrentCulture = old; }
     }
 
-    [Fact]
-    public void Sanitize_DoesNotOpenOtherFiles()
-    {
-        var fs = new MockFileSystem(new Dictionary<string, MockFileData>(), "/w");
-        fs.AddDirectory("/w/.git");
-        var s = Injected();
-        RunHistoryTests.Write(fs, s);
-        // Any read of these must fail: a sanitizer that touches them would crash instead of reporting.
-        var locked = new MockFileData("secret events") { AllowedFileShare = FileShare.None };
-        fs.AddFile($"/w/.pelly/runs/{s.RunId}/events.jsonl", locked);
-        fs.AddFile($"/w/.pelly/runs/{s.RunId}/attempt-1/prompt.txt", new MockFileData("secret prompt") { AllowedFileShare = FileShare.None });
+    [Theory]
+    [InlineData("CS0103\n")]
+    [InlineData("CS\u0661\u0662")]
+    [InlineData(" CS0103")]
+    [InlineData("cs0103")]
+    [InlineData("Msg01012345678")]
+    [InlineData("OrderService")]
+    public void ErrorCodes_RejectsBypasses(string code) => Assert.False(ReportSanitizer.IsAllowedCode(code));
 
-        Assert.ThrowsAny<Exception>(() => fs.File.ReadAllText($"/w/.pelly/runs/{s.RunId}/events.jsonl")); // the trap works
+    [Theory]
+    [InlineData("CS0103")]
+    [InlineData("SQL46010")]
+    [InlineData("Msg207")]
+    [InlineData("NU1101")]
+    [InlineData("MSB3202")]
+    [InlineData("TEST")]
+    public void ErrorCodes_AcceptsKnownShapes(string code) => Assert.True(ReportSanitizer.IsAllowedCode(code));
+
+    [Theory]
+    [InlineData("1.0\n")]
+    [InlineData("OrderService")]
+    [InlineData("kim")]
+    [InlineData("")]
+    public void Version_RejectsBypasses(string v) => Assert.Equal("invalid", ReportSanitizer.Version(v));
+
+    [Theory]
+    [InlineData("0.40.0")]
+    [InlineData("1.0.0+abc123")]
+    public void Version_AcceptsNumericStart(string v) => Assert.Equal(v, ReportSanitizer.Version(v));
+
+    [Theory]
+    [InlineData("cs-v2\n")]
+    [InlineData("cs-v\u0663")]
+    [InlineData("cs-v12345")]
+    [InlineData("cs-v2 OrderService")]
+    public void PromptVersion_RejectsBypasses(string v) => Assert.Equal("invalid", ReportSanitizer.PromptVersion(v));
+
+    [Fact]
+    public void Json_DictionaryKeysKeepExactNames()
+    {
+        var runs = new[] { Rec(Injected()) };
+        var json = ReportSanitizer.Sanitize(runs, RunReport.Build(runs)).ToJson();
+        Assert.Contains("\"Edit\":", json);
+        Assert.Contains("\"Other\":", json);
+    }
+
+    [Fact]
+    public void Sanitize_OnlySummaryJsonIsRead()
+    {
+        var inner = new MockFileSystem(new Dictionary<string, MockFileData>(), "/w");
+        inner.AddDirectory("/w/.git");
+        var s = Injected();
+        RunHistoryTests.Write(inner, s);
+        inner.AddFile($"/w/.pelly/runs/{s.RunId}/events.jsonl", new MockFileData("secret events"));
+        inner.AddFile($"/w/.pelly/runs/{s.RunId}/attempt-1/prompt.txt", new MockFileData("secret prompt"));
+        var fs = ReadGuard.Wrap(inner);
+
+        // the guard itself works
+        Assert.Throws<InvalidOperationException>(() => fs.File.ReadAllText($"/w/.pelly/runs/{s.RunId}/events.jsonl"));
 
         var ws = WorkspaceLocator.Resolve(fs, "/w/pelly-report");
         var history = RunHistory.Load(fs, ws, null);
@@ -86,5 +132,37 @@ public sealed class ReportSanitizerTests
 
         Assert.Single(report.Runs);
         Assert.DoesNotContain("secret", report.ToJson());
+    }
+}
+
+/// <summary>File system whose read/open methods throw for any path that is not a summary.json.</summary>
+internal class ReadGuard : System.Reflection.DispatchProxy
+{
+    private object _target = null!;
+    private bool _isFile;
+
+    public static System.IO.Abstractions.IFileSystem Wrap(System.IO.Abstractions.IFileSystem inner)
+    {
+        var p = Create<System.IO.Abstractions.IFileSystem, ReadGuard>();
+        var g = (ReadGuard)(object)p;
+        g._target = inner;
+        return p;
+    }
+
+    protected override object? Invoke(System.Reflection.MethodInfo? m, object?[]? args)
+    {
+        if (_isFile && m!.Name is not ("Exists" or "WriteAllText") && args?.FirstOrDefault() is string path
+            && !path.EndsWith("summary.json", StringComparison.Ordinal))
+            throw new InvalidOperationException($"unexpected file access: {m.Name} {path}");
+        var result = m!.Invoke(_target, args);
+        if (!_isFile && m.Name == "get_File")
+        {
+            var p = Create<System.IO.Abstractions.IFile, ReadGuard>();
+            var g = (ReadGuard)(object)p;
+            g._target = result!;
+            g._isFile = true;
+            return p;
+        }
+        return result;
     }
 }

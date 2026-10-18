@@ -61,6 +61,15 @@ public class PellyOptionsLoaderTests
     }
 
     [Fact]
+    public void ConfigConnectionUnparsableWithPassword_IsConfigError()
+    {
+        var cli = new Dictionary<string, string?> { ["sql:connectionString"] = "Server=x;Password=a;b" };
+        var r = Load(new MockFileSystem(), cli: cli);
+        Assert.Null(r.Options);
+        Assert.Contains(PwdError, r.Errors);
+    }
+
+    [Fact]
     public void EnvConnectionWithPassword_IsAccepted_AndWins()
     {
         var fs = new MockFileSystem(new Dictionary<string, MockFileData>

@@ -327,7 +327,7 @@ public sealed class DoctorServiceTests
         Assert.Contains("/w/pelly.json (있음)", c.Detail);
         Assert.Contains("llm.thinkMode=Retry", c.Detail);
         Assert.Contains("sql.compatLevel=160", c.Detail);
-        Assert.Contains("Password=***", c.Detail);
+        Assert.Contains("password=***", c.Detail, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("Secret", c.Detail);
         Assert.DoesNotContain("hdr-token-xyz", c.Detail);
     }

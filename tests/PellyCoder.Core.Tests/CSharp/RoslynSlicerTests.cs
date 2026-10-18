@@ -94,6 +94,27 @@ public sealed class RoslynSlicerTests
     }
 
     [Fact]
+    public void Slice_DtoRemovedAfterSignatures_BeforeUsings()
+    {
+        var (src, target) = Cancel();
+        const string dto = "class Order: int OrderId; OrderStatus Status";
+        var full = RoslynSlicer.Build(src, target, Lang, Tokens, Huge, [], dto);
+        int T(string k) => Part(full, k).Tokens;
+        var total = full.Slice.Included.Sum(p => p.Tokens);
+
+        var one = RoslynSlicer.Build(src, target, Lang, Tokens, total - 1, [], dto);
+        var two = RoslynSlicer.Build(src, target, Lang, Tokens, total - T("signatures") - 1, [], dto);
+        var three = RoslynSlicer.Build(src, target, Lang, Tokens, total - T("signatures") - T("dto") - 1, [], dto);
+
+        Assert.Equal(dto, Part(full, "dto").Text);
+        Assert.Equal(2, Part(full, "dto").Priority);
+        Assert.Equal(["signatures"], one.Slice.Omitted.Select(p => p.Kind));
+        Assert.Equal(["signatures", "dto"], two.Slice.Omitted.Select(p => p.Kind));
+        Assert.Equal(["signatures", "dto", "usings"], three.Slice.Omitted.Select(p => p.Kind));
+        Assert.DoesNotContain(RoslynSlicer.Build(src, target, Lang, Tokens, Huge, []).Slice.Included, p => p.Kind == "dto");
+    }
+
+    [Fact]
     public void OverBudget_DropsSignaturesThenUsingsThenFields()
     {
         var (src, target) = Cancel();

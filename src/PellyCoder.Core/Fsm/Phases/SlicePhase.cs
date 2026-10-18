@@ -1,3 +1,4 @@
+using System.IO.Abstractions;
 using PellyCoder.Core.Abstractions;
 using PellyCoder.Core.Config;
 using PellyCoder.Core.CSharp;
@@ -6,7 +7,7 @@ using PellyCoder.Core.Files;
 namespace PellyCoder.Core.Fsm.Phases;
 
 /// <summary>Re-reads the file, re-finds the member (lines may have moved on a retry) and builds the budgeted context.</summary>
-public sealed class SlicePhase(FileGuard fileGuard, ITokenCounter tokens, BudgetOptions budget) : IPhase
+public sealed class SlicePhase(IFileSystem fs, FileGuard fileGuard, ITokenCounter tokens, BudgetOptions budget) : IPhase
 {
     public RunPhase Phase => RunPhase.Slice;
 
@@ -41,7 +42,8 @@ public sealed class SlicePhase(FileGuard fileGuard, ITokenCounter tokens, Budget
         ctx.Candidate = candidate;
         ctx.Target = ctx.Target! with { SymbolDisplay = candidate.Display, MemberSpan = candidate.Span };
 
-        var slice = RoslynSlicer.Build(current.Text, candidate, language, tokens, budget.Context, ctx.AddedHelpers);
+        var slice = RoslynSlicer.Build(current.Text, candidate, language, tokens, budget.Context, ctx.AddedHelpers,
+            CollectDto(ctx, current.Text, candidate, language));
         ctx.SliceResult = slice;
         if (slice.TargetTooLarge)
         {
@@ -50,5 +52,22 @@ public sealed class SlicePhase(FileGuard fileGuard, ITokenCounter tokens, Budget
             return Task.FromResult(PhaseOutcome.BudgetExceeded);
         }
         return Task.FromResult(PhaseOutcome.Ok);
+    }
+
+    /// <summary>Project types the target uses, for the dto part. Any failure means no part, silently.</summary>
+    private string? CollectDto(RunContext ctx, string sourceLf, MemberCandidate candidate, LanguageTarget language)
+    {
+        try
+        {
+            var root = ctx.Target?.ProjectPath is { Length: > 0 } project
+                ? (fs.Directory.Exists(project) ? project : fs.Path.GetDirectoryName(project))
+                : null;
+            root = string.IsNullOrEmpty(root) ? fs.Path.GetDirectoryName(ctx.FilePath) : root;
+            return string.IsNullOrEmpty(root) ? null : DtoCollector.Collect(fs, root, sourceLf, candidate, language.Version);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return null;
+        }
     }
 }

@@ -21,6 +21,7 @@ public sealed class PromptBuilder(QwenChatTemplate template, PromptResources res
     private static readonly (string Kind, string Header)[] ContextOrder =
     {
         ("fields", "[READ-ONLY: fields]"),
+        ("dto", "[READ-ONLY: dto]"),
         ("signatures", "[READ-ONLY: signatures]"),
         ("usings", "[EDITABLE: usings]"),
         ("helpers", "[EDITABLE: helper]"),

@@ -38,6 +38,21 @@ public sealed class PromptBuilderTests
     }
 
     [Fact]
+    public void Prompt_DtoSectionOrder()
+    {
+        var slice = FullSlice();
+        slice = slice with { Included = [.. slice.Included, Part("dto", "class Order: int OrderId")] };
+
+        var u = User(NewBuilder().BuildCSharp(Target(), slice, "req", null).BasePrompt);
+
+        string[] order = ["[READ-ONLY: fields]", "[READ-ONLY: dto]", "[READ-ONLY: signatures]", "[EDITABLE: usings]", "[EDITABLE: helper]", "[EDITABLE: target]"];
+        var positions = order.Select(h => u.IndexOf(h, StringComparison.Ordinal)).ToArray();
+        Assert.All(positions, p => Assert.True(p >= 0));
+        Assert.Equal(positions.OrderBy(p => p), positions);
+        Assert.Contains("[READ-ONLY: dto]\nclass Order: int OrderId\n", u);
+    }
+
+    [Fact]
     public void FewShot_TokenCount_Between200And260()
     {
         var n = Counter.Count(Resources.FewShotCs);

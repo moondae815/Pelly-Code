@@ -14,6 +14,7 @@ public sealed record SliceResult(Slice Slice, IReadOnlyList<EditableRegion> Regi
 public static class RoslynSlicer
 {
     private const int SignaturesPriority = 1;
+    private const int DtoPriority = 2;
     private const int UsingsPriority = 3;
     private const int FieldsPriority = 4;
     private const int HelpersPriority = 5;
@@ -24,8 +25,9 @@ public static class RoslynSlicer
     /// Private helpers the run added (MemberLocator display format). Each one found exactly once in the target's type, on
     /// lines apart from the target, is shown verbatim as an editable part; one no longer found is skipped.
     /// </param>
+    /// <param name="dtoText">Rendered project types the target uses (<see cref="DtoCollector"/>); shown read-only, priority 2.</param>
     public static SliceResult Build(string sourceLf, MemberCandidate target, LanguageTarget language, ITokenCounter tokens, int contextBudget,
-        IReadOnlyList<string> helperDisplays)
+        IReadOnlyList<string> helperDisplays, string? dtoText = null)
     {
         var tree = CSharpSyntaxTree.ParseText(sourceLf, new CSharpParseOptions(language.Version));
         var root = (CompilationUnitSyntax)tree.GetRoot();
@@ -42,6 +44,8 @@ public static class RoslynSlicer
 
         var usingsSpan = UsingsSpan(tree, root);
         var usings = usingsSpan is null ? null : MakePart("usings", LinesText(lines, usingsSpan), tokens, UsingsPriority);
+
+        var dto = string.IsNullOrEmpty(dtoText) ? null : MakePart("dto", dtoText, tokens, DtoPriority);
 
         SlicePart? fields = null, signatures = null, helpers = null;
         var helperSpans = new List<TextSpanInfo>();
@@ -61,7 +65,7 @@ public static class RoslynSlicer
         }
 
         // Lowest priority is dropped first; the target is never in this list.
-        var included = new[] { usings, fields, signatures, helpers }.OfType<SlicePart>().OrderBy(p => p.Priority).ToList();
+        var included = new[] { usings, fields, dto, signatures, helpers }.OfType<SlicePart>().OrderBy(p => p.Priority).ToList();
         var omitted = new List<SlicePart>();
         var used = targetPart.Tokens + included.Sum(p => p.Tokens);
         var tooLarge = targetPart.Tokens > contextBudget;
@@ -75,7 +79,7 @@ public static class RoslynSlicer
         }
 
         // Prompt order: surroundings first, the member being edited last.
-        var ordered = included.OrderBy(p => p.Kind switch { "usings" => 0, "fields" => 1, "helpers" => 3, _ => 2 }).Append(targetPart).ToList();
+        var ordered = included.OrderBy(p => p.Kind switch { "usings" => 0, "fields" => 1, "dto" => 2, "helpers" => 4, _ => 3 }).Append(targetPart).ToList();
 
         var regions = new List<EditableRegion> { new(target.Span, "target") };
         if (usingsSpan is not null && included.Any(p => p.Kind == "usings"))

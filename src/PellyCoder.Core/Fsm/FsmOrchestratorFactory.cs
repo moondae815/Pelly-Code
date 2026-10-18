@@ -33,7 +33,7 @@ public static class FsmOrchestratorFactory
             new PreflightPhase(fs, fileGuard, backend, options.Llm, tokens.SpecialTokens),
             new LocatePhase(fs, ui, new BuildToolResolver(fs, processes, options.Build, isWindows), builds,
                 new ModelMemberPicker(backend, template, resources, options.Llm, options.Sampling), isWindows),
-            new SlicePhase(fileGuard, tokens, options.Budget),
+            new SlicePhase(fs, fileGuard, tokens, options.Budget),
             new EditPhase(prompts, client, feedback, logger, ui),
             new ApplyPhase(fileGuard, feedback, ui, options.Build),
             new VerifyPhase([new SyntaxStep(fs, feedback), new BuildStep(builds, feedback, options.Build)]),

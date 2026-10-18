@@ -33,38 +33,19 @@ public static class TextFileCodec
 {
     private const string Crlf = "\r\n";
 
-    private static readonly UTF8Encoding Utf8 = new(encoderShouldEmitUTF8Identifier: false);
-    private static readonly UnicodeEncoding Utf16Le = new(bigEndian: false, byteOrderMark: false);
-    private static readonly UnicodeEncoding Utf16Be = new(bigEndian: true, byteOrderMark: false);
-    private static readonly Encoding Cp949;
-
-    static TextFileCodec()
-    {
-        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
-        Cp949 = Encoding.GetEncoding(949);
-    }
+    static TextFileCodec() => Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
     public static FileSnapshot Read(IFileSystem fs, string path) => Decode(path, fs.File.ReadAllBytes(path));
 
     public static FileSnapshot Decode(string path, byte[] bytes)
     {
-        Encoding encoding;
-        bool hasBom = true;
-        int offset;
-        if (bytes.AsSpan().StartsWith(new byte[] { 0xEF, 0xBB, 0xBF })) { encoding = Utf8; offset = 3; }
-        else if (bytes.AsSpan().StartsWith(new byte[] { 0xFF, 0xFE })) { encoding = Utf16Le; offset = 2; }
-        else if (bytes.AsSpan().StartsWith(new byte[] { 0xFE, 0xFF })) { encoding = Utf16Be; offset = 2; }
-        else
-        {
-            hasBom = false;
-            offset = 0;
-            encoding = IsValidUtf8(bytes) ? Utf8 : Cp949;
-        }
-
+        var detected = TextDecoding.Detect(bytes);
+        var encoding = detected.Encoding;
+        bool hasBom = detected.HasBom;
         string raw;
         try
         {
-            raw = Strict(encoding, decoder: true).GetString(bytes, offset, bytes.Length - offset);
+            raw = TextDecoding.DecodeStrict(detected, bytes);
         }
         catch (DecoderFallbackException ex)
         {
@@ -135,19 +116,6 @@ public static class TextFileCodec
         if (decoder) clone.DecoderFallback = DecoderFallback.ExceptionFallback;
         else clone.EncoderFallback = EncoderFallback.ExceptionFallback;
         return clone;
-    }
-
-    private static bool IsValidUtf8(byte[] bytes)
-    {
-        try
-        {
-            new UTF8Encoding(false, throwOnInvalidBytes: true).GetCharCount(bytes);
-            return true;
-        }
-        catch (DecoderFallbackException)
-        {
-            return false;
-        }
     }
 
     private static byte[] PreambleOf(Encoding e) => e.CodePage switch

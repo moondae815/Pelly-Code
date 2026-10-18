@@ -15,6 +15,14 @@ public sealed class ReportSettings : CommandSettings
     [Description("이 날짜(yyyy-MM-dd) 이후의 실행만 집계")]
     public string? Since { get; init; }
 
+    [CommandOption("--sanitize")]
+    [Description("허용 목록 방식의 비식별 리포트(json·md)를 파일로 저장")]
+    public bool Sanitize { get; init; }
+
+    [CommandOption("--out <DIR>")]
+    [Description("--sanitize 출력 폴더(기본: 현재 폴더)")]
+    public string? Out { get; init; }
+
     public override ValidationResult Validate()
     {
         if (Since is not null && !DateOnly.TryParseExact(Since, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _))
@@ -41,6 +49,7 @@ public sealed class ReportCommand(IFileSystem fs, IAnsiConsole console) : Comman
         }
 
         var d = RunReport.Build(history.Runs);
+        if (settings.Sanitize) return WriteSanitized(history.Runs, d, settings.Out);
         var kinds = string.Join(", ", d.RunsByKind.Select(k => $"{k.Key} {k.Value}"));
         console.MarkupLine(Markup.Escape($"실행 {d.RunCount}건 ({kinds})" + (history.Unreadable > 0 ? $", 읽을 수 없어 건너뜀 {history.Unreadable}건" : "")));
 
@@ -61,6 +70,27 @@ public sealed class ReportCommand(IFileSystem fs, IAnsiConsole console) : Comman
         var phases = new Table().AddColumns("단계", "평균 시간(초)");
         foreach (var p in d.MeanPhaseSeconds) phases.AddRow(Markup.Escape(p.Key.ToString()), p.Value.ToString("F2", CultureInfo.InvariantCulture));
         console.Write(phases);
+        return ExitCodes.Success;
+    }
+
+    private int WriteSanitized(IReadOnlyList<RunRecord> runs, RunReportData d, string? outDir)
+    {
+        var report = ReportSanitizer.Sanitize(runs, d);
+        var dir = fs.Path.GetFullPath(outDir ?? fs.Directory.GetCurrentDirectory());
+        var stem = fs.Path.Combine(dir, "pelly-report-" + DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture));
+        try
+        {
+            fs.Directory.CreateDirectory(dir);
+            fs.File.WriteAllText(stem + ".json", report.ToJson());
+            fs.File.WriteAllText(stem + ".md", report.ToMarkdown());
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            console.MarkupLine(Markup.Escape($"리포트를 저장할 수 없습니다: {ex.Message}"));
+            return ExitCodes.EnvError;
+        }
+        console.MarkupLine(Markup.Escape($"비식별 리포트를 저장했습니다: {stem}.json"));
+        console.MarkupLine(Markup.Escape($"비식별 리포트를 저장했습니다: {stem}.md"));
         return ExitCodes.Success;
     }
 

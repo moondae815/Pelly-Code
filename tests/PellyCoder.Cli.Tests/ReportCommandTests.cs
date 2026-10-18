@@ -94,4 +94,28 @@ public class ReportCommandTests
         Assert.Equal(ExitCodes.EnvError, CliApp.NormalizeExitCode(result.ExitCode));
         Assert.NotEqual(0, result.ExitCode);
     }
+
+    [Fact]
+    public void ReportCommand_Sanitize_WritesTwoFiles()
+    {
+        var (app, _, fs) = Build();
+        AddRun(fs, "20261001-101010-aaaa", 0);
+        AddRun(fs, "20261002-101010-bbbb", 1, failure: @"C:\Users\kim\Secret.cs");
+
+        var result = app.Run("report", "--sanitize", "--out", "/out");
+
+        Assert.Equal(0, result.ExitCode);
+        var files = fs.Directory.GetFiles("/out").Order(StringComparer.Ordinal).ToList();
+        Assert.Equal(2, files.Count);
+        Assert.Matches(@"pelly-report-\d{8}-\d{6}\.json$", files[0]);
+        Assert.Matches(@"pelly-report-\d{8}-\d{6}\.md$", files[1]);
+        foreach (var f in files)
+        {
+            Assert.Contains(Path.GetFileName(f), result.Output.Replace("\n", ""));
+            var text = fs.File.ReadAllText(f);
+            Assert.DoesNotContain("Secret", text);
+            Assert.DoesNotContain("aaaa", text);
+            Assert.Contains("Other", text);
+        }
+    }
 }

@@ -17,8 +17,8 @@ public class TestRunnerSdkTests
         var root = RealPath(created);
         try
         {
-            // The corpus test project is a Microsoft.Testing.Platform (xunit v3) project; .NET 10 needs the global.json opt-in.
-            await File.WriteAllTextAsync(Path.Combine(root, "global.json"), """{"test":{"runner":"Microsoft.Testing.Platform"}}""", ct);
+            // No global.json on purpose: the xunit v3 project is detected from its csproj.
+            Assert.False(File.Exists(Path.Combine(root, "global.json")));
             // Relative restore path and a link-free root on purpose: through the macOS /var -> /private/var link the restore
             // skips the transitive ProjectReference and the built test app misses Shop.Api.dll.
             var processes = new SystemProcessRunner(TimeProvider.System);

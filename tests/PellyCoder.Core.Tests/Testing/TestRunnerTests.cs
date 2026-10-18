@@ -50,21 +50,37 @@ public class TestRunnerTests : IDisposable
     }
 
     [Fact]
-    public async Task Runner_Sdk_TestingPlatformProject_UsesReportOptions()
+    public async Task Runner_XunitV3Project_RunsDotnetRunWithResultTrx()
     {
-        // .NET 10 refuses --logger for Microsoft.Testing.Platform projects (opt-in through global.json).
-        File.WriteAllText(Path.Combine(_dir, "global.json"), """{"test":{"runner":"Microsoft.Testing.Platform"}}""");
         Directory.CreateDirectory(Path.GetDirectoryName(Proj)!);
         File.WriteAllText(Proj, """<Project Sdk="Microsoft.NET.Sdk"><ItemGroup><PackageReference Include="xunit.v3.mtp-v2" Version="4.0.2" /></ItemGroup></Project>""");
         _procs.Enqueue(Ok());
+        _procs.Enqueue(Ok(), () => File.WriteAllText(Trx, TrxParserTests.Fixture("modern-pass.trx")));
+
+        var run = await Runner().RunAsync(Dotnet, Proj, _dir, Trx, TestContext.Current.CancellationToken);
+
+        Assert.Equal(["run", "--project", Proj, "--no-build", "--", "-result-trx", Trx], _procs.Calls[1].Arguments);
+        Assert.True(run.PerTestResults);
+        Assert.Equal(3, run.Results.Count);
+    }
+
+    [Theory]
+    [InlineData("""<Project Sdk="MSTest.Sdk/3.8.0" />""")]
+    [InlineData("""<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><IsTestingPlatformApplication>true</IsTestingPlatformApplication></PropertyGroup></Project>""")]
+    [InlineData("""<Project Sdk="Microsoft.NET.Sdk"><ItemGroup><PackageReference Include="Microsoft.Testing.Platform" Version="1" /></ItemGroup></Project>""")]
+    public async Task Runner_OtherTestingPlatformProject_RunsWithoutReport_ExitCodeOnly(string csproj)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(Proj)!);
+        File.WriteAllText(Proj, csproj);
         _procs.Enqueue(Ok());
+        _procs.Enqueue(Ok(exit: 2));
 
-        await Runner().RunAsync(Dotnet, Proj, _dir, Trx, TestContext.Current.CancellationToken);
+        var run = await Runner().RunAsync(Dotnet, Proj, _dir, Trx, TestContext.Current.CancellationToken);
 
-        Assert.Equal(
-            ["test", "--project", Proj, "--no-build", "--report-xunit-trx", "--report-xunit-trx-filename", "test.trx",
-             "--results-directory", Path.GetDirectoryName(Trx)!],
-            _procs.Calls[1].Arguments);
+        Assert.Equal(["run", "--project", Proj, "--no-build"], _procs.Calls[1].Arguments);
+        Assert.False(run.PerTestResults);
+        Assert.Equal(2, run.ExitCode);
+        Assert.Null(run.Error);
     }
 
     [Fact]

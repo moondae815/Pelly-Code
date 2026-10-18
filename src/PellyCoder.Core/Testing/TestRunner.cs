@@ -62,7 +62,9 @@ public sealed class TestRunner(IProcessRunner processes, BuildOptions build, Tes
         }
         if (result.TimedOut) return new TestRun([], [], result.ExitCode, true, false, null);
 
-        var wantsTrx = !legacy || test.Command!.Contains("{trx}", StringComparison.Ordinal);
+        var wantsTrx = legacy
+            ? test.Command!.Contains("{trx}", StringComparison.Ordinal)
+            : Kind(testProject) != TestProjectKind.OtherTestingPlatform;
         if (!wantsTrx) return new TestRun([], [], result.ExitCode, false, false, null);
 
         if (!File.Exists(trxPath))
@@ -97,30 +99,72 @@ public sealed class TestRunner(IProcessRunner processes, BuildOptions build, Tes
     private ProcessSpec SdkSpec(string testProject, string workDir, string trxPath)
     {
         var timeout = TimeSpan.FromSeconds(test.TimeoutSeconds);
-        if (!UsesTestingPlatform(testProject))
+        switch (Kind(testProject))
         {
-            return new ProcessSpec("dotnet",
-                ["test", testProject, "--no-build", "--nologo", "--logger", $"trx;LogFileName={trxPath}"],
-                workDir, timeout, BuildVerifier.EnglishEnv);
+            // One path per project kind, independent of global.json, so behavior is the same inside and outside a repo.
+            // `dotnet test` cannot be used: on .NET 10 it refuses VSTest options for Testing Platform projects, and its
+            // own Testing Platform mode needs a global.json opt-in.
+            case TestProjectKind.XunitV3:
+                return new ProcessSpec("dotnet", ["run", "--project", testProject, "--no-build", "--", "-result-trx", trxPath],
+                    workDir, timeout, BuildVerifier.EnglishEnv);
+            case TestProjectKind.OtherTestingPlatform:
+                // Per-test TRX for these (MSTest.Sdk, plain Microsoft.Testing.Platform) is unverified: exit code only (R7).
+                return new ProcessSpec("dotnet", ["run", "--project", testProject, "--no-build"],
+                    workDir, timeout, BuildVerifier.EnglishEnv);
+            default:
+                return new ProcessSpec("dotnet",
+                    ["test", testProject, "--no-build", "--nologo", "--logger", $"trx;LogFileName={trxPath}"],
+                    workDir, timeout, BuildVerifier.EnglishEnv);
         }
-
-        // Microsoft.Testing.Platform (opt-in through global.json): VSTest's --logger is refused on .NET 10, --nologo would be
-        // forwarded to the test app and fail it, and the TRX name is resolved against --results-directory.
-        var xunit = ReferencesXunitV3(testProject);
-        return new ProcessSpec("dotnet",
-        [
-            "test", "--project", testProject, "--no-build",
-            xunit ? "--report-xunit-trx" : "--report-trx",
-            xunit ? "--report-xunit-trx-filename" : "--report-trx-filename", Path.GetFileName(trxPath),
-            "--results-directory", Path.GetDirectoryName(Path.GetFullPath(trxPath))!,
-        ], workDir, timeout, BuildVerifier.EnglishEnv);
     }
 
-    internal static bool UsesTestingPlatform(string testProject)
+    internal enum TestProjectKind { VsTest, XunitV3, OtherTestingPlatform }
+
+    private static readonly System.Text.RegularExpressions.Regex XunitV3Ref =
+        new(@"<PackageReference\s+[^>]*Include\s*=\s*""xunit\.v3", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+    private static readonly string[] TestingPlatformSignals =
+    [
+        "IsTestingPlatformApplication", "EnableMicrosoftTestingPlatform", "TestingPlatformDotnetTestSupport",
+        "Include=\"xunit.v3.mtp", "Include=\"MSTest.Sdk", "Sdk=\"MSTest.Sdk", "Include=\"Microsoft.Testing.Platform",
+    ];
+
+    /// <summary>Classifies the project from its csproj and the nearest Directory.Build.props; global.json is an extra signal.</summary>
+    internal static TestProjectKind Kind(string testProject)
+    {
+        var text = ReadSafe(testProject);
+        for (var dir = Path.GetDirectoryName(Path.GetFullPath(testProject)); dir is not null; dir = Path.GetDirectoryName(dir))
+        {
+            var props = Path.Combine(dir, "Directory.Build.props");
+            if (!File.Exists(props)) continue;
+            text += "\n" + ReadSafe(props);
+            break;
+        }
+
+        if (XunitV3Ref.IsMatch(text)) return TestProjectKind.XunitV3;
+        if (TestingPlatformSignals.Any(sig => text.Contains(sig, StringComparison.OrdinalIgnoreCase))
+            || GlobalJsonOptsIntoTestingPlatform(Path.GetDirectoryName(Path.GetFullPath(testProject))))
+            return TestProjectKind.OtherTestingPlatform;
+        return TestProjectKind.VsTest;
+    }
+
+    private static string ReadSafe(string path)
     {
         try
         {
-            for (var dir = Path.GetDirectoryName(Path.GetFullPath(testProject)); dir is not null; dir = Path.GetDirectoryName(dir))
+            return File.Exists(path) ? File.ReadAllText(path) : "";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return "";
+        }
+    }
+
+    private static bool GlobalJsonOptsIntoTestingPlatform(string? startDir)
+    {
+        try
+        {
+            for (var dir = startDir; dir is not null; dir = Path.GetDirectoryName(dir))
             {
                 var global = Path.Combine(dir, "global.json");
                 if (!File.Exists(global)) continue;
@@ -132,21 +176,9 @@ public sealed class TestRunner(IProcessRunner processes, BuildOptions build, Tes
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or ArgumentException)
         {
-            // unreadable global.json: treat as the VSTest default
+            // unreadable global.json: no signal
         }
         return false;
-    }
-
-    private static bool ReferencesXunitV3(string testProject)
-    {
-        try
-        {
-            return File.Exists(testProject) && File.ReadAllText(testProject).Contains("xunit.v3", StringComparison.OrdinalIgnoreCase);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return false;
-        }
     }
 
     private ProcessSpec LegacySpec(string testProject, string workDir, string trxPath)

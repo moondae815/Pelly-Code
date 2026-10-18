@@ -42,4 +42,24 @@ public class TrxParserTests
         var r = Assert.Single(TrxParser.Parse(xml));
         Assert.Equal("A.B", r.FullName);
     }
+
+    [Fact]
+    public void Trx_IgnoresInnerResults()
+    {
+        const string xml = """
+            <TestRun xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010"><Results>
+              <UnitTestResult testName="A.Theory" outcome="Failed"><InnerResults>
+                <UnitTestResult testName="A.Theory (1)" outcome="Passed" />
+                <UnitTestResult testName="A.Theory (2)" outcome="Failed" />
+              </InnerResults></UnitTestResult>
+            </Results></TestRun>
+            """;
+        Assert.Equal("A.Theory", Assert.Single(TrxParser.Parse(xml)).FullName);
+    }
+
+    [Fact]
+    public void Trx_RejectsDtd()
+    {
+        Assert.ThrowsAny<System.Xml.XmlException>(() => TrxParser.Parse("<!DOCTYPE x [<!ENTITY e \"v\">]><TestRun/>"));
+    }
 }

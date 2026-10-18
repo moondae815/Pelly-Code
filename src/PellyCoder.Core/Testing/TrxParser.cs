@@ -1,3 +1,4 @@
+using System.Xml;
 using System.Xml.Linq;
 
 namespace PellyCoder.Core.Testing;
@@ -11,7 +12,11 @@ public static class TrxParser
     public static IReadOnlyList<TestCaseResult> Parse(string trxXml)
     {
         var results = new List<TestCaseResult>();
-        foreach (var e in XDocument.Parse(trxXml).Descendants().Where(e => e.Name.LocalName == "UnitTestResult"))
+        var settings = new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null };
+        using var reader = XmlReader.Create(new StringReader(trxXml), settings);
+        // Only top-level results: a data-driven test's InnerResults children are not tests of their own.
+        foreach (var e in XDocument.Load(reader).Descendants()
+                     .Where(e => e.Name.LocalName == "UnitTestResult" && e.Parent?.Name.LocalName == "Results"))
         {
             var outcome = (string?)e.Attribute("outcome");
             var name = (string?)e.Attribute("testName");

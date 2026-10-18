@@ -30,6 +30,8 @@ public class TestRunnerTests : IDisposable
     [Fact]
     public async Task Runner_Sdk_CommandLinesAndTrxPath()
     {
+        Directory.CreateDirectory(Path.GetDirectoryName(Proj)!);
+        File.WriteAllText(Proj, "<Project Sdk=\"Microsoft.NET.Sdk\" />"); // plain VSTest-style project, no Testing Platform signal
         _procs.Enqueue(Ok());
         _procs.Enqueue(Ok(exit: 1), () => File.WriteAllText(Trx, TrxParserTests.Fixture("modern-fail.trx")));
 
@@ -138,6 +140,44 @@ public class TestRunnerTests : IDisposable
         var run = await Runner().RunAsync(MsBuild, Proj, _dir, Trx, TestContext.Current.CancellationToken);
 
         Assert.Equal("레거시 테스트 프로젝트는 test.command 설정이 필요합니다", run.Error);
+        Assert.Empty(_procs.Calls);
+    }
+
+    [Fact]
+    public async Task Runner_ProcessStartFailure_MapsToError_ForBuildAndTestSteps()
+    {
+        _procs.EnqueueThrow(new ProcessStartException("dotnet", new IOException()));
+        var build = await Runner().RunAsync(Dotnet, Proj, _dir, Trx, TestContext.Current.CancellationToken);
+        Assert.Contains("dotnet", build.Error);
+
+        _procs.Enqueue(Ok());
+        _procs.EnqueueThrow(new ProcessStartException("dotnet", new IOException()));
+        var tests = await Runner().RunAsync(Dotnet, Proj, _dir, Trx, TestContext.Current.CancellationToken);
+        Assert.Contains("dotnet", tests.Error);
+    }
+
+    [Fact]
+    public async Task Runner_MissingOrMalformedTrx_ReportsError()
+    {
+        _procs.Enqueue(Ok());
+        _procs.Enqueue(Ok());
+        var missing = await Runner().RunAsync(Dotnet, Proj, _dir, Trx, TestContext.Current.CancellationToken);
+        Assert.NotNull(missing.Error);
+        Assert.False(missing.PerTestResults);
+
+        _procs.Enqueue(Ok());
+        _procs.Enqueue(Ok(), () => File.WriteAllText(Trx, "<TestRun><oops"));
+        var bad = await Runner().RunAsync(Dotnet, Proj, _dir, Trx, TestContext.Current.CancellationToken);
+        Assert.NotNull(bad.Error);
+        Assert.Empty(bad.Results);
+    }
+
+    [Fact]
+    public async Task Runner_LegacyBlankProgram_ReportsError()
+    {
+        var run = await Runner(new TestOptions { Command = "\"\" {dll}" }).RunAsync(MsBuild, Proj, _dir, Trx, TestContext.Current.CancellationToken);
+
+        Assert.NotNull(run.Error);
         Assert.Empty(_procs.Calls);
     }
 }

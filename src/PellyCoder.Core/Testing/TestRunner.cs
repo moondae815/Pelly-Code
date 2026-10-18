@@ -33,11 +33,23 @@ public sealed class TestRunner(IProcessRunner processes, BuildOptions build, Tes
         if (legacy && string.IsNullOrWhiteSpace(test.Command))
             return Failed(LegacyCommandMissing);
 
-        var built = await new BuildVerifier(processes, build).BuildAsync(tool, testProject, workDir, ct);
+        if (legacy && (SplitCommand(test.Command!).FirstOrDefault() ?? "").Trim().Length == 0)
+            return Failed("test.command에 실행 파일이 없습니다");
+
+        BuildRun built;
+        try
+        {
+            built = await new BuildVerifier(processes, build).BuildAsync(tool, testProject, workDir, ct);
+        }
+        catch (ProcessStartException ex)
+        {
+            return Failed(ex.Message);
+        }
         if (built.TimedOut) return new TestRun([], [], built.ExitCode, true, false, null);
         if (built.Errors.Count > 0) return new TestRun([], built.Errors, built.ExitCode, false, false, null);
 
-        DeleteStale(trxPath);
+        if (!DeleteStale(trxPath))
+            return Failed("이전 테스트 결과 파일(TRX)을 지울 수 없습니다");
         var spec = legacy ? LegacySpec(testProject, workDir, trxPath) : SdkSpec(testProject, workDir, trxPath);
         ProcessResult result;
         try
@@ -59,7 +71,7 @@ public sealed class TestRunner(IProcessRunner processes, BuildOptions build, Tes
         {
             return new TestRun(TrxParser.Parse(File.ReadAllText(trxPath)), [], result.ExitCode, false, true, null);
         }
-        catch (XmlException)
+        catch (Exception ex) when (ex is XmlException or IOException or UnauthorizedAccessException)
         {
             return new TestRun([], [], result.ExitCode, false, false, "테스트 결과 파일(TRX)을 읽을 수 없습니다");
         }
@@ -67,7 +79,8 @@ public sealed class TestRunner(IProcessRunner processes, BuildOptions build, Tes
 
     private static TestRun Failed(string error) => new([], [], -1, false, false, error);
 
-    private static void DeleteStale(string trxPath)
+    /// <summary>False when an old report is still there afterwards (it could be mistaken for this run's).</summary>
+    private static bool DeleteStale(string trxPath)
     {
         try
         {
@@ -76,8 +89,9 @@ public sealed class TestRunner(IProcessRunner processes, BuildOptions build, Tes
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // best effort: a stale file is overwritten by the run
+            // checked below
         }
+        return !File.Exists(trxPath);
     }
 
     private ProcessSpec SdkSpec(string testProject, string workDir, string trxPath)

@@ -135,6 +135,8 @@ jobs:
           }
           finally { [System.IO.File]::WriteAllText($full, $orig) }
           if ([System.IO.File]::ReadAllText($full) -cne $orig) { throw 'license-exceptions.json was not restored' }
+          # 마지막 네이티브 명령(일부러 실패시킨 빌드)의 종료 코드가 스텝 종료 코드가 되지 않게 끝낸다
+          exit 0
       - name: Build package
         shell: pwsh
         run: |
@@ -166,6 +168,7 @@ jobs:
         if: always()
         shell: pwsh
         run: |
+          if (-not (Test-Path artifacts/package-tests)) { Write-Host 'no TRX (tests did not run)'; exit 0 }
           Get-ChildItem artifacts/package-tests -Filter *.trx | ForEach-Object {
             ([xml](Get-Content -Raw $_.FullName)).TestRun.Results.UnitTestResult | ForEach-Object { "$($_.outcome)  $($_.testName)" }
           }

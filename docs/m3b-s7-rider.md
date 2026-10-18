@@ -60,7 +60,7 @@
 
 적용 변형은 `--dry-run`을 `--yes`로 바꾼 같은 항목(`Pelly C# yes`)입니다. 승인 질문 없이 바로 씁니다. 필요할 때만 만드십시오.
 
-### 항목 C: `Pelly SQL` (선택, 8번)
+### 항목 C: `Pelly SQL` (선택, 7번)
 
 | 필드 | 값 |
 | :--- | :--- |
@@ -79,7 +79,7 @@ Rider의 External Tools 대화상자에 환경 변수 칸이 있는지는 이 Ma
    PELLY_SQL_CONNECTION='Server=localhost,14333;Database=PellyCorpus;User Id=sa;Password=<비밀번호>;TrustServerCertificate=True' /Applications/Rider.app/Contents/MacOS/rider
    ```
    (Rider 설치 경로는 다를 수 있습니다. `open -a Rider`는 터미널 환경을 넘기지 않으므로 쓰지 마십시오. 이 방법도 확인 전입니다.)
-3. 이 방법이 안 되면 8번은 「건너뜀」으로 적고 이유를 메모합니다.
+3. 이 방법이 안 되면 7번은 「건너뜀」으로 적고 이유를 메모합니다.
 
 ## 3. 확인 항목
 
@@ -132,17 +132,17 @@ Rider의 External Tools 대화상자에 환경 변수 칸이 있는지는 이 Ma
 * 보너스: 승인 질문이 떠 있는 동안에도 파일은 이미 바뀐 상태입니다. 이때 `n`을 입력하면 파일이 원래대로 돌아오고 에디터도 따라 돌아오는지 봅니다.
 * 결과: ___ / 메모: ___
 
-### 7. 실행 전 자동 저장 (참고)
-
-* 동작: `OrderService.cs`의 주석에 글자 하나를 입력하되 저장하지 않고 `Pelly C#`을 실행합니다.
-* 기대: `Settings → Appearance & Behavior → System Settings`의 저장 관련 항목(예: 「Save files if the IDE is idle」, 「on frame deactivation」)이 켜져 있으면 저장되어 pelly가 새 내용을 봅니다. 꺼져 있으면 pelly는 디스크 내용만 봅니다. 어느 경우였는지, 항목의 실제 이름과 위치를 적습니다.
-* 결과: ___ / 메모: ___
-
-### 8. SQL 항목 `--line` (선택)
+### 7. SQL 항목 `--line` (선택)
 
 * 준비: 위 「항목 C」 절차로 `PELLY_SQL_CONNECTION`이 Rider에 전달되도록 합니다. 복사본의 `sql/usp_CancelOrder.sql`을 엽니다.
 * 동작: **42번 줄**(`UPDATE dbo.Orders`)에 커서를 두고 `Pelly SQL`을 실행합니다. 요청문은 `이미 배송 중(Status=2)인 주문도 취소할 수 없게 해줘`.
 * 기대: `Locate 대상 찾기: 42번 줄`. diff에 `IF @Status = 2 … RAISERROR(N'배송 중인 주문은 취소할 수 없습니다.' …)` 블록이 `@Status = 3` 검사 앞에 더해집니다(문구는 다를 수 있음). 환경 변수가 안 넘어가면 종료 코드 4 또는 5와 안내가 나옵니다. 그 경우 「환경 변수 전달 안 됨」으로 적습니다.
+* 결과: ___ / 메모: ___
+
+### 8. 실행 전 자동 저장 (참고)
+
+* 동작: `OrderService.cs`의 주석에 글자 하나를 입력하되 저장하지 않고 `Pelly C#`을 실행합니다.
+* 기대: `Settings → Appearance & Behavior → System Settings`의 저장 관련 항목(예: 「Save files if the IDE is idle」, 「on frame deactivation」)이 켜져 있으면 저장되어 pelly가 새 내용을 봅니다. 꺼져 있으면 pelly는 디스크 내용만 봅니다. 어느 경우였는지, 항목의 실제 이름과 위치를 적습니다.
 * 결과: ___ / 메모: ___
 
 ## 4. 끝나면

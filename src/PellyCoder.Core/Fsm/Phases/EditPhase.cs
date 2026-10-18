@@ -2,6 +2,7 @@ using PellyCoder.Core.Abstractions;
 using PellyCoder.Core.Feedbacks;
 using PellyCoder.Core.Llm;
 using PellyCoder.Core.Logging;
+using PellyCoder.Core.Models;
 using PellyCoder.Core.Patchers;
 
 namespace PellyCoder.Core.Fsm.Phases;
@@ -19,7 +20,9 @@ public sealed class EditPhase(PromptBuilder prompts, QwenStreamClient client, Fe
         ctx.Blocks = [];
 
         var used = ctx.Feedback;
-        var prompt = prompts.BuildCSharp(ctx.Target!, ctx.SliceResult.Slice, ctx.Request.Request, used);
+        var prompt = ctx.Target!.Kind == EditKind.Sql
+            ? prompts.BuildSql(ctx.Target, ctx.Sql!.Kind, ctx.SliceResult.Slice, ctx.Request.Request, used)
+            : prompts.BuildCSharp(ctx.Target, ctx.SliceResult.Slice, ctx.Request.Request, used);
         ctx.Prompt = prompt;
         if (prompt.Error != PromptBudgetError.None)
         {

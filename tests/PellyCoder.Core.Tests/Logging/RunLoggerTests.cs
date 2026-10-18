@@ -101,4 +101,17 @@ public sealed class RunLoggerTests
         Assert.Equal(2.5, summary.GetProperty("phaseSeconds").GetProperty("Edit").GetDouble());
         Assert.StartsWith("cs-v", summary.GetProperty("promptVersion").GetString());
     }
+
+    [Fact]
+    public void Summary_PromptVersion_FollowsKind()
+    {
+        var sql = NewContext();
+        sql.Target = new EditTarget(EditKind.Sql, P(@"C:\ws\a.sql"), "dbo.p", new TextSpanInfo(1, 2), null);
+        var cs = NewContext();
+        cs.Target = new EditTarget(EditKind.CSharp, P(@"C:\ws\Calc.cs"), "Calc.Divide", new TextSpanInfo(1, 2), null);
+
+        Assert.Equal("sql-v1", RunLogger.Summarize(sql).PromptVersion);
+        Assert.Equal("cs-v2", RunLogger.Summarize(cs).PromptVersion);
+        Assert.Equal("cs-v2", RunLogger.Summarize(NewContext()).PromptVersion);
+    }
 }

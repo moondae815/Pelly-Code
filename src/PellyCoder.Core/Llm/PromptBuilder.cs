@@ -1,6 +1,7 @@
 using PellyCoder.Core.Abstractions;
 using PellyCoder.Core.Config;
 using PellyCoder.Core.Models;
+using PellyCoder.Core.Sql;
 
 namespace PellyCoder.Core.Llm;
 
@@ -23,6 +24,12 @@ public sealed class PromptBuilder(QwenChatTemplate template, PromptResources res
         ("signatures", "[READ-ONLY: signatures]"),
         ("usings", "[EDITABLE: usings]"),
         ("helpers", "[EDITABLE: helper]"),
+        ("target", "[EDITABLE: target]"),
+    };
+
+    private static readonly (string Kind, string Header)[] SqlContextOrder =
+    {
+        ("schema", "[READ-ONLY: schema]"),
         ("target", "[EDITABLE: target]"),
     };
 
@@ -52,6 +59,46 @@ public sealed class PromptBuilder(QwenChatTemplate template, PromptResources res
             lines.Add(feedback.Text);
         }
 
+        return Finish(system, lines, requestText, feedback);
+    }
+
+    public PromptBuildResult BuildSql(EditTarget target, SqlObjectKind kind, Slice slice, string request, Feedback? feedback)
+    {
+        var requestText = request.Trim();
+        var system = resources.SystemSql.Replace(HintPlaceholder, slice.LanguageHint) + "\n\n" + resources.FewShotSql;
+
+        var lines = new List<string>
+        {
+            "### TARGET",
+            $"{target.SymbolDisplay} ({KindWord(kind)}) — file: {Path.GetFileName(target.FilePath.Replace('\\', '/'))}",
+            "### CONTEXT",
+        };
+        foreach (var (partKind, header) in SqlContextOrder)
+        {
+            var part = slice.Included.FirstOrDefault(p => p.Kind == partKind);
+            if (part is null) continue;
+            lines.Add(header);
+            lines.Add(part.Text);
+        }
+        lines.Add("### REQUEST");
+        lines.Add(requestText);
+        if (feedback is not null)
+        {
+            lines.Add("### FEEDBACK");
+            lines.Add(feedback.Text);
+        }
+        return Finish(system, lines, requestText, feedback);
+    }
+
+    private static string KindWord(SqlObjectKind kind) => kind switch
+    {
+        SqlObjectKind.Procedure => "PROCEDURE",
+        SqlObjectKind.Function => "FUNCTION",
+        _ => "VIEW",
+    };
+
+    private PromptBuildResult Finish(string system, List<string> lines, string requestText, Feedback? feedback)
+    {
         var prompt = template.Build(system, string.Join("\n", lines));
         var total = tokens.Count(prompt);
 

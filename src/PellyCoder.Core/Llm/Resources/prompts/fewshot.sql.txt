@@ -1,0 +1,27 @@
+# version: 1
+Example (format only; never copy its code).
+
+Example input:
+### TARGET
+dbo.usp_GetOrders (PROCEDURE) — file: usp_GetOrders.sql
+### CONTEXT
+[READ-ONLY: schema]
+TABLE dbo.Orders (OrderId int NOT NULL PK, CustomerId int NOT NULL, Status tinyint NOT NULL)
+[EDITABLE: target]
+CREATE PROCEDURE dbo.usp_GetOrders @CustomerId int
+AS
+BEGIN
+    SELECT OrderId, Status
+    FROM dbo.Orders
+    WHERE CustomerId = @CustomerId;
+END
+### REQUEST
+Return only orders whose Status is 1.
+
+Example output (exactly one block, nothing else):
+<<<<<<< SEARCH
+    WHERE CustomerId = @CustomerId;
+=======
+    WHERE CustomerId = @CustomerId
+      AND Status = 1;
+>>>>>>> REPLACE

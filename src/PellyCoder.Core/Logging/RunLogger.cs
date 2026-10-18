@@ -26,7 +26,7 @@ public sealed class RunLogger(IFileSystem fs, TimeProvider time)
 {
     private const string StampFormat = "yyyyMMdd-HHmmss";
 
-    private static readonly Lazy<string> PromptVersion = new(() => PromptResources.LoadDefault().Version);
+    private static readonly Lazy<PromptResources> Prompts = new(PromptResources.LoadDefault);
 
     private static readonly JsonSerializerOptions LineJson = new()
     {
@@ -112,7 +112,7 @@ public sealed class RunLogger(IFileSystem fs, TimeProvider time)
         var gen = ctx.Generation;
         var ttft = gen is null ? 0 : (gen.ThinkUsed && gen.ThinkUsage is not null ? gen.ThinkUsage : gen.CodeUsage).Ttft.TotalSeconds;
         return new RunSummary(
-            ctx.RunId, PellyInfo.Version, ctx.ServerStatus?.Version, ctx.Options.Llm.Model, PromptVersion.Value,
+            ctx.RunId, PellyInfo.Version, ctx.ServerStatus?.Version, ctx.Options.Llm.Model, Prompts.Value.VersionFor(ctx.Target?.Kind ?? EditKind.CSharp),
             ctx.Target?.Kind ?? EditKind.CSharp, ctx.ProjectStyle, ctx.ExitCode, ctx.Attempt,
             new Dictionary<RunPhase, double>(ctx.PhaseSeconds), ttft,
             ctx.Options.Llm.ThinkMode.ToString(), gen?.ThinkTokens ?? 0, gen?.ThinkTruncated ?? false,

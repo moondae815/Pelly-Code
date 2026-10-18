@@ -46,6 +46,25 @@ public class SqlServerExecutorTests
     }
 
     [SqlServerFact]
+    public async Task PreCancelledToken_OnMetadataCall_ThrowsOperationCanceled()
+    {
+        using var cts = new CancellationTokenSource();
+        await cts.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => Executor().GetReferencedEntitiesAsync(SqlObjectName.Parse(CancelOrder), cts.Token));
+    }
+
+    [SqlServerFact]
+    public async Task CancelDuringRunningCommand_ThrowsOperationCanceledQuickly()
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(300));
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Executor().RunAsync(
+            conn => conn.ExecuteAsync(new CommandDefinition("WAITFOR DELAY '00:00:05'", cancellationToken: cts.Token)), cts.Token));
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(3), $"took {sw.Elapsed}");
+    }
+
+    [SqlServerFact]
     public Task Probe_ReportsDatabaseAndViewDefinition() => WithUnchangedDefinition(async () =>
     {
         var probe = await Executor().ProbeAsync(CancellationToken.None);

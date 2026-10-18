@@ -124,7 +124,8 @@ public sealed class SqlServerExecutor(string? connectionString) : ISqlExecutor
             return errors;
         }, ct);
 
-    private async Task<T> RunAsync<T>(Func<SqlConnection, Task<T>> body, CancellationToken ct)
+    /// <summary>Shared execution path; internal so integration tests can run a slow command through the same cancellation mapping.</summary>
+    internal async Task<T> RunAsync<T>(Func<SqlConnection, Task<T>> body, CancellationToken ct)
     {
         if (connectionString is null)
             throw new SqlUnavailableException("SQL 연결 문자열이 설정되지 않았습니다.");
@@ -145,6 +146,12 @@ public sealed class SqlServerExecutor(string? connectionString) : ISqlExecutor
             {
                 await conn.OpenAsync(ct);
                 return await body(conn);
+            }
+            catch (SqlException ex) when (ct.IsCancellationRequested)
+            {
+                // SqlClient reports a cancelled running command as SqlException ("Operation cancelled by user", Number 0)
+                // with the connection still open; surface it as cancellation so the run ends with exit 2 (M3a T13, M2b M-1).
+                throw new OperationCanceledException(ex.Message, ex, ct);
             }
             catch (SqlException ex) when (IsConnectionLevel(ex, conn))
             {

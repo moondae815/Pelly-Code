@@ -28,21 +28,53 @@ public static class SqlReferenceCollector
         if (errors.Count > 0)
             throw new ArgumentException($"Batch does not parse: {errors[0].Message} (line {errors[0].Line})", nameof(batchText));
 
-        var visitor = new Visitor(batchText, target);
+        var ranges = new StatementRanges();
+        fragment.Accept(ranges);
+        var visitor = new Visitor(batchText, target, ranges);
         fragment.Accept(visitor);
         return visitor.Build();
     }
 
-    private sealed class Visitor(string text, SqlObjectName target) : TSqlFragmentVisitor
+    /// <summary>Start/length of every statement, so a fragment can be assigned to its nearest enclosing statement.</summary>
+    private sealed class StatementRanges : TSqlFragmentVisitor
     {
-        private sealed record Candidate(SqlObjectReference Reference, bool IsFunction);
+        private readonly List<(int Start, int End)> _ranges = [];
+
+        public override void Visit(TSqlFragment node)
+        {
+            if (node is TSqlStatement && node.StartOffset >= 0)
+                _ranges.Add((node.StartOffset, node.StartOffset + node.FragmentLength));
+            base.Visit(node);
+        }
+
+        /// <summary>Start offset of the innermost statement containing <paramref name="offset"/>, or -1 outside any.</summary>
+        public int StatementOf(int offset)
+        {
+            var best = -1;
+            var bestLen = int.MaxValue;
+            foreach (var (start, end) in _ranges)
+            {
+                if (offset >= start && offset < end && end - start < bestLen)
+                {
+                    best = start;
+                    bestLen = end - start;
+                }
+            }
+            return best;
+        }
+    }
+
+    private sealed class Visitor(string text, SqlObjectName target, StatementRanges ranges) : TSqlFragmentVisitor
+    {
+        private sealed record Candidate(SqlObjectReference Reference, bool IsFunction, int Statement, int Offset);
+        private sealed record AliasDecl(string Name, int Statement, int Offset);
 
         private readonly List<Candidate> _candidates = [];
-        private readonly HashSet<string> _aliases = new(StringComparer.OrdinalIgnoreCase);
+        private readonly List<AliasDecl> _aliases = [];
         private readonly HashSet<string> _columns = new(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _ctes = new(StringComparer.OrdinalIgnoreCase);
         private readonly List<string> _skipped = [];
-        private readonly List<(string Text, string First)> _skippedFunctions = [];
+        private readonly List<(string Text, string First, int Statement)> _skippedFunctions = [];
         private bool _dynamic;
         private bool _temp;
 
@@ -50,12 +82,18 @@ public static class SqlReferenceCollector
         {
             // CTE names and table aliases are known only after the whole batch is visited (WITH is a late child
             // of SelectStatement, aliases may follow the UPDATE/DELETE target), so schema-less names are filtered here.
+            // Aliases only hide names within their own statement, and a table never hides behind its own alias (M3a T13).
+            bool AliasedByOther(string name, int statement, int ownOffset) =>
+                _aliases.Any(a => a.Statement == statement && a.Offset != ownOffset && a.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+            bool AliasInStatement(string name, int statement) =>
+                _aliases.Any(a => a.Statement == statement && a.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+
             var merged = new Dictionary<string, SqlObjectReference>(StringComparer.OrdinalIgnoreCase);
             foreach (var c in _candidates)
             {
                 var r = c.Reference;
-                if (r.Name.Schema is null && (_ctes.Contains(r.Name.Name) || _aliases.Contains(r.Name.Name))) continue;
-                if (c.IsFunction && r.Name.Schema is not null && _aliases.Contains(r.Name.Schema)) continue;
+                if (r.Name.Schema is null && (_ctes.Contains(r.Name.Name) || AliasedByOther(r.Name.Name, c.Statement, c.Offset))) continue;
+                if (c.IsFunction && r.Name.Schema is not null && AliasInStatement(r.Name.Schema, c.Statement)) continue;
                 var key = (r.Name.Schema ?? "dbo") + "." + r.Name.Name;
                 if (!merged.TryGetValue(key, out var old) || (r.Line, r.Column).CompareTo((old.Line, old.Column)) < 0)
                     merged[key] = r;
@@ -63,12 +101,12 @@ public static class SqlReferenceCollector
             return new SqlReferences(
                 merged.Values.OrderBy(o => o.Line).ThenBy(o => o.Column).ToList(),
                 _columns, _dynamic, _temp,
-                _skipped.Concat(_skippedFunctions.Where(f => !_aliases.Contains(f.First)).Select(f => f.Text)).Distinct().ToList());
+                _skipped.Concat(_skippedFunctions.Where(f => !AliasInStatement(f.First, f.Statement)).Select(f => f.Text)).Distinct().ToList());
         }
 
         public override void Visit(TSqlFragment node)
         {
-            if (node is TableReferenceWithAlias { Alias: not null } t) _aliases.Add(t.Alias.Value);
+            if (node is TableReferenceWithAlias { Alias: not null } t) _aliases.Add(new AliasDecl(t.Alias.Value, ranges.StatementOf(t.StartOffset), t.StartOffset));
             // ALTER TABLE has several derived statement types; Visit(TSqlFragment) sees them all.
             if (node is AlterTableStatement a && IsTemp(a.SchemaObjectName?.BaseIdentifier?.Value)) _temp = true;
             base.Visit(node);
@@ -100,7 +138,7 @@ public static class SqlReferenceCollector
         private void Add(SqlObjectName name, TSqlFragment at, bool isFunction = false)
         {
             if (name.SameAs(target)) return;
-            _candidates.Add(new Candidate(new SqlObjectReference(name, at.StartLine, at.StartColumn), isFunction));
+            _candidates.Add(new Candidate(new SqlObjectReference(name, at.StartLine, at.StartColumn), isFunction, ranges.StatementOf(at.StartOffset), at.StartOffset));
         }
 
         private void Skip(TSqlFragment f) =>
@@ -124,7 +162,7 @@ public static class SqlReferenceCollector
             if (so?.Identifiers.Count > 2)
             {
                 // o.Xml.nodes(...) is a method call on an aliased column; only judged against aliases in Build().
-                _skippedFunctions.Add((text.Substring(so.StartOffset, so.FragmentLength), so.Identifiers[0].Value));
+                _skippedFunctions.Add((text.Substring(so.StartOffset, so.FragmentLength), so.Identifiers[0].Value, ranges.StatementOf(so.StartOffset)));
             }
             else
                 AddSchemaObject(so);

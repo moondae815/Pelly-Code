@@ -169,4 +169,29 @@ public class SqlReferenceCollectorTests
         Assert.True(Collect("CREATE PROCEDURE dbo.usp_Target AS DROP TABLE #t").UsesTempTables, "drop");
         Assert.True(Collect("CREATE PROCEDURE dbo.usp_Target AS ALTER TABLE #t ADD c int").UsesTempTables, "alter");
     }
+
+    [Fact]
+    public void SelfAlias_IsStillObject()
+    {
+        var r = Collect("CREATE PROCEDURE dbo.usp_Target AS SELECT * FROM Orders AS Orders;");
+        Assert.Contains("Orders", Names(r));
+    }
+
+    [Fact]
+    public void UpdateAliasTarget_StillExcluded()
+    {
+        var r = Collect("CREATE PROCEDURE dbo.usp_Target AS UPDATE o SET Status = 1 FROM dbo.Orders o;");
+        Assert.Equal(["dbo.Orders"], Names(r));
+    }
+
+    [Fact]
+    public void AliasInOtherStatement_DoesNotHide()
+    {
+        var r = Collect("""
+            CREATE PROCEDURE dbo.usp_Target AS
+            SELECT * FROM dbo.Orders o;
+            SELECT * FROM o;
+            """);
+        Assert.Equal(["dbo.Orders", "o"], Names(r));
+    }
 }

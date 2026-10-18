@@ -29,12 +29,13 @@ public sealed class DoctorServiceTests
     private bool _windows;
 
     private FakeSqlExecutor? _sql;
+    private DoctorContext? _context;
 
     private DoctorService Create(int localCount = 12)
     {
         if (_processes.Calls.Count == 0 && !_dotnetQueued)
             _processes.Enqueue(Proc(0, "10.0.100\n"));
-        return new(_backend, _diag, _template, new FixedCounter(localCount), _options, _time, _fs, _processes, () => _windows, _sql);
+        return new(_backend, _diag, _template, new FixedCounter(localCount), _options, _time, _fs, _processes, () => _windows, _sql, _context);
     }
 
     private bool _dotnetQueued;
@@ -286,6 +287,132 @@ public sealed class DoctorServiceTests
         _options.Sql.AllowedHosts.Add("localhost");
         _options.Sql.AllowedDatabases.Add("PellyCorpus");
         _sql = new FakeSqlExecutor();
+    }
+
+    [Fact]
+    public async Task Pelly_RowHasVersionAndTokenizerHash()
+    {
+        EnqueueProbes();
+        var asm = typeof(DoctorService).Assembly;
+        using var sha = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
+        foreach (var file in new[] { "vocab.json", "merges.txt" })
+        {
+            using var stream = asm.GetManifestResourceStream("PellyCoder.Core.Llm.Resources." + file)!;
+            using var ms = new MemoryStream();
+            stream.CopyTo(ms);
+            sha.AppendData(ms.ToArray());
+        }
+        var expected = Convert.ToHexString(sha.GetHashAndReset()).ToLowerInvariant()[..12];
+
+        var c = Get(await Create().RunAsync(CancellationToken.None), "pelly");
+
+        Assert.Equal(DoctorStatus.Ok, c.Status);
+        Assert.Matches("^[0-9a-f]{12}$", expected);
+        Assert.Equal($"{PellyInfo.Version}, 토크나이저 {expected}", c.Detail);
+    }
+
+    [Fact]
+    public async Task Settings_RowMasksConnection()
+    {
+        EnqueueProbes();
+        SqlOptionsAllowed("Server=localhost,14333;Database=PellyCorpus;User Id=sa;Password=Secret!1");
+        _options.Llm.Headers["Authorization"] = "Bearer hdr-token-xyz";
+        _context = new DoctorContext("/home/u/pelly.json", "/w/pelly.json");
+        _fs.AddFile("/w/pelly.json", new System.IO.Abstractions.TestingHelpers.MockFileData("{}"));
+
+        var c = Get(await Create().RunAsync(CancellationToken.None), "설정");
+
+        Assert.Equal(DoctorStatus.Ok, c.Status);
+        Assert.Contains("/home/u/pelly.json (없음)", c.Detail);
+        Assert.Contains("/w/pelly.json (있음)", c.Detail);
+        Assert.Contains("llm.thinkMode=Retry", c.Detail);
+        Assert.Contains("sql.compatLevel=160", c.Detail);
+        Assert.Contains("Password=***", c.Detail);
+        Assert.DoesNotContain("Secret", c.Detail);
+        Assert.DoesNotContain("hdr-token-xyz", c.Detail);
+    }
+
+    private const string SdkProject = "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>";
+    private const string LegacyProject = "<Project ToolsVersion=\"15.0\"><PropertyGroup><TargetFrameworkVersion>v4.8</TargetFrameworkVersion></PropertyGroup></Project>";
+
+    private void WithProject(string xml, string? programFilesX86 = null)
+    {
+        _fs.AddFile("/w/a.csproj", new System.IO.Abstractions.TestingHelpers.MockFileData(xml));
+        _context = new DoctorContext(null, "/w/pelly.json", programFilesX86, "/w/a.csproj");
+    }
+
+    [Fact]
+    public async Task TargetingPack_Sdk_Ok()
+    {
+        EnqueueProbes();
+        WithProject(SdkProject);
+
+        var c = Get(await Create().RunAsync(CancellationToken.None), "타겟팅 팩");
+
+        Assert.Equal(DoctorStatus.Ok, c.Status);
+        Assert.Equal("SDK 스타일 — NuGet 참조 어셈블리 사용", c.Detail);
+    }
+
+    [Fact]
+    public async Task TargetingPack_LegacyOnMac_Warn()
+    {
+        EnqueueProbes();
+        WithProject(LegacyProject);
+        _windows = false;
+
+        var c = Get(await Create().RunAsync(CancellationToken.None), "타겟팅 팩");
+
+        Assert.Equal(DoctorStatus.Warn, c.Status);
+        Assert.Equal("Windows에서만 확인합니다", c.Detail);
+    }
+
+    [Fact]
+    public async Task TargetingPack_LegacyMissingFolder_Fail()
+    {
+        EnqueueProbes();
+        WithProject(LegacyProject, "/pf86");
+        _windows = true;
+
+        var c = Get(await Create().RunAsync(CancellationToken.None), "타겟팅 팩");
+
+        Assert.Equal(DoctorStatus.Fail, c.Status);
+        Assert.Equal("Developer Pack을 설치하거나 Microsoft.NETFramework.ReferenceAssemblies.net48 패키지를 쓰세요", c.Action);
+    }
+
+    [Fact]
+    public async Task TargetingPack_LegacyFolderPresent_Ok()
+    {
+        EnqueueProbes();
+        WithProject(LegacyProject, "/pf86");
+        _windows = true;
+        _fs.AddDirectory(_fs.Path.Combine("/pf86", "Reference Assemblies", "Microsoft", "Framework", ".NETFramework", "v4.8"));
+
+        var c = Get(await Create().RunAsync(CancellationToken.None), "타겟팅 팩");
+
+        Assert.Equal(DoctorStatus.Ok, c.Status);
+    }
+
+    [Fact]
+    public async Task NoProject_NoTargetingRow()
+    {
+        EnqueueProbes();
+
+        var checks = await Create().RunAsync(CancellationToken.None);
+
+        Assert.DoesNotContain(checks, c => c.Name == "타겟팅 팩");
+    }
+
+    [Fact]
+    public async Task Sql_QuotedPasswordWithSemicolon_Masked()
+    {
+        EnqueueProbes();
+        SqlOptionsAllowed();
+        _sql!.ThrowOnProbe(new InvalidOperationException("login failed for Password=\"a;secret\";Encrypt=True"));
+
+        var c = Get(await Create().RunAsync(CancellationToken.None), "SQL 연결");
+
+        Assert.Equal(DoctorStatus.Fail, c.Status);
+        Assert.DoesNotContain("secret", c.Detail);
     }
 
     [Fact]

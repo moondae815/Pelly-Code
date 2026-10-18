@@ -59,43 +59,63 @@ if (tasks.Any(t => t.Kind == "sql"))
 var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
 var outDir = Path.GetFullPath(parsed.Out ?? Path.Combine(evalRoot, "results", stamp));
 Directory.CreateDirectory(outDir);
-Console.WriteLine($"작업 {tasks.Count}건 → {outDir}");
+Console.WriteLine($"작업 {tasks.Count}건{(parsed.Repeat > 1 ? $" × {parsed.Repeat}회" : "")} → {outDir}");
 
 var runner = new BenchmarkRunner(new RunnerSetup(fs, new SystemProcessRunner(TimeProvider.System), backend, options, TimeProvider.System,
     evalRoot, sql, sqlSkip, Console.WriteLine));
-var results = new List<TaskResult>();
-var cancelled = false;
-foreach (var task in tasks)
-{
-    try
-    {
-        results.Add(await runner.RunAsync(task, outDir, cts.Token));
-    }
-    catch (OperationCanceledException) when (cts.IsCancellationRequested)
-    {
-        cancelled = true;
-        break;
-    }
-    catch (Exception ex)
-    {
-        Console.Error.WriteLine($"[{task.Id}] 실행기 오류: {ex}");
-        results.Add(TaskResult.Failed(task, $"실행기 오류: {ex.Message}", "RunnerError"));
-    }
-}
-
 var json = new JsonSerializerOptions { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
-File.WriteAllText(Path.Combine(outDir, "results.json"), JsonSerializer.Serialize(results, json));
+var prompts = PromptResources.LoadDefault();
+var conditions = new RunConditions(options.Llm.Model, prompts.Version, prompts.SqlVersion, options.Llm.ThinkMode.ToString(),
+    options.Budget.Think, options.Sampling.Think, options.Sampling.Code, PellyInfo.Version, parsed.Tasks, parsed.Kind);
 var header = $"* 실행: {stamp} · pelly {PellyInfo.Version} · 모델 `{options.Llm.Model}` ({options.Llm.Endpoint}, Ollama {status.Version}) · "
     + $"thinkMode {options.Llm.ThinkMode} · {Environment.OSVersion.Platform}\n* 선택: --tasks {parsed.Tasks ?? "*"} --kind {parsed.Kind ?? "*"}"
-    + (cancelled ? "\n* **중단됨** — 끝난 작업만 집계했습니다" : "");
-var report = KpiReport.Render(results, header);
-File.WriteAllText(Path.Combine(outDir, "report.md"), report);
-Console.WriteLine();
-Console.WriteLine(report);
-Console.WriteLine($"결과: {Path.Combine(outDir, "report.md")}");
+    + (parsed.Repeat > 1 ? $" --repeat {parsed.Repeat}" : "");
 
-if (cancelled) return 2;
-return results.Any(r => r.InvariantViolated) ? 1 : 0;
+async Task<RepeatedRun.RunOnce> RunOnceAsync(string dir, int run)
+{
+    Directory.CreateDirectory(dir);
+    if (parsed.Repeat > 1) Console.WriteLine($"== 회차 {run}/{parsed.Repeat} → {dir}");
+    var results = new List<TaskResult>();
+    var cancelled = false;
+    foreach (var task in tasks)
+    {
+        try
+        {
+            results.Add(await runner.RunAsync(task, dir, cts.Token));
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
+        {
+            cancelled = true;
+            break;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[{task.Id}] 실행기 오류: {ex}");
+            results.Add(TaskResult.Failed(task, $"실행기 오류: {ex.Message}", "RunnerError"));
+        }
+    }
+
+    File.WriteAllText(Path.Combine(dir, "results.json"), JsonSerializer.Serialize(results, json));
+    var runHeader = header + (parsed.Repeat > 1 ? $"\n* 회차: {run}/{parsed.Repeat}" : "") + (cancelled ? "\n* **중단됨** — 끝난 작업만 집계했습니다" : "");
+    var report = KpiReport.Render(results, runHeader);
+    File.WriteAllText(Path.Combine(dir, "report.md"), report);
+    Console.WriteLine();
+    Console.WriteLine(report);
+    Console.WriteLine($"결과: {Path.Combine(dir, "report.md")}");
+    return new RepeatedRun.RunOnce(results, cancelled);
+}
+
+var outcome = await RepeatedRun.ExecuteAsync(parsed.Repeat, outDir, RunOnceAsync, conditions, header);
+if (outcome.Summary is not null)
+{
+    var summaryMd = Path.Combine(outDir, "summary.md");
+    Console.WriteLine();
+    Console.WriteLine(File.ReadAllText(summaryMd));
+    Console.WriteLine($"반복 요약: {summaryMd}");
+}
+
+if (outcome.Cancelled) return 2;
+return outcome.Runs.Any(r => r.Any(t => t.InvariantViolated)) ? 1 : 0;
 
 static int Fail(string message)
 {

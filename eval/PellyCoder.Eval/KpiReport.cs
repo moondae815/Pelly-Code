@@ -75,6 +75,68 @@ public static class KpiReport
         return sb.ToString();
     }
 
+    /// <summary>The top-level <c>summary.md</c> of <c>--repeat N</c> (the same data as <c>summary.json</c>).</summary>
+    public static string RenderRepeat(RepeatSummaryData s, string header)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("# 반복 벤치마크 요약").AppendLine().AppendLine(header);
+        if (s.Conditions is { } c)
+            sb.AppendLine($"* 조건: 모델 `{c.Model}` · 프롬프트 `{c.CsPromptVersion}`·`{c.SqlPromptVersion}` · thinkMode {c.ThinkMode} · "
+                + $"budget.think {c.BudgetThink} · sampling think {Sampling(c.SamplingThink)} / code {Sampling(c.SamplingCode)}");
+        if (s.Cancelled) sb.AppendLine("* **중단됨** — 끝난 회차만 집계했습니다");
+        sb.AppendLine();
+
+        sb.AppendLine($"작업 {s.TaskCount}건 × {s.RunCount}회").AppendLine();
+        sb.AppendLine("## 전체").AppendLine();
+        sb.AppendLine($"* 평균 성공 작업 수: {Num(s.MeanSuccesses)} (표본 표준편차 {Num(s.StdDevSuccesses)}; 회차별 {string.Join(", ", s.Runs.Select(r => r.Successes))})");
+        sb.AppendLine($"* 작업 시간 중위값(전 회차): {Num(s.MedianWallSeconds)}초");
+        sb.AppendLine($"* 검증 불변 조건 위반: 회차별 {string.Join(", ", s.Runs.Select(r => r.InvariantViolations))}건").AppendLine();
+
+        sb.AppendLine("## 회차별").AppendLine();
+        sb.AppendLine("| 회차 | 폴더 | 작업 | 실행 | 성공 | 불변 조건 위반 | 판정 실패(Judge) | 판정 도구 오류(JudgeTooling) | 시간 중위값(초) |");
+        sb.AppendLine("| ---: | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |");
+        foreach (var r in s.Runs)
+            sb.AppendLine($"| {r.Run} | {r.Folder ?? "—"} | {r.Tasks} | {r.Ran} | {r.Successes} | {r.InvariantViolations} | {r.JudgeFailures} | "
+                + $"{r.JudgeTooling} | {Num(r.MedianWallSeconds)} |");
+        sb.AppendLine();
+
+        sb.AppendLine("## 범주별 성공 작업 수").AppendLine();
+        sb.AppendLine("| 범주 | 작업 | 평균 | 표준편차 | 최소 | 최대 | 회차별 |").AppendLine("| :--- | ---: | ---: | ---: | ---: | ---: | :--- |");
+        foreach (var g in s.Groups)
+            sb.AppendLine($"| {g.Group} | {g.Tasks} | {Num(g.MeanSuccesses)} | {Num(g.StdDevSuccesses)} | {g.MinSuccesses} | {g.MaxSuccesses} | "
+                + $"{string.Join(", ", g.SuccessesPerRun)} |");
+        sb.AppendLine();
+
+        var unstable = s.Tasks.Where(t => t.Successes > 0 && t.Successes < t.Runs).ToList();
+        var never = s.Tasks.Where(t => t.Successes == 0).ToList();
+        sb.AppendLine("## 불안정·실패 작업").AppendLine();
+        sb.AppendLine($"* 불안정({unstable.Count}건): {(unstable.Count == 0 ? "없음" : string.Join(", ", unstable.Select(t => $"{t.Id} {t.Ratio}")))}");
+        sb.AppendLine($"* 모두 실패({never.Count}건): {(never.Count == 0 ? "없음" : string.Join(", ", never.Select(t => t.Id)))}").AppendLine();
+
+        sb.AppendLine("## 실패 유형 분포 (전 회차 합계)").AppendLine();
+        var failures = s.Tasks.SelectMany(t => t.Outcomes.Select(o => (t.Id, Outcome: o)))
+            .Where(x => x.Outcome.StartsWith(VerificationResult.Failed, StringComparison.Ordinal))
+            .GroupBy(x => x.Outcome, StringComparer.Ordinal).OrderByDescending(g => g.Count()).ThenBy(g => g.Key, StringComparer.Ordinal).ToList();
+        if (failures.Count == 0) sb.AppendLine("실패 없음");
+        else
+        {
+            sb.AppendLine("| 실패 유형 | 건수 | 작업 |").AppendLine("| :--- | ---: | :--- |");
+            foreach (var g in failures)
+                sb.AppendLine($"| {g.Key} | {g.Count()} | {string.Join(", ", g.Select(x => x.Id).Distinct(StringComparer.Ordinal))} |");
+        }
+        sb.AppendLine();
+
+        sb.AppendLine("## 작업별").AppendLine();
+        sb.AppendLine("| id | 범주 | 성공 | " + string.Join(" | ", s.Runs.Select(r => $"회차 {r.Run}")) + " |");
+        sb.AppendLine("| :--- | :--- | :--- | " + string.Join(" | ", s.Runs.Select(_ => ":---")) + " |");
+        foreach (var t in s.Tasks)
+            sb.AppendLine($"| {t.Id} | {t.Group} | {t.Ratio} | {string.Join(" | ", t.Outcomes)} |");
+        return sb.ToString();
+    }
+
+    private static string Sampling(PellyCoder.Core.Abstractions.SamplingOptions o) => FormattableString.Invariant(
+        $"(T {o.Temperature}, topP {o.TopP}, topK {o.TopK}, repeat {o.RepeatPenalty}, presence {o.PresencePenalty})");
+
     /// <summary>
     /// Only exit-0 runs whose independent build/compile was judged (Passed or Failed) count; a skipped check (Legacy off
     /// Windows, no SQL server) proves nothing and is shown separately. Behaviour judges do not enter the invariant.

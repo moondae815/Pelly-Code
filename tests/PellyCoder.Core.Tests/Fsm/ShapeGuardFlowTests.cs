@@ -174,6 +174,60 @@ public sealed class ShapeGuardFlowTests : IDisposable
         Assert.Equal(new Transition(RunPhase.Failed, 3), Transitions.Next(RunPhase.Apply, outcome, 1, 3));
     }
 
+    // ---- no-change guard (M3a T14): the target must differ from the ORIGINAL target, whitespace-insensitively ----
+
+    private const string NoChangeFeedback = "NO CHANGE: the edit leaves the target identical to the original. Make the requested change.";
+
+    [Fact]
+    public async Task NoOpBlock_IsNoChange_RetriedBeforeAnyWrite()
+    {
+        _processes.Enqueue(Build()); // baseline
+        _processes.Enqueue(Build()); // build of attempt 2
+        _backend.Enqueue(Block(Original, Original));
+        _backend.Enqueue("Make the change.</think>", evalCount: 10);
+        _backend.Enqueue(Block(Original, Guarded));
+
+        var exit = await Run(Req(CalcPath));
+
+        Assert.Equal(0, exit);
+        Assert.Equal(1, WritesTo(CalcPath)); // attempt 2 only
+        Assert.Contains(NoChangeFeedback, _backend.Requests[1].RawPrompt);
+        Assert.Equal(CalcSource.Replace(Original, Guarded), File.ReadAllText(CalcPath));
+    }
+
+    [Fact]
+    public async Task WhitespaceOnlyEdit_IsNoChange_Exit1_NothingWritten()
+    {
+        _processes.Enqueue(Build()); // baseline
+        _backend.Enqueue(Block(Original, "        return   a /\n            b;"));
+
+        var exit = await Run(Req(CalcPath, maxRetries: 0));
+
+        Assert.Equal(1, exit);
+        Assert.Equal(0, WritesTo(CalcPath));
+        Assert.Equal(CalcSource, File.ReadAllText(CalcPath));
+        Assert.Equal("NoChange", Summary().GetProperty("failureKind").GetString());
+    }
+
+    [Fact]
+    public async Task RevertToOriginalOnAttempt2_IsNoChange_Exit1_Restored()
+    {
+        _processes.Enqueue(Build()); // baseline
+        _processes.Enqueue(Build(1, $"{CalcPath}(7,9): error CS0103: The name 'x' does not exist in the current context [{CsprojPath}]"));
+        _backend.Enqueue(Block(Original, Guarded));
+        _backend.Enqueue("Undo it.</think>", evalCount: 10);
+        _backend.Enqueue(Block(Guarded, Original)); // back to the original target: compared with the original, not attempt 1
+
+        var exit = await Run(Req(CalcPath, maxRetries: 1));
+
+        Assert.Equal(1, exit);
+        Assert.Equal(2, _processes.Calls.Count); // the reverting attempt is never built
+        Assert.Equal(CalcSource, File.ReadAllText(CalcPath));
+        var summary = Summary();
+        Assert.Equal("NoChange", summary.GetProperty("failureKind").GetString());
+        Assert.Equal(2, summary.GetProperty("attempts").GetInt32());
+    }
+
     /// <summary>Real file system that records the destination of every atomic replace (FileGuard's write path).</summary>
     private sealed class WriteCountingFileSystem : FileSystem, IFileSystem
     {

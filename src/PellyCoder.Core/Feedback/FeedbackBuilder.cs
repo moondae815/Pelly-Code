@@ -169,14 +169,16 @@ public sealed class FeedbackBuilder(ITokenCounter tokens, int budget)
     }
 
     /// <summary>
-    /// <c>TESTS FAILED (n new failures)</c>, then one line per test: <c>&lt;FullName&gt;: &lt;first line of its message&gt;</c>.
-    /// Over budget: drop entries from the back, then cut the first entry's message.
+    /// <c>TESTS FAILED (n new failures)</c>, then one line per test: <c>&lt;FullName&gt;: &lt;first line of its message&gt;</c>, then
+    /// <see cref="KeepRequest"/> (M3a T14: the model undid the requested change to satisfy a test that pins the old behavior).
+    /// Over budget: drop entries from the back, then cut the first entry's message; the last line is kept.
     /// </summary>
     public Feedback ForTests(IReadOnlyList<TestCaseResult> failures)
     {
         var unique = failures.DistinctBy(f => f.FullName).ToList();
         var head = $"TESTS FAILED ({unique.Count} new {(unique.Count == 1 ? "failure" : "failures")})";
-        if (unique.Count == 0) return Done(head);
+        static string WithKeep(string body) => body + "\n" + KeepRequest;
+        if (unique.Count == 0) return Done(WithKeep(head));
 
         static string FirstLine(string? message)
         {
@@ -189,14 +191,20 @@ public sealed class FeedbackBuilder(ITokenCounter tokens, int budget)
         var entries = unique.Select(f => TestLine(f, FirstLine(f.Message))).ToList();
         for (var count = entries.Count; count >= 1; count--)
         {
-            var text = head + "\n" + string.Join("\n", entries.Take(count));
+            var text = WithKeep(head + "\n" + string.Join("\n", entries.Take(count)));
             if (Fits(text)) return Done(text);
         }
         var only = unique[0];
         var message = FirstLine(only.Message);
-        if (message.Length == 0) return Done(head + "\n" + only.FullName);
-        return Done(head + "\n" + TestLine(only, Truncate(message, m => head + "\n" + TestLine(only, m))));
+        if (message.Length == 0) return Done(WithKeep(head + "\n" + only.FullName));
+        return Done(WithKeep(head + "\n" + TestLine(only, Truncate(message, m => WithKeep(head + "\n" + TestLine(only, m))))));
     }
+
+    /// <summary>Last line of <see cref="ForTests"/>.</summary>
+    public const string KeepRequest = "Keep the requested change; do not undo it to make tests pass.";
+
+    /// <summary>The patched target reads the same as the original target (whitespace-insensitive, M3a T14).</summary>
+    public Feedback ForNoChange() => Done("NO CHANGE: the edit leaves the target identical to the original. Make the requested change.");
 
     /// <summary><c>TESTS FAILED (exit n)</c>: the test command reports only its exit code (design R7).</summary>
     public Feedback ForTestExitCode(int exitCode) => Done($"TESTS FAILED (exit {exitCode})");

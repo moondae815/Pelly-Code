@@ -107,6 +107,40 @@ public sealed class SqlApplyFlowTests : IDisposable
         Assert.NotEmpty(ctx.MatchStages);
     }
 
+    [Theory]
+    [InlineData(Search)]                                                   // no-op block
+    [InlineData("    SELECT   Id\n      FROM dbo.T WHERE Id = @Id;")]      // whitespace only
+    public async Task TargetSameAsOriginal_IsNoChange_NeverWritten(string replace)
+    {
+        var ctx = await Prepared();
+        var before = File.ReadAllBytes(PathA);
+        ctx.Blocks = [new PatchBlock(Search, replace)];
+
+        var outcome = await Apply(ctx);
+
+        Assert.Equal(PhaseOutcome.MatchFailed, outcome);
+        Assert.Equal("NoChange", ctx.FailureKind);
+        Assert.Equal("NO CHANGE: the edit leaves the target identical to the original. Make the requested change.", ctx.Feedback!.Text);
+        Assert.Equal(before, File.ReadAllBytes(PathA));
+        Assert.Null(ctx.BackupPath);
+    }
+
+    [Fact]
+    public async Task RevertOfAnEarlierWrite_IsNoChange()
+    {
+        var ctx = await Prepared();
+        ctx.Blocks = [new PatchBlock(Search, Replace)];
+        Assert.Equal(PhaseOutcome.Ok, await Apply(ctx));
+        var written = File.ReadAllBytes(PathA);
+
+        ctx.Blocks = [new PatchBlock(Replace, Search)]; // attempt 2 undoes attempt 1: compared with the original
+        var outcome = await Apply(ctx);
+
+        Assert.Equal(PhaseOutcome.MatchFailed, outcome);
+        Assert.Equal("NoChange", ctx.FailureKind);
+        Assert.Equal(written, File.ReadAllBytes(PathA));
+    }
+
     [Fact]
     public async Task GoInserted_IsSafetyRejected_NeverWritten()
     {

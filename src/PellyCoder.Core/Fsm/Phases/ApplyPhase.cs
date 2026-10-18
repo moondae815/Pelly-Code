@@ -6,6 +6,7 @@ using PellyCoder.Core.Feedbacks;
 using PellyCoder.Core.Files;
 using PellyCoder.Core.Models;
 using PellyCoder.Core.Patchers;
+using PellyCoder.Core.Reporting;
 using PellyCoder.Core.Testing;
 using PellyCoder.Core.Verification;
 
@@ -48,6 +49,11 @@ public sealed class ApplyPhase(FileGuard fileGuard, FeedbackBuilder feedback, IU
         {
             if (!ctx.AddedHelpers.Contains(helper)) ctx.AddedHelpers.Add(helper);
         }
+
+        // Before the dry-run branch and any write: an edit that leaves the target as in the original (a no-op block, a
+        // reformat, or undoing an earlier attempt) is not a change. Helpers it added stay editable for the next attempt.
+        if (NoChangeGuard.CSharpUnchanged(ctx.Original.Text, patch.NewText!, ctx.Candidate.Display, ctx.Language.Version))
+            return NoChange(ctx);
 
         if (ctx.Request.DryRun)
         {
@@ -167,6 +173,13 @@ public sealed class ApplyPhase(FileGuard fileGuard, FeedbackBuilder feedback, IU
     }
 
     private const string CannotRunBaselineTests = "원본 상태 테스트를 실행하지 못해 테스트 판정을 건너뜁니다";
+
+    private PhaseOutcome NoChange(RunContext ctx)
+    {
+        ctx.Feedback = feedback.ForNoChange();
+        ctx.FailureKind = FailureKinds.NoChange;
+        return PhaseOutcome.MatchFailed;
+    }
 
     private PhaseOutcome Mismatch(RunContext ctx, PatchFailure failure)
     {

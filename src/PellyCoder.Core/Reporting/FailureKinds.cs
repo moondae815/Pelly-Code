@@ -21,6 +21,7 @@ public static class FailureKinds
     public const string Crashed = "Crashed";
     public const string FileChangedExternally = "FileChangedExternally";
     public const string ShapeRejected = "ShapeRejected";
+    public const string NoChange = "NoChange";
 
     public const string SqlForbiddenInOriginal = "SqlForbiddenInOriginal";
     public const string SqlParseErrors = "SqlParseErrors";
@@ -45,7 +46,7 @@ public static class FailureKinds
     public static IReadOnlySet<string> All { get; } = new HashSet<string>(StringComparer.Ordinal)
     {
         Parse, NotFound, Ambiguous, OutsideRegion, Overlap, Unencodable,
-        BaselineErrors, BuildToolUnavailable, BuildUnverifiable, Crashed, FileChangedExternally, ShapeRejected,
+        BaselineErrors, BuildToolUnavailable, BuildUnverifiable, Crashed, FileChangedExternally, ShapeRejected, NoChange,
         SqlForbiddenInOriginal, SqlParseErrors, SqlPermission, SqlSafetyRejected, SqlTargetNotAllowed,
         TargetAmbiguous, TargetNotFound,
         SyntaxErrors, BuildErrors, SqlObjectsErrors, SqlCompileErrors, TestErrors,

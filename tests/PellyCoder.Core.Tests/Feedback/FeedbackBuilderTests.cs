@@ -169,8 +169,8 @@ public sealed class FeedbackBuilderTests
 
         var fb = new FeedbackBuilder(Counter, 296).ForTests(failures);
 
-        Assert.Equal("TESTS FAILED (2 new failures)\nN.T.A: Assert.Equal() Failure\nN.T.B", fb.Text);
-        Assert.Equal("TESTS FAILED (1 new failure)\nN.T.A: m", new FeedbackBuilder(Counter, 296)
+        Assert.Equal("TESTS FAILED (2 new failures)\nN.T.A: Assert.Equal() Failure\nN.T.B\n" + KeepRequest, fb.Text);
+        Assert.Equal("TESTS FAILED (1 new failure)\nN.T.A: m\n" + KeepRequest, new FeedbackBuilder(Counter, 296)
             .ForTests([new PellyCoder.Core.Testing.TestCaseResult("N.T.A", false, "m")]).Text);
     }
 
@@ -188,11 +188,20 @@ public sealed class FeedbackBuilderTests
         Assert.StartsWith("TESTS FAILED (200 new failures)\nShop.Api.Tests.OrderServiceTests.Case000: ", fb.Text);
         Assert.DoesNotContain("Case199", fb.Text); // trailing entries are dropped first
         Assert.DoesNotContain("\u2026", fb.Text); // whole entries dropped, nothing cut mid-line
+        Assert.EndsWith("\n" + KeepRequest, fb.Text); // the instruction survives the trimming
 
         var huge = new FeedbackBuilder(Counter, 30).ForTests([new PellyCoder.Core.Testing.TestCaseResult("N.T.A", false, new string('y', 5000))]);
         Assert.True(huge.Tokens <= 30);
         Assert.StartsWith("TESTS FAILED (1 new failure)", huge.Text);
+        Assert.EndsWith("\u2026\n" + KeepRequest, huge.Text); // the message is cut, not the instruction
     }
+
+    private const string KeepRequest = "Keep the requested change; do not undo it to make tests pass.";
+
+    [Fact]
+    public void ForNoChange_Format() =>
+        Assert.Equal("NO CHANGE: the edit leaves the target identical to the original. Make the requested change.",
+            new FeedbackBuilder(Counter, 296).ForNoChange().Text);
 
     [Fact]
     public void ForTestExitCode_Format() =>

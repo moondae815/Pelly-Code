@@ -3,7 +3,9 @@ using PellyCoder.Core.Feedbacks;
 using PellyCoder.Core.Files;
 using PellyCoder.Core.Models;
 using PellyCoder.Core.Patchers;
+using PellyCoder.Core.Reporting;
 using PellyCoder.Core.Sql;
+using PellyCoder.Core.Verification;
 
 namespace PellyCoder.Core.Fsm.Phases;
 
@@ -46,6 +48,14 @@ public sealed class SqlApplyPhase(FileGuard fileGuard, FeedbackBuilder feedback,
             ctx.Feedback = feedback.ForSqlSafety(check.Reason!);
             ctx.FailureKind = "SqlSafetyRejected";
             return PhaseOutcome.SafetyRejected;
+        }
+
+        // Compared with the original batch, not the last write: undoing an earlier attempt is no change either.
+        if (NoChangeGuard.SqlUnchanged(state.OriginalScript, state.TargetIndex, patch.NewText!, state.CompatLevel))
+        {
+            ctx.Feedback = feedback.ForNoChange();
+            ctx.FailureKind = FailureKinds.NoChange;
+            return PhaseOutcome.MatchFailed;
         }
 
         if (ctx.Request.DryRun)

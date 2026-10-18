@@ -52,4 +52,22 @@ public class DoctorSanitizerTests
         Assert.DoesNotContain("ttftMs", json);
         Assert.DoesNotContain("Detail", json);
     }
+
+    [Fact]
+    public void VersionFacts_FollowVersionRule_AndEmptyIsOmitted()
+    {
+        var json = DoctorSanitizer.ToJson([
+            new DoctorCheck(DoctorFacts.OllamaServer, DoctorStatus.Ok, "d", null,
+                new Dictionary<string, string> { [DoctorFacts.OllamaVersion] = "v0.9", [DoctorFacts.LatencyMs] = "" }),
+            new DoctorCheck(DoctorFacts.DotnetSdk, DoctorStatus.Ok, "d", null,
+                new Dictionary<string, string> { [DoctorFacts.DotnetVersion] = "10.0.100" }),
+            new DoctorCheck(DoctorFacts.Pelly, DoctorStatus.Ok, "d", null,
+                new Dictionary<string, string> { [DoctorFacts.PellyVersion] = "" }),
+        ]);
+        Assert.Contains("\"invalid\"", json);
+        Assert.DoesNotContain("v0.9", json);
+        Assert.DoesNotContain(DoctorFacts.LatencyMs, json);
+        Assert.DoesNotContain(DoctorFacts.PellyVersion, json);
+        Assert.Contains("10.0.100", json);
+    }
 }

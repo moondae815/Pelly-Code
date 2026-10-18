@@ -45,51 +45,51 @@ public sealed class DoctorService(
 
         var serverOk = status.Reachable;
         checks.Add(serverOk
-            ? new("Ollama 서버", DoctorStatus.Ok,
+            ? new(DoctorFacts.OllamaServer, DoctorStatus.Ok,
                 $"{options.Llm.Endpoint} (Ollama {status.Version}, {(int)status.Latency.TotalMilliseconds}ms)", null,
-                Facts(("ollamaVersion", status.Version ?? ""), ("latencyMs", Num((int)status.Latency.TotalMilliseconds))))
-            : new("Ollama 서버", DoctorStatus.Fail,
+                Facts((DoctorFacts.OllamaVersion, status.Version), (DoctorFacts.LatencyMs, Num((int)status.Latency.TotalMilliseconds))))
+            : new(DoctorFacts.OllamaServer, DoctorStatus.Fail,
                 $"{options.Llm.Endpoint} 에 연결할 수 없음{(status.Error is null ? "" : $": {status.Error}")}",
                 "llm.endpoint 설정과 서버 실행 상태를 확인하세요"));
 
         if (!serverOk)
         {
-            checks.Add(Skipped("모델", "서버 연결 실패로 건너뜀"));
+            checks.Add(Skipped(DoctorFacts.Model, "서버 연결 실패로 건너뜀"));
         }
         else if (!status.ModelInstalled)
         {
-            checks.Add(new("모델", DoctorStatus.Fail, $"{options.Llm.Model} 이(가) 설치되어 있지 않음",
+            checks.Add(new(DoctorFacts.Model, DoctorStatus.Fail, $"{options.Llm.Model} 이(가) 설치되어 있지 않음",
                 $"서버에서 'ollama pull {options.Llm.Model}' 또는 GGUF 가져오기를 하세요"));
         }
         else if (!status.ModelLoaded)
         {
-            checks.Add(new("모델", DoctorStatus.Warn, "설치됨, 아직 로드되지 않음 — 첫 요청은 모델 로딩으로 느릴 수 있습니다", null,
-                Facts(("loaded", "false"))));
+            checks.Add(new(DoctorFacts.Model, DoctorStatus.Warn, "설치됨, 아직 로드되지 않음 — 첫 요청은 모델 로딩으로 느릴 수 있습니다", null,
+                Facts((DoctorFacts.Loaded, "false"))));
         }
         else
         {
-            checks.Add(new("모델", DoctorStatus.Ok, $"{options.Llm.Model} (로드됨)", null, Facts(("loaded", "true"))));
+            checks.Add(new(DoctorFacts.Model, DoctorStatus.Ok, $"{options.Llm.Model} (로드됨)", null, Facts((DoctorFacts.Loaded, "true"))));
         }
 
         var modelUsable = serverOk && status.ModelInstalled;
         var skipReason = !serverOk ? "서버 연결 실패로 건너뜀" : "모델이 없어 건너뜀";
         if (!modelUsable)
         {
-            foreach (var name in new[] { "렌더러", "템플릿 일치", "토크나이저 일치", "응답 시간" })
+            foreach (var name in new[] { DoctorFacts.Renderer, DoctorFacts.TemplateMatch, DoctorFacts.TokenizerMatch, DoctorFacts.Latency })
                 checks.Add(Skipped(name, skipReason));
         }
         else
         {
             checks.Add(string.IsNullOrWhiteSpace(status.Renderer)
-                ? new("렌더러", DoctorStatus.Warn, "서버가 렌더러를 알리지 않음", "Ollama 버전과 모델 구성을 확인하세요")
-                : new("렌더러", DoctorStatus.Ok, status.Renderer, null));
+                ? new(DoctorFacts.Renderer, DoctorStatus.Warn, "서버가 렌더러를 알리지 않음", "Ollama 버전과 모델 구성을 확인하세요")
+                : new(DoctorFacts.Renderer, DoctorStatus.Ok, status.Renderer, null));
             checks.Add(await CheckTemplateAsync(ct));
             checks.Add(await CheckTokenizerAsync(ct));
             checks.Add(await CheckLatencyAsync(ct));
         }
 
-        checks.Add(new("pelly", DoctorStatus.Ok, $"{PellyInfo.Version}, 토크나이저 {TokenizerHash()}", null,
-            Facts(("pellyVersion", PellyInfo.Version), ("tokenizerHash", TokenizerHash()))));
+        checks.Add(new(DoctorFacts.Pelly, DoctorStatus.Ok, $"{PellyInfo.Version}, 토크나이저 {TokenizerHash()}", null,
+            Facts((DoctorFacts.PellyVersion, PellyInfo.Version), (DoctorFacts.TokenizerHash, TokenizerHash()))));
         checks.Add(CheckSettings());
         checks.Add(await CheckDotnetAsync(ct));
         checks.Add(await CheckMsBuildAsync(ct));
@@ -97,7 +97,7 @@ public sealed class DoctorService(
         if (context?.ProjectPath is { } project)
             checks.Add(TargetingPackCheck.Run(fs, _isWindows, context.ProgramFilesX86, project));
 
-        checks.Add(new("서버 설정 확인 필요", DoctorStatus.Warn,
+        checks.Add(new(DoctorFacts.ServerSettings, DoctorStatus.Warn,
             "서버에서 직접 확인할 수 없음: OLLAMA_FLASH_ATTENTION, OLLAMA_KV_CACHE_TYPE, OLLAMA_NUM_PARALLEL, OLLAMA_KEEP_ALIVE. 아래 체크리스트를 서버 관리자와 확인하세요",
             "서버 관리자에게 PRD §7.1 값을 확인하세요"));
         checks.Add(await CheckSqlAsync(ct));
@@ -135,12 +135,12 @@ public sealed class DoctorService(
         lines.Add($"budget.inputTotal={options.Budget.InputTotal}, retry.max={options.Retry.Max}, " +
                   $"build.timeoutSeconds={options.Build.TimeoutSeconds}, test.timeoutSeconds={options.Test.TimeoutSeconds}");
         lines.Add($"sql.compatLevel={options.Sql.CompatLevel}, sql.connectionString={(string.IsNullOrWhiteSpace(cs) ? "(없음)" : SqlConnectionText.Mask(cs))}");
-        return new("설정", DoctorStatus.Ok, string.Join('\n', lines), null);
+        return new(DoctorFacts.Settings, DoctorStatus.Ok, string.Join('\n', lines), null);
     }
 
     private async Task<DoctorCheck> CheckSqlAsync(CancellationToken ct)
     {
-        const string name = "SQL 연결";
+        const string name = DoctorFacts.Sql;
         var cs = options.Sql.ConnectionString;
         if (string.IsNullOrWhiteSpace(cs))
             return new(name, DoctorStatus.Warn, "pelly sql을 쓰려면 sql.connectionString 또는 PELLY_SQL_CONNECTION을 설정하세요", null);
@@ -157,10 +157,10 @@ public sealed class DoctorService(
             var probe = await sql.ProbeAsync(ct);
             if (!probe.CanViewDefinition)
                 return new(name, DoctorStatus.Fail, "VIEW DEFINITION 권한 필요", "접속 계정에 VIEW DEFINITION 권한을 부여하세요",
-                    Facts(("canViewDefinition", "false"), ("serverMajor", ServerMajor(probe.Version))));
+                    Facts((DoctorFacts.CanViewDefinition, "false"), (DoctorFacts.ServerMajor, ServerMajor(probe.Version))));
             var firstLine = probe.Version.Split('\n', 2)[0].Trim();
             return new(name, DoctorStatus.Ok, $"{endpoint.DataSource}/{endpoint.Database}, {firstLine}", null,
-                Facts(("canViewDefinition", "true"), ("serverMajor", ServerMajor(probe.Version))));
+                Facts((DoctorFacts.CanViewDefinition, "true"), (DoctorFacts.ServerMajor, ServerMajor(probe.Version))));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -172,7 +172,7 @@ public sealed class DoctorService(
 
     private async Task<DoctorCheck> CheckDotnetAsync(CancellationToken ct)
     {
-        const string name = ".NET SDK";
+        const string name = DoctorFacts.DotnetSdk;
         var fail = new DoctorCheck(name, DoctorStatus.Fail, "dotnet을 실행할 수 없습니다", ".NET 10 SDK를 설치하고 PATH를 확인하세요");
         try
         {
@@ -180,7 +180,7 @@ public sealed class DoctorService(
                 new ProcessSpec("dotnet", ["--version"], fs.Directory.GetCurrentDirectory(), DotnetTimeout), ct);
             var version = result.StdOut.Trim();
             return result.ExitCode == 0 && !result.TimedOut && version.Length > 0
-                ? new(name, DoctorStatus.Ok, version, null, Facts(("dotnetVersion", version)))
+                ? new(name, DoctorStatus.Ok, version, null, Facts((DoctorFacts.DotnetVersion, version)))
                 : fail;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -191,19 +191,19 @@ public sealed class DoctorService(
 
     private async Task<DoctorCheck> CheckMsBuildAsync(CancellationToken ct)
     {
-        const string name = "MSBuild (레거시)";
+        const string name = DoctorFacts.MsBuild;
         if (!_isWindows())
             return new(name, DoctorStatus.Warn, "Windows에서만 확인합니다", null);
         var resolution = await new BuildToolResolver(fs, processes, options.Build, _isWindows).ResolveAsync(ProjectStyle.Legacy, ct);
         return resolution.Tool is { } tool
-            ? new(name, DoctorStatus.Ok, tool.Executable, null, Facts(("found", "true")))
+            ? new(name, DoctorStatus.Ok, tool.Executable, null, Facts((DoctorFacts.Found, "true")))
             : new(name, DoctorStatus.Warn, resolution.Error ?? "MSBuild.exe를 찾을 수 없습니다",
                 "레거시 .NET Framework 프로젝트를 고치려면 Visual Studio Build Tools가 필요합니다",
-                Facts(("found", "false")));
+                Facts((DoctorFacts.Found, "false")));
     }
 
-    private static IReadOnlyDictionary<string, string> Facts(params (string Key, string Value)[] pairs) =>
-        pairs.ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
+    private static IReadOnlyDictionary<string, string> Facts(params (string Key, string? Value)[] pairs) =>
+        pairs.Where(p => !string.IsNullOrEmpty(p.Value)).ToDictionary(p => p.Key, p => p.Value!, StringComparer.Ordinal);
 
     private static string Num(int value) => value.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
@@ -221,7 +221,7 @@ public sealed class DoctorService(
 
     private async Task<DoctorCheck> CheckTemplateAsync(CancellationToken ct)
     {
-        const string name = "템플릿 일치";
+        const string name = DoctorFacts.TemplateMatch;
         const string action = "모델의 chat template이 바뀌었을 수 있습니다. llm.template 설정을 확인하세요";
         try
         {
@@ -241,7 +241,7 @@ public sealed class DoctorService(
 
     private async Task<DoctorCheck> CheckTokenizerAsync(CancellationToken ct)
     {
-        const string name = "토크나이저 일치";
+        const string name = DoctorFacts.TokenizerMatch;
         const string action = "모델과 내장 토크나이저가 다릅니다. 같은 모델을 쓰는지 확인하세요";
         try
         {
@@ -250,8 +250,8 @@ public sealed class DoctorService(
             if (server is null)
                 return new(name, DoctorStatus.Fail, "서버가 프롬프트 토큰 수를 알리지 않아 비교할 수 없음", action);
             return local == server
-                ? new(name, DoctorStatus.Ok, $"로컬과 서버가 같은 토큰 수({local})", null, Facts(("match", "true")))
-                : new(name, DoctorStatus.Fail, $"로컬 {local} 토큰, 서버 {server} 토큰으로 다름", action, Facts(("match", "false")));
+                ? new(name, DoctorStatus.Ok, $"로컬과 서버가 같은 토큰 수({local})", null, Facts((DoctorFacts.Match, "true")))
+                : new(name, DoctorStatus.Fail, $"로컬 {local} 토큰, 서버 {server} 토큰으로 다름", action, Facts((DoctorFacts.Match, "false")));
         }
         catch (LlmUnavailableException ex)
         {
@@ -261,7 +261,7 @@ public sealed class DoctorService(
 
     private async Task<DoctorCheck> CheckLatencyAsync(CancellationToken ct)
     {
-        const string name = "응답 시간";
+        const string name = DoctorFacts.Latency;
         try
         {
             var start = time.GetTimestamp();
@@ -275,7 +275,7 @@ public sealed class DoctorService(
             return ttft is null
                 ? new(name, DoctorStatus.Warn, "응답 텍스트를 받지 못함", "서버 로그를 확인하세요")
                 : new(name, DoctorStatus.Ok, $"첫 토큰까지 {(int)ttft.Value.TotalMilliseconds}ms", null,
-                    Facts(("ttftMs", Num((int)ttft.Value.TotalMilliseconds))));
+                    Facts((DoctorFacts.TtftMs, Num((int)ttft.Value.TotalMilliseconds))));
         }
         catch (LlmUnavailableException ex)
         {

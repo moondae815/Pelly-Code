@@ -8,7 +8,7 @@ namespace PellyCoder.Core.Doctor;
 /// <summary>The <c>타겟팅 팩</c> row of <c>pelly doctor --project</c>: is the reference-assembly pack of a legacy project installed?</summary>
 public static class TargetingPackCheck
 {
-    public const string Name = "타겟팅 팩";
+    public const string Name = DoctorFacts.TargetingPack;
 
     /// <param name="programFilesX86">Value of <c>%ProgramFiles(x86)%</c>, read by the caller (Core never reads the environment).</param>
     /// <remarks>Windows 미확인: the reference-assembly folder lookup is only verified on windows-latest CI.</remarks>
@@ -30,11 +30,11 @@ public static class TargetingPackCheck
             var folder = fs.Path.Combine(programFilesX86, "Reference Assemblies", "Microsoft", "Framework", ".NETFramework", version);
             if (fs.Directory.Exists(folder))
                 return new(Name, DoctorStatus.Ok, $"{version} ({folder})", null,
-                    new Dictionary<string, string> { ["frameworkVersion"] = version, ["installed"] = "true" });
+                    new Dictionary<string, string> { [DoctorFacts.FrameworkVersion] = version, [DoctorFacts.Installed] = "true" });
             var digits = version.TrimStart('v', 'V').Replace(".", "");
             return new(Name, DoctorStatus.Fail, $"{version} 참조 어셈블리 폴더가 없습니다: {folder}",
                 $"Developer Pack을 설치하거나 Microsoft.NETFramework.ReferenceAssemblies.net{digits} 패키지를 쓰세요",
-                new Dictionary<string, string> { ["frameworkVersion"] = version, ["installed"] = "false" });
+                new Dictionary<string, string> { [DoctorFacts.FrameworkVersion] = version, [DoctorFacts.Installed] = "false" });
         }
         catch (Exception ex) when (ex is XmlException or IOException or UnauthorizedAccessException)
         {

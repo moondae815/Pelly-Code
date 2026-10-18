@@ -480,4 +480,54 @@ public sealed class DoctorServiceTests
         Assert.Equal("localhost/PellyCorpus, Microsoft SQL Server 2022", c.Detail);
         Assert.DoesNotContain("Secret", c.Detail);
     }
+
+    [Fact]
+    public async Task Facts_FilledPerRow_SurviveSanitizer()
+    {
+        EnqueueProbes();
+        _windows = true;
+        _options.Build.MsbuildPath = "/tools/MSBuild.exe";
+        _fs.AddFile("/tools/MSBuild.exe", new MockFileData(""));
+        WithProject(LegacyProject, "/pf86");
+        _fs.AddDirectory(_fs.Path.Combine("/pf86", "Reference Assemblies", "Microsoft", "Framework", ".NETFramework", "v4.8"));
+        SqlOptionsAllowed();
+        _sql!.Probe = new SqlServerProbe("Microsoft SQL Server 2022 (RTM) - 16.0.1000.6 (X64)", "PellyCorpus", true);
+        _backend.BeforeRespond = _ => { _time.Advance(TimeSpan.FromMilliseconds(40)); return Task.CompletedTask; };
+
+        var checks = await Create().RunAsync(CancellationToken.None);
+        using var doc = System.Text.Json.JsonDocument.Parse(DoctorSanitizer.ToJson(checks));
+        var rows = doc.RootElement.GetProperty("checks").EnumerateArray().ToDictionary(r => r.GetProperty("Name").GetString()!);
+
+        void Has(string row, params string[] keys)
+        {
+            var facts = rows[row].GetProperty("Facts");
+            foreach (var key in keys) Assert.True(facts.TryGetProperty(key, out _), $"{row}/{key}");
+        }
+        Has(DoctorFacts.OllamaServer, DoctorFacts.OllamaVersion, DoctorFacts.LatencyMs);
+        Has(DoctorFacts.Model, DoctorFacts.Loaded);
+        Has(DoctorFacts.TokenizerMatch, DoctorFacts.Match);
+        Has(DoctorFacts.Latency, DoctorFacts.TtftMs);
+        Has(DoctorFacts.Pelly, DoctorFacts.PellyVersion, DoctorFacts.TokenizerHash);
+        Has(DoctorFacts.DotnetSdk, DoctorFacts.DotnetVersion);
+        Has(DoctorFacts.MsBuild, DoctorFacts.Found);
+        Has(DoctorFacts.TargetingPack, DoctorFacts.FrameworkVersion, DoctorFacts.Installed);
+        Has(DoctorFacts.Sql, DoctorFacts.CanViewDefinition, DoctorFacts.ServerMajor);
+        Assert.Equal("16", rows[DoctorFacts.Sql].GetProperty("Facts").GetProperty(DoctorFacts.ServerMajor).GetString());
+        Assert.Equal("0.40.0", rows[DoctorFacts.OllamaServer].GetProperty("Facts").GetProperty(DoctorFacts.OllamaVersion).GetString());
+        Assert.Equal("true", rows[DoctorFacts.Model].GetProperty("Facts").GetProperty(DoctorFacts.Loaded).GetString());
+    }
+
+    [Fact]
+    public async Task Facts_NullOllamaVersionAndUnparsableSqlVersion_AreOmitted()
+    {
+        EnqueueProbes();
+        _backend.Status = new LlmServerStatus(true, null, true, true, "qwen3.5", TimeSpan.FromMilliseconds(1), null);
+        SqlOptionsAllowed();
+        _sql!.Probe = new SqlServerProbe("Microsoft SQL Server (fake)", "PellyCorpus", true);
+
+        var checks = await Create().RunAsync(CancellationToken.None);
+
+        Assert.DoesNotContain(DoctorFacts.OllamaVersion, Get(checks, DoctorFacts.OllamaServer).Facts!.Keys);
+        Assert.DoesNotContain(DoctorFacts.ServerMajor, Get(checks, DoctorFacts.Sql).Facts!.Keys);
+    }
 }

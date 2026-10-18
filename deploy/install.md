@@ -22,7 +22,7 @@
 
 * 접속할 수 있는 Ollama 서버. 서버 관리자에게 [server-checklist.md](server-checklist.md)를 전달하십시오.
 * `dotnet` SDK(.NET 10, 개발 때 쓴 버전은 10.0.302)가 PATH에 있어야 합니다. C# 빌드 검증에 필요합니다. **SQL만 쓰는 PC도 `dotnet`을 실행할 수 없으면 `pelly doctor`가 Fail(종료 코드 4)로 끝납니다.** 이 행의 안내는 「.NET 10 SDK를 설치하고 PATH를 확인하세요」입니다.
-*  레거시 .NET Framework 프로젝트는 Visual Studio(또는 Build Tools)의 MSBuild가 필요합니다.
+* 레거시 .NET Framework 프로젝트는 Visual Studio(또는 Build Tools)의 MSBuild가 필요합니다.
 * SQL 수정을 쓰려면 SQL Server 접속 정보와 `VIEW DEFINITION` 권한이 필요합니다.
 
 ## 1. zip 풀기

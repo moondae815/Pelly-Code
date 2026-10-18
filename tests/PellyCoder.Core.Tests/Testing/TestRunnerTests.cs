@@ -1,0 +1,143 @@
+using PellyCoder.Core.Abstractions;
+using PellyCoder.Core.Builds;
+using PellyCoder.Core.Config;
+using PellyCoder.Core.Tests.Fakes;
+using PellyCoder.Core.Testing;
+
+namespace PellyCoder.Core.Tests.Testing;
+
+public class TestRunnerTests : IDisposable
+{
+    private readonly string _dir = Path.Combine(Path.GetTempPath(), "pelly-testrunner-" + Guid.NewGuid().ToString("N")[..8]);
+    private readonly ScriptedProcessRunner _procs = new();
+    private static readonly BuildTool Dotnet = new(BuildToolKind.Dotnet, "dotnet");
+    private static readonly BuildTool MsBuild = new(BuildToolKind.MsBuild, @"C:\msbuild\MSBuild.exe");
+
+    public TestRunnerTests() => Directory.CreateDirectory(_dir);
+
+    public void Dispose() => Directory.Delete(_dir, recursive: true);
+
+    private static ProcessResult Ok(string stdout = "", int exit = 0) =>
+        new(exit, stdout, "", System.Text.Encoding.UTF8.GetBytes(stdout), TimeSpan.FromMilliseconds(5), false);
+
+    private static ProcessResult TimedOut() => new(-1, "", "", [], TimeSpan.FromSeconds(1), true);
+
+    private string Proj => Path.Combine(_dir, "T.Tests", "T.Tests.csproj");
+    private string Trx => Path.Combine(_dir, ".pelly", "test.trx");
+
+    private TestRunner Runner(TestOptions? test = null) => new(_procs, new BuildOptions(), test ?? new TestOptions());
+
+    [Fact]
+    public async Task Runner_Sdk_CommandLinesAndTrxPath()
+    {
+        _procs.Enqueue(Ok());
+        _procs.Enqueue(Ok(exit: 1), () => File.WriteAllText(Trx, TrxParserTests.Fixture("modern-fail.trx")));
+
+        var run = await Runner().RunAsync(Dotnet, Proj, _dir, Trx, TestContext.Current.CancellationToken);
+
+        Assert.Equal(["build", Proj, "--no-restore", "--nologo", "-v", "q", "-clp:NoSummary;ErrorsOnly"], _procs.Calls[0].Arguments);
+        Assert.Equal("dotnet", _procs.Calls[1].FileName);
+        Assert.Equal(["test", Proj, "--no-build", "--nologo", "--logger", $"trx;LogFileName={Trx}"], _procs.Calls[1].Arguments);
+        Assert.Equal("en", _procs.Calls[1].Environment!["DOTNET_CLI_UI_LANGUAGE"]);
+        Assert.Equal("1033", _procs.Calls[1].Environment!["VSLANG"]);
+        Assert.Equal(TimeSpan.FromSeconds(300), _procs.Calls[1].Timeout);
+        Assert.Equal(3, run.Results.Count);
+        Assert.True(run.PerTestResults);
+        Assert.Equal(1, run.ExitCode);
+        Assert.Null(run.Error);
+    }
+
+    [Fact]
+    public async Task Runner_Sdk_TestingPlatformProject_UsesReportOptions()
+    {
+        // .NET 10 refuses --logger for Microsoft.Testing.Platform projects (opt-in through global.json).
+        File.WriteAllText(Path.Combine(_dir, "global.json"), """{"test":{"runner":"Microsoft.Testing.Platform"}}""");
+        Directory.CreateDirectory(Path.GetDirectoryName(Proj)!);
+        File.WriteAllText(Proj, """<Project Sdk="Microsoft.NET.Sdk"><ItemGroup><PackageReference Include="xunit.v3.mtp-v2" Version="4.0.2" /></ItemGroup></Project>""");
+        _procs.Enqueue(Ok());
+        _procs.Enqueue(Ok());
+
+        await Runner().RunAsync(Dotnet, Proj, _dir, Trx, TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            ["test", "--project", Proj, "--no-build", "--report-xunit-trx", "--report-xunit-trx-filename", "test.trx",
+             "--results-directory", Path.GetDirectoryName(Trx)!],
+            _procs.Calls[1].Arguments);
+    }
+
+    [Fact]
+    public async Task Runner_TestBuildErrors_SkipTestRun()
+    {
+        _procs.Enqueue(Ok("T.cs(3,5): error CS0103: The name 'x' does not exist [" + Proj + "]", exit: 1));
+
+        var run = await Runner().RunAsync(Dotnet, Proj, _dir, Trx, TestContext.Current.CancellationToken);
+
+        Assert.Single(_procs.Calls);
+        Assert.Equal("CS0103", Assert.Single(run.BuildErrors).Code);
+        Assert.Empty(run.Results);
+    }
+
+    [Fact]
+    public async Task Runner_Timeout_Reported()
+    {
+        _procs.Enqueue(Ok());
+        _procs.Enqueue(TimedOut());
+
+        var run = await Runner(new TestOptions { TimeoutSeconds = 7 }).RunAsync(Dotnet, Proj, _dir, Trx, TestContext.Current.CancellationToken);
+
+        Assert.True(run.TimedOut);
+        Assert.Equal(TimeSpan.FromSeconds(7), _procs.Calls[1].Timeout);
+        Assert.Empty(run.Results);
+    }
+
+    [Fact]
+    public async Task Runner_LegacyPlaceholders_Substituted()
+    {
+        var projDir = Path.Combine(_dir, "Shop.Tests");
+        Directory.CreateDirectory(projDir);
+        var proj = Path.Combine(projDir, "Shop.Tests.csproj");
+        File.WriteAllText(proj, """<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003"><PropertyGroup><AssemblyName>Custom.Name</AssemblyName></PropertyGroup></Project>""");
+        _procs.Enqueue(Ok());
+        _procs.Enqueue(Ok(), () => File.WriteAllText(Trx, TrxParserTests.Fixture("modern-pass.trx")));
+        var test = new TestOptions { Command = "\"C:\\Program Files\\runner.exe\" {dll} --proj {project} /logger:trx;LogFileName={trx}" };
+
+        var run = await Runner(test).RunAsync(MsBuild, proj, _dir, Trx, TestContext.Current.CancellationToken);
+
+        Assert.Equal(@"C:\msbuild\MSBuild.exe", _procs.Calls[0].FileName);
+        var call = _procs.Calls[1];
+        Assert.Equal(@"C:\Program Files\runner.exe", call.FileName);
+        Assert.Equal(
+            [Path.Combine(projDir, "bin", "Debug", "Custom.Name.dll"), "--proj", proj, "/logger:trx;LogFileName=" + Trx],
+            call.Arguments);
+        Assert.True(run.PerTestResults);
+        Assert.Equal(3, run.Results.Count);
+    }
+
+    [Fact]
+    public async Task Runner_LegacyWithoutTrx_PerTestFalse()
+    {
+        var projDir = Path.Combine(_dir, "Shop.Tests");
+        Directory.CreateDirectory(projDir);
+        var proj = Path.Combine(projDir, "Shop.Tests.csproj");
+        File.WriteAllText(proj, "<Project />");
+        _procs.Enqueue(Ok());
+        _procs.Enqueue(Ok(exit: 2));
+
+        var run = await Runner(new TestOptions { Command = "nunit3-console {dll}" }).RunAsync(MsBuild, proj, _dir, Trx, TestContext.Current.CancellationToken);
+
+        Assert.False(run.PerTestResults);
+        Assert.Equal(2, run.ExitCode);
+        Assert.Empty(run.Results);
+        Assert.Null(run.Error);
+        Assert.Equal(Path.Combine(projDir, "bin", "Debug", "Shop.Tests.dll"), _procs.Calls[1].Arguments[0]);
+    }
+
+    [Fact]
+    public async Task Runner_LegacyWithoutCommand_ReportsError()
+    {
+        var run = await Runner().RunAsync(MsBuild, Proj, _dir, Trx, TestContext.Current.CancellationToken);
+
+        Assert.Equal("레거시 테스트 프로젝트는 test.command 설정이 필요합니다", run.Error);
+        Assert.Empty(_procs.Calls);
+    }
+}

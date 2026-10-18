@@ -23,10 +23,7 @@ public static class PellyOptionsLoader
     private const string EnvPrefix = "PELLY__";
 
     // Keys of sections not consumed in M1 (design 8.1): accepted but not bound.
-    private static readonly string[] FutureKeys =
-    {
-        "test:command", "test:projects",
-    };
+    private static readonly string[] FutureKeys = [];
 
     private static readonly string[] KnownKeys = BuildKnownKeys();
 
@@ -105,7 +102,7 @@ public static class PellyOptionsLoader
         foreach (var (section, type) in new (string, Type)[]
         {
             ("llm", typeof(LlmOptions)), ("budget", typeof(BudgetOptions)),
-            ("retry", typeof(RetryOptions)), ("log", typeof(LogOptions)), ("build", typeof(BuildOptions)), ("sql", typeof(SqlOptions)),
+            ("retry", typeof(RetryOptions)), ("log", typeof(LogOptions)), ("build", typeof(BuildOptions)), ("sql", typeof(SqlOptions)), ("test", typeof(TestOptions)),
         })
         {
             foreach (var p in type.GetProperties())
@@ -130,7 +127,7 @@ public static class PellyOptionsLoader
     }
 
     private static bool IsOpenEnded(string known) =>
-        known is "llm:Headers" or "test:projects" or "sql:AllowedHosts" or "sql:AllowedDatabases";
+        known is "llm:Headers" or "test:Projects" or "sql:AllowedHosts" or "sql:AllowedDatabases";
 
     private static void Bind(IConfigurationRoot config, PellyOptions options, List<string> errors)
     {
@@ -144,6 +141,8 @@ public static class PellyOptionsLoader
             options.Sql.AllowedHosts.Clear();
             options.Sql.AllowedDatabases.Clear();
             config.GetSection("sql").Bind(options.Sql);
+            options.Test.Projects.Clear();
+            config.GetSection("test").Bind(options.Test);
         }
         catch (InvalidOperationException ex)
         {
@@ -189,6 +188,7 @@ public static class PellyOptionsLoader
         foreach (var p in typeof(BudgetOptions).GetProperties().Where(p => p.PropertyType == typeof(int)))
             AtLeast(errors, $"budget:{char.ToLowerInvariant(p.Name[0])}{p.Name[1..]}", (int)p.GetValue(o.Budget)!, 1);
         AtLeast(errors, "build:timeoutSeconds", o.Build.TimeoutSeconds, 1);
+        AtLeast(errors, "test:timeoutSeconds", o.Test.TimeoutSeconds, 1);
         AtLeast(errors, "log:retentionDays", o.Log.RetentionDays, 1);
         AtLeast(errors, "retry:max", o.Retry.Max, 0);
         AtLeast(errors, "sampling:think:topK", o.Sampling.Think.TopK, 1);

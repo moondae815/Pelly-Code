@@ -21,6 +21,14 @@ public sealed class ScriptedProcessRunner : IProcessRunner
 
     public void Enqueue(ProcessResult result) => _queue.Enqueue(_ => Task.FromResult(result));
 
+    /// <summary>Runs <paramref name="sideEffect"/> (e.g. writing a report file) when the call arrives, then returns the result.</summary>
+    public void Enqueue(ProcessResult result, Action sideEffect) =>
+        _queue.Enqueue(_ =>
+        {
+            sideEffect();
+            return Task.FromResult(result);
+        });
+
     /// <summary>Waits for <paramref name="delay"/> (honouring cancellation) before returning the result.</summary>
     public void EnqueueDelay(TimeSpan delay, ProcessResult result) =>
         _queue.Enqueue(async ct =>

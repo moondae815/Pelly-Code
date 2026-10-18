@@ -14,6 +14,7 @@ public sealed class PellyOptions
     public LogOptions Log { get; set; } = new();
     public BuildOptions Build { get; set; } = new();
     public SqlOptions Sql { get; set; } = new();
+    public TestOptions Test { get; set; } = new();
 }
 
 public sealed class LlmOptions
@@ -73,4 +74,14 @@ public sealed class SqlOptions
     public List<string> AllowedDatabases { get; set; } = new();
     public int CompatLevel { get; set; } = 160;
     public string? ConnectionString { get; set; }
+}
+
+public sealed class TestOptions
+{
+    /// <summary>Legacy (.NET Framework) test command; placeholders {project}, {dll}, {trx}. Not used for SDK projects.</summary>
+    public string? Command { get; set; }
+    /// <summary>Explicit test projects, relative to the workspace root. Empty means discover them (design D18).</summary>
+    public List<string> Projects { get; set; } = new();
+    /// <summary>Time limit of one test run, separate from the build limit (R11).</summary>
+    public int TimeoutSeconds { get; set; } = 300;
 }

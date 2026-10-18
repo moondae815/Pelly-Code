@@ -1,0 +1,91 @@
+using System.IO.Abstractions;
+using System.Text.RegularExpressions;
+using System.Xml;
+using System.Xml.Linq;
+using PellyCoder.Core.Config;
+
+namespace PellyCoder.Core.Testing;
+
+/// <summary>
+/// Finds the test projects that exercise a target project (design D18): the solution's projects (or, without a
+/// solution, every csproj under the workspace, R6) whose name contains "Test" and that reference the target.
+/// </summary>
+public static partial class TestProjectLocator
+{
+    [GeneratedRegex(@"^Project\(""\{[^}]+\}""\)\s*=\s*""[^""]*""\s*,\s*""(?<path>[^""]+\.csproj)""", RegexOptions.IgnoreCase | RegexOptions.Multiline)]
+    private static partial Regex SlnProject();
+
+    public static IReadOnlyList<string> Find(IFileSystem fs, string workspaceRoot, string targetCsproj, TestOptions options)
+    {
+        if (options.Projects.Count > 0)
+        {
+            var explicitProjects = new List<string>();
+            foreach (var rel in options.Projects)
+            {
+                var full = fs.Path.GetFullPath(fs.Path.Combine(workspaceRoot, Slashes(rel, fs)));
+                if (!fs.File.Exists(full)) throw new FileNotFoundException($"test.projects에 적힌 파일이 없습니다: {rel}", full);
+                explicitProjects.Add(full);
+            }
+            return explicitProjects;
+        }
+
+        // Windows paths compare ignoring case; elsewhere exactly.
+        var comparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+        var target = fs.Path.GetFullPath(targetCsproj);
+        var found = new List<string>();
+        foreach (var candidate in Candidates(fs, workspaceRoot))
+        {
+            var name = fs.Path.GetFileNameWithoutExtension(candidate);
+            if (!name.Contains("Test", StringComparison.OrdinalIgnoreCase)) continue;
+            if (References(fs, candidate).Any(r => comparer.Equals(r, target))) found.Add(candidate);
+        }
+        return found.Distinct(comparer).ToList();
+    }
+
+    private static IEnumerable<string> Candidates(IFileSystem fs, string root)
+    {
+        var slns = fs.Directory.EnumerateFiles(root, "*.sln").Order(StringComparer.Ordinal).ToList();
+        if (slns.Count == 0)
+        {
+            foreach (var p in fs.Directory.EnumerateFiles(root, "*.csproj", SearchOption.AllDirectories).Order(StringComparer.Ordinal))
+            {
+                var relative = fs.Path.GetRelativePath(root, p).Split(fs.Path.DirectorySeparatorChar, fs.Path.AltDirectorySeparatorChar);
+                if (relative.Take(relative.Length - 1).Any(s => s.Equals("bin", StringComparison.OrdinalIgnoreCase) || s.Equals("obj", StringComparison.OrdinalIgnoreCase))) continue;
+                yield return fs.Path.GetFullPath(p);
+            }
+            yield break;
+        }
+
+        foreach (var sln in slns)
+        {
+            foreach (Match m in SlnProject().Matches(fs.File.ReadAllText(sln)))
+            {
+                var full = fs.Path.GetFullPath(fs.Path.Combine(fs.Path.GetDirectoryName(sln) ?? root, Slashes(m.Groups["path"].Value, fs)));
+                if (fs.File.Exists(full)) yield return full;
+            }
+        }
+    }
+
+    private static IEnumerable<string> References(IFileSystem fs, string csproj)
+    {
+        XDocument doc;
+        try
+        {
+            doc = XDocument.Parse(fs.File.ReadAllText(csproj));
+        }
+        catch (XmlException)
+        {
+            yield break; // an unreadable project cannot be matched
+        }
+
+        var dir = fs.Path.GetDirectoryName(csproj) ?? ".";
+        foreach (var include in doc.Descendants().Where(e => e.Name.LocalName == "ProjectReference").Select(e => (string?)e.Attribute("Include")))
+        {
+            if (!string.IsNullOrWhiteSpace(include))
+                yield return fs.Path.GetFullPath(fs.Path.Combine(dir, Slashes(include, fs)));
+        }
+    }
+
+    // Legacy projects and solutions use backslashes even when read on another OS.
+    private static string Slashes(string path, IFileSystem fs) => path.Replace('\\', fs.Path.DirectorySeparatorChar).Replace('/', fs.Path.DirectorySeparatorChar);
+}

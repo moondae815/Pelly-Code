@@ -17,7 +17,7 @@ public sealed class BuildVerifier(IProcessRunner processes, BuildOptions options
         Cp949 = Encoding.GetEncoding(949);
     }
 
-    private static readonly IReadOnlyDictionary<string, string> EnglishEnv = new Dictionary<string, string>
+    internal static readonly IReadOnlyDictionary<string, string> EnglishEnv = new Dictionary<string, string>
     {
         ["DOTNET_CLI_UI_LANGUAGE"] = "en",
         ["VSLANG"] = "1033",

@@ -114,4 +114,59 @@ public class SqlReferenceCollectorTests
         Assert.Empty(r.Objects);
         Assert.Throws<ArgumentException>(() => Collect("CREATE PROCEDURE dbo.usp_Target AS SELEC 1"));
     }
+
+    [Fact]
+    public void Position_IsEarliestTextualOccurrence_NotFirstVisited()
+    {
+        var r = Collect("CREATE PROCEDURE dbo.usp_Target AS\nWITH c AS (SELECT * FROM dbo.Orders)\nSELECT * FROM dbo.Orders o JOIN c ON 1=1;");
+        var o = Assert.Single(r.Objects);
+        Assert.Equal(2, o.Line);
+    }
+
+    [Fact]
+    public void UpdateDeleteAliasTargets_AreNotObjects()
+    {
+        Assert.Equal(["dbo.Orders"], Names(Collect("CREATE PROCEDURE dbo.usp_Target AS UPDATE o SET Status = 1 FROM dbo.Orders o;")));
+        Assert.Equal(["dbo.Orders"], Names(Collect("CREATE PROCEDURE dbo.usp_Target AS DELETE o FROM dbo.Orders o;")));
+    }
+
+    [Fact]
+    public void CteNamedLikeTable_DoesNotHideTheTable()
+    {
+        var r = Collect("CREATE PROCEDURE dbo.usp_Target AS\nWITH Orders AS (SELECT OrderId FROM dbo.Orders)\nSELECT OrderId FROM Orders;");
+        var o = Assert.Single(r.Objects);
+        Assert.Equal("dbo.Orders", o.Name.Display);
+        Assert.Equal(2, o.Line);
+    }
+
+    [Fact]
+    public void ColumnMethodCalls_AreIgnored()
+    {
+        var r = Collect("""
+            CREATE PROCEDURE dbo.usp_Target AS
+            SELECT e.OrgNode.GetLevel(), s.GetX(), dbo.fn_Real(1)
+            FROM dbo.Emp e JOIN dbo.Shapes s ON 1=1
+            CROSS APPLY e.Xml.nodes('/x') t(c);
+            """);
+        Assert.Equal(["dbo.fn_Real", "dbo.Emp", "dbo.Shapes"], Names(r));
+        Assert.Empty(r.SkippedMultiPart);
+    }
+
+    [Fact]
+    public void Minor_DedupeTempDdlSystemSchemaProcAndReturnValueExec()
+    {
+        var r = Collect("""
+            CREATE PROCEDURE dbo.usp_Target AS
+            SELECT * FROM A.B.C; SELECT * FROM A.B.C;
+            DECLARE @ret int;
+            EXEC @ret = dbo.usp_X;
+            EXEC dbo.sp_x;
+            TRUNCATE TABLE #t;
+            """);
+        Assert.Equal(["A.B.C"], r.SkippedMultiPart);
+        Assert.Equal(["dbo.usp_X", "dbo.sp_x"], Names(r));
+        Assert.True(r.UsesTempTables, "truncate");
+        Assert.True(Collect("CREATE PROCEDURE dbo.usp_Target AS DROP TABLE #t").UsesTempTables, "drop");
+        Assert.True(Collect("CREATE PROCEDURE dbo.usp_Target AS ALTER TABLE #t ADD c int").UsesTempTables, "alter");
+    }
 }

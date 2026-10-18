@@ -35,17 +35,44 @@ public static class SqlReferenceCollector
 
     private sealed class Visitor(string text, SqlObjectName target) : TSqlFragmentVisitor
     {
-        private readonly Dictionary<string, SqlObjectReference> _objects = new(StringComparer.OrdinalIgnoreCase);
+        private sealed record Candidate(SqlObjectReference Reference, bool IsFunction);
+
+        private readonly List<Candidate> _candidates = [];
+        private readonly HashSet<string> _aliases = new(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _columns = new(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _ctes = new(StringComparer.OrdinalIgnoreCase);
         private readonly List<string> _skipped = [];
+        private readonly List<(string Text, string First)> _skippedFunctions = [];
         private bool _dynamic;
         private bool _temp;
 
-        public SqlReferences Build() => new(
-            // CTE names are known only after the whole statement is visited (WITH is a late child of SelectStatement).
-            _objects.Values.Where(o => o.Name.Schema is not null || !_ctes.Contains(o.Name.Name)).OrderBy(o => o.Line).ThenBy(o => o.Column).ToList(),
-            _columns, _dynamic, _temp, _skipped);
+        public SqlReferences Build()
+        {
+            // CTE names and table aliases are known only after the whole batch is visited (WITH is a late child
+            // of SelectStatement, aliases may follow the UPDATE/DELETE target), so schema-less names are filtered here.
+            var merged = new Dictionary<string, SqlObjectReference>(StringComparer.OrdinalIgnoreCase);
+            foreach (var c in _candidates)
+            {
+                var r = c.Reference;
+                if (r.Name.Schema is null && (_ctes.Contains(r.Name.Name) || _aliases.Contains(r.Name.Name))) continue;
+                if (c.IsFunction && r.Name.Schema is not null && _aliases.Contains(r.Name.Schema)) continue;
+                var key = (r.Name.Schema ?? "dbo") + "." + r.Name.Name;
+                if (!merged.TryGetValue(key, out var old) || (r.Line, r.Column).CompareTo((old.Line, old.Column)) < 0)
+                    merged[key] = r;
+            }
+            return new SqlReferences(
+                merged.Values.OrderBy(o => o.Line).ThenBy(o => o.Column).ToList(),
+                _columns, _dynamic, _temp,
+                _skipped.Concat(_skippedFunctions.Where(f => !_aliases.Contains(f.First)).Select(f => f.Text)).Distinct().ToList());
+        }
+
+        public override void Visit(TSqlFragment node)
+        {
+            if (node is TableReferenceWithAlias { Alias: not null } t) _aliases.Add(t.Alias.Value);
+            // ALTER TABLE has several derived statement types; Visit(TSqlFragment) sees them all.
+            if (node is AlterTableStatement a && IsTemp(a.SchemaObjectName?.BaseIdentifier?.Value)) _temp = true;
+            base.Visit(node);
+        }
 
         private static bool IsTemp(string? name) => name is not null && name.StartsWith('#');
 
@@ -70,12 +97,10 @@ public static class SqlReferenceCollector
             Add(new SqlObjectName(schema, baseName), name);
         }
 
-        private void Add(SqlObjectName name, TSqlFragment at)
+        private void Add(SqlObjectName name, TSqlFragment at, bool isFunction = false)
         {
             if (name.SameAs(target)) return;
-            var key = (name.Schema ?? "dbo") + "." + name.Name;
-            if (_objects.ContainsKey(key)) return;
-            _objects[key] = new SqlObjectReference(name, at.StartLine, at.StartColumn);
+            _candidates.Add(new Candidate(new SqlObjectReference(name, at.StartLine, at.StartColumn), isFunction));
         }
 
         private void Skip(TSqlFragment f) =>
@@ -95,13 +120,33 @@ public static class SqlReferenceCollector
 
         public override void ExplicitVisit(SchemaObjectFunctionTableReference node)
         {
-            AddSchemaObject(node.SchemaObject);
+            var so = node.SchemaObject;
+            if (so?.Identifiers.Count > 2)
+            {
+                // o.Xml.nodes(...) is a method call on an aliased column; only judged against aliases in Build().
+                _skippedFunctions.Add((text.Substring(so.StartOffset, so.FragmentLength), so.Identifiers[0].Value));
+            }
+            else
+                AddSchemaObject(so);
             base.ExplicitVisit(node);
         }
 
         public override void ExplicitVisit(CreateTableStatement node)
         {
             if (IsTemp(node.SchemaObjectName?.BaseIdentifier?.Value)) _temp = true;
+            base.ExplicitVisit(node);
+        }
+
+        public override void ExplicitVisit(DropTableStatement node)
+        {
+            foreach (var o in node.Objects)
+                if (IsTemp(o.BaseIdentifier?.Value)) _temp = true;
+            base.ExplicitVisit(node);
+        }
+
+        public override void ExplicitVisit(TruncateTableStatement node)
+        {
+            if (IsTemp(node.TableName?.BaseIdentifier?.Value)) _temp = true;
             base.ExplicitVisit(node);
         }
 
@@ -136,16 +181,13 @@ public static class SqlReferenceCollector
                 && !IsXmlMethod(node.FunctionName.Value))
             {
                 var parts = mp.MultiPartIdentifier.Identifiers;
+                // Two or more parts: a method call on a column (e.OrgNode.GetLevel()) - not an object.
                 if (parts.Count == 1)
                 {
                     if (node.FunctionName.Value.Equals("sp_executesql", StringComparison.OrdinalIgnoreCase))
                         _dynamic = true;
                     else
-                        Add(new SqlObjectName(parts[0].Value, node.FunctionName.Value), node);
-                }
-                else if (parts.Count > 1)
-                {
-                    Skip(node);
+                        Add(new SqlObjectName(parts[0].Value, node.FunctionName.Value), node, isFunction: true);
                 }
             }
             base.ExplicitVisit(node);

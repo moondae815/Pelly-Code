@@ -157,6 +157,12 @@ public sealed class ApplyPhase(FileGuard fileGuard, FeedbackBuilder feedback, IU
             else if (!reasons.Contains(reason)) reasons.Add(reason);
         }
         foreach (var reason in reasons) ctx.Messages.Add($"{CannotRunBaselineTests}: {reason}");
+        // Still run at VERIFY (a new compile error in the test project is feedback), but never compared: say so once.
+        for (var i = 0; i < usable.Length; i++)
+        {
+            if (usable[i] is { BuildErrors.Count: > 0 })
+                ctx.Messages.Add($"{TestStep.BaselineNotBuilt}: {Path.GetFileName(ctx.TestProjects[i])}");
+        }
         ctx.BaselineTestRuns = usable;
     }
 

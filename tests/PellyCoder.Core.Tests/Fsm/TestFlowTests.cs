@@ -427,4 +427,149 @@ public sealed class TestFlowTests : IDisposable
         Assert.Contains("원본 상태 테스트를 실행하지 못해 테스트 판정을 건너뜁니다: 레거시 테스트 프로젝트는 test.command 설정이 필요합니다",
             _ui.Warnings);
     }
+
+    private const string CrashedTest = "Shop.Api.Tests.OrderServiceTests.CancelAsync_WhenShipped_CurrentlyCancels";
+
+    /// <summary>modern-pass.trx without the results of <paramref name="testNames"/> (a report cut short by a crash).</summary>
+    private static string PassWithout(params string[] testNames)
+    {
+        var xml = TrxParserTests.Fixture("modern-pass.trx");
+        foreach (var name in testNames)
+            xml = System.Text.RegularExpressions.Regex.Replace(xml, "<UnitTestResult testName=\"" + System.Text.RegularExpressions.Regex.Escape(name) + "\"[^>]*/>", "");
+        return xml;
+    }
+
+    private void EnqueueReport(string trxXml, int exit) =>
+        _processes.Enqueue((spec, _) =>
+        {
+            File.WriteAllText(TrxPathOf(spec), trxXml);
+            return Task.FromResult(Result(exit));
+        });
+
+    [Fact]
+    public async Task TestHostCrash_PartialReport_IsFailure()
+    {
+        var originalBytes = File.ReadAllBytes(CalcPath);
+        _processes.Enqueue(Ok());
+        _processes.Enqueue(Ok());
+        EnqueueTests("modern-pass.trx");
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            _processes.Enqueue(Ok());
+            _processes.Enqueue(Ok());
+            EnqueueReport(PassWithout(CrashedTest), exit: 1); // every reported test passed, but the host died
+        }
+        _backend.Enqueue(Block(Original, Wrong));
+        _backend.Enqueue("Avoid the crash.</think>", evalCount: 10);
+        _backend.Enqueue(Block(Wrong, Guarded));
+
+        var exit = await Run(Req(CalcPath) with { MaxRetries = 1 });
+
+        Assert.Equal(1, exit);
+        Assert.Equal(originalBytes, File.ReadAllBytes(CalcPath));
+        var prompt = _backend.Requests[1].RawPrompt;
+        Assert.Contains("TESTS FAILED (1 new failure)", prompt);
+        Assert.Contains(CrashedTest + ": not run (test host may have crashed)", prompt);
+        Assert.Equal("TestErrors", Summary().GetProperty("failureKind").GetString());
+    }
+
+    [Fact]
+    public async Task TestHostDiedBeforeAnyResult_NoNamedTest_UsesExitCode()
+    {
+        var empty = PassWithout(
+            "Shop.Api.Tests.OrderServiceTests.CalculateRefundAsync_PaidOrder_RefundsItemsAndShippingFee", FailingTest, CrashedTest);
+        _processes.Enqueue(Ok());
+        _processes.Enqueue(Ok());
+        EnqueueReport(empty, exit: 0); // baseline: no tests reported, exit 0
+        _processes.Enqueue(Ok());
+        _processes.Enqueue(Ok());
+        EnqueueReport(empty, exit: 3);
+        _processes.Enqueue(Ok());
+        _processes.Enqueue(Ok());
+        EnqueueReport(empty, exit: 0);
+        _backend.Enqueue(Block(Original, Wrong));
+        _backend.Enqueue("Avoid the crash.</think>", evalCount: 10);
+        _backend.Enqueue(Block(Wrong, Guarded));
+
+        var exit = await Run(Req(CalcPath));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("TESTS FAILED (exit 3)", _backend.Requests[1].RawPrompt);
+    }
+
+    [Fact]
+    public async Task BaselineTestProjectDidNotBuild_NoticeOnce_NotCompared()
+    {
+        var testError = $"{TestSourcePath}(12,20): error CS0246: The type or namespace name 'Missing' could not be found [{TestCsprojPath}]";
+        _processes.Enqueue(Ok());                          // baseline build
+        _processes.Enqueue(Result(1, false, testError));   // baseline: the test project does not build
+        _processes.Enqueue(Ok());                          // attempt 1: build
+        _processes.Enqueue(Result(1, false, testError));   // same error as before: nothing new
+        _backend.Enqueue(Block(Original, Guarded));
+
+        var exit = await Run(Req(CalcPath));
+
+        Assert.Equal(0, exit);
+        Assert.Single(_backend.Requests);
+        Assert.Equal(4, _processes.Calls.Count);
+        Assert.Single(_ui.Warnings, w => w == "원본 상태에서 테스트 프로젝트가 빌드되지 않아 테스트 판정을 건너뜁니다: Demo.Tests.csproj");
+        Assert.DoesNotContain("테스트가 원래도 실패해 비교할 수 없습니다", _ui.Warnings);
+    }
+
+    [Fact]
+    public async Task BaselineTestProjectDidNotBuild_NowBuildsAndFails_StillNotCompared()
+    {
+        var testError = $"{TestSourcePath}(12,20): error CS0246: The type or namespace name 'Missing' could not be found [{TestCsprojPath}]";
+        _processes.Enqueue(Ok());
+        _processes.Enqueue(Result(1, false, testError));
+        _processes.Enqueue(Ok());
+        _processes.Enqueue(Ok());                          // the test project builds now
+        EnqueueTests("modern-fail.trx", exit: 1);
+        _backend.Enqueue(Block(Original, Guarded));
+
+        var exit = await Run(Req(CalcPath));
+
+        Assert.Equal(0, exit);
+        Assert.Single(_ui.Warnings, w => w.StartsWith("원본 상태에서 테스트 프로젝트가 빌드되지 않아", StringComparison.Ordinal));
+        Assert.DoesNotContain("테스트가 원래도 실패해 비교할 수 없습니다", _ui.Warnings);
+    }
+
+    [Fact]
+    public async Task ExitCodeOnlyFailure_InLaterProject_KeepsNamedFailuresOfEarlierProject()
+    {
+        var secondPath = Path.Combine(_root, "Demo.Tests2", "Demo.Tests2.csproj");
+        Directory.CreateDirectory(Path.GetDirectoryName(secondPath)!);
+        File.WriteAllText(secondPath,
+            "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <IsTestingPlatformApplication>true</IsTestingPlatformApplication>\n  </PropertyGroup>\n" +
+            "  <ItemGroup>\n    <ProjectReference Include=\"..\\Demo\\Demo.csproj\" />\n  </ItemGroup>\n</Project>\n");
+        File.WriteAllText(Path.Combine(_root, "Demo.sln"), Sln +
+            "Project(\"{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}\") = \"Demo.Tests2\", \"Demo.Tests2\\Demo.Tests2.csproj\", \"{33333333-3333-3333-3333-333333333333}\"\nEndProject\n");
+        _processes.Enqueue(Ok());                   // baseline build
+        _processes.Enqueue(Ok());                   // baseline: project 1
+        EnqueueTests("modern-pass.trx");
+        _processes.Enqueue(Ok());                   // baseline: project 2 (exit code only)
+        _processes.Enqueue(Ok());
+        _processes.Enqueue(Ok());                   // attempt 1: build
+        _processes.Enqueue(Ok());
+        EnqueueTests("modern-fail.trx", exit: 1);   // project 1: one named new failure
+        _processes.Enqueue(Ok());
+        _processes.Enqueue(Result(exit: 1));        // project 2: exit code only failure
+        _processes.Enqueue(Ok());                   // attempt 2: everything passes
+        _processes.Enqueue(Ok());
+        EnqueueTests("modern-pass.trx");
+        _processes.Enqueue(Ok());
+        _processes.Enqueue(Ok());
+        _backend.Enqueue(Block(Original, Wrong));
+        _backend.Enqueue("Restore the division.</think>", evalCount: 10);
+        _backend.Enqueue(Block(Wrong, Guarded));
+
+        var exit = await Run(Req(CalcPath));
+
+        Assert.Equal(0, exit);
+        Assert.Equal(15, _processes.Calls.Count);
+        Assert.Equal(["run", "--project", secondPath, "--no-build"], _processes.Calls[9].Arguments);
+        var prompt = _backend.Requests[1].RawPrompt;
+        Assert.Contains("TESTS FAILED (1 new failure)", prompt);
+        Assert.Contains(FailingTest + ": ", prompt);
+    }
 }

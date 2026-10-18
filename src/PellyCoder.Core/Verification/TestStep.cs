@@ -15,6 +15,15 @@ public sealed class TestStep(TestRunner runner, FeedbackBuilder feedback, TestOp
 {
     public const string NotComparable = "테스트가 원래도 실패해 비교할 수 없습니다";
 
+    /// <summary>Notice for a test project that did not build before the edit; followed by its file name.</summary>
+    public const string BaselineNotBuilt = "원본 상태에서 테스트 프로젝트가 빌드되지 않아 테스트 판정을 건너뜁니다";
+
+    /// <summary>
+    /// Model-facing message of a test that passed in the baseline and is missing from a failed run
+    /// (사용자 의미: 실행되지 않음 (테스트 호스트가 중단되었을 수 있음)).
+    /// </summary>
+    public const string NotRunFeedback = "not run (test host may have crashed)";
+
     public string Name => "Test";
 
     public async Task<StepResult> VerifyAsync(RunContext ctx, CancellationToken ct)
@@ -23,7 +32,8 @@ public sealed class TestStep(TestRunner runner, FeedbackBuilder feedback, TestOp
         var baselines = ctx.BaselineTestRuns
             ?? throw new InvalidOperationException("APPLY must await the baseline tests before VERIFY runs them.");
 
-        var failures = new List<TestCaseResult>();
+        var failures = new List<TestCaseResult>();          // named tests, across all projects
+        var exitFailures = new List<(string Project, int ExitCode)>(); // projects that failed without a named test
         for (var i = 0; i < ctx.TestProjects.Count; i++)
         {
             // Baseline tests that could not run were announced by APPLY; this project is judged by the build alone.
@@ -49,13 +59,16 @@ public sealed class TestStep(TestRunner runner, FeedbackBuilder feedback, TestOp
                 continue; // fails to build exactly as before: no tests to compare
             }
 
+            // A baseline that did not build was announced by APPLY (BaselineNotBuilt); there is nothing to compare against.
+            if (before.BuildErrors.Count > 0) continue;
+
+            var brokeExit = before.ExitCode == 0 && run.ExitCode != 0;
             if (!run.PerTestResults || !before.PerTestResults)
             {
                 // Exit code only (R7): a pass that turned into a failure fails; an original failure cannot be compared.
-                if (before.ExitCode == 0 && run.ExitCode != 0)
-                    return StepResult.Fail(feedback.ForTestExitCode(run.ExitCode),
-                        [new Diagnostic("", 0, 0, "error", "TEST", Path.GetFileName(project))], []);
-                if (before.ExitCode != 0 && !ctx.TestNotComparableShown)
+                if (brokeExit)
+                    exitFailures.Add((project, run.ExitCode));
+                else if (before.ExitCode != 0 && !ctx.TestNotComparableShown)
                 {
                     ctx.Messages.Add(NotComparable);
                     ctx.TestNotComparableShown = true;
@@ -64,14 +77,27 @@ public sealed class TestStep(TestRunner runner, FeedbackBuilder feedback, TestOp
             }
 
             var failedBefore = before.Results.Where(r => !r.Passed).Select(r => r.FullName).ToHashSet(StringComparer.Ordinal);
-            failures.AddRange(run.Results.Where(r => !r.Passed && !failedBefore.Contains(r.FullName)));
+            var found = run.Results.Where(r => !r.Passed && !failedBefore.Contains(r.FullName)).ToList();
+            if (run.ExitCode != 0)
+            {
+                // A crashed test host leaves a partial report: tests that passed before and are missing now did not pass.
+                var ran = run.Results.Select(r => r.FullName).ToHashSet(StringComparer.Ordinal);
+                found.AddRange(before.Results.Where(r => r.Passed && !ran.Contains(r.FullName))
+                    .Select(r => new TestCaseResult(r.FullName, false, NotRunFeedback)));
+            }
+            failures.AddRange(found);
+            // The exit code still counts when no test can be named (e.g. the host died before reporting anything).
+            if (found.Count == 0 && brokeExit) exitFailures.Add((project, run.ExitCode));
         }
 
-        if (failures.Count == 0) return StepResult.Pass;
+        if (failures.Count == 0 && exitFailures.Count == 0) return StepResult.Pass;
         var unique = failures.DistinctBy(f => f.FullName).ToList();
         // R8: code TEST; the test name stays in the message, which the de-identified report never prints.
-        var diagnostics = unique.Select(f => new Diagnostic("", 0, 0, "error", "TEST", f.FullName)).ToList();
-        return StepResult.Fail(feedback.ForTests(unique), diagnostics, []);
+        var diagnostics = unique.Select(f => new Diagnostic("", 0, 0, "error", "TEST", f.FullName))
+            .Concat(exitFailures.Select(e => new Diagnostic("", 0, 0, "error", "TEST", Path.GetFileName(e.Project))))
+            .ToList();
+        var text = unique.Count > 0 ? feedback.ForTests(unique) : feedback.ForTestExitCode(exitFailures[0].ExitCode);
+        return StepResult.Fail(text, diagnostics, []);
     }
 
     public static string TimedOutMessage(TestOptions options) =>

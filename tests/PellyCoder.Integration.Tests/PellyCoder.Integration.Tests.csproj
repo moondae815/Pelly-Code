@@ -25,6 +25,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\PellyCoder.Core\PellyCoder.Core.csproj" />
+    <!-- Build order only: SqlEndToEndTests runs the built pelly CLI as a child process -->
+    <ProjectReference Include="..\..\src\PellyCoder.Cli\PellyCoder.Cli.csproj" ReferenceOutputAssembly="false" Private="false" />
   </ItemGroup>
 
 </Project>

@@ -11,6 +11,11 @@ namespace PellyCoder.Cli.Commands;
 
 public sealed class ReportSettings : CommandSettings
 {
+    // A real option so strict parsing accepts it; Program.cs reads the raw arguments (ExitPause), not this value.
+    [CommandOption("--pause-on-exit")]
+    [Description("끝난 뒤 키 입력을 기다림 (IDE 외부 도구 창용)")]
+    public bool PauseOnExit { get; init; }
+
     [CommandOption("--since <DATE>")]
     [Description("이 날짜(yyyy-MM-dd) 이후의 실행만 집계")]
     public string? Since { get; init; }

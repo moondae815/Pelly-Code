@@ -12,6 +12,8 @@ public static class CliApp
     {
         config.SetApplicationName("pelly");
         config.SetApplicationVersion(PellyInfo.Version);
+        // An unknown option is an argument error (exit 4), not ignored: a typo like --dry-rum would turn a preview into a write.
+        config.Settings.StrictParsing = true;
         config.AddCommand<CsCommand>("cs").WithDescription("C# 메서드 하나를 요청대로 수정합니다.");
         config.AddCommand<SqlCommand>("sql").WithDescription("SQL 저장 프로시저·함수·뷰 하나를 요청대로 수정합니다.");
         config.AddCommand<DoctorCommand>("doctor").WithDescription("Ollama 서버·모델·토크나이저 환경을 점검합니다.");

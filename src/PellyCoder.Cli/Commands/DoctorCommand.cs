@@ -10,6 +10,11 @@ namespace PellyCoder.Cli.Commands;
 
 public sealed class DoctorSettings : CommandSettings
 {
+    // A real option so strict parsing accepts it; Program.cs reads the raw arguments (ExitPause), not this value.
+    [CommandOption("--pause-on-exit")]
+    [Description("끝난 뒤 키 입력을 기다림 (IDE 외부 도구 창용)")]
+    public bool PauseOnExit { get; init; }
+
     [CommandOption("--config <PATH>")]
     [Description("작업 공간 설정 파일 경로 (기본: <루트>/pelly.json)")]
     public string? Config { get; init; }

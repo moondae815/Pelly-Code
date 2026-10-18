@@ -66,12 +66,77 @@ public class KpiReportTests
 
         var report = KpiReport.Render(results, "테스트");
 
-        Assert.Contains("50.0% (위반 1건 / 종료 0 2건)", report, StringComparison.Ordinal);
+        Assert.Contains("50.0% (위반 1건 / 독립 검증 2건, 독립 검증 생략 0건)", report, StringComparison.Ordinal);
         Assert.Contains("PELLY_SQL_CONNECTION이 없습니다", report, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Kpi_Invariant_SkippedIndependentChecksAreNotCounted()
+    {
+        var legacySkip = VerificationResult.Skip(VerificationResult.LegacyBuildSkipped);
+        TaskResult[] onlySkipped =
+        [
+            Result("cs-legacy-001", "cs", "Passed", 0, 1, 10, independent: legacySkip),
+            Result("cs-legacy-002", "cs", "Passed", 0, 1, 10, independent: legacySkip),
+        ];
+        var none = KpiReport.Render(onlySkipped, "테스트");
+        Assert.Contains("| 검증 불변 조건 | 100% | 판정 불가 (종료 0 2건 모두 독립 검증 생략 2건) |", none, StringComparison.Ordinal);
+
+        TaskResult[] mixed =
+        [
+            Result("cs-legacy-001", "cs", "Passed", 0, 1, 10, independent: legacySkip),
+            Result("cs-modern-001", "cs", "Passed", 0, 1, 10),
+            Result("cs-modern-002", "cs", "Failed", 0, 1, 10, failure: "InvariantViolated", invariant: true,
+                independent: VerificationResult.Fail("CS0103")),
+        ];
+        var some = KpiReport.Render(mixed, "테스트");
+        Assert.Contains("| 검증 불변 조건 | 100% | 50.0% (위반 1건 / 독립 검증 2건, 독립 검증 생략 1건) |", some, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Kpi_Ttft_ExcludesRunsWithoutGeneration()
+    {
+        TaskResult[] results =
+        [
+            Result("cs-modern-001", "cs", "Passed", 0, 1.0, 10),
+            Result("cs-modern-002", "cs", "Passed", 0, 3.0, 10),
+            Result("cs-modern-003", "cs", "Failed", 4, 0, 1, failure: "EnvError"),
+            Result("cs-modern-004", "cs", "Failed", 3, 1, 1, failure: "NotFound") with { TtftSeconds = null },
+        ];
+
+        var report = KpiReport.Render(results, "테스트");
+
+        Assert.Contains("| 초기 응답 지연 (TTFT) | < 1.0초 | 중위값 1.00초 / P90 3.00초 (n=2) |", report, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Kpi_Report_LabelsEnvironmentSkips()
+    {
+        var task = new BenchmarkTask { Id = "cs-modern-001", Kind = "cs", File = "corpus/Modern/x.cs" };
+        TaskResult[] results = [TaskResult.EnvironmentSkipped(task, "복원 실패", "dotnet restore 종료 1")];
+
+        var report = KpiReport.Render(results, "테스트");
+
+        Assert.Contains("건너뜀 1건 (환경 오류 1건)", report, StringComparison.Ordinal);
+        Assert.Contains("* cs-modern-001: 환경 오류(복원 실패): dotnet restore 종료 1", report, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TaskResult_FactoriesAndLegacyFollowTheCorpusPath()
+    {
+        var legacy = new BenchmarkTask { Id = "cs-legacy-001", Kind = "cs", File = "corpus/Legacy/Shop.Web/Services/OrderService.cs" };
+        var modern = new BenchmarkTask { Id = "cs-legacy-099", Kind = "cs", File = "corpus/Modern/Shop.Api/Services/OrderService.cs" };
+
+        Assert.True(legacy.IsLegacy);
+        Assert.False(modern.IsLegacy); // the corpus path decides, not the id
+        var failed = TaskResult.Failed(legacy, "실행기 오류: x", "RunnerError");
+        Assert.Equal((VerificationResult.Failed, "RunnerError", true, (string?)null), (failed.Status, failed.FailureType, failed.IsLegacy, failed.SkipReason));
+        Assert.Equal(["실행기 오류: x"], failed.Reasons);
+        Assert.False(TaskResult.Skipped(modern, "r").IsLegacy);
+    }
+
     private static TaskResult Result(string id, string kind, string status, int exit, double ttft, double wall,
-        string? failure = null, bool invariant = false) =>
-        new(id, kind, status, exit, 1, [], VerificationResult.Pass, VerificationResult.Passed, invariant, failure,
-            wall, ttft, 100, false, ["Ok"], null);
+        string? failure = null, bool invariant = false, VerificationResult? independent = null) =>
+        new(id, kind, status, exit, 1, [], independent ?? VerificationResult.Pass, (independent ?? VerificationResult.Pass).Status,
+            invariant, failure, wall, ttft, 100, false, ["Ok"], null, id.StartsWith("cs-legacy-", StringComparison.Ordinal));
 }

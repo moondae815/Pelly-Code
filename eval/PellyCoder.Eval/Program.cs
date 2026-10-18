@@ -79,10 +79,7 @@ foreach (var task in tasks)
     catch (Exception ex)
     {
         Console.Error.WriteLine($"[{task.Id}] 실행기 오류: {ex}");
-        results.Add(TaskResult.Skipped(task, "") with
-        {
-            Status = VerificationResult.Failed, Reasons = [$"실행기 오류: {ex.Message}"], SkipReason = null, FailureType = "RunnerError",
-        });
+        results.Add(TaskResult.Failed(task, $"실행기 오류: {ex.Message}", "RunnerError"));
     }
 }
 

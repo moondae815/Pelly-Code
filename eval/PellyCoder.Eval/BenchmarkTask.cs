@@ -17,7 +17,8 @@ public sealed class BenchmarkTask
     public string Request { get; set; } = "";
     public BenchmarkJudge? Judge { get; set; }
 
-    public bool IsLegacy => Id.StartsWith("cs-legacy-", StringComparison.Ordinal);
+    /// <summary>The one Legacy rule everywhere (runner, report): the target lives in the Legacy corpus.</summary>
+    public bool IsLegacy => File.StartsWith("corpus/Legacy/", StringComparison.Ordinal);
 
     public static BenchmarkTask Load(string path)
     {

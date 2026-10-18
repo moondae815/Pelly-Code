@@ -24,6 +24,20 @@ public class TaskJudgeTests
     }
 
     [Fact]
+    public void Judge_ReformatOnly_IsUnchanged()
+    {
+        const string before = "if (x)\n{\n    return a + b;\n}";
+        const string reformatted = "if (x)  {\r\n\treturn a +   b;\n\n}  ";
+
+        var outcome = TaskJudge.Judge(Cs(), before, reformatted, 0, VerificationResult.Pass);
+
+        Assert.False(outcome.Passed);
+        Assert.Contains("대상이 바뀌지 않음", outcome.Reasons);
+        Assert.DoesNotContain("대상이 바뀌지 않음", TaskJudge.Judge(Cs(), before, before.Replace("a + b", "a - b", StringComparison.Ordinal), 0,
+            VerificationResult.Pass).Reasons);
+    }
+
+    [Fact]
     public void Judge_MustContainMissing_Fails()
     {
         var task = Cs(judge: new BenchmarkJudge { Build = true, MustContain = ["IsDBNull(1)", "Shipped"] });

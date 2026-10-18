@@ -31,11 +31,21 @@ public sealed record TaskResult(
     string Id, string Kind, string Status, int? ExitCode, int Attempts, IReadOnlyList<string> Reasons,
     VerificationResult? Independent, string BuildCheck, bool InvariantViolated, string? FailureType,
     double? WallSeconds, double? TtftSeconds, int ThinkTokens, bool ThinkTruncated,
-    IReadOnlyList<string> EditOutcomes, string? SkipReason)
+    IReadOnlyList<string> EditOutcomes, string? SkipReason, bool IsLegacy)
 {
-    public bool IsLegacy => Id.StartsWith("cs-legacy-", StringComparison.Ordinal);
+    /// <summary>Prefix of a skip caused by the machine, not by pelly (the KPI denominators shrink because of it).</summary>
+    public const string EnvironmentPrefix = "환경 오류";
 
     public static TaskResult Skipped(BenchmarkTask task, string reason) =>
         new(task.Id, task.Kind, VerificationResult.Skipped, null, 0, [], null, VerificationResult.NotRequired, false, null,
-            null, null, 0, false, [], reason);
+            null, null, 0, false, [], reason, task.IsLegacy);
+
+    /// <summary>A skip caused by the environment, labelled <c>환경 오류(kind): detail</c> in the report.</summary>
+    public static TaskResult EnvironmentSkipped(BenchmarkTask task, string kind, string detail) =>
+        Skipped(task, $"{EnvironmentPrefix}({kind}): {detail}");
+
+    /// <summary>A task that failed before or outside the orchestrator run (definition or runner error).</summary>
+    public static TaskResult Failed(BenchmarkTask task, string reason, string failureType) =>
+        new(task.Id, task.Kind, VerificationResult.Failed, null, 0, [reason], null, VerificationResult.NotRequired, false, failureType,
+            null, null, 0, false, [], null, task.IsLegacy);
 }

@@ -26,19 +26,20 @@ public static class KpiReport
     {
         var ran = results.Where(r => r.Status != VerificationResult.Skipped).ToList();
         var exit0 = ran.Where(r => r.ExitCode == 0).ToList();
-        var violations = exit0.Count(r => r.InvariantViolated);
-        var generated = ran.Where(r => r.Attempts > 0).ToList();
-        var ttft = generated.Select(r => r.TtftSeconds ?? 0).ToList();
+        // No generation recorded (failed before EDIT, or summary missing) leaves TTFT 0 or null: not a measurement.
+        var ttft = ran.Where(r => r.TtftSeconds is > 0).Select(r => r.TtftSeconds!.Value).ToList();
         var wall = ran.Where(r => r.WallSeconds is not null).Select(r => r.WallSeconds!.Value).ToList();
         var parse = ParseSuccessRate(ran.SelectMany(r => r.EditOutcomes));
         var edits = ran.Sum(r => r.EditOutcomes.Count);
 
         var sb = new StringBuilder();
         sb.AppendLine("# 벤치마크 결과").AppendLine().AppendLine(header).AppendLine();
-        sb.AppendLine($"작업 {results.Count}건 — 실행 {ran.Count}건, 건너뜀 {results.Count - ran.Count}건").AppendLine();
+        var environment = results.Count(r => r.SkipReason?.StartsWith(TaskResult.EnvironmentPrefix, StringComparison.Ordinal) == true);
+        sb.AppendLine($"작업 {results.Count}건 — 실행 {ran.Count}건, 건너뜀 {results.Count - ran.Count}건"
+            + (environment > 0 ? $" (환경 오류 {environment}건)" : "")).AppendLine();
         sb.AppendLine("## KPI (PRD §2.2)").AppendLine();
         sb.AppendLine("| 지표 항목 | 목표 | 측정값 |").AppendLine("| :--- | :--- | :--- |");
-        sb.AppendLine($"| 검증 불변 조건 | 100% | {Invariant(exit0.Count, violations)} |");
+        sb.AppendLine($"| 검증 불변 조건 | 100% | {Invariant(exit0)} |");
         sb.AppendLine($"| 초기 응답 지연 (TTFT) | < 1.0초 | {MedianP90(ttft, "초")} |");
         sb.AppendLine($"| 추론 예산 제어 (Thinking) | ≤ 512 토큰 | 최대 {(ran.Count == 0 ? 0 : ran.Max(r => r.ThinkTokens))} 토큰, 잘림 {ran.Count(r => r.ThinkTruncated)}건 |");
         sb.AppendLine($"| 패치 포맷 파싱 성공률 | > 99.5% | {(parse is { } p ? $"{Pct(p)} (EDIT {edits}회)" : "— (EDIT 없음)")} |");
@@ -77,9 +78,19 @@ public static class KpiReport
         return sb.ToString();
     }
 
-    private static string Invariant(int exit0, int violations) => exit0 == 0
-        ? "— (종료 0 작업 없음)"
-        : $"{Pct((double)(exit0 - violations) / exit0)} (위반 {violations}건 / 종료 0 {exit0}건)";
+    /// <summary>
+    /// Only exit-0 runs the independent check actually judged (Passed or Failed) count; a skipped check (Legacy off
+    /// Windows, no SQL server) proves nothing and is shown separately.
+    /// </summary>
+    private static string Invariant(IReadOnlyList<TaskResult> exit0)
+    {
+        if (exit0.Count == 0) return "— (종료 0 작업 없음)";
+        var judged = exit0.Where(r => r.Independent?.Status is VerificationResult.Passed or VerificationResult.Failed).ToList();
+        var skipped = exit0.Count - judged.Count;
+        if (judged.Count == 0) return $"판정 불가 (종료 0 {exit0.Count}건 모두 독립 검증 생략 {skipped}건)";
+        var violations = judged.Count(r => r.InvariantViolated);
+        return $"{Pct((double)(judged.Count - violations) / judged.Count)} (위반 {violations}건 / 독립 검증 {judged.Count}건, 독립 검증 생략 {skipped}건)";
+    }
 
     private static string SuccessRates(IReadOnlyList<TaskResult> ran)
     {

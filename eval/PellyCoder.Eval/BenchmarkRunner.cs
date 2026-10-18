@@ -13,7 +13,8 @@ namespace PellyCoder.Eval;
 /// <param name="SqlSkipReason">Non-null when SQL tasks cannot run (no connection, or the target is not allow-listed).</param>
 public sealed record RunnerSetup(
     IFileSystem Fs, IProcessRunner Processes, ILlmBackend Backend, PellyOptions Options, TimeProvider Time, string EvalRoot,
-    ISqlExecutor? Sql, string? SqlSkipReason, Action<string> Log, Func<bool>? IsWindows = null);
+    ISqlExecutor? Sql, string? SqlSkipReason, Action<string> Log, Func<bool>? IsWindows = null,
+    IIndependentVerifier? Verifier = null);
 
 /// <summary>
 /// Runs one benchmark task end to end (design §10.6): copy the corpus into <c>&lt;out&gt;/work/&lt;id&gt;/</c>, restore
@@ -39,14 +40,14 @@ public sealed class BenchmarkRunner(RunnerSetup setup)
         var display = !isSql && task.Method is null && task.Line is { } line ? TargetText.DisplayAtLine(originalText, line) : null;
         var originalTarget = Target(task, originalText, display);
         if (originalTarget is null)
-            return Failed(task, "원본에서 대상을 찾지 못함 (작업 정의 오류)");
+            return TaskResult.Failed(task, "원본에서 대상을 찾지 못함 (작업 정의 오류)", "Definition");
 
-        if (Directory.GetFiles(corpusRoot, "*.sln").FirstOrDefault() is { } sln && !IsLegacyCorpus(task))
+        if (Directory.GetFiles(corpusRoot, "*.sln").FirstOrDefault() is { } sln && !task.IsLegacy)
         {
             var restore = await setup.Processes.RunAsync(
                 new ProcessSpec("dotnet", ["restore", sln, "--nologo", "--disable-parallel"], corpusRoot, RestoreTimeout), ct);
             if (restore.ExitCode != 0)
-                return TaskResult.Skipped(task, $"dotnet restore 실패 (종료 {restore.ExitCode})");
+                return TaskResult.EnvironmentSkipped(task, "복원 실패", $"dotnet restore 종료 {restore.ExitCode}");
         }
 
         var ui = new EvalUserInteraction(task.Id, setup.Log);
@@ -64,12 +65,9 @@ public sealed class BenchmarkRunner(RunnerSetup setup)
         var artifacts = RunArtifacts.Read(WorkspaceLocator.Resolve(setup.Fs, file).PellyDir);
         var finalTarget = Target(task, TextFileCodec.Read(setup.Fs, file).Text, display);
 
-        var verifier = new IndependentVerifier(setup.Fs, setup.Processes, setup.Options, setup.Sql, setup.IsWindows);
         var independent = exit != 0
             ? VerificationResult.Skip("실행 실패로 독립 검증 생략")
-            : isSql
-                ? await verifier.VerifySqlAsync(task, file, ct)
-                : await verifier.VerifyCsAsync(task, file, corpusRoot, ct);
+            : await VerifyAsync(task, file, corpusRoot, isSql, ct);
 
         var outcome = TaskJudge.Judge(task, originalTarget, finalTarget ?? "", exit, independent);
         var reasons = outcome.Reasons.ToList();
@@ -82,7 +80,7 @@ public sealed class BenchmarkRunner(RunnerSetup setup)
 
         var result = new TaskResult(task.Id, task.Kind, passed ? VerificationResult.Passed : VerificationResult.Failed, exit,
             artifacts.Attempts, reasons, independent, outcome.BuildCheck, outcome.InvariantViolated, failureType,
-            wall, artifacts.TtftSeconds, artifacts.ThinkTokens, artifacts.ThinkTruncated, artifacts.EditOutcomes, null);
+            wall, artifacts.TtftSeconds, artifacts.ThinkTokens, artifacts.ThinkTruncated, artifacts.EditOutcomes, null, task.IsLegacy);
         setup.Log($"[{task.Id}] {result.Status} (종료 {exit}, 시도 {result.Attempts}, {wall:0.0}초, 독립 검증 {independent.Status})"
             + (reasons.Count > 0 ? " — " + string.Join("; ", reasons) : ""));
         return result;
@@ -92,8 +90,20 @@ public sealed class BenchmarkRunner(RunnerSetup setup)
         ? TargetText.ForSql(textLf, task.Object, setup.Options.Sql.CompatLevel)
         : TargetText.ForCs(textLf, task.Method, task.Line, display);
 
-    private static bool IsLegacyCorpus(BenchmarkTask task) => task.File.StartsWith("corpus/Legacy/", StringComparison.Ordinal);
-
-    private static TaskResult Failed(BenchmarkTask task, string reason) =>
-        TaskResult.Skipped(task, reason) with { Status = VerificationResult.Failed, Reasons = [reason], SkipReason = null, FailureType = "Definition" };
+    /// <summary>
+    /// The run is over and its exit code stands: an error of the check itself (not of the edit) is recorded as a skipped
+    /// check, so it neither fakes an invariant violation nor loses the row.
+    /// </summary>
+    private async Task<VerificationResult> VerifyAsync(BenchmarkTask task, string file, string corpusRoot, bool isSql, CancellationToken ct)
+    {
+        var verifier = setup.Verifier ?? new IndependentVerifier(setup.Fs, setup.Processes, setup.Options, setup.Sql, setup.IsWindows);
+        try
+        {
+            return isSql ? await verifier.VerifySqlAsync(task, file, ct) : await verifier.VerifyCsAsync(task, file, corpusRoot, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return VerificationResult.Skip($"독립 검증 오류: {ex.Message}");
+        }
+    }
 }

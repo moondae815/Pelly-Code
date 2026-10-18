@@ -8,17 +8,25 @@ using PellyCoder.Core.Sql;
 
 namespace PellyCoder.Eval;
 
+/// <summary>Re-verification of a finished task; <see cref="IndependentVerifier"/> is the real one (tests substitute it).</summary>
+public interface IIndependentVerifier
+{
+    /// <param name="corpusRoot">The copied top-level corpus folder (<c>work/&lt;id&gt;/Modern</c>); test projects are searched here.</param>
+    Task<VerificationResult> VerifyCsAsync(BenchmarkTask task, string file, string corpusRoot, CancellationToken ct);
+
+    Task<VerificationResult> VerifySqlAsync(BenchmarkTask task, string file, CancellationToken ct);
+}
+
 /// <summary>
 /// Re-verifies a finished task without the orchestrator: a fresh build (and the judge's tests) for C#, NOEXEC compile and
 /// object existence for SQL. Its verdict is what the "검증 불변 조건" KPI compares the run's exit code against.
 /// </summary>
 public sealed class IndependentVerifier(IFileSystem fs, IProcessRunner processes, PellyOptions options, ISqlExecutor? sql,
-    Func<bool>? isWindows = null)
+    Func<bool>? isWindows = null) : IIndependentVerifier
 {
     private static readonly TimeSpan TestTimeout = TimeSpan.FromMinutes(5);
     private readonly Func<bool> _isWindows = isWindows ?? OperatingSystem.IsWindows;
 
-    /// <param name="corpusRoot">The copied top-level corpus folder (<c>work/&lt;id&gt;/Modern</c>); test projects are searched here.</param>
     public async Task<VerificationResult> VerifyCsAsync(BenchmarkTask task, string file, string corpusRoot, CancellationToken ct)
     {
         var judge = task.Judge ?? new BenchmarkJudge();

@@ -1,7 +1,9 @@
+using System.Text.RegularExpressions;
+
 namespace PellyCoder.Eval;
 
 /// <summary>Judges one finished task by the common rules of eval/benchmark/README.md.</summary>
-public static class TaskJudge
+public static partial class TaskJudge
 {
     public static JudgeOutcome Judge(BenchmarkTask task, string originalTarget, string finalTarget, int exitCode, VerificationResult independent)
     {
@@ -10,7 +12,7 @@ public static class TaskJudge
 
         if (exitCode != 0)
             reasons.Add($"종료 코드 {exitCode}");
-        if (string.Equals(originalTarget, finalTarget, StringComparison.Ordinal))
+        if (string.Equals(Normalize(originalTarget), Normalize(finalTarget), StringComparison.Ordinal))
             reasons.Add("대상이 바뀌지 않음");
 
         foreach (var s in judge.MustContain ?? [])
@@ -36,6 +38,12 @@ public static class TaskJudge
         var invariant = exitCode == 0 && independent.Status == VerificationResult.Failed;
         return new JudgeOutcome(reasons.Count == 0, reasons, buildCheck, invariant);
     }
+
+    /// <summary>Whitespace runs (line breaks and indentation included) collapsed to one space: a reformat is no change.</summary>
+    internal static string Normalize(string text) => WhitespaceRun().Replace(text, " ").Trim();
+
+    [GeneratedRegex(@"\s+")]
+    private static partial Regex WhitespaceRun();
 
     internal static int Count(string text, string needle)
     {

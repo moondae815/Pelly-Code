@@ -1,0 +1,80 @@
+using System.IO.Abstractions;
+using System.Runtime.CompilerServices;
+using PellyCoder.Core.Abstractions;
+using PellyCoder.Core.Config;
+using PellyCoder.Core.Processes;
+using PellyCoder.Eval;
+
+namespace PellyCoder.Eval.Tests;
+
+/// <summary>
+/// The runner on a throwaway eval root with one plain .cs file (no csproj: syntax-only verification, no restore, no
+/// build process), a canned model and a substitute independent verifier.
+/// </summary>
+public sealed class BenchmarkRunnerTests : IDisposable
+{
+    private const string Source = "namespace Demo;\n\npublic class Calc\n{\n    public int Add(int a, int b)\n    {\n        return a + b;\n    }\n}\n";
+    private const string Edit = "        return a + b;\n=======\n        return checked(a + b);\n>>>>>>> REPLACE\n";
+
+    private readonly string _root = Path.Combine(Path.GetTempPath(), "pelly-eval-runner-" + Guid.NewGuid().ToString("N")[..8]);
+
+    public void Dispose()
+    {
+        try { Directory.Delete(_root, recursive: true); }
+        catch (IOException) { /* temp folder, best effort */ }
+    }
+
+    [Fact]
+    public async Task Runner_VerifierThrows_KeepsExitCodeAndAttempts()
+    {
+        var evalRoot = Path.Combine(_root, "eval");
+        Directory.CreateDirectory(Path.Combine(evalRoot, "corpus", "Plain"));
+        File.WriteAllText(Path.Combine(evalRoot, "corpus", "Plain", "Calc.cs"), Source);
+        var task = new BenchmarkTask
+        {
+            Id = "cs-modern-901", Kind = "cs", File = "corpus/Plain/Calc.cs", Method = "Add", Request = "오버플로를 검사해줘",
+            Judge = new BenchmarkJudge { Build = true, MustContain = ["checked("] },
+        };
+        var fs = new FileSystem();
+        var options = Assert.IsType<PellyOptions>(
+            PellyOptionsLoader.Load(fs, null, null, new Dictionary<string, string?>(), new Dictionary<string, string?>()).Options);
+        var runner = new BenchmarkRunner(new RunnerSetup(fs, new SystemProcessRunner(TimeProvider.System), new OneShotBackend(Edit),
+            options, TimeProvider.System, evalRoot, null, "no SQL", _ => { }, Verifier: new ThrowingVerifier()));
+
+        var result = await runner.RunAsync(task, Path.Combine(_root, "out"), TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(1, result.Attempts);
+        Assert.Equal(["Ok"], result.EditOutcomes);
+        Assert.Equal(VerificationResult.Skipped, result.Independent!.Status);
+        Assert.Equal("독립 검증 오류: verifier exploded", result.Independent.Detail);
+        Assert.False(result.InvariantViolated);
+        Assert.Equal(VerificationResult.Passed, result.Status);
+    }
+
+    private sealed class ThrowingVerifier : IIndependentVerifier
+    {
+        public Task<VerificationResult> VerifyCsAsync(BenchmarkTask task, string file, string corpusRoot, CancellationToken ct) =>
+            throw new InvalidOperationException("verifier exploded");
+
+        public Task<VerificationResult> VerifySqlAsync(BenchmarkTask task, string file, CancellationToken ct) =>
+            throw new InvalidOperationException("verifier exploded");
+    }
+
+    /// <summary>Answers the first generate request with <paramref name="text"/>; any further request fails the run.</summary>
+    private sealed class OneShotBackend(string text) : ILlmBackend
+    {
+        private int _calls;
+
+        public async IAsyncEnumerable<LlmChunk> GenerateAsync(LlmRequest request, [EnumeratorCancellation] CancellationToken ct)
+        {
+            if (Interlocked.Increment(ref _calls) > 1) throw new InvalidOperationException("only one response");
+            await Task.Yield();
+            yield return new LlmChunk(text, false, null, null, null, null, null);
+            yield return new LlmChunk("", true, 100, 0, 10, TimeSpan.FromMilliseconds(1), "stop");
+        }
+
+        public Task<LlmServerStatus> GetStatusAsync(CancellationToken ct) =>
+            Task.FromResult(new LlmServerStatus(true, "canned", true, true, "qwen3.5", TimeSpan.Zero, null));
+    }
+}

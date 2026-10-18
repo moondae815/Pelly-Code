@@ -1,0 +1,7 @@
+id: sql-007
+kind: sql
+file: corpus/Sql/objects/usp_BuildSettlement.sql
+request: "주문 총액(TotalAmount)이 0 이하인 주문은 정산 집계에서 빼줘"
+judge:
+  sqlCompile: true
+  mustAdd: ["TotalAmount"]

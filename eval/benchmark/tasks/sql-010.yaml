@@ -1,0 +1,8 @@
+id: sql-010
+kind: sql
+file: corpus/Sql/objects/Settlement_All.sql
+object: dbo.usp_SettleMonthly
+request: "판매자 정보가 없는 정산 기록도 빠지지 않도록 Sellers와의 JOIN을 LEFT JOIN으로 바꿔줘"
+judge:
+  sqlCompile: true
+  mustContain: ["LEFT JOIN"]

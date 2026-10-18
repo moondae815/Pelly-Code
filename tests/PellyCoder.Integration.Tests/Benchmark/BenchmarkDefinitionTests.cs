@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.RegularExpressions;
+using PellyCoder.Core.Sql;
 using PellyCoder.Eval;
 using PellyCoder.Integration.Tests.Corpus;
 
@@ -77,19 +78,56 @@ public class BenchmarkDefinitionTests
     }
 
     [Fact]
-    public void Composition_Is5Cs5Sql_With3Legacy()
+    public void Composition_Is18Cs12Sql_With10Legacy()
     {
         var tasks = LoadAll().Select(x => x.Task).ToList();
-        Assert.Equal(5, tasks.Count(t => t.Kind == "cs"));
-        Assert.Equal(5, tasks.Count(t => t.Kind == "sql"));
-        Assert.Equal(3, tasks.Count(t => t.Id.StartsWith("cs-legacy-")));
-        Assert.Contains(tasks, t => t.Line is not null);
+        Assert.Equal(18, tasks.Count(t => t.Kind == "cs"));
+        Assert.Equal(12, tasks.Count(t => t.Kind == "sql"));
+        Assert.Equal(10, tasks.Count(t => t.Id.StartsWith("cs-legacy-", StringComparison.Ordinal)));
+        Assert.True(tasks.Count(t => t.Line is not null) >= 2, "line 지정 작업 2건 이상");
+        Assert.True(tasks.Count(t => t.Object is not null) >= 2, "object 지정 작업 2건 이상");
+    }
+
+    /// <summary>
+    /// 빌드·컴파일만 통과하면 되는 작업은 아무 의미 없는 수정(공백·주석)으로도 성공한다:
+    /// 모든 작업에 내용 판정(mustContain·mustAdd·mustNotContain) 하나 이상을 요구한다.
+    /// </summary>
+    [Fact]
+    public void AllTasks_HaveContentCriterion()
+    {
+        var missing = LoadAll().Select(x => x.Task)
+            .Where(t => (t.Judge!.MustContain?.Count ?? 0) + (t.Judge.MustAdd?.Count ?? 0) + (t.Judge.MustNotContain?.Count ?? 0) == 0)
+            .Select(t => t.Id)
+            .ToList();
+        Assert.Empty(missing);
+    }
+
+    /// <summary>sql 작업의 대상은 GO로 나눈 객체 배치 정확히 하나여야 한다(object가 없으면 파일의 유일한 객체).</summary>
+    [Fact]
+    public void SqlTasks_TargetIsAnObjectBatch()
+    {
+        var problems = new List<string>();
+        foreach (var (_, t) in LoadAll().Where(x => x.Task.Kind == "sql"))
+        {
+            var text = ReadSource(Path.Combine(EvalRoot, t.File.Replace('/', Path.DirectorySeparatorChar)))
+                .TrimStart('\uFEFF').Replace("\r\n", "\n");
+            var script = SqlBatchSplitter.Split(text, compatLevel: 160);
+            var batches = t.Object is null
+                ? script.ObjectBatches
+                : script.ObjectBatches.Where(b => b.ObjectName is { } n && n.SameAs(SqlObjectName.Parse(t.Object))).ToList();
+            if (batches.Count != 1)
+                problems.Add($"{t.Id}: 대상 객체 배치 {batches.Count}개");
+            else if (batches[0].ParseErrors.Count > 0)
+                problems.Add($"{t.Id}: 원본 대상 배치에 구문 오류 {batches[0].ParseErrors.Count}개");
+        }
+
+        Assert.Empty(problems);
     }
 
     /// <summary>
     /// 아무것도 고치지 않은 패치가 판정을 통과하면 안 된다:
     /// mustContain은 원본 대상에 없어야 하고, mustNotContain은 원본 대상에 있어야 한다.
-    /// 대상 범위: method 지정이면 그 멤버, 그 외(line·sql)는 파일 전체.
+    /// 대상 범위는 실행기와 같다(<see cref="TargetText"/>): method·line이면 그 멤버, sql이면 대상 객체 배치.
     /// </summary>
     [Fact]
     public void Judges_RejectUnmodifiedTarget()
@@ -97,8 +135,17 @@ public class BenchmarkDefinitionTests
         var problems = new List<string>();
         foreach (var (_, t) in LoadAll())
         {
-            var text = ReadSource(Path.Combine(EvalRoot, t.File.Replace('/', Path.DirectorySeparatorChar)));
-            var scope = t.Method is not null ? MemberText(text, t.Method) : text;
+            var text = ReadSource(Path.Combine(EvalRoot, t.File.Replace('/', Path.DirectorySeparatorChar)))
+                .TrimStart('\uFEFF').Replace("\r\n", "\n");
+            var scope = t.Kind == "sql"
+                ? TargetText.ForSql(text, t.Object, compatLevel: 160)
+                : TargetText.ForCs(text, t.Method, t.Line);
+            if (scope is null)
+            {
+                problems.Add($"{t.Id}: 원본에서 대상을 찾지 못함");
+                continue;
+            }
+
             foreach (var s in t.Judge!.MustContain ?? [])
                 if (scope.Contains(s, StringComparison.Ordinal))
                     problems.Add($"{t.Id}: mustContain '{s}'가 원본에 이미 있음");
@@ -108,19 +155,6 @@ public class BenchmarkDefinitionTests
         }
 
         Assert.Empty(problems);
-    }
-
-    /// <summary>메서드 선언 줄부터 같은 들여쓰기의 닫는 중괄호까지.</summary>
-    private static string MemberText(string text, string method)
-    {
-        var lines = text.Replace("\r\n", "\n").Split('\n');
-        var decl = new Regex($@"^\s*(public|private|protected|internal)\b.*\b{Regex.Escape(method)}\s*\(");
-        var start = Array.FindIndex(lines, l => decl.IsMatch(l));
-        Assert.True(start >= 0, $"{method} 선언 없음");
-        var closing = new string(' ', lines[start].Length - lines[start].TrimStart().Length) + "}";
-        var end = Array.FindIndex(lines, start + 1, l => l == closing);
-        Assert.True(end > start, $"{method} 끝 없음");
-        return string.Join("\n", lines[start..(end + 1)]);
     }
 
     /// <summary>UTF-8로 읽고, 올바른 UTF-8이 아니면 CP949로 읽는다.</summary>

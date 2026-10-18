@@ -1,0 +1,8 @@
+id: cs-modern-007
+kind: cs
+file: corpus/Modern/Shop.Api/Services/OrderService.cs
+method: SearchAsync
+request: "앞뒤 공백을 뺀 검색 키워드가 2자 미만이면 키워드 조건을 쓰지 않도록 request.Keyword를 null로 바꿔줘"
+judge:
+  build: true
+  mustContain: [".Length"]

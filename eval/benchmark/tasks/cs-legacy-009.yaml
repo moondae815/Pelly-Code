@@ -1,0 +1,8 @@
+id: cs-legacy-009
+kind: cs
+file: corpus/Legacy/Shop.Data/OrderDao.cs
+method: GetOrder
+request: "취소된 주문(Status = 9)은 조회되지 않도록 쿼리에 조건을 추가해줘"
+judge:
+  build: true
+  mustAdd: ["Status"]

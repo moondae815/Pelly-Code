@@ -1,0 +1,8 @@
+id: cs-modern-008
+kind: cs
+file: corpus/Modern/Shop.Jobs/DailySettlementJob.cs
+method: Run
+request: "판매자 수수료율(CommissionRate)이 0보다 작거나 1보다 크면 잘못된 값으로 보고 기본 수수료율을 쓰게 해줘"
+judge:
+  build: true
+  mustAdd: ["CommissionRate"]

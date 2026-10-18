@@ -1,0 +1,8 @@
+id: cs-legacy-007
+kind: cs
+file: corpus/Legacy/Shop.Batch/SettlementBatch.cs
+method: Execute
+request: "정산 대상 집계 쿼리에서 판매 중지된 판매자(Sellers.IsActive = 0)는 빼줘"
+judge:
+  build: true
+  mustContain: ["IsActive"]

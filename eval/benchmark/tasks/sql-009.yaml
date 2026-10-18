@@ -1,0 +1,7 @@
+id: sql-009
+kind: sql
+file: corpus/Sql/objects/usp_SearchOrders.sql
+request: "검색 결과에 고객 이메일(Customers.Email) 열을 CustomerEmail이라는 이름으로 추가해줘"
+judge:
+  sqlCompile: true
+  mustContain: ["Email"]

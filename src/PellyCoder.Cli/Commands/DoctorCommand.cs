@@ -34,6 +34,9 @@ public sealed class DoctorSettings : CommandSettings
     [Description("--sanitize 출력 폴더(기본: 현재 폴더)")]
     public string? Out { get; init; }
 
+    [CommandOption("--offline-selftest", IsHidden = true)]
+    public bool OfflineSelfTest { get; init; }
+
     public override ValidationResult Validate() =>
         Out is not null && !Sanitize
             ? ValidationResult.Error("--out은 --sanitize와 함께 쓰세요.")
@@ -47,6 +50,14 @@ public sealed class DoctorCommand(
 {
     public override async Task<int> ExecuteAsync(CommandContext context, DoctorSettings settings, CancellationToken _)
     {
+        if (settings.OfflineSelfTest)
+        {
+            // Returns before options, the runner or any HTTP client are touched.
+            var rows = Core.Doctor.OfflineSelfTest.Run();
+            WriteTable(rows);
+            return rows.Any(c => c.Status != DoctorStatus.Ok) ? ExitCodes.EnvError : ExitCodes.Success;
+        }
+
         // The workspace is the current directory; the placeholder file name is never read.
         var anchor = fs.Path.Combine(fs.Directory.GetCurrentDirectory(), "pelly-doctor");
         if (settings.Project is { } project && !fs.File.Exists(project))
@@ -79,6 +90,19 @@ public sealed class DoctorCommand(
             return ExitCodes.UserCancelled;
         }
 
+        WriteTable(checks);
+
+        console.WriteLine();
+        console.MarkupLine("[bold]서버 관리자 확인 사항[/]");
+        console.MarkupLine(Markup.Escape(ReadChecklist()));
+
+        var failed = checks.Any(c => c.Status == DoctorStatus.Fail);
+        if (settings.Sanitize && !WriteSanitized(checks, settings.Out)) return ExitCodes.EnvError;
+        return failed ? ExitCodes.EnvError : ExitCodes.Success;
+    }
+
+    private void WriteTable(IReadOnlyList<DoctorCheck> checks)
+    {
         var table = new Table().AddColumns("점검", "상태", "내용", "조치");
         foreach (var c in checks)
         {
@@ -90,14 +114,6 @@ public sealed class DoctorCommand(
                 new Markup(Markup.Escape(c.Action ?? "")));
         }
         console.Write(table);
-
-        console.WriteLine();
-        console.MarkupLine("[bold]서버 관리자 확인 사항[/]");
-        console.MarkupLine(Markup.Escape(ReadChecklist()));
-
-        var failed = checks.Any(c => c.Status == DoctorStatus.Fail);
-        if (settings.Sanitize && !WriteSanitized(checks, settings.Out)) return ExitCodes.EnvError;
-        return failed ? ExitCodes.EnvError : ExitCodes.Success;
     }
 
     private bool WriteSanitized(IReadOnlyList<DoctorCheck> checks, string? outDir)

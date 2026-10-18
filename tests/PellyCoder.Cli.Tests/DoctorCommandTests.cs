@@ -17,6 +17,17 @@ public class DoctorCommandTests
                 new Dictionary<string, string> { ["ollamaVersion"] = "0.9.1", ["latencyMs"] = "7" })]);
     }
 
+    private sealed class CountingDoctor : IDoctorRunner
+    {
+        public int Calls { get; private set; }
+
+        public Task<IReadOnlyList<DoctorCheck>> RunAsync(PellyOptions options, DoctorContext context, CancellationToken ct)
+        {
+            Calls++;
+            return Task.FromResult<IReadOnlyList<DoctorCheck>>([]);
+        }
+    }
+
     private static CommandAppTester Build() => Build(out _);
 
     private static CommandAppTester Build(out MockFileSystem fs) => Build(fs = new MockFileSystem());
@@ -103,5 +114,37 @@ public class DoctorCommandTests
         var second = Build(fs);
         Assert.Equal(0, second.Run("doctor", "--sanitize", "--out", "/out").ExitCode);
         Assert.Equal(4, fs.Directory.GetFiles("/out").Length);
+    }
+
+    [Fact]
+    public void Command_OfflineSelfTest_Exit0_NoBackendCreated()
+    {
+        var fs = new MockFileSystem();
+        fs.Directory.SetCurrentDirectory("/");
+        var doctor = new CountingDoctor();
+        var services = new ServiceCollection();
+        services.AddSingleton<IFileSystem>(fs);
+        services.AddSingleton<OptionsResolver>();
+        services.AddSingleton<IUserInteraction>(new FakeUi(false));
+        services.AddSingleton<IDoctorRunner>(doctor);
+        services.AddSingleton(new ConfigSources(null, new Dictionary<string, string?>()));
+        services.AddSingleton(typeof(CancellationToken), CancellationToken.None);
+        var app = new CommandAppTester(new DiTypeRegistrar(services));
+        app.Configure(CliApp.Configure);
+
+        var result = app.Run("doctor", "--offline-selftest");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(0, doctor.Calls);
+        foreach (var name in new[] { "토크나이저", "Roslyn", "ScriptDom", "인코딩", "리소스" })
+            Assert.Contains(name, result.Output);
+    }
+
+    [Fact]
+    public void Help_DoesNotListOfflineSelfTest()
+    {
+        var result = Build().Run("doctor", "--help");
+
+        Assert.DoesNotContain("offline-selftest", result.Output);
     }
 }

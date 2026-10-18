@@ -136,7 +136,14 @@ jobs:
         run: dotnet build tests/PellyCoder.Integration.Tests -warnaserror
       - name: Package tests
         # zip이 없거나 Skip되거나 필터 오타로 수가 모자라면 실패해야 한다
-        run: dotnet test tests/PellyCoder.Integration.Tests --no-build -- --filter-class "PellyCoder.Integration.Tests.Package.PackageTests" --fail-skips on --minimum-expected-tests 6
+        run: dotnet test tests/PellyCoder.Integration.Tests --no-build -- --filter-class "PellyCoder.Integration.Tests.Package.PackageTests" --fail-skips on --minimum-expected-tests 6 --report-xunit-trx --results-directory artifacts/package-tests
+      - name: List package test results
+        if: always()
+        shell: pwsh
+        run: |
+          Get-ChildItem artifacts/package-tests -Filter *.trx | ForEach-Object {
+            ([xml](Get-Content -Raw $_.FullName)).TestRun.Results.UnitTestResult | ForEach-Object { "$($_.outcome)  $($_.testName)" }
+          }
       - uses: actions/upload-artifact@v4
         with:
           name: pelly-package

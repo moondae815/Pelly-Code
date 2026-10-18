@@ -75,7 +75,7 @@ PRD §1.4의 "v1 제외" 항목 전부. 특히 다중 파일 수정, 새 파일 
 | D24 | **모델 제어 토큰 문자열 차단.** raw 모드에서는 서버가 프롬프트 안의 `<|im_end|>` 같은 문자열을 실제 제어 토큰으로 읽으므로, 요청문이나 대상 파일에 토크나이저 특수 토큰(26개) 문자열이 있으면 서버를 부르기 전에 PREFLIGHT에서 종료 코드 4로 끝냄 (요청문: "요청문에 모델 제어 토큰 '…'이(가) 있어 실행할 수 없습니다", 파일: "파일에 모델 제어 토큰 문자열 '…'이(가) 있어 안전하게 편집할 수 없습니다 (줄 N)"). 근거: M1 최종 리뷰 (M2a T10) | 설계 |
 | D25 | **Baseline 빌드는 LOCATE 끝에서 시작.** 대상 프로젝트와 빌드 도구를 확정한 뒤에야 시작할 수 있고, 모델 생성(SLICE·EDIT) 동안 병렬로 돌며 APPLY가 첫 쓰기 전에 기다림. 드라이런은 도구만 확인하고 Baseline을 시작하지 않음. 실행이 끝날 때 오케스트레이터가 취소하고 최대 10초 기다린 뒤 롤백·잠금 해제 (M2a T6, §7.3) | 설계 |
 | D26 | **`ISqlExecutor`는 범용 질의 대신 목적별 메서드.** 가짜 구현으로 단위 테스트하기 쉽게 하려는 것(D6의 목적). 새 질의가 필요하면 메서드를 하나 더 추가한다 (M2b R1, §5) | 설계 |
-| D27 | **접속 대상 허용 목록이 비어 있으면 아무 데도 접속하지 않음**(종료 5, "sql.allowedHosts(또는 allowedDatabases)에 추가하세요"). 연결 문자열에 서버·데이터베이스 키가 둘 이상(`Server`/`Data Source`/`Address`/`Addr`/`Network Address`, `Database`/`Initial Catalog`)이거나 `Failover Partner`가 있으면 SqlClient의 마지막 값 우선을 흉내 내지 않고 거부(종료 5) — fail closed (M2b R4, 허용 목록 검토 판정, §8.1) | 설계 |
+| D27 | **접속 대상 허용 목록이 비어 있으면 아무 데도 접속하지 않음**(종료 5, 메시지는 §8.1의 두 문구: 서버는 sql.allowedHosts에, 데이터베이스는 sql.allowedDatabases에 추가하라는 안내). 연결 문자열에 서버·데이터베이스 키가 둘 이상(`Server`/`Data Source`/`Address`/`Addr`/`Network Address`, `Database`/`Initial Catalog`)이거나 `Failover Partner`가 있으면 SqlClient의 마지막 값 우선을 흉내 내지 않고 거부(종료 5) — fail closed (M2b R4, 허용 목록 검토 판정, §8.1) | 설계 |
 | D28 | **원본 대상 배치에 금지 구문이 이미 있으면 LOCATE에서 종료 5로 끝냄**("대상 객체에 이미 금지 구문(…)이 있어 pelly로 편집할 수 없습니다 (PRD FR-07)", FailureKind `SqlForbiddenInOriginal`). 재시도해도 매번 거부되기 때문. 본문에 `GRANT`·`xp_cmdshell` 등을 가진 프로시저는 pelly로 고칠 수 없다 (M2b R2, §8.10) | 설계 |
 | D18 | `--test`의 테스트 프로젝트는 솔루션 안에서 대상 프로젝트를 `ProjectReference`(레거시는 `<ProjectReference Include>`)로 참조하는 프로젝트 중 이름이 `Test`를 포함하는 것. 설정 `test.projects`로 직접 지정 가능 | 설계 |
 
@@ -608,7 +608,7 @@ public void Cancel(int orderId) { ...원문 그대로... }
    **VERIFY는 쓰인 파일을 다시 나눠** 현재 대상 배치(`Batches[TargetIndex]`)를 얻습니다. SLICE가 정한 `CurrentTarget`은 편집 전 텍스트이므로 APPLY 뒤에는 낡았습니다. 안전 가드가 배치 수와 대상 위치를 지켜 주므로 인덱스가 유지됩니다 (M2b T10).
    **S5 검출 결과:** 없는 컬럼 207, 구문 오류 102는 잡히고, **없는 테이블은 NOEXEC·실제 ALTER 모두 잡지 못합니다**(지연 이름 확인) → 2번 객체 존재 검사가 필수입니다.
    **최소 권한: DB 수준 `VIEW DEFINITION`.** 이 권한이 없으면 `OBJECT_ID`가 NULL, `sys.columns`가 0건이 되어 존재 검사·스키마 요약이 모두 틀어집니다(S5).
-4. 동적 SQL(`ExecuteStatement`의 문자열 실행, `sp_executesql`)이나 `#temp` 사용이 있으면 Notices에 경고 추가(한 실행에 한 번): "동적 SQL 안의 문장은 검증하지 않습니다", "임시 테이블(#)의 컬럼은 검증하지 않습니다".
+4. 동적 SQL(`ExecuteStatement`의 문자열 실행, `sp_executesql`)이나 `#temp` 사용이 있으면 Notices에 경고 추가(한 실행에 한 번): "동적 SQL 안의 문장은 검증하지 않습니다 (설계 §8.10)", "임시 테이블(#)의 컬럼은 검증하지 않습니다 (설계 §8.10)".
 5. 두 단계 중 서버를 쓸 수 없으면(`SqlUnavailableException`) 모델에 되묻지 않고 EnvError(4)입니다. 그 밖의 예외도 같습니다.
 
 ### 8.11 REVIEW·사용자 상호작용

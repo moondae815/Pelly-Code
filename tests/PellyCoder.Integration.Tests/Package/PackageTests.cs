@@ -30,6 +30,7 @@ public sealed class PackageTests
         "docs/no-network.md",
         "sbom.cdx.json",
         "THIRD-PARTY-NOTICES.md",
+        "licenses/Microsoft.Data.SqlClient.SNI.runtime.LICENSE.txt",
         "version-record.json",
         "benchmark-summary.md",
         "SHA256SUMS.txt",
@@ -158,10 +159,27 @@ public sealed class PackageSourceTests
         foreach (var (zipPath, source) in entries)
         {
             if (source is "generated" || source.StartsWith("publish:", StringComparison.Ordinal)) continue;
-            // Written on the development PC by deploy/record-versions.sh (R8); build-package.ps1 fails without it.
-            if (source == "deploy/version-record.json") continue;
             Assert.True(File.Exists(PackageFileList.RepoFile(source)), $"{zipPath}: source {source} missing");
         }
+    }
+}
+
+public sealed class VersionRecordTests
+{
+    private static readonly Regex Hex64 = new(@"\A[0-9a-f]{64}\z");
+
+    [Fact]
+    public void VersionRecord_HasModelIdentityAndNoAddress()
+    {
+        var text = File.ReadAllText(PackageFileList.RepoFile("deploy/version-record.json"));
+        using var doc = System.Text.Json.JsonDocument.Parse(text);
+        var root = doc.RootElement;
+        string[] keys = ["pellyVersion", "ollamaVersion", "model", "modelDigest", "modelFormat", "modelQuantization", "recordedAt"];
+        Assert.Equal(keys.Order(StringComparer.Ordinal), root.EnumerateObject().Select(p => p.Name).Order(StringComparer.Ordinal));
+        Assert.Equal(typeof(PackageTests).Assembly.GetName().Version!.ToString(3), root.GetProperty("pellyVersion").GetString());
+        Assert.Matches(Hex64, root.GetProperty("modelDigest").GetString()!);
+        foreach (var bad in new[] { "http", "localhost", "127.0.0.1", "/Users/", @"C:\\Users" })
+            Assert.DoesNotContain(bad, text, StringComparison.OrdinalIgnoreCase);
     }
 }
 

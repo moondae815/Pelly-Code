@@ -110,6 +110,31 @@ jobs:
         with:
           name: pelly-publish-win-x64
           path: artifacts/publish/win-x64
+      - name: License gate rejects a changed exception (dry run)
+        # 승인한 예외의 버전이나 라이선스 파일 해시가 바뀌면 패키지 빌드가 실패해야 한다
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path = 'deploy/license-exceptions.json'
+          $full = (Resolve-Path $path).Path
+          $orig = [System.IO.File]::ReadAllText($full)
+          try {
+            foreach ($case in @(@{ key = 'version'; value = '7.0.0' }, @{ key = 'licenseFileSha256'; value = ('0' * 64) })) {
+              $ex = @($orig | ConvertFrom-Json -AsHashtable)
+              $ex[0][$case.key] = $case.value
+              [System.IO.File]::WriteAllText($full, (ConvertTo-Json -InputObject $ex -Depth 8))
+              $out = & pwsh -NoProfile -File ./deploy/build-package.ps1 -PublishDir artifacts/publish/win-x64 -OutDir artifacts/gate-check 2>&1 | Out-String
+              $code = $LASTEXITCODE
+              [System.IO.File]::WriteAllText($full, $orig)
+              if ($code -eq 0) { throw "gate passed with a changed $($case.key)" }
+              foreach ($want in 'license exception matched no component', 'license not allowed: Microsoft.Data.SqlClient.SNI.runtime 7.1.0') {
+                if (-not $out.Contains($want)) { Write-Host $out; throw "changed $($case.key): output lacks '$want'" }
+              }
+              Write-Host "changed $($case.key): gate failed as expected (exit $code)"
+            }
+          }
+          finally { [System.IO.File]::WriteAllText($full, $orig) }
+          if ([System.IO.File]::ReadAllText($full) -cne $orig) { throw 'license-exceptions.json was not restored' }
       - name: Build package
         shell: pwsh
         run: |
@@ -131,7 +156,7 @@ jobs:
           }
           $result | Out-Host
           if ($result -notmatch '\AOK  ') { throw 'checksum mismatch' }
-          if (@($result).Count -ne 11) { throw "expected 11 checked files, got $(@($result).Count)" }
+          if (@($result).Count -ne 12) { throw "expected 12 checked files, got $(@($result).Count)" }
       - name: Build tests
         run: dotnet build tests/PellyCoder.Integration.Tests -warnaserror
       - name: Package tests

@@ -189,7 +189,7 @@ function Resolve-License($Component) {
         $file = Join-Path (Split-Path $nuspec) $node.InnerText
         $sha = if (Test-Path $file) { (Get-FileHash -Algorithm SHA256 $file).Hash.ToLowerInvariant() } else { $null }
         $first = if (Test-Path $file) { (Get-Content $file | Where-Object { $_.Trim() } | Select-Object -First 1).Trim() } else { '(missing)' }
-        return @{ License = "file $($node.InnerText): $first"; Source = 'nuspec license file'; Allowed = $false; FileSha = $sha }
+        return @{ License = "file $($node.InnerText): $first"; Source = 'nuspec license file'; Allowed = $false; FileSha = $sha; File = $file }
     }
     $url = $xml.package.metadata.SelectSingleNode("*[local-name()='licenseUrl']")
     if ($url -and $url.InnerText -match '\Ahttps://licenses\.nuget\.org/(.+)\z') {
@@ -201,6 +201,7 @@ function Resolve-License($Component) {
 
 $rows = @()
 $rejected = @()
+$approved = @()
 foreach ($c in ($sbom['components'] | Sort-Object { $_['name'] }, { $_['version'] })) {
     $r = Resolve-License $c
     $note = $r.Source
@@ -211,15 +212,31 @@ foreach ($c in ($sbom['components'] | Sort-Object { $_['name'] }, { $_['version'
             $_['package'] -eq $c['name'] -and $_['version'] -eq $c['version'] -and
             $r.FileSha -and $_['licenseFileSha256'] -eq $r.FileSha -and -not [string]::IsNullOrWhiteSpace($_['approvedBy'])
         } | Select-Object -First 1
-        if ($ex) { $note = "$($r.Source); 예외 승인: $($ex['approvedBy']) — $($ex['reason'])" }
+        if ($ex) {
+            $note = "$($r.Source); 예외 승인 (아래 「예외 승인」 절)"
+            $approved += [pscustomobject]@{ Component = $c; Resolved = $r; Exception = $ex }
+        }
         else { $rejected += "$($c['name']) $($c['version']): $($r.License) [$($r.Source)$(if ($r.FileSha) { ", sha256 $($r.FileSha)" })]" }
     }
     $scope = if ($c.Contains('scope')) { $c['scope'] } else { 'required' }
     $rows += "| $($c['name']) | $($c['version']) | $($r.License -replace '\|', '\|') | $scope | $note |"
 }
-if ($rejected.Count -gt 0) {
-    $rejected | ForEach-Object { Write-Host "license not allowed: $_" }
-    throw "license gate: $($rejected.Count) package(s) outside MIT/Apache-2.0/BSD-2-Clause/BSD-3-Clause (R7)"
+# An exception that matched nothing is stale: the package, its version or its license file changed. Fail so a
+# license change cannot ride an old approval (the changed package is also reported above as not allowed).
+$stale = @($exceptions | Where-Object { $ex = $_; -not ($approved | Where-Object { $_.Exception -eq $ex }) } |
+    ForEach-Object { "$($_['package']) $($_['version']) (licenseFileSha256 $($_['licenseFileSha256']))" })
+$stale | ForEach-Object { Write-Host "license exception matched no component: $_" }
+$rejected | ForEach-Object { Write-Host "license not allowed: $_" }
+if ($rejected.Count -gt 0 -or $stale.Count -gt 0) {
+    throw "license gate: $($rejected.Count) package(s) outside MIT/Apache-2.0/BSD-2-Clause/BSD-3-Clause (R7), $($stale.Count) stale exception(s)"
+}
+foreach ($a in $approved) {
+    foreach ($key in 'licenseName', 'reason', 'approvedBy', 'shipAs') {
+        if ([string]::IsNullOrWhiteSpace($a.Exception[$key])) { throw "license exception $($a.Component['name']): '$key' is empty" }
+    }
+    $dest = Join-Path $Generated $a.Exception['shipAs']
+    $null = New-Item -ItemType Directory -Force (Split-Path $dest)
+    Copy-Item $a.Resolved.File $dest
 }
 
 $notices = @(
@@ -236,6 +253,22 @@ $notices = @(
     '| 패키지 | 버전 | 라이선스 | 범위 | 근거 |',
     '| :--- | :--- | :--- | :--- | :--- |'
 ) + $rows
+if ($approved.Count -gt 0) {
+    $notices += @('', '## 예외 승인', '',
+        'MIT·Apache-2.0·BSD-2-Clause·BSD-3-Clause가 아니지만 사람이 승인해 넣은 구성 요소입니다(deploy/license-exceptions.json).',
+        '버전이나 라이선스 파일이 바뀌면 승인이 무효가 되어 패키지 빌드가 실패합니다.', '')
+    foreach ($a in $approved) {
+        $ex = $a.Exception
+        $notices += @(
+            "### $($a.Component['name']) $($a.Component['version'])",
+            '',
+            "* 라이선스: $($ex['licenseName'])",
+            "* 들어 있는 이유: $($ex['reason'])",
+            "* 라이선스 전문: ``$($ex['shipAs'])`` (이 zip에 들어 있음, SHA-256 ``$($a.Resolved.FileSha)``)",
+            "* 승인: $($ex['approvedBy'])",
+            '')
+    }
+}
 # Components that are not NuGet packages (embedded tokenizer files) are kept by hand in the repository notices.
 $repoNotices = Get-Content (Join-Path $Repo 'THIRD-PARTY-NOTICES.md') | Select-Object -Skip 1
 $notices += @('', '## NuGet 밖의 구성 요소') + ($repoNotices | ForEach-Object { $_ -replace '\A## ', '### ' })
@@ -251,6 +284,12 @@ foreach ($raw in Get-Content (Join-Path $PSScriptRoot 'package-files.txt')) {
 }
 $dup = $entries | Group-Object ZipPath | Where-Object Count -gt 1
 if ($dup) { throw "package-files.txt: duplicate $($dup.Name -join ', ')" }
+
+foreach ($a in $approved) {
+    if (-not ($entries | Where-Object { $_.ZipPath -eq $a.Exception['shipAs'] -and $_.Source -eq 'generated' })) {
+        throw "license exception $($a.Component['name']): shipAs '$($a.Exception['shipAs'])' must be a 'generated' line in package-files.txt"
+    }
+}
 
 $record = Get-Content -Raw (Join-Path $PSScriptRoot 'version-record.json') -ErrorAction SilentlyContinue
 if (-not $record) { throw 'deploy/version-record.json is missing — run deploy/record-versions.sh on the development PC and commit it (R8)' }

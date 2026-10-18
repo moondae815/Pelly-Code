@@ -8,7 +8,7 @@
 | :--- | :--- |
 | 날짜 | 2026-10-18 |
 | 측정 환경 | 개발 PC (macOS arm64), .NET SDK 10.0.302, Ollama 0.40.0 |
-| 모델 | `qwen3.6:35b-a3b-coding-nvfp4` (현장 서버의 GGUF `Q4_K_M`과 양자화가 다릅니다) |
+| 모델 | `qwen3.6:35b-a3b-coding-nvfp4` (safetensors `nvfp4`. 현장 서버의 GGUF `Q4_K_M`과 양자화가 다릅니다. 이 모델의 digest는 `version-record.json`에 있고, 현장 모델의 GGUF SHA-256은 M4에서 기록합니다) |
 | 작업 | 50건 (cs-legacy 18 · cs-modern 12 · sql 20) × 3회 반복 |
 | 설정 | 제품 기본값 (프롬프트 `cs-v2`·`sql-v1`, `llm.thinkMode = retry`, `budget.think = 512`) |
 

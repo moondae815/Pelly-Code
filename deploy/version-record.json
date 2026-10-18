@@ -1,0 +1,9 @@
+{
+  "pellyVersion": "0.9.0",
+  "ollamaVersion": "0.40.0",
+  "model": "qwen3.6:35b-a3b-coding-nvfp4",
+  "modelDigest": "cd2692a833e66c4c98991b67e9fbaa0bb15a93285baac9240c022f2f40075b6d",
+  "modelFormat": "safetensors",
+  "modelQuantization": "nvfp4",
+  "recordedAt": "2026-10-18T14:46:06Z"
+}

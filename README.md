@@ -5,6 +5,7 @@
 ## 문서
 - [PRD](docs/PRD.md)
 - [v1 설계](docs/superpowers/specs/2026-10-17-pelly-coder-v1-design.md)
+- 반입·운영 가이드: [설치](deploy/install.md) · [사용](deploy/usage.md) · [IDE External Tools](deploy/ide-external-tools.md) · [서버 확인 사항](deploy/server-checklist.md) · [외부 통신 없음](deploy/no-network.md)
 - [구현 계획](docs/superpowers/plans/)
 
 ## 빌드·테스트

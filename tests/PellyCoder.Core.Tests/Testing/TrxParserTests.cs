@@ -62,4 +62,22 @@ public class TrxParserTests
     {
         Assert.ThrowsAny<System.Xml.XmlException>(() => TrxParser.Parse("<!DOCTYPE x [<!ENTITY e \"v\">]><TestRun/>"));
     }
+
+    [Theory]
+    [InlineData("Completed", false)]
+    [InlineData("Failed", false)]
+    [InlineData("Aborted", true)]
+    [InlineData("Error", true)]
+    [InlineData("Timeout", true)]
+    public void ParseReport_RunOutcome(string outcome, bool aborted)
+    {
+        var xml = Fixture("modern-fail.trx").Replace("<ResultSummary outcome=\"Failed\">", $"<ResultSummary outcome=\"{outcome}\">", StringComparison.Ordinal);
+        var report = TrxParser.ParseReport(xml);
+        Assert.Equal(aborted, report.RunAborted);
+        Assert.Equal(3, report.Results.Count);
+    }
+
+    [Fact]
+    public void ParseReport_NoSummary_NotAborted() =>
+        Assert.False(TrxParser.ParseReport("<TestRun><Results/></TestRun>").RunAborted);
 }

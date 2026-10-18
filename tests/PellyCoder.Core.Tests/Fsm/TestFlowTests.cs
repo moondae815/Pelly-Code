@@ -605,16 +605,27 @@ public sealed class TestFlowTests : IDisposable
         return xml;
     }
 
+    /// <summary>modern-fail.trx with <see cref="CrashedTest"/> reported under another name (a dynamic test name): same count.</summary>
+    private static string FailWithRenamedTest(string runOutcome = "Failed")
+    {
+        var xml = TrxParserTests.Fixture("modern-fail.trx").Replace(
+            "testName=\"" + CrashedTest + "\"", "testName=\"" + CrashedTest + "_Renamed\"", StringComparison.Ordinal);
+        xml = xml.Replace("<ResultSummary outcome=\"Failed\">", "<ResultSummary outcome=\"" + runOutcome + "\">", StringComparison.Ordinal);
+        Assert.Contains(CrashedTest + "_Renamed", xml);
+        Assert.Contains("<ResultSummary outcome=\"" + runOutcome + "\">", xml);
+        return xml;
+    }
+
     [Fact]
-    public async Task MissingTest_BaselineAlreadyFailing_NotCounted()
+    public async Task MissingTest_BaselineAlreadyFailing_SameCountFinishedRun_NotCounted()
     {
         _processes.Enqueue(Ok());
         _processes.Enqueue(Ok());
         EnqueueTests("modern-fail.trx", exit: 1); // baseline: one test already fails, exit 1
         _processes.Enqueue(Ok());
         _processes.Enqueue(Ok());
-        // A test that passed before is missing, the known failure still fails, exit 1 as before: not a new failure.
-        EnqueueReport(FixtureWithout("modern-fail.trx", CrashedTest), exit: 1);
+        // A passed test is missing under its old name but the run finished with as many results as before: a dynamic test name.
+        EnqueueReport(FailWithRenamedTest(), exit: 1);
         _backend.Enqueue(Block(Original, Guarded));
 
         var exit = await Run(Req(CalcPath));
@@ -622,6 +633,60 @@ public sealed class TestFlowTests : IDisposable
         Assert.Equal(0, exit);
         Assert.Single(_backend.Requests);
         Assert.Equal(CalcSource.Replace(Original, Guarded), File.ReadAllText(CalcPath));
+    }
+
+    [Fact]
+    public async Task MissingTest_BaselineAlreadyFailing_AbortedRun_CountedExhausted_Restored()
+    {
+        var originalBytes = File.ReadAllBytes(CalcPath);
+        _processes.Enqueue(Ok());
+        _processes.Enqueue(Ok());
+        EnqueueTests("modern-fail.trx", exit: 1);
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            _processes.Enqueue(Ok());
+            _processes.Enqueue(Ok());
+            EnqueueReport(FailWithRenamedTest("Aborted"), exit: 1); // same count, but the run says it did not finish
+        }
+        _backend.Enqueue(Block(Original, Wrong));
+        _backend.Enqueue("Avoid the crash.</think>", evalCount: 10);
+        _backend.Enqueue(Block(Wrong, Guarded));
+
+        var exit = await Run(Req(CalcPath) with { MaxRetries = 1 });
+
+        Assert.Equal(1, exit);
+        Assert.Equal(originalBytes, File.ReadAllBytes(CalcPath));
+        var prompt = _backend.Requests[1].RawPrompt;
+        Assert.Contains("TESTS FAILED (1 new failure)", prompt);
+        Assert.Contains(CrashedTest + ": not run (test host may have crashed)", prompt);
+        Assert.Equal("TestErrors", Summary().GetProperty("failureKind").GetString());
+    }
+
+    [Fact]
+    public async Task MissingTest_BaselineAlreadyFailing_FewerResults_CountedExhausted_Restored()
+    {
+        var originalBytes = File.ReadAllBytes(CalcPath);
+        _processes.Enqueue(Ok());
+        _processes.Enqueue(Ok());
+        EnqueueTests("modern-fail.trx", exit: 1);
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            _processes.Enqueue(Ok());
+            _processes.Enqueue(Ok());
+            // A partial report, outcome still Failed (what a FailFast-killed VSTest host writes): 2 results instead of 3.
+            EnqueueReport(FixtureWithout("modern-fail.trx", CrashedTest), exit: 1);
+        }
+        _backend.Enqueue(Block(Original, Wrong));
+        _backend.Enqueue("Avoid the crash.</think>", evalCount: 10);
+        _backend.Enqueue(Block(Wrong, Guarded));
+
+        var exit = await Run(Req(CalcPath) with { MaxRetries = 1 });
+
+        Assert.Equal(1, exit);
+        Assert.Equal(originalBytes, File.ReadAllBytes(CalcPath));
+        var prompt = _backend.Requests[1].RawPrompt;
+        Assert.Contains("TESTS FAILED (1 new failure)", prompt);
+        Assert.Contains(CrashedTest + ": not run (test host may have crashed)", prompt);
     }
 
     [Fact]

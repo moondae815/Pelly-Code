@@ -12,6 +12,7 @@ namespace PellyCoder.Core.Testing;
 /// <summary>
 /// One test run: per-test results, or the build errors that kept the tests from running. <paramref name="ReportMissing"/>:
 /// the test process ran and exited non-zero but wrote no TRX (an in-process host that was killed), as opposed to a process that never ran.
+/// <paramref name="RunAborted"/>: the TRX run outcome says the run did not finish (Aborted, Error, …).
 /// </summary>
 public sealed record TestRun(
     IReadOnlyList<TestCaseResult> Results,
@@ -20,7 +21,8 @@ public sealed record TestRun(
     bool TimedOut,
     bool PerTestResults,
     string? Error,
-    bool ReportMissing = false);
+    bool ReportMissing = false,
+    bool RunAborted = false);
 
 /// <summary>
 /// Builds a test project and runs it: SDK projects through <c>dotnet test</c> with a TRX report, legacy projects
@@ -102,7 +104,8 @@ public sealed class TestRunner(IProcessRunner processes, BuildOptions build, Tes
                 ReportMissing: result.ExitCode != 0);
         try
         {
-            return new TestRun(TrxParser.Parse(File.ReadAllText(trxPath)), [], result.ExitCode, false, true, null);
+            var (results, aborted) = TrxParser.ParseReport(File.ReadAllText(trxPath));
+            return new TestRun(results, [], result.ExitCode, false, true, null, RunAborted: aborted);
         }
         catch (Exception ex) when (ex is XmlException or IOException or UnauthorizedAccessException)
         {

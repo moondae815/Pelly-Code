@@ -85,6 +85,65 @@ public class TestRunnerVstestTests
         }
     }
 
+    /// <summary>
+    /// What a VSTest host killed mid-run leaves behind (measured 2026-10-19): a TRX with run outcome <c>Failed</c> — the same as a
+    /// normal failing run — and fewer results than the baseline. TestStep therefore needs the result count, not only the outcome.
+    /// </summary>
+    [Fact]
+    public async Task Vstest_HostKilledByFailFast_PartialReportWithFailedOutcome()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var created = Path.Combine(Path.GetTempPath(), "pelly-vstest-" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(created);
+        var root = TestRunnerSdkTests.RealPath(created);
+        try
+        {
+            Write(root, "Crash.Tests/Crash.Tests.csproj", $"""
+                <Project Sdk="Microsoft.NET.Sdk">
+                  <PropertyGroup><TargetFramework>net10.0</TargetFramework><IsPackable>false</IsPackable></PropertyGroup>
+                  <ItemGroup>
+                    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="{TestSdkVersion}" />
+                    <PackageReference Include="xunit" Version="{XunitVersion}" />
+                    <PackageReference Include="xunit.runner.visualstudio" Version="{RunnerVersion}" />
+                  </ItemGroup>
+                </Project>
+                """);
+            Write(root, "Crash.Tests/CrashTests.cs", """
+                using Xunit;
+                namespace Crash.Tests;
+                public class CrashTests
+                {
+                    [Fact] public void Pass1() { }
+                    [Fact] public void Fail1() => Assert.Equal(1, 2);
+                    [Fact] public void Crash() => System.Environment.FailFast("pelly-test-crash");
+                    [Fact] public void Pass2() { }
+                }
+                """);
+
+            var csproj = Path.Combine(root, "Crash.Tests", "Crash.Tests.csproj");
+            var processes = new SystemProcessRunner(TimeProvider.System);
+            var restore = await processes.RunAsync(new ProcessSpec("dotnet", ["restore", Path.Combine("Crash.Tests", "Crash.Tests.csproj"), "--nologo"], root, TimeSpan.FromMinutes(5)), ct);
+            Assert.True(restore.ExitCode == 0, restore.StdOut + restore.StdErr);
+
+            var trx = Path.Combine(root, ".pelly", "test.trx");
+            var run = await new TestRunner(processes, new BuildOptions(), new TestOptions())
+                .RunAsync(new BuildTool(BuildToolKind.Dotnet, "dotnet"), csproj, root, trx, ct);
+
+            Assert.Null(run.Error);
+            Assert.True(run.PerTestResults);
+            Assert.NotEqual(0, run.ExitCode);
+            Assert.False(run.RunAborted);           // outcome="Failed", indistinguishable from a normal failing run
+            Assert.True(run.Results.Count < 4);     // but the report is short: the killed host never reported every test
+            Assert.DoesNotContain(run.Results, r => r.FullName == "Crash.Tests.CrashTests.Crash");
+        }
+        finally
+        {
+            try { Directory.Delete(created, recursive: true); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
     private static void Write(string root, string relative, string content)
     {
         var path = Path.Combine(root, relative);

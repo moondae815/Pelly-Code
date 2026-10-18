@@ -44,4 +44,20 @@ public class TransitionsTests
     [Fact]
     public void Next_MaxRetriesZero_FailsOnFirstRetryableOutcome()
         => Assert.Equal(new Transition(RunPhase.Failed, 1), Transitions.Next(RunPhase.Apply, PhaseOutcome.MatchFailed, 1, 0));
+
+    [Fact]
+    public void PreflightSafetyRejected_Exits5()
+    {
+        var t = Transitions.Next(RunPhase.Preflight, PhaseOutcome.SafetyRejected, 0, 3);
+        Assert.Equal(RunPhase.Failed, t.Next);
+        Assert.Equal(5, t.ExitCode);
+    }
+
+    [Fact]
+    public void LocateSafetyRejected_Exits5()
+    {
+        var t = Transitions.Next(RunPhase.Locate, PhaseOutcome.SafetyRejected, 0, 3);
+        Assert.Equal(RunPhase.Failed, t.Next);
+        Assert.Equal(5, t.ExitCode);
+    }
 }

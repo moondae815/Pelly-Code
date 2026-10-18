@@ -5,6 +5,7 @@ using PellyCoder.Core.CSharp;
 using PellyCoder.Core.Files;
 using PellyCoder.Core.Llm;
 using PellyCoder.Core.Models;
+using PellyCoder.Core.Sql;
 using PellyCoder.Core.Workspaces;
 
 namespace PellyCoder.Core.Fsm;
@@ -15,7 +16,34 @@ namespace PellyCoder.Core.Fsm;
 /// <c>retry.max</c> from the options.
 /// </summary>
 public sealed record RunRequest(
-    string FilePath, string? ClassName, string? MethodName, int? Line, string Request, bool Yes, bool DryRun, int? MaxRetries);
+    string FilePath, string? ClassName, string? MethodName, int? Line, string Request, bool Yes, bool DryRun, int? MaxRetries,
+    string? ObjectName = null, EditKind Kind = EditKind.CSharp);
+
+/// <summary>State of a <c>pelly sql</c> run (set by SQL LOCATE; null for C# runs).</summary>
+public sealed class SqlRunState(SqlScript originalScript, int targetIndex, SqlObjectName target, SqlObjectKind kind,
+    string statementType, SqlSessionSettings settings, int compatLevel)
+{
+    public SqlScript OriginalScript { get; } = originalScript;
+    public SqlObjectName Target { get; } = target;
+    public SqlObjectKind Kind { get; } = kind;
+    public string StatementType { get; } = statementType;
+    public SqlSessionSettings Settings { get; } = settings;
+    public int CompatLevel { get; } = compatLevel;
+
+    /// <summary>Index of the target batch in the script; changes when a patch is applied.</summary>
+    public int TargetIndex { get; set; } = targetIndex;
+
+    /// <summary>The target batch as it is now; starts as the original batch.</summary>
+    public SqlBatch CurrentTarget { get; set; } = originalScript.Batches[targetIndex];
+
+    /// <summary>Names the original batch references that do not exist (set by the first VERIFY).</summary>
+    public IReadOnlyList<SqlObjectName>? OriginalMissing { get; set; }
+
+    /// <summary>Compile errors of the original batch (set by the first VERIFY); only errors beyond these count.</summary>
+    public IReadOnlyList<Diagnostic>? OriginalCompileErrors { get; set; }
+
+    public bool NoticesShown { get; set; }
+}
 
 /// <summary>
 /// Mutable state of one run. Phases exchange data only through this object.
@@ -56,6 +84,9 @@ public sealed class RunContext(string runId, RunRequest request, PellyOptions op
     public string? BackupPath { get; set; }
 
     public EditTarget? Target { get; set; }
+
+    /// <summary>Set by SQL LOCATE; null in C# runs.</summary>
+    public SqlRunState? Sql { get; set; }
     public MemberCandidate? Candidate { get; set; }
     public LanguageTarget? Language { get; set; }
 

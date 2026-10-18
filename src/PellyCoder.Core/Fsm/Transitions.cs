@@ -19,6 +19,7 @@ public static class Transitions
             (_, PhaseOutcome.EnvError) => Fail(ExitCodes.EnvError),
 
             (RunPhase.Preflight, PhaseOutcome.Ok) => new(RunPhase.Locate, null),
+            (RunPhase.Preflight or RunPhase.Locate, PhaseOutcome.SafetyRejected) => Fail(ExitCodes.SafetyRejected),
             (RunPhase.Locate, PhaseOutcome.Ok) => new(RunPhase.Slice, null),
             (RunPhase.Locate, PhaseOutcome.NotFound or PhaseOutcome.Ambiguous) => Fail(ExitCodes.LocateFailed),
             (RunPhase.Slice, PhaseOutcome.Ok) => new(RunPhase.Edit, null),

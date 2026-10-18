@@ -3,6 +3,7 @@ using PellyCoder.Core.Abstractions;
 using PellyCoder.Core.Config;
 using PellyCoder.Core.Files;
 using PellyCoder.Core.Logging;
+using PellyCoder.Core.Models;
 
 namespace PellyCoder.Core.Fsm;
 
@@ -204,6 +205,12 @@ public sealed class FsmOrchestrator(
         return phase switch
         {
             RunPhase.Preflight => $"사전 점검: {file}",
+            RunPhase.Locate when ctx.Request.Kind == EditKind.Sql => ctx.Request switch
+            {
+                { ObjectName: { } obj } => $"대상 찾기: {obj}",
+                { Line: { } line } => $"대상 찾기: {line}번 줄",
+                _ => "대상 찾기: 파일에서",
+            },
             RunPhase.Locate => ctx.Request switch
             {
                 { Line: { } line } => $"대상 찾기: {line}번 줄",
@@ -213,6 +220,7 @@ public sealed class FsmOrchestrator(
             RunPhase.Slice => "문맥 구성",
             RunPhase.Edit => $"수정 생성 (시도 {ctx.Attempt + 1}/{1 + ctx.MaxRetries})",
             RunPhase.Apply => ctx.Request.DryRun ? "패치 미리 보기" : "패치 적용",
+            RunPhase.Verify when ctx.Request.Kind == EditKind.Sql => "객체 존재·컴파일 검사",
             RunPhase.Verify => ctx.BuildTool is null ? "구문 검사" : "구문 검사·빌드",
             RunPhase.Review => "변경 검토",
             _ => phase.ToString(),

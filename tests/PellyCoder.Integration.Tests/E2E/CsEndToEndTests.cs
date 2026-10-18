@@ -3,11 +3,13 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using Microsoft.CodeAnalysis.CSharp;
 using PellyCoder.Core.Abstractions;
+using PellyCoder.Core.Builds;
 using PellyCoder.Core.Config;
 using PellyCoder.Core.CSharp;
 using PellyCoder.Core.Fsm;
 using PellyCoder.Core.Llm;
 using PellyCoder.Core.Processes;
+using PellyCoder.Core.Testing;
 using PellyCoder.Integration.Tests.Corpus;
 using PellyCoder.Integration.Tests.Infrastructure;
 using Xunit.Sdk;
@@ -37,7 +39,8 @@ public sealed class CsEndToEndTests(ITestOutputHelper output) : IDisposable
     [OllamaFact]
     public async Task ModernCancelAsync_AddsShippedGuard()
     {
-        var root = CopyCorpus("Modern", ["."]);
+        // Link-free root: the corpus test project is built and run below (TestRunnerSdkTests explains the /var link).
+        var root = RealPath(CopyCorpus("Modern", ["."]));
         await RestoreAsync(Path.Combine(root, "Modern.sln")); // pelly builds with --no-restore
         var file = Path.Combine(root, "Shop.Api", "Services", "OrderService.cs");
         var before = File.ReadAllText(file);
@@ -47,7 +50,26 @@ public sealed class CsEndToEndTests(ITestOutputHelper output) : IDisposable
 
         var after = File.ReadAllText(file);
         Assert.Equal(ExitCodes.Success, exit);
-        AssertTargetChangedAndRestUntouched(before, after, "CancelAsync", LanguageVersion.Latest, "OrderStatus.Shipped");
+        AssertTargetChangedAndRestUntouched(before, after, "CancelAsync", LanguageVersion.Latest, mustAdd: null);
+        await AssertShippedOrdersNoLongerCancelledAsync(root);
+    }
+
+    /// <summary>
+    /// Behaviour oracle (M3a T14 ruling, replaces the <c>OrderStatus.Shipped</c> count: the model may also drop the refund
+    /// branch for shipped orders that the guard makes dead). <c>CancelAsync_WhenShipped_CurrentlyCancels</c> pins the
+    /// pre-edit behaviour, so on the edited copy it must now fail with the requested InvalidOperationException.
+    /// </summary>
+    private async Task AssertShippedOrdersNoLongerCancelledAsync(string root)
+    {
+        var csproj = Path.Combine(root, "Shop.Api.Tests", "Shop.Api.Tests.csproj");
+        var run = await new TestRunner(new SystemProcessRunner(TimeProvider.System), new BuildOptions(), new TestOptions())
+            .RunAsync(new BuildTool(BuildToolKind.Dotnet, "dotnet"), csproj, root, Path.Combine(root, "oracle.trx"), TestContext.Current.CancellationToken);
+        foreach (var r in run.Results) output.WriteLine($"oracle {(r.Passed ? "passed" : "failed")} {r.FullName}: {r.Message}");
+        Assert.Null(run.Error);
+        Assert.Empty(run.BuildErrors);
+        var pinned = Assert.Single(run.Results, r => r.FullName.EndsWith(".CancelAsync_WhenShipped_CurrentlyCancels", StringComparison.Ordinal));
+        Assert.False(pinned.Passed, "a shipped order is still cancelled");
+        Assert.Contains("InvalidOperationException", pinned.Message ?? "", StringComparison.Ordinal);
     }
 
     [OllamaFact]
@@ -119,7 +141,8 @@ public sealed class CsEndToEndTests(ITestOutputHelper output) : IDisposable
     }
 
     /// <summary>Benchmark rule: the target must change, mustAdd occurrences increase, other members are untouched.</summary>
-    internal static void AssertTargetChangedAndRestUntouched(string before, string after, string member, LanguageVersion version, string mustAdd)
+    /// <param name="mustAdd">Null when another oracle judges the content (the count rule is skipped).</param>
+    internal static void AssertTargetChangedAndRestUntouched(string before, string after, string member, LanguageVersion version, string? mustAdd)
     {
         var beforeLf = Lf(before);
         var afterLf = Lf(after);
@@ -127,8 +150,9 @@ public sealed class CsEndToEndTests(ITestOutputHelper output) : IDisposable
         var (afterTarget, afterRest) = Split(afterLf, version, member);
 
         Assert.NotEqual(beforeTarget, afterTarget);
-        Assert.True(Count(afterTarget, mustAdd) > Count(beforeTarget, mustAdd),
-            $"'{mustAdd}' did not increase in {member}:\n{afterTarget}");
+        if (mustAdd is not null)
+            Assert.True(Count(afterTarget, mustAdd) > Count(beforeTarget, mustAdd),
+                $"'{mustAdd}' did not increase in {member}:\n{afterTarget}");
         Assert.Equal(beforeRest, afterRest);
 
         var outcome = SyntaxVerifier.Verify(afterLf, version, "OrderService.cs");
@@ -173,7 +197,7 @@ public sealed class CsEndToEndTests(ITestOutputHelper output) : IDisposable
     internal static async Task RestoreAsync(string solution)
     {
         var result = await new SystemProcessRunner(TimeProvider.System).RunAsync(
-            new ProcessSpec("dotnet", ["restore", solution, "--nologo", "--disable-parallel"], Path.GetDirectoryName(solution)!, TimeSpan.FromMinutes(5)),
+            new ProcessSpec("dotnet", ["restore", Path.GetFileName(solution), "--nologo", "--disable-parallel"], Path.GetDirectoryName(solution)!, TimeSpan.FromMinutes(5)),
             TestContext.Current.CancellationToken);
         Assert.True(result.ExitCode == 0, "dotnet restore 실패:\n" + result.StdOut + result.StdErr);
     }
@@ -192,6 +216,18 @@ public sealed class CsEndToEndTests(ITestOutputHelper output) : IDisposable
             else File.Copy(from, to);
         }
         return temp;
+    }
+
+    /// <summary>The path with every directory link resolved (macOS temp folders live under the /var link).</summary>
+    internal static string RealPath(string path)
+    {
+        var current = Path.GetPathRoot(path)!;
+        foreach (var segment in path[current.Length..].Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))
+        {
+            current = Path.Combine(current, segment);
+            if (new DirectoryInfo(current).ResolveLinkTarget(returnFinalTarget: true) is { } target) current = target.FullName;
+        }
+        return current;
     }
 
     internal static void CopyDirectory(string from, string to)

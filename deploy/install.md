@@ -21,7 +21,8 @@
 ## 사전 조건
 
 * 접속할 수 있는 Ollama 서버. 서버 관리자에게 [server-checklist.md](server-checklist.md)를 전달하십시오.
-* C# 빌드 검증을 쓰려면 `dotnet` SDK가 PATH에 있어야 합니다. 레거시 .NET Framework 프로젝트는 Visual Studio(또는 Build Tools)의 MSBuild가 필요합니다.
+* `dotnet` SDK(.NET 10, 개발 때 쓴 버전은 10.0.302)가 PATH에 있어야 합니다. C# 빌드 검증에 필요합니다. **SQL만 쓰는 PC도 `dotnet`을 실행할 수 없으면 `pelly doctor`가 Fail(종료 코드 4)로 끝납니다.** 이 행의 안내는 「.NET 10 SDK를 설치하고 PATH를 확인하세요」입니다.
+*  레거시 .NET Framework 프로젝트는 Visual Studio(또는 Build Tools)의 MSBuild가 필요합니다.
 * SQL 수정을 쓰려면 SQL Server 접속 정보와 `VIEW DEFINITION` 권한이 필요합니다.
 
 ## 1. zip 풀기
@@ -90,6 +91,7 @@ notepad "$env:APPDATA\pelly\config.json"
 
 * 연결 문자열에 `Password`가 있으면 설정 오류(종료 코드 4)입니다. 비밀번호가 필요한 SQL 인증은 환경 변수 `PELLY_SQL_CONNECTION`으로만 지정합니다.
 * SQL을 쓰지 않으면 `sql` 항목은 비워 두어도 됩니다.
+* `sql.allowedHosts` 항목은 연결 문자열의 `Server=` 뒤에 쓴 값 그대로(또는 그 호스트 부분)여야 합니다. 대소문자는 구분하지 않습니다. 예: `Server=db01\SQL2022`이면 `db01\SQL2022` 또는 `db01`, `Server=tcp:db01,1433`이면 `db01`. IP로 접속하면 IP를 적습니다. `.`나 `(local)`은 바꿔 주지 않으니 호스트 이름을 쓰십시오.
 * 설정은 `내장 기본값 → 사용자 설정 → 작업 공간 pelly.json → 환경 변수 PELLY__<섹션>__<키> → 명령줄 옵션` 순으로 합쳐지고 뒤의 것이 이깁니다.
 * 프록시가 있는 PC에서 사내 Ollama에 직접 가야 하면 [no-network.md](no-network.md)의 프록시 절을 보십시오.
 

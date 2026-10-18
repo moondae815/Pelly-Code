@@ -3,17 +3,32 @@
 IDE에서 파일을 연 채로 커서 위치의 멤버를 pelly로 수정하는 설정입니다.
 `pelly.exe` 전체 경로를 알아야 합니다(예: `C:\Tools\pelly\pelly.exe`). 설치는 [install.md](install.md)를 보십시오.
 
+> **주의: Rider 설정은 실기 확인 전입니다 (S7 이전).**
+> Rider는 외부 도구 출력을 Run 도구 창에 보여 줄 수 있습니다. 이 창이 키 입력(stdin)을 받지 않으면 요청문을 입력할 수 없고, 입력이 막힌 것으로 보여 `--pause-on-exit` 대기도 일어나지 않습니다.
+> 콘솔 입력이 안 되면 아래 「콘솔 입력이 안 될 때」를 따르고, 「Rider 실기 확인 결과」 절을 보십시오.
+> Visual Studio 설정도 폐쇄망 현장 확인(M4) 전이며 Windows 미확인입니다.
+
 ## 설정 값
 
-| 항목 | Visual Studio (도구 → 외부 도구) | Rider (Settings → Tools → External Tools) |
+| 항목 | Visual Studio (도구 → 외부 도구) | Rider (Settings → Tools → External Tools) (실기 미확인) |
 | :--- | :--- | :--- |
-| 명령 | `pelly.exe` 전체 경로 | 같음 |
-| 인수 | `cs "$(ItemPath)" --line $(CurLine) --pause-on-exit` | `cs "$FilePath$" --line $LineNumber$ --pause-on-exit` |
-| 초기 디렉터리 | `$(SolutionDir)` | `$ProjectFileDir$` |
-| 기타 | 「출력 창 사용」 끔 (별도 콘솔 창에서 대화형 입력) | 「Synchronize files after execution」 켬 |
+| 명령 | `pelly.exe` 전체 경로 | 같음 (실기 미확인) |
+| 인수 | `cs "$(ItemPath)" --line $(CurLine) --pause-on-exit` | `cs "$FilePath$" --line $LineNumber$ --pause-on-exit` (실기 미확인) |
+| 초기 디렉터리 | `$(SolutionDir)` | `$ProjectFileDir$` (실기 미확인) |
+| 기타 | 「출력 창 사용」 끔 (별도 콘솔 창에서 대화형 입력) | 「Synchronize files after execution」 켬. 「Open console for tool output」(정확한 이름은 실기 미확인) 항목이 있으면 켜서 입력 가능한 콘솔로 열리는지 확인 (실기 미확인) |
 
 * 인수의 파일 경로는 큰따옴표로 감싸십시오. 경로에 공백이 있어도 하나로 전달됩니다.
 * 요청문은 인수에 넣지 않습니다. 콘솔 창에서 `수정 요청을 입력하세요:`가 뜨면 입력합니다.
+
+## 콘솔 입력이 안 될 때
+
+External Tools 창이 키 입력을 받지 못하면 요청문을 인수로 넘깁니다. 이때 대화형 질문은 쓸 수 없습니다.
+
+* 먼저 미리 보기: `cs "$FilePath$" "요청문" --line $LineNumber$ --dry-run` (파일을 쓰지 않고 diff만 보여 줌)
+* 적용: `--dry-run`을 `--yes`로 바꿉니다. 승인 질문 없이 바로 씁니다. 결과는 반드시 IDE의 diff나 버전 관리 도구로 확인하십시오.
+* 요청문이 고정되므로 자주 쓰는 요청마다 항목을 따로 등록하거나, 터미널 창에서 `pelly`를 직접 실행하는 편이 낫습니다.
+* 이 경우 `--pause-on-exit`는 기다리지 않을 수 있습니다. 결과는 도구 창 출력과 종료 코드로 확인합니다.
+* 대상이 여러 개라 모호하면 비대화형에서는 종료 코드 3입니다. `--line`이나 `--method`/`--object`로 정확히 지정하십시오.
 
 ## SQL용 항목
 
@@ -21,7 +36,7 @@ IDE에서 파일을 연 채로 커서 위치의 멤버를 pelly로 수정하는 
 
 | 항목 | Visual Studio | Rider |
 | :--- | :--- | :--- |
-| 인수 | `sql "$(ItemPath)" --line $(CurLine) --pause-on-exit` | `sql "$FilePath$" --line $LineNumber$ --pause-on-exit` |
+| 인수 | `sql "$(ItemPath)" --line $(CurLine) --pause-on-exit` | `sql "$FilePath$" --line $LineNumber$ --pause-on-exit` (실기 미확인) |
 
 나머지 값은 C# 항목과 같습니다. `.sql` 파일에서 실행하십시오.
 SQL 항목은 [install.md](install.md)의 설정(`sql.allowedHosts` 등)이 끝나 있어야 동작합니다.
@@ -32,7 +47,7 @@ IDE에 저장하지 않은 편집이 있으면 pelly는 **디스크의 파일만
 저장하지 않은 편집이 사라지거나 충돌할 수 있으니 실행 전에 저장하십시오.
 
 * Visual Studio: 모두 저장 단축키(`Ctrl+Shift+S`) 후 외부 도구를 실행합니다. 자동 저장 설정이 없으면 습관으로 두십시오.
-* Rider: 외부 도구 실행 전에 자동 저장되도록 설정하거나 `Ctrl+S`로 저장합니다. 자동 저장 항목의 위치와 이름은 버전마다 다를 수 있습니다. 아래 「Rider 실기 확인 결과」에서 확정합니다.
+* Rider (실기 미확인): 외부 도구 실행 전에 자동 저장되도록 설정하거나 `Ctrl+S`로 저장합니다. 자동 저장 항목의 위치와 이름은 버전마다 다를 수 있습니다. 아래 「Rider 실기 확인 결과」에서 확정합니다.
 
 저장하지 않은 IDE 편집과 겹쳐 파일이 바뀐 경우에도 pelly는 그 사이 외부에서 바뀐 파일을 덮어쓰지 않고 종료 코드 4로 멈춥니다.
 
@@ -40,7 +55,7 @@ IDE에 저장하지 않은 편집이 있으면 pelly는 **디스크의 파일만
 
 pelly가 파일을 고치고 나면 IDE가 그 변경을 가져와야 합니다.
 
-* Rider: 「Synchronize files after execution」를 켜면 됩니다.
+* Rider (실기 미확인): 「Synchronize files after execution」를 켜면 됩니다.
 * Visual Studio: 파일이 외부에서 바뀌었다는 대화 상자가 뜨면 「예」(다시 불러오기)를 선택합니다. (Windows 미확인)
 
 승인 질문이 떠 있는 동안 파일은 이미 바뀐 상태입니다. 그 동안 IDE가 파일을 다시 불러와도, 거부하면 pelly가 원래 파일로 되돌립니다.

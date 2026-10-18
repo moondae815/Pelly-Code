@@ -38,4 +38,16 @@ public class PellyOptionsValidationTests
         Assert.Empty(r.Errors);
         Assert.Equal(0, r.Options!.Retry.Max);
     }
+
+    [Theory]
+    [InlineData("80", false)]
+    [InlineData("160", true)]
+    [InlineData("175", false)]
+    public void CompatLevel_Validation(string value, bool ok)
+    {
+        var r = Load("sql:compatLevel", value);
+        if (ok) { Assert.NotNull(r.Options); return; }
+        Assert.Null(r.Options);
+        Assert.Contains($"sql:compatLevel 값은 90, 100, …, 170 중 하나여야 합니다: {value}", r.Errors);
+    }
 }

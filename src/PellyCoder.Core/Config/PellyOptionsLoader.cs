@@ -2,6 +2,7 @@ using System.IO.Abstractions;
 using System.Globalization;
 using Microsoft.Extensions.Configuration;
 using PellyCoder.Core.Abstractions;
+using PellyCoder.Core.Sql;
 
 namespace PellyCoder.Core.Config;
 
@@ -25,7 +26,6 @@ public static class PellyOptionsLoader
     private static readonly string[] FutureKeys =
     {
         "test:command", "test:projects",
-        "sql:allowedHosts", "sql:allowedDatabases", "sql:compatLevel", "sql:connectionString",
     };
 
     private static readonly string[] KnownKeys = BuildKnownKeys();
@@ -61,6 +61,10 @@ public static class PellyOptionsLoader
 
         var options = new PellyOptions();
         Bind(config, options, errors);
+        if (!string.IsNullOrEmpty(options.Sql.ConnectionString) && SqlConnectionText.HasPassword(options.Sql.ConnectionString))
+            errors.Add("sql:connectionString에 비밀번호가 있습니다 — 비밀번호가 있는 연결은 환경 변수 PELLY_SQL_CONNECTION으로만 지정하세요");
+        if (environment.TryGetValue("PELLY_SQL_CONNECTION", out var envConn) && !string.IsNullOrWhiteSpace(envConn))
+            options.Sql.ConnectionString = envConn;
         Validate(options, errors);
 
         return errors.Count == 0 ? new OptionsLoadResult(options, errors) : new OptionsLoadResult(null, errors);
@@ -101,7 +105,7 @@ public static class PellyOptionsLoader
         foreach (var (section, type) in new (string, Type)[]
         {
             ("llm", typeof(LlmOptions)), ("budget", typeof(BudgetOptions)),
-            ("retry", typeof(RetryOptions)), ("log", typeof(LogOptions)), ("build", typeof(BuildOptions)),
+            ("retry", typeof(RetryOptions)), ("log", typeof(LogOptions)), ("build", typeof(BuildOptions)), ("sql", typeof(SqlOptions)),
         })
         {
             foreach (var p in type.GetProperties())
@@ -126,7 +130,7 @@ public static class PellyOptionsLoader
     }
 
     private static bool IsOpenEnded(string known) =>
-        known is "llm:Headers" or "test:projects" or "sql:allowedHosts" or "sql:allowedDatabases";
+        known is "llm:Headers" or "test:projects" or "sql:AllowedHosts" or "sql:AllowedDatabases";
 
     private static void Bind(IConfigurationRoot config, PellyOptions options, List<string> errors)
     {
@@ -137,6 +141,9 @@ public static class PellyOptionsLoader
             config.GetSection("retry").Bind(options.Retry);
             config.GetSection("log").Bind(options.Log);
             config.GetSection("build").Bind(options.Build);
+            options.Sql.AllowedHosts.Clear();
+            options.Sql.AllowedDatabases.Clear();
+            config.GetSection("sql").Bind(options.Sql);
         }
         catch (InvalidOperationException ex)
         {
@@ -186,6 +193,9 @@ public static class PellyOptionsLoader
         AtLeast(errors, "retry:max", o.Retry.Max, 0);
         AtLeast(errors, "sampling:think:topK", o.Sampling.Think.TopK, 1);
         AtLeast(errors, "sampling:code:topK", o.Sampling.Code.TopK, 1);
+
+        if (!SqlParsers.SupportedLevels.Contains(o.Sql.CompatLevel))
+            errors.Add($"sql:compatLevel 값은 90, 100, …, 170 중 하나여야 합니다: {o.Sql.CompatLevel}");
 
         var b = o.Budget;
         var parts = (long)b.System + b.Request + b.Context + b.Feedback;

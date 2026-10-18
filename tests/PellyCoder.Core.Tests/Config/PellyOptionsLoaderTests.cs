@@ -40,6 +40,59 @@ public class PellyOptionsLoaderTests
         Assert.Equal(120, o.Build.TimeoutSeconds);
         Assert.False(o.Build.WarnAsError);
         Assert.False(o.Build.StrictBaseline);
+        Assert.Empty(o.Sql.AllowedHosts);
+        Assert.Empty(o.Sql.AllowedDatabases);
+        Assert.Equal(160, o.Sql.CompatLevel);
+        Assert.Null(o.Sql.ConnectionString);
+    }
+
+    private const string PwdError = "sql:connectionString에 비밀번호가 있습니다 — 비밀번호가 있는 연결은 환경 변수 PELLY_SQL_CONNECTION으로만 지정하세요";
+
+    [Fact]
+    public void ConfigConnectionWithPassword_IsConfigError()
+    {
+        var fs = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            [P(@"C:\w\pelly.json")] = new("""{"sql":{"connectionString":"Server=x;Database=d;User Id=sa;Pwd=p"}}"""),
+        });
+        var r = Load(fs, ws: P(@"C:\w\pelly.json"));
+        Assert.Null(r.Options);
+        Assert.Contains(PwdError, r.Errors);
+    }
+
+    [Fact]
+    public void EnvConnectionWithPassword_IsAccepted_AndWins()
+    {
+        var fs = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            [P(@"C:\w\pelly.json")] = new("""{"sql":{"connectionString":"Server=file;Database=d"}}"""),
+        });
+        var env = new Dictionary<string, string?> { ["PELLY_SQL_CONNECTION"] = "Server=env;User Id=sa;Password=p" };
+        var r = Load(fs, ws: P(@"C:\w\pelly.json"), env: env);
+        Assert.Empty(r.Errors);
+        Assert.Equal("Server=env;User Id=sa;Password=p", r.Options!.Sql.ConnectionString);
+    }
+
+    [Fact]
+    public void GenericEnvPrefixConnection_IsTreatedAsConfig()
+    {
+        var env = new Dictionary<string, string?> { ["PELLY__SQL__CONNECTIONSTRING"] = "Server=x;Password=p" };
+        var r = Load(new MockFileSystem(), env: env);
+        Assert.Null(r.Options);
+        Assert.Contains(PwdError, r.Errors);
+    }
+
+    [Fact]
+    public void SqlLists_BindAsArrays()
+    {
+        var fs = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            [P(@"C:\w\pelly.json")] = new("""{"sql":{"allowedHosts":["a","b"],"allowedDatabases":["d"],"compatLevel":150}}"""),
+        });
+        var o = Load(fs, ws: P(@"C:\w\pelly.json")).Options!;
+        Assert.Equal(new[] { "a", "b" }, o.Sql.AllowedHosts);
+        Assert.Equal(new[] { "d" }, o.Sql.AllowedDatabases);
+        Assert.Equal(150, o.Sql.CompatLevel);
     }
 
     [Fact]

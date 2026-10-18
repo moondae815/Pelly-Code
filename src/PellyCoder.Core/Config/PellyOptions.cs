@@ -13,6 +13,7 @@ public sealed class PellyOptions
     public RetryOptions Retry { get; set; } = new();
     public LogOptions Log { get; set; } = new();
     public BuildOptions Build { get; set; } = new();
+    public SqlOptions Sql { get; set; } = new();
 }
 
 public sealed class LlmOptions
@@ -64,4 +65,12 @@ public sealed class BuildOptions
     public int TimeoutSeconds { get; set; } = 120;
     public bool WarnAsError { get; set; }
     public bool StrictBaseline { get; set; }
+}
+
+public sealed class SqlOptions
+{
+    public List<string> AllowedHosts { get; set; } = new();
+    public List<string> AllowedDatabases { get; set; } = new();
+    public int CompatLevel { get; set; } = 160;
+    public string? ConnectionString { get; set; }
 }

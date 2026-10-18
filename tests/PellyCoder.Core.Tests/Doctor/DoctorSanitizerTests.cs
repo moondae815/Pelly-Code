@@ -70,4 +70,19 @@ public class DoctorSanitizerTests
         Assert.DoesNotContain(DoctorFacts.PellyVersion, json);
         Assert.Contains("10.0.100", json);
     }
+
+    [Theory]
+    [InlineData("v4.8", "v4.8")]
+    [InlineData("v4.5.2", "v4.5.2")]
+    [InlineData("v4.8\n", "invalid")]
+    [InlineData("4.8", "invalid")]
+    [InlineData("vX", "invalid")]
+    public void FrameworkVersion_UsesMonikerRule(string input, string expected)
+    {
+        var json = DoctorSanitizer.ToJson([new DoctorCheck(DoctorFacts.TargetingPack, DoctorStatus.Ok, "d", null,
+            new Dictionary<string, string> { [DoctorFacts.FrameworkVersion] = input })]);
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        var value = doc.RootElement.GetProperty("checks")[0].GetProperty("Facts").GetProperty(DoctorFacts.FrameworkVersion).GetString();
+        Assert.Equal(expected, value);
+    }
 }

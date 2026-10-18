@@ -512,9 +512,20 @@ public sealed class DoctorServiceTests
         Has(DoctorFacts.MsBuild, DoctorFacts.Found);
         Has(DoctorFacts.TargetingPack, DoctorFacts.FrameworkVersion, DoctorFacts.Installed);
         Has(DoctorFacts.Sql, DoctorFacts.CanViewDefinition, DoctorFacts.ServerMajor);
-        Assert.Equal("16", rows[DoctorFacts.Sql].GetProperty("Facts").GetProperty(DoctorFacts.ServerMajor).GetString());
-        Assert.Equal("0.40.0", rows[DoctorFacts.OllamaServer].GetProperty("Facts").GetProperty(DoctorFacts.OllamaVersion).GetString());
-        Assert.Equal("true", rows[DoctorFacts.Model].GetProperty("Facts").GetProperty(DoctorFacts.Loaded).GetString());
+        string V(string row, string key) => rows[row].GetProperty("Facts").GetProperty(key).GetString()!;
+        Assert.Equal("16", V(DoctorFacts.Sql, DoctorFacts.ServerMajor));
+        Assert.Equal("true", V(DoctorFacts.Sql, DoctorFacts.CanViewDefinition));
+        Assert.Equal("0.40.0", V(DoctorFacts.OllamaServer, DoctorFacts.OllamaVersion));
+        Assert.Matches("^[0-9]+$", V(DoctorFacts.OllamaServer, DoctorFacts.LatencyMs));
+        Assert.Equal("true", V(DoctorFacts.Model, DoctorFacts.Loaded));
+        Assert.Equal("true", V(DoctorFacts.TokenizerMatch, DoctorFacts.Match));
+        Assert.Matches("^[0-9]+$", V(DoctorFacts.Latency, DoctorFacts.TtftMs));
+        Assert.Equal(PellyInfo.Version, V(DoctorFacts.Pelly, DoctorFacts.PellyVersion));
+        Assert.Matches("^[0-9a-f]{12}$", V(DoctorFacts.Pelly, DoctorFacts.TokenizerHash));
+        Assert.Equal("10.0.100", V(DoctorFacts.DotnetSdk, DoctorFacts.DotnetVersion));
+        Assert.Equal("true", V(DoctorFacts.MsBuild, DoctorFacts.Found));
+        Assert.Equal("v4.8", V(DoctorFacts.TargetingPack, DoctorFacts.FrameworkVersion));
+        Assert.Equal("true", V(DoctorFacts.TargetingPack, DoctorFacts.Installed));
     }
 
     [Fact]

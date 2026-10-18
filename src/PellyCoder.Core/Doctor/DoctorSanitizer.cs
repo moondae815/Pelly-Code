@@ -31,7 +31,7 @@ public static partial class DoctorSanitizer
 
     /// <summary>Version-valued facts follow the run report's version rule: a value outside it is written as <c>invalid</c>.</summary>
     private static readonly HashSet<string> VersionKeys =
-        [DoctorFacts.OllamaVersion, DoctorFacts.DotnetVersion, DoctorFacts.PellyVersion, DoctorFacts.FrameworkVersion];
+        [DoctorFacts.OllamaVersion, DoctorFacts.DotnetVersion, DoctorFacts.PellyVersion];
 
     private static readonly JsonSerializerOptions Options = new()
     {
@@ -69,7 +69,8 @@ public static partial class DoctorSanitizer
                 foreach (var key in keys!)
                 {
                     if (!c.Facts.TryGetValue(key, out var value) || string.IsNullOrEmpty(value)) continue;
-                    if (VersionKeys.Contains(key)) facts[key] = Reporting.ReportSanitizer.Version(value);
+                    if (key == DoctorFacts.FrameworkVersion) facts[key] = FrameworkPattern.IsMatch(value) ? value : "invalid";
+                    else if (VersionKeys.Contains(key)) facts[key] = Reporting.ReportSanitizer.Version(value);
                     else if (ValuePattern.IsMatch(value)) facts[key] = value;
                 }
             }
@@ -78,6 +79,10 @@ public static partial class DoctorSanitizer
         }
         return rows;
     }
+
+    /// <summary>.NET Framework moniker such as <c>v4.8</c> or <c>v4.5.2</c>; unlike the run report's version rule it starts with <c>v</c>.</summary>
+    [GeneratedRegex(@"\A[vV][0-9]{1,2}(\.[0-9]{1,2}){1,2}\z", RegexOptions.CultureInvariant)]
+    private static partial Regex FrameworkPattern { get; }
 
     [GeneratedRegex(@"\A[0-9A-Za-z.:_+\-]{0,40}\z", RegexOptions.CultureInvariant)]
     private static partial Regex ValuePattern { get; }

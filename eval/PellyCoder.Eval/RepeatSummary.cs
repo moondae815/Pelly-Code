@@ -1,5 +1,6 @@
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using PellyCoder.Core.Abstractions;
 using PellyCoder.Core.Reporting;
@@ -52,16 +53,28 @@ public sealed record RunRepeatSummary(
 public sealed record RepeatSummaryData(
     int RunCount, int TaskCount, double MeanSuccesses, double StdDevSuccesses, double? MedianWallSeconds,
     IReadOnlyList<RunRepeatSummary> Runs, IReadOnlyList<GroupRepeatSummary> Groups, IReadOnlyList<TaskRepeatSummary> Tasks,
-    RunConditions? Conditions = null, bool Cancelled = false);
+    RunConditions? Conditions = null, bool Cancelled = false)
+{
+    /// <summary>The <c>summary.json</c> layout this code writes and the only one <see cref="RepeatSummary.FromJson"/> reads.</summary>
+    public const int CurrentFormatVersion = 1;
+
+    /// <summary>Layout version; a summary without it (Task 5) is refused rather than read with defaults.</summary>
+    [JsonRequired]
+    [JsonPropertyOrder(-1)]
+    public int FormatVersion { get; init; } = CurrentFormatVersion;
+}
 
 /// <summary>Statistics over repeated runs of the same task set (R4), and the <c>summary.json</c> codec.</summary>
 public static partial class RepeatSummary
 {
-    private static readonly JsonSerializerOptions Json = new()
+    internal static readonly JsonSerializerOptions Json = new()
     {
         WriteIndented = true,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        // Strict reading for compare: a missing field is an error, not a default (0 successes, no runs).
+        RespectRequiredConstructorParameters = true,
+        RespectNullableAnnotations = true,
     };
 
     public static RepeatSummaryData Build(IReadOnlyList<IReadOnlyList<TaskResult>> runs)
@@ -97,8 +110,15 @@ public static partial class RepeatSummary
 
     public static string ToJson(RepeatSummaryData data) => JsonSerializer.Serialize(data, Json);
 
-    public static RepeatSummaryData FromJson(string json) =>
-        JsonSerializer.Deserialize<RepeatSummaryData>(json, Json) ?? throw new JsonException("summary.json이 비어 있습니다.");
+    /// <summary>Reads a <c>summary.json</c> strictly: every constructor field must be present and non-null where declared so,
+    /// and <see cref="RepeatSummaryData.FormatVersion"/> must be <see cref="RepeatSummaryData.CurrentFormatVersion"/>.</summary>
+    public static RepeatSummaryData FromJson(string json)
+    {
+        var data = JsonSerializer.Deserialize<RepeatSummaryData>(json, Json) ?? throw new JsonException("summary.json이 비어 있습니다.");
+        if (data.FormatVersion != RepeatSummaryData.CurrentFormatVersion)
+            throw new JsonException($"summary.json formatVersion {data.FormatVersion}을 읽을 수 없습니다(지원: {RepeatSummaryData.CurrentFormatVersion}).");
+        return data;
+    }
 
     /// <summary>The id prefix group: the id without its trailing <c>-NNN</c> (<c>cs-modern-007</c> → <c>cs-modern</c>).</summary>
     public static string GroupOf(string id) => GroupPattern().Match(id) is { Success: true } m ? m.Groups[1].Value : id;

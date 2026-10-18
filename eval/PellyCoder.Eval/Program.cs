@@ -12,7 +12,9 @@ using PellyCoder.Core.Sql;
 using PellyCoder.Eval;
 
 // Benchmark runner (design §10.6). Exit codes: 0 done, 1 verification invariant violated, 2 cancelled, 4 setup error.
+// `compare <baseline> <candidate>` judges two --repeat summaries by the R4 rule (Acceptance.cs).
 Console.OutputEncoding = Encoding.UTF8;
+if (args.Length > 0 && args[0] == "compare") return CompareCommand.Run(args[1..], Console.Out); // R4 verdict: 0 adopted, 3 rejected, 4 not judged
 var parsed = EvalArguments.Parse(args);
 if (parsed.Help || parsed.Error is not null)
 {

@@ -75,7 +75,9 @@
 
 ## 5. Task 6이 쓰는 값
 
-* `summary.json`은 `RepeatSummaryData`를 그대로 직렬화한 것이다. 안에 있는 것:
+* `summary.json`은 `RepeatSummaryData`를 그대로 직렬화한 것이다.
+  * Task 6에서 `formatVersion` 1 형식으로 다시 만들어 [m3b-baseline.summary.json](m3b-baseline.summary.json)으로 커밋했다(경위는 [m3b-tuning.md](m3b-tuning.md) §1).
+* 안에 있는 것:
   * 작업별 성공 횟수와 회차별 결과
   * 범주별 평균·표준편차·최소·최대
   * 전체 평균·표본 표준편차

@@ -13,6 +13,9 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
           --repeat <N>      같은 작업 집합을 N회 실행 (기본 1). N>1이면 회차별 결과는 run-<k>/, 상위에 summary.md·summary.json
           --help            이 도움말
 
+        비교: dotnet run --project eval/PellyCoder.Eval -- compare <기준선 summary.json> <후보 summary.json>
+          R4 채택 규칙으로 판정합니다. 종료 코드 0 채택 · 3 거절 · 4 판정 불가
+
         SQL 연결은 환경 변수 PELLY_SQL_CONNECTION. 없거나 허용 목록에 없으면 sql 작업은 건너뜁니다.
         산출물: results.json, report.md, work/<id>/ (작업별 코퍼스 복사본과 .pelly/runs 로그); --repeat N>1이면 회차마다 run-<k>/ 아래에
         종료 코드: 0 실행 완료 · 1 검증 불변 조건 위반 · 2 중단 · 4 설정 오류 또는 LLM 서버 연결 불가

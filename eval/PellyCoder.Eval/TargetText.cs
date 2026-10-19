@@ -50,17 +50,16 @@ public static class TargetText
 
     internal static (SqlScript Script, SqlBatch Batch)? SqlTarget(string sourceLf, string? objectName, int compatLevel)
     {
-        var script = SqlBatchSplitter.Split(sourceLf, compatLevel);
-        List<SqlBatch> found;
-        if (objectName is not null)
-        {
-            var name = SqlObjectName.Parse(objectName);
-            found = [.. script.ObjectBatches.Where(b => b.ObjectName is { } n && n.SameAs(name))];
-        }
-        else
-        {
-            found = [.. script.ObjectBatches];
-        }
+        var (script, found) = SqlCandidates(sourceLf, objectName, compatLevel);
         return found.Count == 1 ? (script, found[0]) : null;
+    }
+
+    /// <summary>The object batches matching <paramref name="objectName"/> (all when null); the target is the one, zero or several is an error.</summary>
+    internal static (SqlScript Script, IReadOnlyList<SqlBatch> Batches) SqlCandidates(string sourceLf, string? objectName, int compatLevel)
+    {
+        var script = SqlBatchSplitter.Split(sourceLf, compatLevel);
+        if (objectName is null) return (script, [.. script.ObjectBatches]);
+        var name = SqlObjectName.Parse(objectName);
+        return (script, [.. script.ObjectBatches.Where(b => b.ObjectName is { } n && n.SameAs(name))]);
     }
 }

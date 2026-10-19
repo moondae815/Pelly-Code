@@ -1,7 +1,4 @@
 using System.IO.Abstractions;
-using System.Text;
-using System.Text.RegularExpressions;
-using PellyCoder.Core.Sql;
 using PellyCoder.Eval;
 using PellyCoder.Integration.Tests.Corpus;
 
@@ -9,8 +6,6 @@ namespace PellyCoder.Integration.Tests.Benchmark;
 
 public class BenchmarkDefinitionTests
 {
-    static BenchmarkDefinitionTests() => Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
-
     private static readonly string EvalRoot = Directory.GetParent(CorpusPaths.Root)!.FullName;
     private static readonly BenchmarkSuite Suite = BenchmarkSuite.Load(Path.Combine(EvalRoot, "benchmark")).Suite
         ?? throw new InvalidDataException("내장 스위트(eval/benchmark/suite.json)를 읽을 수 없습니다");
@@ -25,64 +20,6 @@ public class BenchmarkDefinitionTests
         var files = Directory.GetFiles(TasksDir, "*.yaml");
         Assert.NotEmpty(files);
         return files.Select(f => (f, BenchmarkTask.Load(f))).ToList();
-    }
-
-    [Fact]
-    public void AllTasks_ParseAndMatchSchema()
-    {
-        foreach (var (path, t) in LoadAll())
-        {
-            var name = Path.GetFileNameWithoutExtension(path);
-            Assert.True(Regex.IsMatch(t.Id, @"^(cs-(modern|legacy)|sql)-\d{3}$"), $"{name}: id 형식");
-            Assert.Equal(name, t.Id);
-            Assert.False(string.IsNullOrWhiteSpace(t.Request), $"{t.Id}: request 필요");
-            Assert.NotNull(t.Judge);
-
-            switch (t.Kind)
-            {
-                case "cs":
-                    Assert.True(t.Method is not null ^ t.Line is not null, $"{t.Id}: cs는 method 또는 line 중 하나");
-                    Assert.Null(t.Object);
-                    Assert.True(t.Judge!.Build, $"{t.Id}: judge.build 필요");
-                    Assert.Null(t.Judge.SqlCompile);
-                    break;
-                case "sql":
-                    Assert.Null(t.Method);
-                    Assert.StartsWith("sql-", t.Id);
-                    Assert.True(t.Judge!.SqlCompile, $"{t.Id}: judge.sqlCompile 필요");
-                    Assert.Null(t.Judge.Build);
-                    break;
-                default:
-                    Assert.Fail($"{t.Id}: 알 수 없는 kind '{t.Kind}'");
-                    break;
-            }
-        }
-    }
-
-    [Fact]
-    public void AllTasks_TargetsExist()
-    {
-        foreach (var (_, t) in LoadAll())
-        {
-            var resolved = Suite.Resolve(t, new FileSystem(), out var error);
-            Assert.True(resolved is not null, error);
-            var file = resolved.SourceFile;
-            var text = ReadSource(file);
-
-            if (t.Method is not null)
-                Assert.Matches(new Regex($@"\b{Regex.Escape(t.Method)}\s*\("), text);
-            if (t.Line is not null)
-                Assert.InRange(t.Line.Value, 1, text.Split('\n').Length);
-            if (t.Object is not null)
-                Assert.Contains(t.Object, text);
-        }
-    }
-
-    [Fact]
-    public void TaskIds_AreUnique()
-    {
-        var ids = LoadAll().Select(x => x.Task.Id).ToList();
-        Assert.Equal(ids.Count, ids.Distinct().Count());
     }
 
     /// <summary>
@@ -116,87 +53,17 @@ public class BenchmarkDefinitionTests
     }
 
     /// <summary>
-    /// 빌드·컴파일만 통과하면 되는 작업은 아무 의미 없는 수정(공백·주석)으로도 성공한다:
-    /// 모든 작업에 내용 판정(mustContain·mustAdd·mustNotContain) 또는 동작 판정(tests·failingTests) 하나 이상을 요구한다.
-    /// tests는 원본에서 실패하고 failingTests는 원본에서 통과해야 하므로(JudgeTestDefinitionTests) 의미 없는 수정을 똑같이 막는다.
+    /// 내장 스위트의 정의 검사(<c>validate</c>와 같은 <see cref="SuiteValidator"/>): id·kind·judge 규칙, 대상 존재, 원본 판정 불통과 등.
+    /// 오류는 0이고, 경고는 하나만 허용한다: Legacy 루트의 packages.config는 온라인 NuGet 복원을 쓰는 내장 코퍼스의 의도된 모양이라
+    /// "packages/ 폴더 없음" 경고가 뜬다(현장 스위트에서는 폐쇄망 문제라 경고가 맞다). 이슈 전체를 실패 메시지로 낸다.
     /// </summary>
     [Fact]
-    public void AllTasks_HaveContentCriterion()
+    public void BuiltInSuite_HasNoIssues()
     {
-        var missing = LoadAll().Select(x => x.Task)
-            .Where(t => (t.Judge!.MustContain?.Count ?? 0) + (t.Judge.MustAdd?.Count ?? 0) + (t.Judge.MustNotContain?.Count ?? 0)
-                + (t.Judge.Tests?.Count ?? 0) + (t.Judge.FailingTests?.Count ?? 0) == 0)
-            .Select(t => t.Id)
-            .ToList();
-        Assert.Empty(missing);
-    }
-
-    /// <summary>sql 작업의 대상은 GO로 나눈 객체 배치 정확히 하나여야 한다(object가 없으면 파일의 유일한 객체).</summary>
-    [Fact]
-    public void SqlTasks_TargetIsAnObjectBatch()
-    {
-        var problems = new List<string>();
-        foreach (var (_, t) in LoadAll().Where(x => x.Task.Kind == "sql"))
-        {
-            var text = ReadSource(Resolve(t).SourceFile)
-                .TrimStart('\uFEFF').Replace("\r\n", "\n");
-            var script = SqlBatchSplitter.Split(text, compatLevel: 160);
-            var batches = t.Object is null
-                ? script.ObjectBatches
-                : script.ObjectBatches.Where(b => b.ObjectName is { } n && n.SameAs(SqlObjectName.Parse(t.Object))).ToList();
-            if (batches.Count != 1)
-                problems.Add($"{t.Id}: 대상 객체 배치 {batches.Count}개");
-            else if (batches[0].ParseErrors.Count > 0)
-                problems.Add($"{t.Id}: 원본 대상 배치에 구문 오류 {batches[0].ParseErrors.Count}개");
-        }
-
-        Assert.Empty(problems);
-    }
-
-    /// <summary>
-    /// 아무것도 고치지 않은 패치가 판정을 통과하면 안 된다:
-    /// mustContain은 원본 대상에 없어야 하고, mustNotContain은 원본 대상에 있어야 한다.
-    /// 대상 범위는 실행기와 같다(<see cref="TargetText"/>): method·line이면 그 멤버, sql이면 대상 객체 배치.
-    /// </summary>
-    [Fact]
-    public void Judges_RejectUnmodifiedTarget()
-    {
-        var problems = new List<string>();
-        foreach (var (_, t) in LoadAll())
-        {
-            var text = ReadSource(Resolve(t).SourceFile)
-                .TrimStart('\uFEFF').Replace("\r\n", "\n");
-            var scope = t.Kind == "sql"
-                ? TargetText.ForSql(text, t.Object, compatLevel: 160)
-                : TargetText.ForCs(text, t.Method, t.Line);
-            if (scope is null)
-            {
-                problems.Add($"{t.Id}: 원본에서 대상을 찾지 못함");
-                continue;
-            }
-
-            foreach (var s in t.Judge!.MustContain ?? [])
-                if (scope.Contains(s, StringComparison.Ordinal))
-                    problems.Add($"{t.Id}: mustContain '{s}'가 원본에 이미 있음");
-            foreach (var s in t.Judge.MustNotContain ?? [])
-                if (!scope.Contains(s, StringComparison.Ordinal))
-                    problems.Add($"{t.Id}: mustNotContain '{s}'가 원본에 없음");
-        }
-
-        Assert.Empty(problems);
-    }
-
-    /// <summary>UTF-8로 읽고, 올바른 UTF-8이 아니면 CP949로 읽는다.</summary>
-    private static string ReadSource(string path)
-    {
-        var bytes = File.ReadAllBytes(path);
-        try
-        {
-            return new UTF8Encoding(false, throwOnInvalidBytes: true).GetString(bytes);
-        }
-        catch (DecoderFallbackException)
-        {
-            return Encoding.GetEncoding(949).GetString(bytes);
-        }
+        var (tasks, errors) = BenchmarkTask.TryLoadAll(TasksDir);
+        Assert.NotEmpty(tasks);
+        var issues = SuiteValidator.Validate(Suite, tasks, errors, new FileSystem(), compatLevel: 160);
+        issues = [.. issues.Where(i => !(i.Level == IssueLevel.Warning && i.Message.StartsWith("루트 Legacy: packages.config가 있지만", StringComparison.Ordinal)))];
+        Assert.True(issues.Count == 0, string.Join("\n", issues.Select(i => $"{i.Level} {i.TaskId}: {i.Message}")));
     }
 }

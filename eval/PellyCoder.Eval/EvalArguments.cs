@@ -35,6 +35,10 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
           --keep-work <all|failed|none>  작업 복사본 보존 (기본 all; 현장 실제 코드에서는 failed 권장)
           --help            이 도움말
 
+        검사: dotnet run --project eval/PellyCoder.Eval -- validate [--suite <폴더>] [--config <pelly.json>]
+          실행 전에 작업 정의(id·판정·대상 파일·프로젝트 형식)를 점검합니다. LLM·SQL에 접속하지 않습니다.
+          종료 코드 0 오류 없음(경고는 있어도 됨) · 4 오류 있음 또는 스위트를 읽을 수 없음
+
         비교: dotnet run --project eval/PellyCoder.Eval -- compare <기준선 summary.json> <후보 summary.json>
           R4 채택 규칙으로 판정합니다. 종료 코드 0 채택 · 3 거절 · 4 판정 불가
 
@@ -47,7 +51,7 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
     private static readonly Dictionary<string, string[]> Options = new(StringComparer.Ordinal)
     {
         [Run] = ["--suite", "--tasks", "--kind", "--out", "--config", "--repeat", "--keep-work"],
-        [Validate] = ["--suite"],
+        [Validate] = ["--suite", "--config"],
         [Compare] = [],
     };
 

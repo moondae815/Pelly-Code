@@ -10,6 +10,7 @@ public class EvalArgumentsTests
         var validate = EvalArguments.Parse(["validate", "--suite", "x"]);
         Assert.Null(validate.Error);
         Assert.Equal(("validate", "x"), (validate.Command, validate.Suite));
+        Assert.Equal("p.json", EvalArguments.Parse(["validate", "--config", "p.json"]).Config);
 
         var run = EvalArguments.Parse(["--suite", "x"]);
         Assert.Null(run.Error);

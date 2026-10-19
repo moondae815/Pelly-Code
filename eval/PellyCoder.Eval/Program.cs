@@ -22,7 +22,7 @@ if (parsed.Help || parsed.Error is not null)
     return parsed.Error is null ? 0 : 4;
 }
 if (parsed.Command == EvalArguments.Compare) return CompareCommand.Run(parsed.Positional, Console.Out); // R4 verdict: 0 adopted, 3 rejected, 4 not judged
-if (parsed.Command != EvalArguments.Run) return Fail($"{parsed.Command}는 아직 지원하지 않습니다.");
+if (parsed.Command == EvalArguments.Validate) return ValidateCommand.Run(parsed, Console.Out, Console.Error); // offline definition check: 0 no errors, 4 errors
 
 var suiteDir = parsed.Suite ?? EvalPaths.FindSuite();
 if (suiteDir is null) return Fail($"eval/benchmark/{BenchmarkSuite.FileName}을 찾을 수 없습니다 — 저장소 안에서 실행하거나 --suite <폴더>를 지정하세요.");

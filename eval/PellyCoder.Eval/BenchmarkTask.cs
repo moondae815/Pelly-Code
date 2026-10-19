@@ -20,12 +20,42 @@ public sealed class BenchmarkTask
     public string? Category { get; set; }
     public BenchmarkJudge? Judge { get; set; }
 
+    /// <summary>The YAML file's name without extension (set by <see cref="Load"/>; <c>validate</c> compares it with <see cref="Id"/>).</summary>
+    [YamlIgnore]
+    public string? SourceName { get; set; }
+
     public static BenchmarkTask Load(string path)
     {
         var deserializer = new DeserializerBuilder()
             .WithNamingConvention(CamelCaseNamingConvention.Instance)
             .Build();
-        return deserializer.Deserialize<BenchmarkTask>(System.IO.File.ReadAllText(path));
+        var task = deserializer.Deserialize<BenchmarkTask>(System.IO.File.ReadAllText(path))
+            ?? throw new InvalidDataException("내용이 없습니다");
+        task.SourceName = Path.GetFileNameWithoutExtension(path);
+        return task;
+    }
+
+    /// <summary>
+    /// Like <see cref="LoadAll"/> but a file that cannot be read becomes an entry of <c>Errors</c>
+    /// (<c>&lt;file name&gt;: YAML을 읽을 수 없음: …</c>) instead of an exception; the other files are still loaded.
+    /// </summary>
+    public static (IReadOnlyList<BenchmarkTask> Tasks, IReadOnlyList<string> Errors) TryLoadAll(string tasksDir)
+    {
+        var tasks = new List<BenchmarkTask>();
+        var errors = new List<string>();
+        foreach (var file in Directory.GetFiles(tasksDir, "*.yaml").OrderBy(f => f, StringComparer.Ordinal))
+        {
+            try
+            {
+                tasks.Add(Load(file));
+            }
+            catch (Exception ex) when (ex is YamlDotNet.Core.YamlException or InvalidDataException or IOException or UnauthorizedAccessException)
+            {
+                var detail = ex.InnerException?.Message ?? ex.Message;
+                errors.Add($"{Path.GetFileName(file)}: YAML을 읽을 수 없음: {detail}");
+            }
+        }
+        return ([.. tasks.OrderBy(t => t.Id, StringComparer.Ordinal)], errors);
     }
 
     /// <summary>Every <c>*.yaml</c> in <paramref name="tasksDir"/>, ordered by id.</summary>

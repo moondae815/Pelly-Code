@@ -36,7 +36,7 @@ public sealed class ExportCommandTests : IDisposable
             $"환경 오류(복원 실패): {Dirty}", false),
         new("sql-002", "sql", "Skipped", null, 0, [], null, "NotRequired", false, null, null, null, 0, false, [],
             $"SQL 연결이 없습니다 {Dirty}", true),
-        new("cs-legacy-001", "cs", "Passed", 0, 1, [], VerificationResult.Pass, "Passed", false, null, 3, 0.1, 0, false, ["Applied"], null, true),
+        new("cs-legacy-001", "cs", "Passed", 0, 1, [], VerificationResult.Skip(VerificationResult.LegacyBuildSkipped) with { Status = "Passed" }, "Passed", false, null, 3, 0.1, 0, false, ["Applied"], null, true),
     ];
 
     private static string Header => $"* 실행: x · pelly 0.9.0 · 모델 `qwen3` ({Url}, Ollama 0.40.0) · {Path1}";
@@ -134,14 +134,16 @@ public sealed class ExportCommandTests : IDisposable
             Assert.Equal(a.Independent?.Status, b.Independent?.Status);
             Assert.Equal(a.Independent?.Build, b.Independent?.Build);
             Assert.Empty(b.Reasons);
-            Assert.Null(b.Independent?.Detail);
+            Assert.Equal(a.Independent?.Detail == VerificationResult.LegacyBuildSkipped ? a.Independent.Detail : null, b.Independent?.Detail);
         }
         Assert.Equal("환경 오류(복원 실패)", got[1].SkipReason);
         Assert.Equal("생략", got[2].SkipReason);
         Assert.Null(got[0].SkipReason);
         var report = File.ReadAllText(System.IO.Path.Combine(dest, "report.md"));
         Assert.Contains("* 반출본: 20261019-000000 · pelly 0.9.0 · 모델 `qwen3`", report);
-        Assert.DoesNotContain("Ollama", report.Split('\n')[2]);
+        Assert.DoesNotContain("Ollama", report.Split('\n').Single(l => l.StartsWith("* 반출본:", StringComparison.Ordinal)));
+        Assert.Equal(LegacyLine(File.ReadAllText(System.IO.Path.Combine(input, "report.md"))), LegacyLine(report));
+        Assert.Contains("1건", LegacyLine(report));
     }
 
     [Fact]
@@ -183,6 +185,23 @@ public sealed class ExportCommandTests : IDisposable
         Assert.Equal(4, Export(input, full).Code);
         Assert.Equal(4, Export(System.IO.Path.Combine(_dir, "nope")).Code);
         Assert.Equal(4, Export(Directory.CreateDirectory(System.IO.Path.Combine(_dir, "empty")).FullName).Code);
+    }
+
+    private static string LegacyLine(string report) => report.Split('\n').Single(l => l.StartsWith("Legacy 빌드 판정 생략:", StringComparison.Ordinal));
+
+    [Fact]
+    public void Sanitizer_DecidesEveryTaskResultAndVerificationResultProperty()
+    {
+        string[] Props(Type t) => t.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance).Select(p => p.Name).Where(n => n != "EqualityContract").Order(StringComparer.Ordinal).ToArray();
+        string[] Sorted(params string[] n) => n.Order(StringComparer.Ordinal).ToArray();
+        var keptTask = new[] { "Id", "Kind", "Status", "ExitCode", "Attempts", "Independent", "BuildCheck", "InvariantViolated", "FailureType",
+            "WallSeconds", "TtftSeconds", "ThinkTokens", "ThinkTruncated", "EditOutcomes", "IsLegacy", "FormatErrors" };
+        var droppedTask = new[] { "Reasons", "SkipReason" };
+        Assert.Equal(Sorted([.. keptTask, .. droppedTask]), Props(typeof(TaskResult)));
+        // BuildStatus is derived from Status/Build.
+        var keptVerification = new[] { "Status", "Build", "BuildStatus" };
+        var droppedVerification = new[] { "Detail" };
+        Assert.Equal(Sorted([.. keptVerification, .. droppedVerification]), Props(typeof(VerificationResult)));
     }
 
     [Fact]

@@ -39,7 +39,7 @@ public static partial class ExportCommand
         var dest = Path.GetFullPath(args.Out);
         if (!Directory.Exists(input)) return Refuse(output, $"결과 폴더가 없습니다: {args.Positional[0]}");
         if (Directory.Exists(dest) && Directory.EnumerateFileSystemEntries(dest).Any())
-            return Refuse(output, $"--out 폴더가 비어 있지 않습니다: {args.Out}");
+            return Refuse(output, $"--out 폴더가 비어 있지 않습니다: {args.Out} (이전 반출이 중간에 실패해 남은 폴더일 수 있습니다 — 지우고 다시 실행하세요)");
 
         var folderName = Path.GetFileName(input.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
         var summaryPath = Path.Combine(input, "summary.json");
@@ -97,9 +97,12 @@ public static partial class ExportCommand
     internal static TaskResult Sanitize(TaskResult t) => t with
     {
         Reasons = [],
-        Independent = t.Independent is null ? null : t.Independent with { Detail = null },
+        Independent = t.Independent is null ? null : t.Independent with { Detail = KeepDetail(t.Independent.Detail) },
         SkipReason = SanitizeSkip(t.SkipReason),
     };
+
+    /// <summary>Tool-written detail constants the report counts on (<c>KpiReport</c> matches <see cref="VerificationResult.LegacyBuildSkipped"/>); any other detail is free text and dropped.</summary>
+    internal static string? KeepDetail(string? detail) => detail == VerificationResult.LegacyBuildSkipped ? detail : null;
 
     /// <summary><c>환경 오류(kind): detail</c> keeps the label up to the closing parenthesis; any other skip reason becomes <see cref="GenericSkip"/>.</summary>
     internal static string? SanitizeSkip(string? reason)
@@ -127,7 +130,7 @@ public static partial class ExportCommand
         sb.AppendLine("* 유지: 작업 id·종류·판정·종료 코드·시도 수·실패 유형·빌드 판정·시간·추론 토큰·편집 결과·형식 오류·독립 검증 상태 등 KPI 필드 전부");
         sb.AppendLine("* 지운 필드(행마다):");
         sb.AppendLine("  * `reasons` → 빈 목록");
-        sb.AppendLine("  * `independent.detail` → null");
+        sb.AppendLine("  * `independent.detail` → null (도구가 쓰는 고정 문구 \"빌드 판정 생략\"만 유지)");
         sb.AppendLine($"  * `skipReason` → `환경 오류(<종류>)`처럼 앞부분만, 그 밖의 생략 사유는 `{GenericSkip}`");
         sb.AppendLine("* `report.md`·`summary.md`는 비식별 결과로 다시 그렸고 접속 주소를 넣지 않았습니다.");
         sb.AppendLine("* `summary.json`은 id·결과·조건만 담고 있어 그대로 복사했습니다.");

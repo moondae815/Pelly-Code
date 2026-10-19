@@ -10,8 +10,12 @@ public sealed class SqlServerExecutor(string? connectionString) : ISqlExecutor
     public const int CommandTimeoutSeconds = 30;
     private const int TimeoutErrorNumber = -2;
 
-    /// <summary>Local named pipe that never exists: opening it loads the native SNI layer without touching the network.</summary>
-    private const string SelfTestConnectionString = @"Data Source=np:\\.\pipe\pelly-selftest-none\sql\query;Connect Timeout=1;";
+    /// <summary>
+    /// Local named pipe that never exists: opening it loads the native SNI layer without touching the network. No pooling: with
+    /// pooling, a second self-test in the same process waits on the pool while the first is still failing, and under load that wait
+    /// outlasts Connect Timeout=1 with an InvalidOperationException instead of a SqlException (reproduced on windows-latest).
+    /// </summary>
+    public const string SelfTestConnectionString = @"Data Source=np:\\.\pipe\pelly-selftest-none\sql\query;Connect Timeout=1;Pooling=false;";
 
     /// <summary>
     /// Offline self-test row (<c>pelly doctor --offline-selftest</c>). On Windows it opens a local named pipe that does

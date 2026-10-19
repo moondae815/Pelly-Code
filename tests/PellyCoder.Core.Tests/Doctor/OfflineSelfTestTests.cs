@@ -33,11 +33,16 @@ public class OfflineSelfTestTests
     }
 
     /// <summary>
-    /// Several self-tests at once (the Cli test classes run in parallel; a user may also start two doctors). The Cli self-test tests
-    /// failed intermittently on windows-latest with exit 4 after ~6.7 s (CI 39214681652, 39238902534), failing row unknown. Concurrent
-    /// opens waiting on the SqlClient pool were a hypothesis; this test passed on windows-latest (CI 39239610853), so it is not the cause
-    /// as far as measured. Kept as a guard; the Cli tests now print the self-test output on failure.
+    /// Several self-tests at once in one process (the Cli test classes run in parallel; a host may run two doctors). Root cause of
+    /// the windows-latest flake (CI 39214681652, 39238902534; reproduced 7/32 full unit-suite runs in diag run 39254095710): with
+    /// pooling on, the second open waited on the pool while the first was still failing against the missing pipe; under load that
+    /// took longer than Connect Timeout=1 and the waiter got InvalidOperationException ("Timeout expired ... obtaining a connection
+    /// from the pool"), not a SqlException, so the row was Fail. The self-test connection does not pool.
     /// </summary>
+    [Fact]
+    public void SelfTestConnection_DoesNotPool() =>
+        Assert.False(new Microsoft.Data.SqlClient.SqlConnectionStringBuilder(PellyCoder.Core.Sql.SqlServerExecutor.SelfTestConnectionString).Pooling);
+
     [Fact]
     public async Task SelfTest_SqlClientRow_OkWhenRunConcurrently()
     {

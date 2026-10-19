@@ -1,7 +1,7 @@
 id: cs-legacy-018
 kind: cs
 category: dapper
-file: corpus/Legacy/Shop.Data/OrderDao.cs
+file: Legacy/Shop.Data/OrderDao.cs
 line: 46
 request: "검색 결과가 너무 많아지지 않게 최근 주문 500건까지만 가져오도록 SELECT에 TOP (500)을 넣어줘"
 judge:

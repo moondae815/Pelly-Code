@@ -9,7 +9,7 @@ public class TaskJudgeTests
 
     private static BenchmarkTask Cs(string id = "cs-modern-001", BenchmarkJudge? judge = null) => new()
     {
-        Id = id, Kind = "cs", File = "corpus/Modern/x.cs", Method = "M", Request = "r",
+        Id = id, Kind = "cs", File = "Modern/x.cs", Method = "M", Request = "r",
         Judge = judge ?? new BenchmarkJudge { Build = true },
     };
 

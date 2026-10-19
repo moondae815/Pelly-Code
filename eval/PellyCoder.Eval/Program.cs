@@ -14,7 +14,6 @@ using PellyCoder.Eval;
 // Benchmark runner (design §10.6). Exit codes: 0 done, 1 verification invariant violated, 2 cancelled, 4 setup error.
 // `compare <baseline> <candidate>` judges two --repeat summaries by the R4 rule (Acceptance.cs).
 Console.OutputEncoding = Encoding.UTF8;
-if (args.Length > 0 && args[0] == "compare") return CompareCommand.Run(args[1..], Console.Out); // R4 verdict: 0 adopted, 3 rejected, 4 not judged
 var parsed = EvalArguments.Parse(args);
 if (parsed.Help || parsed.Error is not null)
 {
@@ -22,13 +21,21 @@ if (parsed.Help || parsed.Error is not null)
     Console.WriteLine(EvalArguments.Usage);
     return parsed.Error is null ? 0 : 4;
 }
+if (parsed.Command == EvalArguments.Compare) return CompareCommand.Run(parsed.Positional, Console.Out); // R4 verdict: 0 adopted, 3 rejected, 4 not judged
+if (parsed.Command != EvalArguments.Run) return Fail($"{parsed.Command}는 아직 지원하지 않습니다.");
 
-var evalRoot = EvalPaths.FindRoot();
-if (evalRoot is null) return Fail("eval/benchmark/tasks 폴더를 찾을 수 없습니다 — 저장소 안에서 실행하세요.");
-var tasks = BenchmarkTask.LoadAll(EvalPaths.TasksDir(evalRoot)).Where(t => TaskFilter.Matches(t, parsed.Tasks, parsed.Kind)).ToList();
-if (tasks.Count == 0) return Fail($"선택된 작업이 없습니다 (--tasks {parsed.Tasks ?? "*"}, --kind {parsed.Kind ?? "*"}).");
-
+var suiteDir = parsed.Suite ?? EvalPaths.FindSuite();
+if (suiteDir is null) return Fail($"eval/benchmark/{BenchmarkSuite.FileName}을 찾을 수 없습니다 — 저장소 안에서 실행하거나 --suite <폴더>를 지정하세요.");
+var suiteLoad = BenchmarkSuite.Load(suiteDir);
+if (suiteLoad.Suite is not { } suite) return Fail("스위트 오류:\n  " + string.Join("\n  ", suiteLoad.Errors));
+if (!Directory.Exists(suite.TasksDir)) return Fail($"작업 폴더가 없습니다: {suite.TasksDir}");
 var fs = new FileSystem();
+var tasks = BenchmarkTask.LoadAll(suite.TasksDir).Where(t => TaskFilter.Matches(t, parsed.Tasks, parsed.Kind))
+    .Select(t => (Task: t, Resolved: suite.Resolve(t, fs, out var error), Error: error)).ToList();
+if (tasks.Count == 0) return Fail($"선택된 작업이 없습니다 (--tasks {parsed.Tasks ?? "*"}, --kind {parsed.Kind ?? "*"}).");
+foreach (var (_, _, error) in tasks.Where(t => t.Resolved is null))
+    Console.Error.WriteLine($"작업 정의 오류: {error}");
+
 if (parsed.Config is not null && !File.Exists(parsed.Config)) return Fail($"설정 파일이 없습니다: {parsed.Config}");
 var environment = Environment.GetEnvironmentVariables().Cast<System.Collections.DictionaryEntry>()
     .ToDictionary(e => (string)e.Key, e => (string?)e.Value);
@@ -48,7 +55,7 @@ if (!status.Reachable || !status.ModelInstalled)
 
 ISqlExecutor? sql = null;
 string? sqlSkip = null;
-if (tasks.Any(t => t.Kind == "sql"))
+if (tasks.Any(t => t.Task.Kind == "sql" && t.Resolved is not null))
 {
     if (string.IsNullOrWhiteSpace(options.Sql.ConnectionString))
         sqlSkip = "SQL 연결이 없습니다 — 환경 변수 PELLY_SQL_CONNECTION(또는 sql.connectionString)을 지정하세요";
@@ -59,18 +66,18 @@ if (tasks.Any(t => t.Kind == "sql"))
 }
 
 var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
-var outDir = Path.GetFullPath(parsed.Out ?? Path.Combine(evalRoot, "results", stamp));
+var outDir = Path.GetFullPath(parsed.Out ?? Path.Combine(suite.ResultsDir, stamp));
 Directory.CreateDirectory(outDir);
-Console.WriteLine($"작업 {tasks.Count}건{(parsed.Repeat > 1 ? $" × {parsed.Repeat}회" : "")} → {outDir}");
+Console.WriteLine($"스위트 {suite.Name} ({suite.Dir}) · 작업 {tasks.Count}건{(parsed.Repeat > 1 ? $" × {parsed.Repeat}회" : "")} → {outDir}");
 
 var runner = new BenchmarkRunner(new RunnerSetup(fs, new SystemProcessRunner(TimeProvider.System), backend, options, TimeProvider.System,
-    evalRoot, sql, sqlSkip, Console.WriteLine));
+    suite, sql, sqlSkip, Console.WriteLine));
 var json = new JsonSerializerOptions { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 var prompts = PromptResources.LoadDefault();
 var conditions = new RunConditions(options.Llm.Model, prompts.Version, prompts.SqlVersion, options.Llm.ThinkMode.ToString(),
     options.Budget.Think, options.Sampling.Think, options.Sampling.Code, PellyInfo.Version, parsed.Tasks, parsed.Kind);
 var header = $"* 실행: {stamp} · pelly {PellyInfo.Version} · 모델 `{options.Llm.Model}` ({options.Llm.Endpoint}, Ollama {status.Version}) · "
-    + $"thinkMode {options.Llm.ThinkMode} · {Environment.OSVersion.Platform}\n* 선택: --tasks {parsed.Tasks ?? "*"} --kind {parsed.Kind ?? "*"}"
+    + $"thinkMode {options.Llm.ThinkMode} · {Environment.OSVersion.Platform}\n* 스위트: {suite.Name}\n* 선택: --tasks {parsed.Tasks ?? "*"} --kind {parsed.Kind ?? "*"}"
     + (parsed.Repeat > 1 ? $" --repeat {parsed.Repeat}" : "");
 
 async Task<RepeatedRun.RunOnce> RunOnceAsync(string dir, int run)
@@ -79,11 +86,16 @@ async Task<RepeatedRun.RunOnce> RunOnceAsync(string dir, int run)
     if (parsed.Repeat > 1) Console.WriteLine($"== 회차 {run}/{parsed.Repeat} → {dir}");
     var results = new List<TaskResult>();
     var cancelled = false;
-    foreach (var task in tasks)
+    foreach (var (task, resolved, error) in tasks)
     {
+        if (resolved is null)
+        {
+            results.Add(TaskResult.Failed(task, false, error!, "Definition"));
+            continue;
+        }
         try
         {
-            results.Add(await runner.RunAsync(task, dir, cts.Token));
+            results.Add(await runner.RunAsync(resolved, dir, cts.Token));
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {
@@ -93,7 +105,7 @@ async Task<RepeatedRun.RunOnce> RunOnceAsync(string dir, int run)
         catch (Exception ex)
         {
             Console.Error.WriteLine($"[{task.Id}] 실행기 오류: {ex}");
-            results.Add(TaskResult.Failed(task, $"실행기 오류: {ex.Message}", "RunnerError"));
+            results.Add(TaskResult.Failed(task, resolved.IsLegacy, $"실행기 오류: {ex.Message}", "RunnerError"));
         }
     }
 

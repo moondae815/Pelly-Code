@@ -1,6 +1,6 @@
 id: sql-015
 kind: sql
-file: corpus/Sql/objects/usp_SearchOrdersDynamic.sql
+file: Sql/objects/usp_SearchOrdersDynamic.sql
 request: "@Status tinyint = NULL 매개변수를 추가해서 상태로도 거를 수 있게 해줘. 동적 SQL에 값을 이어 붙이지 말고 sp_executesql 매개변수로 넘겨줘"
 judge:
   sqlCompile: true

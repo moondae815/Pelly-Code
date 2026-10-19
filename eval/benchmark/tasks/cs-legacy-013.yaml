@@ -1,7 +1,7 @@
 id: cs-legacy-013
 kind: cs
 category: mvc
-file: corpus/Legacy/Shop.Web/Controllers/OrderController.cs
+file: Legacy/Shop.Web/Controllers/OrderController.cs
 method: Cancel
 request: "ArgumentException이 나면 400 응답을 돌려주지 말고 TempData[\"Error\"]에 예외 메시지를 넣은 뒤 상세 화면으로 돌아가게 해줘"
 judge:

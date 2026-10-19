@@ -9,7 +9,7 @@ public sealed class BenchmarkTask
     public string Id { get; set; } = "";
     public string Kind { get; set; } = "";
 
-    /// <summary>Path relative to <c>eval/</c>, with forward slashes.</summary>
+    /// <summary><c>&lt;root name&gt;/&lt;path in the root&gt;</c>, with <c>/</c> only (resolved by <see cref="BenchmarkSuite.Resolve"/>).</summary>
     public string File { get; set; } = "";
     public string? Method { get; set; }
     public int? Line { get; set; }
@@ -19,9 +19,6 @@ public sealed class BenchmarkTask
     /// <summary>Legacy app kind (<c>mvc</c>, <c>adonet</c>, <c>dapper</c>) for the composition count; not an acceptance group.</summary>
     public string? Category { get; set; }
     public BenchmarkJudge? Judge { get; set; }
-
-    /// <summary>The one Legacy rule everywhere (runner, report): the target lives in the Legacy corpus.</summary>
-    public bool IsLegacy => File.StartsWith("corpus/Legacy/", StringComparison.Ordinal);
 
     public static BenchmarkTask Load(string path)
     {
@@ -40,7 +37,7 @@ public sealed class BenchmarkJudge
 {
     public bool? Build { get; set; }
     public bool? SqlCompile { get; set; }
-    /// <summary>Tests that must pass after the edit; searched in the judge projects (<c>eval/benchmark/judges</c>) and the corpus.</summary>
+    /// <summary>Tests that must pass after the edit; searched in the suite's judge projects (<c>judges/&lt;root&gt;</c>) and the root.</summary>
     public List<string>? Tests { get; set; }
 
     /// <summary>Corpus tests that pin the pre-edit behaviour (<c>*_CurrentlyCancels</c>): they must fail after the edit.</summary>

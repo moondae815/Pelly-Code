@@ -1,6 +1,6 @@
 id: cs-modern-011
 kind: cs
-file: corpus/Modern/Shop.Api/Data/OrderRepository.cs
+file: Modern/Shop.Api/Data/OrderRepository.cs
 method: SearchAsync
 request: "page가 1보다 작게 들어오면 OFFSET이 음수가 되어 SQL 오류가 나. page가 1보다 작으면 첫 페이지로 보고 조회하게 해줘"
 judge:

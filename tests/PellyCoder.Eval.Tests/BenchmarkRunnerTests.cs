@@ -27,21 +27,19 @@ public sealed class BenchmarkRunnerTests : IDisposable
     [Fact]
     public async Task Runner_VerifierThrows_KeepsExitCodeAndAttempts()
     {
-        var evalRoot = Path.Combine(_root, "eval");
-        Directory.CreateDirectory(Path.Combine(evalRoot, "corpus", "Plain"));
-        File.WriteAllText(Path.Combine(evalRoot, "corpus", "Plain", "Calc.cs"), Source);
+        var suite = PlainSuite();
         var task = new BenchmarkTask
         {
-            Id = "cs-modern-901", Kind = "cs", File = "corpus/Plain/Calc.cs", Method = "Add", Request = "오버플로를 검사해줘",
+            Id = "cs-modern-901", Kind = "cs", File = "Plain/Calc.cs", Method = "Add", Request = "오버플로를 검사해줘",
             Judge = new BenchmarkJudge { Build = true, MustContain = ["checked("] },
         };
         var fs = new FileSystem();
         var options = Assert.IsType<PellyOptions>(
             PellyOptionsLoader.Load(fs, null, null, new Dictionary<string, string?>(), new Dictionary<string, string?>()).Options);
         var runner = new BenchmarkRunner(new RunnerSetup(fs, new SystemProcessRunner(TimeProvider.System), new OneShotBackend(Edit),
-            options, TimeProvider.System, evalRoot, null, "no SQL", _ => { }, Verifier: new ThrowingVerifier()));
+            options, TimeProvider.System, suite, null, "no SQL", _ => { }, Verifier: new ThrowingVerifier()));
 
-        var result = await runner.RunAsync(task, Path.Combine(_root, "out"), TestContext.Current.CancellationToken);
+        var result = await runner.RunAsync(Resolve(suite, task, fs), Path.Combine(_root, "out"), TestContext.Current.CancellationToken);
 
         Assert.Equal(0, result.ExitCode);
         Assert.Equal(1, result.Attempts);
@@ -60,12 +58,10 @@ public sealed class BenchmarkRunnerTests : IDisposable
     [InlineData("build", "InvariantViolated", true)]
     public async Task Runner_FailureTypeFollowsTheBuildVerdict(string kind, string failureType, bool violation)
     {
-        var evalRoot = Path.Combine(_root, "eval");
-        Directory.CreateDirectory(Path.Combine(evalRoot, "corpus", "Plain"));
-        File.WriteAllText(Path.Combine(evalRoot, "corpus", "Plain", "Calc.cs"), Source);
+        var suite = PlainSuite();
         var task = new BenchmarkTask
         {
-            Id = "cs-modern-901", Kind = "cs", File = "corpus/Plain/Calc.cs", Method = "Add", Request = "오버플로를 검사해줘",
+            Id = "cs-modern-901", Kind = "cs", File = "Plain/Calc.cs", Method = "Add", Request = "오버플로를 검사해줘",
             Judge = new BenchmarkJudge { Build = true, Tests = ["Shop.Api.JudgeTests.T.cs_modern_901_X"] },
         };
         var verdict = kind switch
@@ -78,15 +74,30 @@ public sealed class BenchmarkRunnerTests : IDisposable
         var options = Assert.IsType<PellyOptions>(
             PellyOptionsLoader.Load(fs, null, null, new Dictionary<string, string?>(), new Dictionary<string, string?>()).Options);
         var runner = new BenchmarkRunner(new RunnerSetup(fs, new SystemProcessRunner(TimeProvider.System), new OneShotBackend(Edit),
-            options, TimeProvider.System, evalRoot, null, "no SQL", _ => { }, Verifier: new FixedVerifier(verdict)));
+            options, TimeProvider.System, suite, null, "no SQL", _ => { }, Verifier: new FixedVerifier(verdict)));
 
-        var result = await runner.RunAsync(task, Path.Combine(_root, "out"), TestContext.Current.CancellationToken);
+        var result = await runner.RunAsync(Resolve(suite, task, fs), Path.Combine(_root, "out"), TestContext.Current.CancellationToken);
 
         Assert.Equal(0, result.ExitCode);
         Assert.Equal(VerificationResult.Failed, result.Status);
         Assert.Equal(failureType, result.FailureType);
         Assert.Equal(violation, result.InvariantViolated);
     }
+
+    /// <summary>A suite with one root <c>Plain</c> holding <c>Calc.cs</c>.</summary>
+    private BenchmarkSuite PlainSuite()
+    {
+        var dir = Path.Combine(_root, "suite");
+        Directory.CreateDirectory(Path.Combine(dir, "Plain"));
+        File.WriteAllText(Path.Combine(dir, "Plain", "Calc.cs"), Source);
+        File.WriteAllText(Path.Combine(dir, BenchmarkSuite.FileName),
+            """{ "formatVersion": 1, "name": "plain", "roots": [ { "name": "Plain", "path": "Plain" } ] }""");
+        var load = BenchmarkSuite.Load(dir);
+        return load.Suite ?? throw new InvalidDataException(string.Join("; ", load.Errors));
+    }
+
+    private static SuiteTask Resolve(BenchmarkSuite suite, BenchmarkTask task, IFileSystem fs) =>
+        suite.Resolve(task, fs, out var error) ?? throw new InvalidDataException(error);
 
     private sealed class FixedVerifier(VerificationResult verdict) : IIndependentVerifier
     {

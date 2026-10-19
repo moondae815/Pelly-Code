@@ -3,6 +3,39 @@
 `tasks/*.yaml` 한 파일이 작업 한 건입니다. 실행기 `eval/PellyCoder.Eval`이 이 정의를 읽어 실행하고 판정합니다(`dotnet run --project eval/PellyCoder.Eval -- --help`).
 정의 형식은 `tests/PellyCoder.Integration.Tests/Benchmark/BenchmarkDefinitionTests.cs`가 검증합니다.
 
+## 스위트 (`suite.json`)
+이 폴더(`eval/benchmark`)가 내장 스위트입니다. 현장 코드베이스로 벤치마크할 때는 같은 모양의 폴더(`suite.json` + `tasks/*.yaml`, 선택 `judges/<루트 이름>/`)를 만들고 `--suite <폴더>`로 지정합니다. `--suite`가 없으면 현재 폴더, 그다음 실행 파일 폴더에서 위로 올라가며 `eval/benchmark/suite.json`을 찾습니다.
+
+```json
+{
+  "formatVersion": 1,
+  "name": "builtin",
+  "roots": [
+    { "name": "Modern", "path": "../corpus/Modern" },
+    { "name": "Legacy", "path": "../corpus/Legacy" },
+    { "name": "Sql", "path": "../corpus/Sql" }
+  ],
+  "supportFiles": ["../corpus/Directory.Build.props", "../corpus/Directory.Packages.props", "../../global.json"],
+  "resultsDir": "../results"
+}
+```
+
+| 키 | 형식 | 설명 |
+| :--- | :--- | :--- |
+| `formatVersion` | 정수 | `1`만 읽습니다 |
+| `name` | 문자열 | 필수, 빈 문자열 불가 |
+| `roots` | 목록 (하나 이상) | 작업 폴더 `work/<id>/<name>/`으로 복사되는 원본 폴더 |
+| `roots[].name` | 문자열 | 형식 `\A[A-Za-z0-9_-]+\z`, 서로 달라야 함(대소문자 무시). `judges`는 쓸 수 없음 |
+| `roots[].path` | 문자열 | 존재하는 폴더. 두 루트가 같은 폴더이거나 한쪽이 다른 쪽 안에 있으면 오류 |
+| `roots[].exclude` | 문자열 목록 (선택) | 복사에서 뺄 폴더 **이름**(경로 아님, 어느 깊이에서든, 대소문자 무시). `bin`·`obj`·`.pelly`·`TestResults`·`.git`·`.vs`는 항상 뺍니다 |
+| `supportFiles` | 문자열 목록 (선택) | 작업 폴더 맨 위(`work/<id>/`)에 파일 이름 그대로 복사할 파일. 존재해야 하고 파일 이름이 서로 달라야 함 |
+| `resultsDir` | 문자열 (선택) | 기본 출력 폴더의 부모. 기본 `results` |
+
+* 경로는 `suite.json`이 있는 폴더 기준 상대 경로 또는 절대 경로입니다. 공백·한글이 있는 경로도 됩니다.
+* 모르는 키는 오류입니다(오타가 조용히 무시되지 않게). 스위트 오류가 있으면 실행기는 오류를 모두 출력하고 종료 4로 끝납니다.
+* 작업의 `file`을 해석하지 못하면(알 수 없는 루트, 루트 밖을 가리키는 `..`, 없는 파일, `\` 구분자) 그 작업은 실행하지 않고 실패(`Definition`)로 기록합니다.
+* Legacy 여부(복원 생략, 보고서의 Legacy 칸)는 루트 이름이 아니라 대상 파일에서 가장 가까운 csproj가 비 SDK 형식인지로 정합니다(`cs` 작업만).
+
 ## 스키마
 
 | 필드 | 형식 | 설명 |
@@ -10,7 +43,7 @@
 | `id` | 문자열 | 파일 이름(확장자 제외)과 같음. 형식 `^(cs-(modern\|legacy)\|sql)-\d{3}$` |
 | `kind` | `cs` \| `sql` | 작업 종류 |
 | `category` | `mvc` \| `adonet` \| `dapper` (선택) | Legacy 작업의 앱 종류(MVC 컨트롤러·서비스 / ADO.NET 배치 / Dapper 리포지토리). Legacy 작업에만 두고 구성 테스트가 셉니다. 합격 판정의 범주(cs-legacy·cs-modern·sql)는 id 접두사입니다 |
-| `file` | 문자열 | `eval/` 기준 상대 경로 |
+| `file` | 문자열 | `<루트 이름>/<루트 안 경로>`, 구분자는 `/`만 (예: `Modern/Shop.Api/Services/OrderService.cs`). 루트는 `suite.json`의 `roots` |
 | `method` | 문자열 (선택) | `cs`: 대상 메서드 이름. `method`와 `line` 중 하나만 |
 | `line` | 정수 (선택) | `cs`: 대상 멤버 안의 줄 번호(1부터). IDE External Tools 사용을 흉내 냄 |
 | `object` | 문자열 (선택) | `sql`: 대상 객체 이름. 파일에 객체가 여러 개면 필수 |
@@ -36,7 +69,7 @@
   * `Shop.Data.JudgeTests`: 데이터 접근 코드(`OrderRepository`, `Shop.Jobs`의 `DailySettlementJob`)를 소스로 컴파일해 가짜 Dapper·`SqlConnection`에 묶습니다. DB 없이 보낸 SQL·매개변수와 결과를 봅니다(가짜 DB가 `ORDER BY`를 행에 적용).
   * 규칙·현재 테스트 표는 `judges/Modern/Shop.Api.JudgeTests/README.md`에 있습니다.
 * 종료 0 작업에 `tests`나 `failingTests`가 있으면 독립 검증이 다음을 합니다.
-  1. 판정 프로젝트를 `work/<id>/judges/Modern/`으로 복사합니다.
+  1. 판정 프로젝트(스위트의 `judges/<루트 이름>/`)를 `work/<id>/judges/<루트 이름>/`으로 복사합니다.
   2. `-p:JudgeTargetRoot=<work/<id>/Modern>`으로 복원·빌드합니다.
   3. 테스트 프로젝트마다 한 번 실행하고 TRX로 테스트별 결과를 읽습니다.
 * `tests`는 모두 Passed, `failingTests`는 모두 Failed여야 합니다. **이름이 결과(TRX)에 없으면 실패**로 봅니다.
@@ -60,8 +93,8 @@ export PELLY_SQL_CONNECTION="Server=localhost,14333;Database=PellyCorpus;User Id
 dotnet run --project eval/PellyCoder.Eval -- --config <pelly.json>            # 50건 전체
 dotnet run --project eval/PellyCoder.Eval -- --tasks sql --config <pelly.json> # 일부 (id 접두사·글롭, --kind cs|sql)
 ```
-* 결과 폴더: `eval/results/<yyyyMMdd-HHmmss>/`(`--out`으로 변경, git 추적 제외)
-  * `report.md`(KPI 표·실패 유형·작업별 결과), `results.json`, `work/<id>/`(작업별 코퍼스 복사본과 `.pelly/runs` 로그)
+* 결과 폴더: `<스위트 resultsDir>/<yyyyMMdd-HHmmss>/`, 내장 스위트는 `eval/results/…`(`--out`으로 변경, git 추적 제외)
+  * `report.md`(KPI 표·실패 유형·작업별 결과), `results.json`, `work/<id>/`(작업별 스위트 루트 복사본과 `.pelly/runs` 로그)
 * 검증 불변 조건(종료 0 = 검증 통과, PRD §2.2)은 실행기가 결과를 pelly와 별개로 다시 **빌드(C#)·NOEXEC 컴파일(SQL)** 해 판정합니다. 동작 판정·문자열 판정의 실패는 위반이 아니라 모델 실패(`Judge`)입니다. **분모는 독립 빌드·컴파일이 `Passed`/`Failed`인 종료 0 실행만**이고, 생략된 실행(Windows가 아닌 환경의 Legacy, 검증기 예외)은 "독립 검증 생략 N건"으로 따로 표시되며 판정된 것이 없으면 "판정 불가"입니다.
 * 종료 코드: 0 실행 완료 · 1 검증 불변 조건 위반 · 2 중단 · 4 설정 오류 또는 LLM 서버 연결 불가
 * **반복 실행·비교 (M3b):** `--repeat N`은 `run-1/`…`run-N/`과 상위 `summary.md`·`summary.json`(`formatVersion` 1)을 만듭니다. `compare <기준선 summary.json> <후보 summary.json>`은 R4 채택 규칙(평균 +1.0건 이상, 범주별 −0.5건 넘게 감소 없음, 위반 0건, 시간 중위값 1.5배 이하)으로 판정합니다(종료 0 채택 · 3 거절 · 4 판정 불가). 기준선은 `docs/m3b-baseline.summary.json`입니다.

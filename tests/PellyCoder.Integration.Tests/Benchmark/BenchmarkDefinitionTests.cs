@@ -1,3 +1,4 @@
+using System.IO.Abstractions;
 using System.Text;
 using System.Text.RegularExpressions;
 using PellyCoder.Core.Sql;
@@ -11,7 +12,13 @@ public class BenchmarkDefinitionTests
     static BenchmarkDefinitionTests() => Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
     private static readonly string EvalRoot = Directory.GetParent(CorpusPaths.Root)!.FullName;
-    private static readonly string TasksDir = Path.Combine(EvalRoot, "benchmark", "tasks");
+    private static readonly BenchmarkSuite Suite = BenchmarkSuite.Load(Path.Combine(EvalRoot, "benchmark")).Suite
+        ?? throw new InvalidDataException("내장 스위트(eval/benchmark/suite.json)를 읽을 수 없습니다");
+    private static readonly string TasksDir = Suite.TasksDir;
+
+    /// <summary>The task's original file, resolved the way the runner does (<see cref="BenchmarkSuite.Resolve"/>).</summary>
+    private static SuiteTask Resolve(BenchmarkTask t) =>
+        Suite.Resolve(t, new FileSystem(), out var error) ?? throw new InvalidDataException(error);
 
     private static IReadOnlyList<(string Path, BenchmarkTask Task)> LoadAll()
     {
@@ -57,8 +64,9 @@ public class BenchmarkDefinitionTests
     {
         foreach (var (_, t) in LoadAll())
         {
-            var file = Path.Combine(EvalRoot, t.File.Replace('/', Path.DirectorySeparatorChar));
-            Assert.True(File.Exists(file), $"{t.Id}: 파일 없음 {t.File}");
+            var resolved = Suite.Resolve(t, new FileSystem(), out var error);
+            Assert.True(resolved is not null, error);
+            var file = resolved.SourceFile;
             var text = ReadSource(file);
 
             if (t.Method is not null)
@@ -91,13 +99,14 @@ public class BenchmarkDefinitionTests
         var modern = tasks.Where(t => t.Id.StartsWith("cs-modern-", StringComparison.Ordinal)).ToList();
         Assert.Equal(18, legacy.Count);
         Assert.Equal(12, modern.Count);
-        Assert.All(legacy, t => Assert.True(t.IsLegacy, $"{t.Id}: Legacy 코퍼스 대상이어야 함"));
-        Assert.All(modern, t => Assert.StartsWith("corpus/Modern/", t.File, StringComparison.Ordinal));
+        Assert.All(legacy, t => Assert.True(Resolve(t).IsLegacy, $"{t.Id}: Legacy(비 SDK) 프로젝트 대상이어야 함"));
+        Assert.All(legacy, t => Assert.StartsWith("Legacy/", t.File, StringComparison.Ordinal));
+        Assert.All(modern, t => Assert.StartsWith("Modern/", t.File, StringComparison.Ordinal));
 
         Assert.Equal(8, legacy.Count(t => t.Category == "mvc"));
         Assert.Equal(5, legacy.Count(t => t.Category == "adonet"));
         Assert.Equal(5, legacy.Count(t => t.Category == "dapper"));
-        Assert.All(tasks.Where(t => !t.IsLegacy), t => Assert.True(t.Category is null, $"{t.Id}: category는 Legacy 작업에만"));
+        Assert.All(tasks.Where(t => !Resolve(t).IsLegacy), t => Assert.True(t.Category is null, $"{t.Id}: category는 Legacy 작업에만"));
 
         Assert.True(tasks.Count(t => t.Line is not null) >= 3, "line 지정 작업 3건 이상");
         Assert.True(tasks.Count(t => t.Object is not null) >= 3, "object 지정 작업 3건 이상");
@@ -129,7 +138,7 @@ public class BenchmarkDefinitionTests
         var problems = new List<string>();
         foreach (var (_, t) in LoadAll().Where(x => x.Task.Kind == "sql"))
         {
-            var text = ReadSource(Path.Combine(EvalRoot, t.File.Replace('/', Path.DirectorySeparatorChar)))
+            var text = ReadSource(Resolve(t).SourceFile)
                 .TrimStart('\uFEFF').Replace("\r\n", "\n");
             var script = SqlBatchSplitter.Split(text, compatLevel: 160);
             var batches = t.Object is null
@@ -155,7 +164,7 @@ public class BenchmarkDefinitionTests
         var problems = new List<string>();
         foreach (var (_, t) in LoadAll())
         {
-            var text = ReadSource(Path.Combine(EvalRoot, t.File.Replace('/', Path.DirectorySeparatorChar)))
+            var text = ReadSource(Resolve(t).SourceFile)
                 .TrimStart('\uFEFF').Replace("\r\n", "\n");
             var scope = t.Kind == "sql"
                 ? TargetText.ForSql(text, t.Object, compatLevel: 160)

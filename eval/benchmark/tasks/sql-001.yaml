@@ -1,6 +1,6 @@
 id: sql-001
 kind: sql
-file: corpus/Sql/objects/usp_CancelOrder.sql
+file: Sql/objects/usp_CancelOrder.sql
 request: "배송 중(Status = 2)인 주문도 취소할 수 없도록 오류를 발생시켜줘"
 judge:
   sqlCompile: true

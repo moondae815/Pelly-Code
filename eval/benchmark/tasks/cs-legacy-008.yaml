@@ -1,7 +1,7 @@
 id: cs-legacy-008
 kind: cs
 category: adonet
-file: corpus/Legacy/Shop.Batch/SettlementBatch.cs
+file: Legacy/Shop.Batch/SettlementBatch.cs
 method: BuildReport
 request: "보고서의 판매액 상위 5 목록을 상위 10까지 보여주게 바꿔줘. 제목도 \"[판매액 상위 10]\"으로 바꿔줘"
 judge:

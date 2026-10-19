@@ -1,7 +1,7 @@
 id: cs-legacy-012
 kind: cs
 category: mvc
-file: corpus/Legacy/Shop.Web/Services/OrderService.cs
+file: Legacy/Shop.Web/Services/OrderService.cs
 line: 83
 request: "배송 완료된 주문을 취소하려고 하면 예외를 던지기 전에 Trace.TraceWarning으로 주문 번호를 남겨줘"
 judge:

@@ -143,7 +143,7 @@ public sealed class RepeatSummaryTests : IDisposable
         Result(id, VerificationResult.Failed, failure, invariant, wall);
 
     private static TaskResult Skip(string id) =>
-        TaskResult.Skipped(new BenchmarkTask { Id = id, Kind = id.StartsWith("sql", StringComparison.Ordinal) ? "sql" : "cs" }, "건너뜀");
+        TaskResult.Skipped(new BenchmarkTask { Id = id, Kind = id.StartsWith("sql", StringComparison.Ordinal) ? "sql" : "cs" }, false, "건너뜀");
 
     private static TaskResult Result(string id, string status, string? failure, bool invariant, double wall) =>
         new(id, id.StartsWith("sql", StringComparison.Ordinal) ? "sql" : "cs", status, 0, 1, [], VerificationResult.Pass,

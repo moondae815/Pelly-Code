@@ -1,7 +1,7 @@
 id: cs-legacy-017
 kind: cs
 category: dapper
-file: corpus/Legacy/Shop.Data/OrderDao.cs
+file: Legacy/Shop.Data/OrderDao.cs
 method: AddHistory
 request: "메시지가 null이거나 공백뿐이면 string.IsNullOrWhiteSpace로 검사해서 저장하지 말고 그냥 돌아가게 해줘"
 judge:

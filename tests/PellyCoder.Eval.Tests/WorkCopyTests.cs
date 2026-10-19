@@ -33,4 +33,63 @@ public sealed class WorkCopyTests : IDisposable
         Assert.False(Directory.Exists(Path.Combine(to, "Shop", "Services", "obj")));
         Assert.False(Directory.Exists(Path.Combine(to, ".pelly")));
     }
+
+    [Fact]
+    public void Prepare_BuiltInModernTask_SameLayoutAsBefore()
+    {
+        var suite = TestPaths.Suite;
+        var task = TestPaths.Resolve("cs-modern-001");
+        var work = Path.Combine(_root, "work");
+
+        var file = WorkCopy.Prepare(suite, task, work);
+
+        Assert.Equal(Path.Combine(work, "Modern", "Shop.Api", "Services", "OrderService.cs"), file);
+        Assert.True(File.Exists(file));
+        foreach (var name in new[] { "Directory.Build.props", "Directory.Packages.props", "global.json" })
+            Assert.True(File.Exists(Path.Combine(work, name)), name);
+        Assert.True(Directory.Exists(Path.Combine(work, ".svn")));
+        Assert.True(File.Exists(Path.Combine(work, "Modern", "Modern.sln")));
+        Assert.False(Directory.Exists(Path.Combine(work, "Legacy")));
+        Assert.False(Directory.Exists(Path.Combine(work, "Modern", "TestResults")));
+    }
+
+    [Fact]
+    public void Prepare_ExcludesGitAndVsAtAnyDepth_KeepsPackages()
+    {
+        var source = Path.Combine(_root, "suite", "src-root");
+        foreach (var f in new[] { ".git/HEAD", "sub/.vs/x", "sub/bin/a.dll", "packages/Foo.1.0/lib/a.dll", "extra/big.bin", "src/A.cs" })
+        {
+            var path = Path.Combine(source, f.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, "x");
+        }
+        var suiteDir = Path.Combine(_root, "suite");
+        File.WriteAllText(Path.Combine(suiteDir, BenchmarkSuite.FileName),
+            """{ "formatVersion": 1, "name": "s", "roots": [ { "name": "App", "path": "src-root", "exclude": ["extra"] } ] }""");
+        var load = BenchmarkSuite.Load(suiteDir);
+        Assert.Empty(load.Errors);
+        var task = load.Suite!.Resolve(new BenchmarkTask { Id = "cs-001", Kind = "cs", File = "App/src/A.cs" }, new System.IO.Abstractions.FileSystem(), out var error);
+        Assert.Null(error);
+        var work = Path.Combine(_root, "work");
+
+        WorkCopy.Prepare(load.Suite, task!, work);
+
+        var copied = Directory.GetFiles(Path.Combine(work, "App"), "*", SearchOption.AllDirectories)
+            .Select(f => Path.GetRelativePath(Path.Combine(work, "App"), f).Replace(Path.DirectorySeparatorChar, '/'))
+            .Order(StringComparer.Ordinal);
+        Assert.Equal(["packages/Foo.1.0/lib/a.dll", "src/A.cs"], copied);
+    }
+
+    [Fact]
+    public void CopyJudges_UsesSuiteJudgesFolder()
+    {
+        var suite = TestPaths.Suite;
+        var work = Path.Combine(_root, "work");
+
+        var copied = WorkCopy.CopyJudges(suite, suite.Roots.Single(r => r.Name == "Modern"), work);
+
+        Assert.Equal(Path.Combine(work, "judges", "Modern"), copied);
+        Assert.True(File.Exists(Path.Combine(work, "judges", "Modern", "Shop.Api.JudgeTests", "Shop.Api.JudgeTests.csproj")));
+        Assert.Null(WorkCopy.CopyJudges(suite, suite.Roots.Single(r => r.Name == "Sql"), work));
+    }
 }

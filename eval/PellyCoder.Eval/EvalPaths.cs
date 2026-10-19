@@ -1,25 +1,20 @@
 namespace PellyCoder.Eval;
 
-/// <summary>Finds the repository's <c>eval/</c> folder (the one holding <c>benchmark/tasks</c> and <c>corpus</c>).</summary>
+/// <summary>Finds the repository's built-in suite (<c>eval/benchmark</c>, the folder holding <c>suite.json</c>).</summary>
 public static class EvalPaths
 {
-    /// <summary>The first <c>eval/</c> found walking up from <paramref name="start"/>, or null.</summary>
-    public static string? FindRoot(string start)
+    /// <summary>The first <c>eval/benchmark</c> with a <c>suite.json</c> found walking up from <paramref name="start"/>, or null.</summary>
+    public static string? FindSuite(string start)
     {
         for (var dir = new DirectoryInfo(start); dir is not null; dir = dir.Parent)
         {
-            var candidate = Path.Combine(dir.FullName, "eval");
-            if (Directory.Exists(Path.Combine(candidate, "benchmark", "tasks")) && Directory.Exists(Path.Combine(candidate, "corpus")))
+            var candidate = Path.Combine(dir.FullName, "eval", "benchmark");
+            if (File.Exists(Path.Combine(candidate, BenchmarkSuite.FileName)))
                 return candidate;
         }
         return null;
     }
 
     /// <summary>From the current directory, then from the executable's folder.</summary>
-    public static string? FindRoot() => FindRoot(Directory.GetCurrentDirectory()) ?? FindRoot(AppContext.BaseDirectory);
-
-    public static string TasksDir(string evalRoot) => Path.Combine(evalRoot, "benchmark", "tasks");
-
-    /// <summary>A task's <c>file</c> (relative to <c>eval/</c>, forward slashes) as a path under <paramref name="root"/>.</summary>
-    public static string Resolve(string root, string relative) => Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar));
+    public static string? FindSuite() => FindSuite(Directory.GetCurrentDirectory()) ?? FindSuite(AppContext.BaseDirectory);
 }

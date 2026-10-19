@@ -52,7 +52,7 @@ public class KpiReportTests
         [
             Result("cs-modern-001", "cs", "Failed", 0, 1, 10, failure: "Judge", invariant: true),
             Result("cs-modern-002", "cs", "Passed", 0, 1, 10),
-            TaskResult.Skipped(new BenchmarkTask { Id = "sql-001", Kind = "sql" }, "PELLY_SQL_CONNECTION이 없습니다"),
+            TaskResult.Skipped(new BenchmarkTask { Id = "sql-001", Kind = "sql" }, false, "PELLY_SQL_CONNECTION이 없습니다"),
         ];
 
         var report = KpiReport.Render(results, "테스트");
@@ -125,8 +125,8 @@ public class KpiReportTests
     [Fact]
     public void Kpi_Report_LabelsEnvironmentSkips()
     {
-        var task = new BenchmarkTask { Id = "cs-modern-001", Kind = "cs", File = "corpus/Modern/x.cs" };
-        TaskResult[] results = [TaskResult.EnvironmentSkipped(task, "복원 실패", "dotnet restore 종료 1")];
+        var task = new BenchmarkTask { Id = "cs-modern-001", Kind = "cs", File = "Modern/x.cs" };
+        TaskResult[] results = [TaskResult.EnvironmentSkipped(task, false, "복원 실패", "dotnet restore 종료 1")];
 
         var report = KpiReport.Render(results, "테스트");
 
@@ -135,17 +135,19 @@ public class KpiReportTests
     }
 
     [Fact]
-    public void TaskResult_FactoriesAndLegacyFollowTheCorpusPath()
+    public void TaskResult_FactoriesAndLegacyFollowTheProjectStyle()
     {
-        var legacy = new BenchmarkTask { Id = "cs-legacy-001", Kind = "cs", File = "corpus/Legacy/Shop.Web/Services/OrderService.cs" };
-        var modern = new BenchmarkTask { Id = "cs-legacy-099", Kind = "cs", File = "corpus/Modern/Shop.Api/Services/OrderService.cs" };
+        var legacy = TestPaths.Resolve("cs-legacy-001");
+        var modern = TestPaths.Suite.Resolve(
+            new BenchmarkTask { Id = "cs-legacy-099", Kind = "cs", File = "Modern/Shop.Api/Services/OrderService.cs" },
+            new System.IO.Abstractions.FileSystem(), out _)!;
 
         Assert.True(legacy.IsLegacy);
-        Assert.False(modern.IsLegacy); // the corpus path decides, not the id
-        var failed = TaskResult.Failed(legacy, "실행기 오류: x", "RunnerError");
+        Assert.False(modern.IsLegacy); // the project style decides, not the id
+        var failed = TaskResult.Failed(legacy.Task, legacy.IsLegacy, "실행기 오류: x", "RunnerError");
         Assert.Equal((VerificationResult.Failed, "RunnerError", true, (string?)null), (failed.Status, failed.FailureType, failed.IsLegacy, failed.SkipReason));
         Assert.Equal(["실행기 오류: x"], failed.Reasons);
-        Assert.False(TaskResult.Skipped(modern, "r").IsLegacy);
+        Assert.False(TaskResult.Skipped(modern.Task, modern.IsLegacy, "r").IsLegacy);
     }
 
     [Fact]

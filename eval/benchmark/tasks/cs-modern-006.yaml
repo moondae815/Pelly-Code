@@ -1,6 +1,6 @@
 id: cs-modern-006
 kind: cs
-file: corpus/Modern/Shop.Api/Controllers/OrdersController.cs
+file: Modern/Shop.Api/Controllers/OrdersController.cs
 method: Search
 request: "pageSize가 100을 넘으면 검색하지 말고 BadRequest를 반환해줘"
 judge:

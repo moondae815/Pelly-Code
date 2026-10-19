@@ -12,7 +12,7 @@ namespace PellyCoder.Eval;
 /// <summary>Re-verification of a finished task; <see cref="IndependentVerifier"/> is the real one (tests substitute it).</summary>
 public interface IIndependentVerifier
 {
-    /// <param name="corpusRoot">The copied top-level corpus folder (<c>work/&lt;id&gt;/Modern</c>); test projects are searched here.</param>
+    /// <param name="corpusRoot">The copied suite root (<c>work/&lt;id&gt;/&lt;root&gt;</c>); test projects are searched here.</param>
     Task<VerificationResult> VerifyCsAsync(BenchmarkTask task, string file, string corpusRoot, CancellationToken ct);
 
     Task<VerificationResult> VerifySqlAsync(BenchmarkTask task, string file, CancellationToken ct);
@@ -30,11 +30,11 @@ public sealed record JudgeTestRun(IReadOnlyDictionary<string, TestCaseResult> Re
 /// Re-verifies a finished task without the orchestrator: a fresh build (and the judge's tests) for C#, NOEXEC compile and
 /// object existence for SQL. Its verdict is what the "검증 불변 조건" KPI compares the run's exit code against.
 /// </summary>
-/// <param name="evalRoot">The <c>eval/</c> folder; its <c>benchmark/judges</c> projects are copied next to the work copy. Null: corpus tests only.</param>
+/// <param name="suite">The task's suite; its <c>judges/&lt;root&gt;</c> projects are copied next to the work copy. Null: root tests only.</param>
 public sealed class IndependentVerifier(IFileSystem fs, IProcessRunner processes, PellyOptions options, ISqlExecutor? sql,
-    Func<bool>? isWindows = null, string? evalRoot = null) : IIndependentVerifier
+    Func<bool>? isWindows = null, BenchmarkSuite? suite = null) : IIndependentVerifier
 {
-    /// <summary>MSBuild property of a judge project naming the corpus folder it is built against (its default is <c>eval/corpus/&lt;folder&gt;</c>).</summary>
+    /// <summary>MSBuild property of a judge project naming the root copy it is built against (the built-in default is <c>eval/corpus/&lt;folder&gt;</c>).</summary>
     public const string JudgeTargetRootProperty = "JudgeTargetRoot";
 
     private static readonly TimeSpan RestoreTimeout = TimeSpan.FromMinutes(5);
@@ -107,16 +107,18 @@ public sealed class IndependentVerifier(IFileSystem fs, IProcessRunner processes
     /// Runs every test project that holds one of the names, once each, through <see cref="TestRunner"/> (build, then
     /// <c>--no-build</c> run with a TRX). <paramref name="tests"/> are looked up in the judge projects and the corpus,
     /// <paramref name="failingTests"/> in the corpus only (R3); the project is the one whose name is the longest prefix
-    /// of the test name. Judge projects are copied to <c>&lt;work&gt;/judges/&lt;folder&gt;</c>, then restored and built with
+    /// of the test name. Judge projects are copied to <c>&lt;work&gt;/judges/&lt;root&gt;</c>, then restored and built with
     /// <c>-p:JudgeTargetRoot=&lt;corpusRoot&gt;</c>; corpus projects are expected to be restored already (the runner restores the solution).
     /// </summary>
-    /// <param name="corpusRoot">The copied top-level corpus folder (<c>work/&lt;id&gt;/Modern</c>).</param>
+    /// <param name="corpusRoot">The copied suite root (<c>work/&lt;id&gt;/&lt;root&gt;</c>).</param>
     public async Task<JudgeTestRun> RunJudgeTestsAsync(IReadOnlyCollection<string> tests, IReadOnlyCollection<string> failingTests,
         string corpusRoot, CancellationToken ct)
     {
         var root = Path.GetFullPath(corpusRoot);
         var workRoot = Path.GetDirectoryName(root)!;
-        var judgeDir = tests.Count > 0 && evalRoot is not null ? WorkCopy.CopyJudges(evalRoot, Path.GetFileName(root), workRoot) : null;
+        // The work copy of a root is <work>/<root name>, so the folder name is the root.
+        var suiteRoot = tests.Count > 0 ? suite?.Roots.FirstOrDefault(r => r.Name == Path.GetFileName(root)) : null;
+        var judgeDir = suiteRoot is null ? null : WorkCopy.CopyJudges(suite!, suiteRoot, workRoot);
         var judgeProjects = judgeDir is null ? [] : Directory.GetFiles(judgeDir, "*.csproj", SearchOption.AllDirectories);
         var corpusProjects = Directory.GetFiles(root, "*.csproj", SearchOption.AllDirectories);
 

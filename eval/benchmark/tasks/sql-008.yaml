@@ -1,6 +1,6 @@
 id: sql-008
 kind: sql
-file: corpus/Sql/objects/usp_GetOrderDetail.sql
+file: Sql/objects/usp_GetOrderDetail.sql
 request: "첫 번째 결과 집합(주문)에 취소 시각(CancelledAt)과 취소 사유(CancelReason) 열을 추가해줘"
 judge:
   sqlCompile: true

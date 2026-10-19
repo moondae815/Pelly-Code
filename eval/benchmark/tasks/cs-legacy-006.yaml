@@ -1,7 +1,7 @@
 id: cs-legacy-006
 kind: cs
 category: mvc
-file: corpus/Legacy/Shop.Web/Services/OrderService.cs
+file: Legacy/Shop.Web/Services/OrderService.cs
 line: 95
 request: "결제 전(Pending) 주문을 취소한 경우에는 \"결제 전 주문 취소\" 이력을 하나 더 남기게 해줘"
 judge:

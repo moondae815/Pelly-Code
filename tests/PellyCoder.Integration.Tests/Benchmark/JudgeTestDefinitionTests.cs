@@ -17,17 +17,19 @@ namespace PellyCoder.Integration.Tests.Benchmark;
 public class JudgeTestDefinitionTests
 {
     private static readonly string EvalRoot = Directory.GetParent(CorpusPaths.Root)!.FullName;
+    private static readonly BenchmarkSuite Suite = BenchmarkSuite.Load(Path.Combine(EvalRoot, "benchmark")).Suite
+        ?? throw new InvalidDataException("내장 스위트(eval/benchmark/suite.json)를 읽을 수 없습니다");
 
     [Fact]
     public async Task JudgeTests_FailOnOriginal_And_FailingTestsPassOnOriginal()
     {
         var ct = TestContext.Current.CancellationToken;
-        var tasks = BenchmarkTask.LoadAll(Path.Combine(EvalRoot, "benchmark", "tasks"))
+        var tasks = BenchmarkTask.LoadAll(Suite.TasksDir)
             .Where(t => (t.Judge?.Tests?.Count ?? 0) + (t.Judge?.FailingTests?.Count ?? 0) > 0)
             .ToList();
         Assert.NotEmpty(tasks);
         // R1: 동작 판정은 Modern C# 작업에만 둔다.
-        Assert.All(tasks, t => Assert.StartsWith("corpus/Modern/", t.File, StringComparison.Ordinal));
+        Assert.All(tasks, t => Assert.StartsWith("Modern/", t.File, StringComparison.Ordinal));
 
         var created = Path.Combine(Path.GetTempPath(), "pelly-judge-def-" + Guid.NewGuid().ToString("N")[..8]);
         Directory.CreateDirectory(created);
@@ -35,7 +37,7 @@ public class JudgeTestDefinitionTests
         var workRoot = Path.Combine(TestRunnerSdkTests.RealPath(created), "work");
         try
         {
-            WorkCopy.Prepare(EvalRoot, tasks[0], workRoot);
+            WorkCopy.Prepare(Suite, Suite.Resolve(tasks[0], new FileSystem(), out var error) ?? throw new InvalidDataException(error), workRoot);
             var corpusRoot = Path.Combine(workRoot, "Modern");
             var processes = new SystemProcessRunner(TimeProvider.System);
             var restore = await processes.RunAsync(new ProcessSpec("dotnet",
@@ -44,7 +46,7 @@ public class JudgeTestDefinitionTests
 
             var tests = tasks.SelectMany(t => t.Judge!.Tests ?? []).Distinct().ToList();
             var failing = tasks.SelectMany(t => t.Judge!.FailingTests ?? []).Distinct().ToList();
-            var run = await new IndependentVerifier(new FileSystem(), processes, new PellyOptions(), null, evalRoot: EvalRoot)
+            var run = await new IndependentVerifier(new FileSystem(), processes, new PellyOptions(), null, suite: Suite)
                 .RunJudgeTestsAsync(tests, failing, corpusRoot, ct);
 
             Assert.Null(run.Error);
@@ -82,7 +84,7 @@ public class JudgeTestDefinitionTests
             Assert.DoesNotContain("JudgeTests", File.ReadAllText(sln), StringComparison.Ordinal);
 
         // Every judge project (Shop.Api.JudgeTests, Shop.Data.JudgeTests, …) has the same default and its own props.
-        var projects = Directory.GetFiles(Path.Combine(EvalRoot, "benchmark", "judges", "Modern"), "*.csproj", SearchOption.AllDirectories)
+        var projects = Directory.GetFiles(Suite.JudgesDir(Suite.Roots.Single(r => r.Name == "Modern")), "*.csproj", SearchOption.AllDirectories)
             .Where(p => !p.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
             .ToList();
         Assert.Equal(["Shop.Api.JudgeTests", "Shop.Data.JudgeTests"], projects.Select(Path.GetFileNameWithoutExtension).Order(StringComparer.Ordinal));

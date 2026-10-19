@@ -41,14 +41,16 @@ public sealed class BenchmarkRunnerSmokeTests(ITestOutputHelper output) : IDispo
     public async Task Runner_CannedBackend_CsModern001_Passes()
     {
         var evalRoot = Directory.GetParent(CorpusPaths.Root)!.FullName;
-        var task = BenchmarkTask.Load(Path.Combine(evalRoot, "benchmark", "tasks", "cs-modern-001.yaml"));
+        var suite = BenchmarkSuite.Load(Path.Combine(evalRoot, "benchmark")).Suite!;
         var fs = new FileSystem();
+        var task = suite.Resolve(BenchmarkTask.Load(Path.Combine(suite.TasksDir, "cs-modern-001.yaml")), fs, out var error);
+        Assert.True(task is not null, error);
         var options = Assert.IsType<PellyOptions>(
             PellyOptionsLoader.Load(fs, null, null, new Dictionary<string, string?>(), new Dictionary<string, string?>()).Options);
         var backend = new CannedLlmBackend([ShippedGuard]);
         var log = new List<string>();
         var runner = new BenchmarkRunner(new RunnerSetup(fs, new SystemProcessRunner(TimeProvider.System), backend, options,
-            TimeProvider.System, evalRoot, Sql: null, SqlSkipReason: "no SQL in this test", log.Add));
+            TimeProvider.System, suite, Sql: null, SqlSkipReason: "no SQL in this test", log.Add));
 
         var result = await runner.RunAsync(task, _out, TestContext.Current.CancellationToken);
 
@@ -64,7 +66,7 @@ public sealed class BenchmarkRunnerSmokeTests(ITestOutputHelper output) : IDispo
         Assert.Single(backend.Requests);
 
         // The run happened in the copy; the corpus is untouched.
-        var copied = File.ReadAllText(Path.Combine(_out, "work", task.Id, "Modern", "Shop.Api", "Services", "OrderService.cs"));
+        var copied = File.ReadAllText(Path.Combine(_out, "work", task.Task.Id, "Modern", "Shop.Api", "Services", "OrderService.cs"));
         Assert.Contains("OrderStatus.Shipped)\n            {\n                throw", copied.Replace("\r\n", "\n", StringComparison.Ordinal), StringComparison.Ordinal);
         Assert.DoesNotContain("배송 중인 주문은 취소할 수 없습니다", File.ReadAllText(CorpusPaths.Get("Modern/Shop.Api/Services/OrderService.cs")), StringComparison.Ordinal);
     }

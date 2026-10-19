@@ -19,6 +19,7 @@ public sealed class IndependentVerifierJudgeTests : IDisposable
 
     private readonly string _root = Path.Combine(Path.GetTempPath(), "pelly-eval-judge-" + Guid.NewGuid().ToString("N")[..8]);
     private readonly string _evalRoot;
+    private readonly BenchmarkSuite _suite;
     private readonly string _workRoot;
     private readonly string _corpusRoot;
     private readonly string _file;
@@ -29,6 +30,10 @@ public sealed class IndependentVerifierJudgeTests : IDisposable
         _evalRoot = Path.Combine(_root, "eval");
         Write(Path.Combine(_evalRoot, "benchmark", "judges", "Modern", "Shop.Api.JudgeTests", "Shop.Api.JudgeTests.csproj"), XunitV3);
         Write(Path.Combine(_evalRoot, "benchmark", "judges", "Modern", "Shop.Api.JudgeTests", "JudgeFakes.cs"), "// fakes");
+        Directory.CreateDirectory(Path.Combine(_evalRoot, "corpus", "Modern"));
+        Write(Path.Combine(_evalRoot, "benchmark", BenchmarkSuite.FileName),
+            """{ "formatVersion": 1, "name": "t", "roots": [ { "name": "Modern", "path": "../corpus/Modern" } ] }""");
+        _suite = BenchmarkSuite.Load(Path.Combine(_evalRoot, "benchmark")).Suite!;
 
         _workRoot = Path.Combine(_root, "out", "work", "cs-modern-901");
         _corpusRoot = Path.Combine(_workRoot, "Modern");
@@ -52,12 +57,12 @@ public sealed class IndependentVerifierJudgeTests : IDisposable
 
     private static BenchmarkTask Task(List<string>? tests, List<string>? failing) => new()
     {
-        Id = "cs-modern-901", Kind = "cs", File = "corpus/Modern/Shop.Api/Services/OrderService.cs", Method = "CancelAsync", Request = "r",
+        Id = "cs-modern-901", Kind = "cs", File = "Modern/Shop.Api/Services/OrderService.cs", Method = "CancelAsync", Request = "r",
         Judge = new BenchmarkJudge { Build = true, Tests = tests, FailingTests = failing },
     };
 
     private Task<VerificationResult> VerifyAsync(BenchmarkTask task) =>
-        new IndependentVerifier(new FileSystem(), _procs, new PellyOptions(), null, () => false, _evalRoot)
+        new IndependentVerifier(new FileSystem(), _procs, new PellyOptions(), null, () => false, _suite)
             .VerifyCsAsync(task, _file, _corpusRoot, TestContext.Current.CancellationToken);
 
     [Fact]

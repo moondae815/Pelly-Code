@@ -1,6 +1,6 @@
 id: sql-011
 kind: sql
-file: corpus/Sql/objects/vw_ShippedOrders.sql
+file: Sql/objects/vw_ShippedOrders.sql
 request: "뷰에 배송 완료 시각(Shipments.DeliveredAt) 열을 DeliveredAt이라는 이름으로 추가해줘"
 judge:
   sqlCompile: true

@@ -1,6 +1,6 @@
 id: sql-012
 kind: sql
-file: corpus/Sql/objects/Settlement_All.sql
+file: Sql/objects/Settlement_All.sql
 object: dbo.usp_SettleDaily
 request: "판매 중지된 판매자(Sellers.IsActive = 0)의 주문은 일 정산에서 빼줘"
 judge:

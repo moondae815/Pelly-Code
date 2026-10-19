@@ -1,6 +1,6 @@
 id: cs-modern-004
 kind: cs
-file: corpus/Modern/Shop.Api/Data/OrderRepository.cs
+file: Modern/Shop.Api/Data/OrderRepository.cs
 line: 86
 request: "검색 키워드가 공백뿐이면 키워드 조건을 넣지 않도록 IsNullOrWhiteSpace로 검사해줘"
 judge:

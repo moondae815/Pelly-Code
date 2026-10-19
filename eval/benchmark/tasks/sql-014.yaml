@@ -1,6 +1,6 @@
 id: sql-014
 kind: sql
-file: corpus/Sql/objects/Settlement_All.sql
+file: Sql/objects/Settlement_All.sql
 object: dbo.usp_SettleMonthly
 request: "@SellerId int = NULL 매개변수를 추가해서 값을 주면 그 판매자의 정산만 조회되게 해줘"
 judge:

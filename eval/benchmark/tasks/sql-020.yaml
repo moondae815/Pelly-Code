@@ -1,6 +1,6 @@
 id: sql-020
 kind: sql
-file: corpus/Sql/objects/usp_SetSellerCommission.sql
+file: Sql/objects/usp_SetSellerCommission.sql
 request: "@CommissionRate가 0보다 작거나 1보다 크면 오류를 발생시키고 저장하지 않게 해줘"
 judge:
   sqlCompile: true

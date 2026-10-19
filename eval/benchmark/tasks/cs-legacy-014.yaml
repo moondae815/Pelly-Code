@@ -1,7 +1,7 @@
 id: cs-legacy-014
 kind: cs
 category: mvc
-file: corpus/Legacy/Shop.Web/Controllers/OrderController.cs
+file: Legacy/Shop.Web/Controllers/OrderController.cs
 method: Detail
 request: "주문을 찾지 못하면 HttpNotFound() 대신 TempData[\"Error\"]에 \"주문을 찾을 수 없습니다.\"를 넣고 목록(Index)으로 보내줘"
 judge:

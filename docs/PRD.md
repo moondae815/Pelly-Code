@@ -493,13 +493,13 @@ pelly가 요청마다 지정하는 값: `options.num_ctx = 8192`, `keep_alive = 
 * **Milestone 3a (완료, 2026-10-18) — 제품 기능:** DTO 슬라이스, `--test`, `pelly report`·`--sanitize`, `pelly doctor` 완성(`--project`·`--sanitize`), `--verbose`, `--pause-on-exit`, 대기 시간 분리. 벤치마크 30건 회귀 30/30·불변 조건 위반 0건 (`docs/m3a-benchmark.md`, `docs/m3a-e2e.md`).
 * **Milestone 3b (완료, 2026-10-19 — S7 Rider 확인 결과 대기) — 튜닝 및 반입 패키지 (M3 중 남은 부분):**
   * 외부 벤치마크 50건과 3회 반복 기준선, 튜닝 후보 3개 측정(모두 거절, 기본값 유지), 동작 판정 연동 (`docs/m3b-baseline.md`, `docs/m3b-tuning.md`)
-  * `win-x64` 단일 파일 publish(S6)·CI(실행 6회 = 잡 키 5개, unit은 macOS·Windows 매트릭스), self-contained 패키지·SBOM·라이선스 목록·체크섬·버전 기록 생성(`pelly-0.9.0-win-x64.zip`). **반입 신청은 사람이 진행합니다**(§11)
+  * `win-x64` 단일 파일 publish(S6)·CI(실행 6회 = 잡 키 5개, unit은 macOS·Windows 매트릭스), self-contained 패키지·SBOM·라이선스 목록·체크섬·버전 기록 생성(첫 반입본 `pelly-0.9.0-win-x64.zip`, 버전 0.9.0. 현재 반입본은 0.9.1). **반입 신청은 사람이 진행합니다**(§11)
   * S7(Rider External Tools) 확인표 준비 완료, 결과는 사용자가 확인하는 대로 기입
 * **Milestone 4 (5주 차 이후, 반입 승인 시점에 따라 조정) — 폐쇄망 이관 및 현장 검증:**
   * 설치, `pelly doctor`로 서버·빌드 도구·SQL·Windows 인증 점검
   * 실제 코드 기반 폐쇄망 벤치마크 작성 및 실행 → **KPI 최종 판정**
   * 설정 파일로 가능한 튜닝은 폐쇄망 안에서 진행. 코드 수정이 필요하면 비식별 리포트를 반출해 외부에서 수정 → 재반입
-  * **현장 키트 절차 요약 (`deploy/field-guide.md`):** 반입 zip 둘의 SHA-256 확인 → 설치와 `pelly doctor` → 모델 GGUF SHA-256 계산과 `pelly-eval record --gguf-sha256`로 버전 기록 → 현장 스위트 작성과 `pelly-eval validate`(필요하면 `--deep`) → 기준선 `--repeat 3` 실행 → 후보 설정으로 같은 조건 재측정과 `compare` → `pelly-eval export`·`pelly report --sanitize`로 비식별 결과 반출 → `field-results.md` 기입. 명령은 Windows에서 실행해 보지 못했습니다(Windows 미확인).
+  * **현장 키트 절차 요약 (`deploy/field-guide.md`. 저장소의 `deploy/` 파일이 원본이고 현장 키트 zip 안에서는 `docs/field-guide.md`입니다. `field-benchmark.md`·`field-results.md`도 같습니다):** 반입 zip 둘의 SHA-256 확인 → 설치와 `pelly doctor` → 모델 GGUF SHA-256 계산과 `pelly-eval record --gguf-sha256`로 버전 기록 → 현장 스위트 작성과 `pelly-eval validate`(필요하면 `--deep`) → 기준선 `--repeat 3` 실행 → 후보 설정으로 같은 조건 재측정과 `compare` → `pelly-eval export`·`pelly report --sanitize`로 비식별 결과 반출 → `field-results.md` 기입. 명령은 Windows에서 실행해 보지 못했습니다(Windows 미확인).
   * **반입 전 사람 결정 다섯 가지:** ① `Microsoft.Data.SqlClient.SNI.runtime` 라이선스 잠정 예외의 승인 또는 거부(거부하면 관리 코드 SNI로 바꿈) ② pelly 자체 `LICENSE` ③ S7 Rider 실기 확인 결과 ④ 폐쇄망 정보 Q9~Q13 ⑤ 반입 신청
 
 ---
@@ -548,7 +548,7 @@ pelly가 요청마다 지정하는 값: `options.num_ctx = 8192`, `keep_alive = 
 
 * **라이선스 게이트:** MIT·Apache-2.0·BSD 계열이 아닌 패키지가 나오면 패키지 스크립트가 실패합니다. 예외는 `deploy/license-exceptions.json`에 패키지 id·버전·라이선스 파일 SHA-256·승인자를 적은 것만 허용합니다. **현재 예외는 하나**(`Microsoft.Data.SqlClient.SNI.runtime` 7.1.0, 네이티브 SNI의 Microsoft 재배포 라이선스)이며 컨트롤러의 **잠정 승인으로 사람 확인 대기** 중입니다. 사람이 거절하면 Windows에서도 관리 코드 SNI로 바꾸고 예외를 지웁니다(M4 반입 전).
 * **버전 기록 (R8 대체):** Ollama 버전과 모델 태그, 모델 digest·형식·양자화(`modelDigest`·`modelFormat`·`modelQuantization`)를 담습니다. 개발 PC 모델은 GGUF가 아닌 safetensors `nvfp4`라 GGUF SHA-256을 읽을 수 없고, 벤치마크하지 않은 20GB 모델을 따로 받아 해시하는 것은 의미가 없어서, **현장 모델의 GGUF SHA-256은 M4에서 기록합니다.** 지금은 패키지가 현장 모델 파일의 동일성을 증명하지 못합니다.
-**M4 준비 구성 (현장 키트, 버전 `0.9.1`):** 같은 `package` 잡이 둘째 zip `pelly-field-kit-0.9.1-win-x64.zip`을 만듭니다(`build-package.ps1 -Package field-kit`). 허용 목록은 `deploy/field-kit-files.txt`이며 `pelly-eval.exe`(단일 파일), 현장 절차 문서(`docs/field-guide.md`, `field-benchmark.md`, `field-results.md`), 스위트·작업 템플릿(`templates/`), `sbom.cdx.json`, `THIRD-PARTY-NOTICES.md`, 예외 승인 라이선스 전문, `SHA256SUMS.txt`가 들어갑니다. `pelly.exe`와 설치 문서는 첫 zip에만 있습니다. `pelly-eval.exe`는 개발자 도구가 아니라 현장에서 기준선을 재는 반입 대상이며, 그래서 `NetworkPolicyTests`가 `eval/PellyCoder.Eval/`도 훑습니다.
+**M4 준비 구성 (현장 키트, 버전 `0.9.1`):** 같은 `package` 잡이 둘째 zip `pelly-field-kit-0.9.1-win-x64.zip`을 만듭니다(`build-package.ps1 -Package field-kit`). 허용 목록은 `deploy/field-kit-files.txt`이며 `pelly-eval.exe`(단일 파일), 현장 절차 문서(`docs/field-guide.md`, `field-benchmark.md`, `field-results.md`), 스위트·작업·판정 프로젝트 템플릿(`templates/`), `sbom.cdx.json`, `THIRD-PARTY-NOTICES.md`, 예외 승인 라이선스 전문, `SHA256SUMS.txt`가 들어갑니다. `pelly.exe`와 설치 문서는 첫 zip에만 있습니다. `pelly-eval --offline-selftest`(숨은 옵션)는 `pelly doctor --offline-selftest`와 같은 여섯 행으로 단일 파일의 실행 경로를 확인하며, CI `publish-check`와 `package` 테스트가 실행합니다. `pelly-eval.exe`는 개발자 도구가 아니라 현장에서 기준선을 재는 반입 대상이며, 그래서 `NetworkPolicyTests`가 `eval/PellyCoder.Eval/`도 훑습니다.
 
 * **`LICENSE` 파일 없음:** pelly 자체의 라이선스는 사람이 정합니다. 정해지면 허용 목록에 한 줄을 더합니다.
 * 개발자 PC의 설정 파일·경로·연결 문자열은 zip에 들어가면 안 되며 패키지 테스트가 검사합니다.

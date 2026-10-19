@@ -18,7 +18,7 @@ pelly는 실행 중에 설정된 서버 둘에만 접속합니다. 그 밖의 �
 
 * 두 주소 모두 사용자가 정합니다. 설정이 없을 때 `llm.endpoint` 기본값은 `http://localhost:11434`(같은 PC)입니다. SQL 기본 주소는 없습니다.
 * 업데이트 확인, 텔레메트리, 오류 보고, 라이선스 확인은 없습니다.
-* 숨김 옵션 `pelly doctor --offline-selftest`(패키지 점검용)에만 SqlClient 자체 점검 행이 있습니다. 일반 `pelly doctor`에는 없습니다.
+* 숨김 옵션 `pelly doctor --offline-selftest`와 `pelly-eval --offline-selftest`(패키지 점검용, 같은 행)에만 SqlClient 자체 점검 행이 있습니다. 일반 `pelly doctor`에는 없습니다.
   * Windows에서는 존재하지 않는 로컬 이름 있는 파이프(`np:\\.\pipe\pelly-selftest-none`)를 열어 봅니다. 네트워크로 나가지 않습니다. Windows 미확인(CI windows-latest에서만 실행).
   * 그 밖의 OS에서는 연결 객체를 만들기만 하고 열지 않습니다.
 * 반입 zip 안의 실행 파일은 위 두 곳 말고 다른 곳에 접속하지 않습니다.

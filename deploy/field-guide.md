@@ -14,6 +14,12 @@
 이 문서에서 실행기를 `pelly-eval`이라고 부릅니다. 파일 이름은 `pelly-eval.exe`입니다.
 `pelly-eval --help`가 옵션과 종료 코드를 보여 줍니다.
 
+`pelly-eval`을 부르는 방법은 셋 중 하나입니다(Windows 미확인).
+
+* `cmd`: 현장 키트 zip을 푼 폴더로 이동(`cd /d <키트 폴더>`)한 뒤 이 문서의 명령을 그대로 씁니다.
+* PowerShell: 현재 폴더의 실행 파일은 이름만으로 부를 수 없습니다. 키트 폴더에서 `.\pelly-eval`처럼 앞에 `.\`를 붙입니다(예: `.\pelly-eval --help`).
+* 어느 폴더에서나 쓰려면 키트 폴더를 `PATH`에 넣습니다. `cmd`에서는 `set PATH=%PATH%;<키트 폴더>`(그 창에서만 유효)입니다.
+
 ## 1. zip의 SHA-256 확인
 
 zip 두 개를 풀기 전에, zip과 다른 경로로 받은 값과 비교합니다. 방법은 pelly zip을 푼 폴더의 `docs\install.md` 2절과 같습니다.
@@ -47,6 +53,14 @@ pelly doctor --config <pelly.json> --project <레거시.csproj>
 | SQL 연결 | `Windows 인증 (<계정>)` 또는 `SQL 로그인 (<계정>)`. 접속 계정이 읽기 전용 계정인지 확인합니다 |
 
 Fail이 하나라도 있으면 안내대로 고친 뒤 다시 실행합니다.
+
+현장 키트의 실행 파일도 확인합니다. 서버 없이 내장 구성 요소(토크나이저, 파서, 인코딩, 포함 리소스, SqlClient)만 봅니다.
+
+```cmd
+pelly-eval --offline-selftest
+```
+
+기대: 종료 코드 0, 여섯 행 모두 `Ok`. 아니면 키트 zip을 다시 반입합니다.
 
 ## 3. 버전 기록
 
@@ -97,6 +111,8 @@ pelly-eval --suite <폴더> --config <pelly.json> --repeat 3 --keep-work failed 
 * `sql` 작업에는 환경 변수 `PELLY_SQL_CONNECTION`이 필요합니다. 비밀번호가 있는 연결 문자열은 이 환경 변수로만 넘깁니다. 연결이 없거나 연결 대상이 `pelly.json`의 허용 목록(`sql.allowedHosts`, `sql.allowedDatabases`)에 없으면 `sql` 작업은 건너뜁니다.
 * 종료 코드: 0 실행 완료 · 1 검증 불변 조건 위반 · 2 중단 · 4 설정 오류 또는 LLM 서버 연결 불가.
 * 종료 1이면 중단하고 `report.md`를 먼저 읽으십시오. 이것은 모델 실패가 아니라 시스템 보장 위반입니다.
+* `--out` 폴더가 이미 있고 비어 있지 않으면 실행하지 않고 종료 4입니다. 다시 돌릴 때는 새 폴더(예: `baseline-2`)를 주십시오. 이전 결과에 이어 쓰면 작업이 「생략」으로 집계되기 때문입니다.
+* id 형식이 틀리거나 대상을 해석하지 못한 작업은 실행하지 않고 실패(`Definition`)로 기록됩니다. 5절 `validate`를 먼저 깨끗하게 하십시오.
 
 기대: `D:\pelly-field\baseline\`에 `summary.md`, `summary.json`, `run-1\`~`run-3\`가 생깁니다. 각 `run-<k>\`에 `report.md`와 `results.json`이 있습니다.
 
@@ -136,7 +152,7 @@ pelly-eval export D:\pelly-field\candidate-1 --out D:\pelly-field\export\candida
 ```
 
 * 작업 복사본(`work\`)과 pelly 실행 기록은 복사하지 않습니다. 사유·상세 본문과 접속 주소·경로는 지웁니다.
-* 작업 id는 형식이 정해져 있어 업무 이름이 들어가지 않습니다.
+* 작업 id는 형식이 정해져 있어 업무 이름이 들어가지 않습니다. 형식이 틀린 id가 결과에 하나라도 있으면 `export`는 반출하지 않고 종료 4로 끝나며, 그 id를 출력합니다.
 
 pelly 자체의 실행 기록과 환경은 따로 비식별해서 냅니다.
 

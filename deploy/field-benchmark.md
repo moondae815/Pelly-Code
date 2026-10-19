@@ -1,7 +1,7 @@
 # 현장 스위트와 작업 작성
 
-현장 코드로 pelly를 재려면 스위트 폴더를 만듭니다. 절차 전체는 [field-guide.md](field-guide.md)입니다.
-템플릿: `field-kit\templates\suite.json`, `field-kit\templates\tasks\*.yaml`. 복사해서 고치십시오.
+현장 코드로 pelly를 재려면 스위트 폴더를 만듭니다. 절차 전체는 이 문서와 같은 폴더의 `field-guide.md`입니다.
+템플릿: 현장 키트 zip을 푼 폴더의 `templates\suite.json`, `templates\tasks\*.yaml`(`docs\`와 같은 위치). 복사해서 고치십시오.
 
 ```text
 D:\pelly-field\suite\
@@ -50,7 +50,7 @@ JSON 안의 `\`는 두 번 씁니다(`\\`). 모르는 키는 오류입니다(오
 | `roots` | 하나 이상. 작업마다 `work\<id>\<이름>\`으로 복사되는 원본 폴더 |
 | `roots[].name` | 영문·숫자·`_`·`-`만. 서로 달라야 함(대소문자 무시). `judges`는 쓸 수 없음 |
 | `roots[].path` | 존재하는 폴더. 두 루트가 같은 폴더이거나 한쪽이 다른 쪽 안에 있으면 오류 |
-| `roots[].exclude` | (선택) 복사에서 뺄 폴더 **이름**. 경로가 아니고 어느 깊이에서든, 대소문자 무시. `bin`·`obj`·`.pelly`·`TestResults`·`.git`·`.vs`는 항상 뺍니다 |
+| `roots[].exclude` | (선택) 복사에서 뺄 폴더 **이름**. 경로가 아니고 어느 깊이에서든, 대소문자 무시. `bin`·`obj`·`.pelly`·`TestResults`·`.git`·`.vs`는 항상 뺍니다. `packages`는 빼지 마십시오(폐쇄망에서 다시 받을 수 없음) |
 | `supportFiles` | (선택) 작업 폴더 맨 위(`work\<id>\`)에 파일 이름 그대로 복사할 파일. 존재해야 하고 파일 이름이 서로 달라야 함 |
 | `resultsDir` | (선택) 기본 출력 폴더의 부모. 기본 `results` |
 
@@ -91,7 +91,7 @@ JSON 안의 `\`는 두 번 씁니다(`\\`). 모르는 키는 오류입니다(오
 
 형식은 `cs-modern-NNN`, `cs-legacy-NNN`, `sql-NNN`(NNN은 숫자 세 자리)입니다. 다른 형식은 `validate`가 오류로 거절합니다.
 **id에 업무 이름이나 시스템 이름을 넣지 마십시오.** 형식이 강제되므로 반출한 결과에는 업무 정보가 남지 않습니다.
-요청문과 파일 경로가 반출본에 남는지는 반출 전에 직접 열어 확인하십시오(field-guide.md 9절).
+`export` 결과에는 요청문과 대상 파일 경로가 들어 있지 않습니다(작업 결과 기록에 그 필드가 없습니다). 그래도 반출 전에는 파일을 직접 열어 확인하는 것이 원칙입니다(field-guide.md 9절).
 
 ## 판정 선택 지침
 

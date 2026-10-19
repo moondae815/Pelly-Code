@@ -24,6 +24,9 @@ public sealed class FieldKitDocTests
         "deploy/field-kit/templates/tasks/sql-001.yaml",
     ];
 
+    // Edited existing docs: the Password rule cannot apply (install.md explains that key), so only developer paths are checked.
+    private static readonly string[] EditedDocs = ["deploy/install.md", "deploy/server-checklist.md", "deploy/ide-external-tools.md"];
+
     private static readonly string[] SuiteKeys = ["formatVersion", "name", "roots", "supportFiles", "resultsDir"];
     private static readonly string[] RootKeys = ["name", "path", "exclude"];
 
@@ -84,6 +87,17 @@ public sealed class FieldKitDocTests
         {
             var text = File.ReadAllText(PackageFileList.RepoFile(file));
             Assert.True(TemplateRules.Violations(text).Count == 0, $"{file}: {string.Join(", ", TemplateRules.Violations(text))}");
+        }
+    }
+
+    [Fact]
+    public void EditedDocs_HaveNoDeveloperPaths()
+    {
+        foreach (var file in EditedDocs)
+        {
+            var text = File.ReadAllText(PackageFileList.RepoFile(file));
+            foreach (var bad in new[] { "/Users/", @"C:\Users\", @"C:\\Users\\" })
+                Assert.False(text.Contains(bad, StringComparison.OrdinalIgnoreCase), $"{file}: {bad}");
         }
     }
 

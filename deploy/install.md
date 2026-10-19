@@ -159,8 +159,8 @@ AppLocker나 WDAC가 `%TEMP%`에서 DLL을 불러오는 것을 막으면 SQL 기
 
 ## 현장 키트
 
-기준선 측정과 튜닝, 결과 반출에는 둘째 반입물 「현장 키트 zip」을 씁니다. `pelly-eval.exe`와 절차 문서가 들어 있습니다.
-순서는 [field-guide.md](field-guide.md)에서 시작하십시오. 스위트 작성은 [field-benchmark.md](field-benchmark.md), 결과 기록은 [field-results.md](field-results.md)입니다.
+기준선 측정과 튜닝, 결과 반출에는 둘째 반입물 「현장 키트 zip」을 씁니다. `pelly-eval.exe`와 절차 문서가 들어 있고, 이 zip과 다른 폴더에 풀어도 됩니다.
+순서는 현장 키트 zip을 푼 폴더의 `docs\field-guide.md`에서 시작하십시오. 스위트 작성은 같은 폴더의 `docs\field-benchmark.md`, 결과 기록은 `docs\field-results.md`입니다.
 (현장 키트 zip의 구성은 Windows 미확인입니다.)
 
 ## 다음 문서

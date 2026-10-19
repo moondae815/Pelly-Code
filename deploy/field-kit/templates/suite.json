@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "name": "field",
   "roots": [
-    { "name": "Modern", "path": "D:\\src\\<현대 SDK 저장소>", "exclude": ["node_modules", "packages"] },
+    { "name": "Modern", "path": "D:\\src\\<현대 SDK 저장소>", "exclude": ["node_modules"] },
     { "name": "Legacy", "path": "D:\\src\\<레거시 저장소>" },
     { "name": "Sql", "path": "D:\\src\\<SQL 스크립트 저장소>" }
   ],

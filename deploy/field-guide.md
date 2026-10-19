@@ -8,30 +8,32 @@
 
 | zip | 내용 |
 | :--- | :--- |
-| `pelly-<버전>-win-x64.zip` | `pelly.exe`와 설치 문서 ([install.md](install.md)) |
-| 현장 키트 zip | `pelly-eval.exe`와 이 문서들, 템플릿 |
+| `pelly-<버전>-win-x64.zip` | `pelly.exe`와 설치 문서. 이 문서에서 「pelly zip을 푼 폴더의 `docs\install.md`」처럼 부릅니다 |
+| 현장 키트 zip | `pelly-eval.exe`, 이 문서들(`docs\field-*.md`), `templates\` |
 
 이 문서에서 실행기를 `pelly-eval`이라고 부릅니다. 파일 이름은 `pelly-eval.exe`입니다.
 `pelly-eval --help`가 옵션과 종료 코드를 보여 줍니다.
 
 ## 1. zip의 SHA-256 확인
 
-zip 두 개를 풀기 전에, zip과 다른 경로로 받은 값과 비교합니다. 방법은 [install.md](install.md) 2절과 같습니다.
+zip 두 개를 풀기 전에, zip과 다른 경로로 받은 값과 비교합니다. 방법은 pelly zip을 푼 폴더의 `docs\install.md` 2절과 같습니다.
 
 ```powershell
 Get-FileHash .\<zip 이름>.zip -Algorithm SHA256
 ```
 
 기대: 받아 둔 값과 같습니다(대소문자 무시). 다르면 풀지 말고 다시 반입하십시오.
-풀고 난 뒤 `SHA256SUMS.txt`로 파일별 확인도 합니다(install.md 2절).
+풀고 난 뒤 `SHA256SUMS.txt`로 파일별 확인도 합니다(같은 문서 2절).
 
 ## 2. 설치와 `pelly doctor`
 
-install.md 1~4절대로 설치하고 설정 파일을 만듭니다. 이 문서에서 설정 파일 경로를 `<pelly.json>`이라고 부릅니다.
-그다음 확인합니다.
+pelly zip을 푼 폴더의 `docs\install.md` 1~4절대로 설치하고 설정 파일을 만듭니다. 이 문서에서 설정 파일 경로를 `<pelly.json>`이라고 부릅니다.
+
+SQL 작업을 측정하려면 `doctor` 전에 환경 변수 `PELLY_SQL_CONNECTION`을 설정합니다. 설정하지 않으면 `SQL 연결` 행이 Warn이고 계정이 보이지 않습니다.
+레거시 프로젝트가 있으면 `--project`로 그 csproj를 줍니다(타겟팅 팩 행은 이 옵션이 있어야 나옵니다).
 
 ```powershell
-pelly doctor --config <pelly.json>
+pelly doctor --config <pelly.json> --project <레거시.csproj>
 ```
 
 기대: 종료 코드 0. 아래 행을 봅니다.
@@ -41,14 +43,14 @@ pelly doctor --config <pelly.json>
 | Ollama 서버 | `Ok`와 서버 버전 |
 | 모델 | `Ok`와 `digest <12자>`. 이 12자를 결과 양식에 적습니다 |
 | MSBuild (레거시) | 레거시 프로젝트가 있으면 `Ok`. 없으면 레거시 작업은 측정에서 빠집니다 |
-| 타겟팅 팩 | 레거시 프로젝트의 .NET Framework 팩이 있어야 합니다 (`pelly doctor --project <csproj>`) |
+| 타겟팅 팩 | 레거시 프로젝트의 .NET Framework 팩이 있어야 합니다 (`--project`를 준 경우에만 나옵니다) |
 | SQL 연결 | `Windows 인증 (<계정>)` 또는 `SQL 로그인 (<계정>)`. 접속 계정이 읽기 전용 계정인지 확인합니다 |
 
 Fail이 하나라도 있으면 안내대로 고친 뒤 다시 실행합니다.
 
 ## 3. 버전 기록
 
-서버 관리자에게 모델 GGUF 파일의 SHA-256을 받습니다. 확인 방법은 [server-checklist.md](server-checklist.md)에 있습니다.
+서버 관리자에게 모델 GGUF 파일의 SHA-256을 받습니다. 확인 방법은 pelly zip을 푼 폴더의 `docs\server-checklist.md`에 있습니다.
 Ollama 모델 digest와 GGUF 해시는 다른 값입니다. 둘 다 적습니다.
 
 `<hex64>`는 64자리 16진수입니다.
@@ -63,7 +65,7 @@ pelly-eval record --out D:\pelly-field\version-record.json --gguf-sha256 <hex64>
 ## 4. 스위트 작성
 
 `field-benchmark.md`를 따라 현장 스위트 폴더를 만듭니다. 이 문서에서 그 폴더를 `<폴더>`라고 부릅니다(예: `D:\pelly-field\suite`).
-템플릿은 `field-kit\templates\`에 있습니다. 복사해서 고치십시오.
+템플릿은 현장 키트 zip을 푼 폴더의 `templates\suite.json`과 `templates\tasks\*.yaml`입니다. 복사해서 고치십시오.
 
 ## 5. 스위트 검사
 
@@ -92,7 +94,7 @@ pelly-eval --suite <폴더> --config <pelly.json> --repeat 3 --keep-work failed 
 ```
 
 * 일부만 돌려 보려면 `--tasks cs-modern,sql-00?` 또는 `--kind sql`을 붙입니다. 기준선은 전체를 돌립니다.
-* `sql` 작업에는 환경 변수 `PELLY_SQL_CONNECTION`이 필요합니다. 비밀번호가 있는 연결 문자열은 이 환경 변수로만 넘깁니다. 연결이 없으면 `sql` 작업은 건너뜁니다.
+* `sql` 작업에는 환경 변수 `PELLY_SQL_CONNECTION`이 필요합니다. 비밀번호가 있는 연결 문자열은 이 환경 변수로만 넘깁니다. 연결이 없거나 연결 대상이 `pelly.json`의 허용 목록(`sql.allowedHosts`, `sql.allowedDatabases`)에 없으면 `sql` 작업은 건너뜁니다.
 * 종료 코드: 0 실행 완료 · 1 검증 불변 조건 위반 · 2 중단 · 4 설정 오류 또는 LLM 서버 연결 불가.
 * 종료 1이면 중단하고 `report.md`를 먼저 읽으십시오. 이것은 모델 실패가 아니라 시스템 보장 위반입니다.
 
@@ -138,15 +140,21 @@ pelly-eval export D:\pelly-field\candidate-1 --out D:\pelly-field\export\candida
 
 pelly 자체의 실행 기록과 환경은 따로 비식별해서 냅니다.
 
+`pelly report`는 현재 폴더에서 위로 올라가며 처음 만나는 `.git`, `.svn`, `*.sln`이 있는 폴더를 작업 공간으로 봅니다. 직원이 pelly를 쓴 작업 공간의 루트로 **먼저 이동**한 뒤 실행하십시오. 다른 폴더(예: `D:\pelly-field`)에서 실행하면 「실행 기록이 없습니다」를 출력하고 아무것도 쓰지 않은 채 종료 0으로 끝납니다.
+
 ```cmd
+cd /d <작업 공간 루트>
 pelly report --sanitize --out D:\pelly-field\export\report
-pelly doctor --sanitize --out D:\pelly-field\export\doctor
+pelly doctor --sanitize --out D:\pelly-field\export\doctor --config <pelly.json> --project <레거시.csproj>
 ```
+
+* `doctor`에는 2절과 같은 `--config`와 `--project`를 줍니다. 그래야 반출 기록이 측정한 환경을 설명합니다.
+* `pelly report`는 `pelly-eval`이 만든 실행 로그(`work\<id>\.pelly\runs`)를 포함하지 않습니다. `--keep-work failed`로 돌렸다면 대부분 지워져 있기도 합니다.
 
 반출 전에 `export` 폴더의 파일을 직접 열어 사내 이름이 없는지 훑어보십시오. 반출한 파일 목록을 `field-results.md`에 적습니다.
 
 ## 10. Visual Studio External Tools 확인
 
-[ide-external-tools.md](ide-external-tools.md)의 「Visual Studio 실기 확인 결과」 표를 0번부터 8번까지 채웁니다.
+**pelly zip**을 푼 폴더의 `docs\ide-external-tools.md`(현장 키트 zip에는 없습니다)의 「Visual Studio 실기 확인 결과」 표를 0번부터 8번까지 채웁니다.
 설정은 같은 문서의 「설정 값」 절을 따릅니다. 항목마다 결과(합격·불합격·해당 없음)와 메모를 적습니다.
 불합격 항목은 고치지 말고 그대로 기록해서 내보내십시오.

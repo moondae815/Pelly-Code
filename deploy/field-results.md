@@ -1,6 +1,6 @@
 # 현장 결과 양식
 
-빈칸을 채워 반출하거나 보관합니다. 값은 `pelly-eval`의 `summary.md`·`report.md`에서 옮겨 적습니다 ([field-guide.md](field-guide.md) 7절).
+빈칸을 채워 반출하거나 보관합니다. 값은 `pelly-eval`의 `summary.md`·`report.md`에서 옮겨 적습니다 (같은 폴더의 `field-guide.md` 7절).
 이 양식에는 서버 주소, 계정, 비밀번호, 사내 시스템 이름을 적지 않습니다.
 
 * 측정일: ____
@@ -31,7 +31,7 @@
 
 ## 3. 외부 기준 대비
 
-외부 기준은 개발 환경 측정(`docs/m3b-baseline.md`, 50건 × 3회)입니다. 개발 Mac의 참고치이고 최종 판정은 현장 값입니다.
+외부 기준은 개발 환경 측정(개발 저장소의 `docs/m3b-baseline.md`, 50건 × 3회)입니다. 그 문서는 이 키트에 없고, 값은 아래 표에 적혀 있습니다. 개발 Mac의 참고치이고 최종 판정은 현장 값입니다.
 
 | 항목 | 외부 기준 | 현장 | 차이 |
 | :--- | :--- | :--- | :--- |
@@ -99,7 +99,7 @@
 
 ## 9. Visual Studio External Tools
 
-`ide-external-tools.md`의 「Visual Studio 실기 확인 결과」 표를 채웠는가: 예 / 아니오
+pelly zip의 `docs\ide-external-tools.md`의 「Visual Studio 실기 확인 결과」 표를 채웠는가: 예 / 아니오
 
 ## 10. 반출한 파일 목록
 

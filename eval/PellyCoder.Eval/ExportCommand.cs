@@ -38,8 +38,8 @@ public static partial class ExportCommand
         var input = Path.GetFullPath(args.Positional[0]);
         var dest = Path.GetFullPath(args.Out);
         if (!Directory.Exists(input)) return Refuse(output, $"결과 폴더가 없습니다: {args.Positional[0]}");
-        if (Directory.Exists(dest) && Directory.EnumerateFileSystemEntries(dest).Any())
-            return Refuse(output, $"--out 폴더가 비어 있지 않습니다: {args.Out} (이전 반출이 중간에 실패해 남은 폴더일 수 있습니다 — 지우고 다시 실행하세요)");
+        if (OutputFolder.Problem(dest, $"--out 폴더가 비어 있지 않습니다: {args.Out} (이전 반출이 중간에 실패해 남은 폴더일 수 있습니다 — 지우고 다시 실행하세요)") is { } outProblem)
+            return Refuse(output, outProblem);
 
         var folderName = Path.GetFileName(input.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
         var summaryPath = Path.Combine(input, "summary.json");

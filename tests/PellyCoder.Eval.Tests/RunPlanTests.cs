@@ -96,4 +96,25 @@ public sealed class RunPlanTests : IDisposable
         File.WriteAllText(Path.Combine(outDir, "results.json"), "[]");
         Assert.StartsWith($"--out 폴더가 비어 있지 않습니다: {outDir}", RunPlan.OutConflict(outDir), StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void Prepare_DuplicateIds_StopTheRun()
+    {
+        // The second file's id differs from its file name, so on its own it is a Definition failure; but its row would share the
+        // id with the real task and the per-id aggregation keeps only one of them. A duplicated id stops the run instead.
+        Task("cs-modern-001-copy", "cs-modern-001");
+
+        var plan = RunPlan.Prepare(Suite(), new FileSystem(), null, null);
+
+        Assert.Contains("중복된 작업 id: cs-modern-001 (cs-modern-001-copy.yaml, cs-modern-001.yaml)", plan.LoadErrors);
+    }
+
+    [Fact]
+    public void OutConflict_OutIsAFile_IsRefused()
+    {
+        var outFile = Path.Combine(_tmp, "out.txt");
+        File.WriteAllText(outFile, "x");
+
+        Assert.Equal($"--out이 폴더가 아니라 파일입니다: {outFile}", RunPlan.OutConflict(outFile));
+    }
 }

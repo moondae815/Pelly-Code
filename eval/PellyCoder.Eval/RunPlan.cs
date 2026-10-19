@@ -5,7 +5,7 @@ namespace PellyCoder.Eval;
 /// <summary>A selected task of a run: resolved, or the Definition error that keeps it from running.</summary>
 public sealed record PlannedTask(BenchmarkTask Task, SuiteTask? Resolved, string? Error);
 
-/// <param name="LoadErrors">Task files that could not be read; <c>run</c> stops with exit 4 when there is any.</param>
+/// <param name="LoadErrors">Task files that could not be read, or ids used by more than one file; <c>run</c> stops with exit 4 when there is any.</param>
 public sealed record RunPlanResult(IReadOnlyList<PlannedTask> Tasks, IReadOnlyList<string> LoadErrors);
 
 /// <summary>
@@ -20,6 +20,11 @@ public static class RunPlan
     {
         var (loaded, errors) = BenchmarkTask.TryLoadAll(suite.TasksDir);
         if (errors.Count > 0) return new([], errors);
+        // Results are aggregated per id, so two task files with one id would silently keep only one row.
+        var duplicates = loaded.Where(t => t.Id.Length > 0).GroupBy(t => t.Id, StringComparer.Ordinal).Where(g => g.Count() > 1)
+            .Select(g => $"중복된 작업 id: {g.Key} ({string.Join(", ", g.Select(t => t.SourceName + ".yaml").Order(StringComparer.Ordinal))})")
+            .ToList();
+        if (duplicates.Count > 0) return new([], duplicates);
         return new([.. loaded.Where(t => TaskFilter.Matches(t, tasks, kind)).Select(t => Plan(suite, fs, t))], []);
     }
 
@@ -36,11 +41,9 @@ public static class RunPlan
     }
 
     /// <summary>
-    /// Null when <paramref name="outDir"/> is missing or empty. Otherwise the refusal: writing into an earlier result would
-    /// turn every task whose work folder is left there into a Skipped row (and the report would mix two runs).
+    /// Null when <paramref name="outDir"/> is missing or empty. Otherwise the refusal: a file or unreadable folder, or an earlier
+    /// result — writing into it would turn every task whose work folder is left there into a Skipped row (and mix two runs).
     /// </summary>
-    public static string? OutConflict(string outDir) =>
-        Directory.Exists(outDir) && Directory.EnumerateFileSystemEntries(outDir).Any()
-            ? $"--out 폴더가 비어 있지 않습니다: {outDir} — 이전 결과에 이어 쓰면 남은 작업 폴더의 작업이 「생략」으로 집계됩니다. 새 폴더를 지정하세요"
-            : null;
+    public static string? OutConflict(string outDir) => OutputFolder.Problem(outDir,
+        $"--out 폴더가 비어 있지 않습니다: {outDir} — 이전 결과에 이어 쓰면 남은 작업 폴더의 작업이 「생략」으로 집계됩니다. 새 폴더를 지정하세요");
 }

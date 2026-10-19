@@ -112,6 +112,7 @@ pelly-eval --suite <폴더> --config <pelly.json> --repeat 3 --keep-work failed 
 * 종료 코드: 0 실행 완료 · 1 검증 불변 조건 위반 · 2 중단 · 4 설정 오류 또는 LLM 서버 연결 불가.
 * 종료 1이면 중단하고 `report.md`를 먼저 읽으십시오. 이것은 모델 실패가 아니라 시스템 보장 위반입니다.
 * `--out` 폴더가 이미 있고 비어 있지 않으면 실행하지 않고 종료 4입니다. 다시 돌릴 때는 새 폴더(예: `baseline-2`)를 주십시오. 이전 결과에 이어 쓰면 작업이 「생략」으로 집계되기 때문입니다.
+* `--out`이 파일 경로이거나 읽을 수 없는 폴더여도, 같은 작업 id를 쓰는 작업 파일이 둘 이상이어도 실행하지 않고 종료 4입니다. 메시지에 원인이 나옵니다.
 * id 형식이 틀리거나 대상을 해석하지 못한 작업은 실행하지 않고 실패(`Definition`)로 기록됩니다. 5절 `validate`를 먼저 깨끗하게 하십시오.
 
 기대: `D:\pelly-field\baseline\`에 `summary.md`, `summary.json`, `run-1\`~`run-3\`가 생깁니다. 각 `run-<k>\`에 `report.md`와 `results.json`이 있습니다.

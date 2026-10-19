@@ -54,7 +54,7 @@ if (suiteLoad.Suite is not { } suite) return Fail("스위트 오류:\n  " + stri
 if (!Directory.Exists(suite.TasksDir)) return Fail($"작업 폴더가 없습니다: {suite.TasksDir}");
 var plan = RunPlan.Prepare(suite, fs, parsed.Tasks, parsed.Kind);
 if (plan.LoadErrors.Count > 0)
-    return Fail("작업 파일을 읽을 수 없습니다 (validate로 확인하세요):\n  " + string.Join("\n  ", plan.LoadErrors));
+    return Fail("작업 정의를 읽을 수 없어 실행하지 않습니다 (validate로 확인하세요):\n  " + string.Join("\n  ", plan.LoadErrors));
 var tasks = plan.Tasks;
 if (tasks.Count == 0) return Fail($"선택된 작업이 없습니다 (--tasks {parsed.Tasks ?? "*"}, --kind {parsed.Kind ?? "*"}).");
 foreach (var t in tasks.Where(t => t.Resolved is null))
@@ -80,7 +80,14 @@ if (tasks.Any(t => t.Task.Kind == "sql" && t.Resolved is not null))
         sql = new SqlServerExecutor(options.Sql.ConnectionString);
 }
 
-Directory.CreateDirectory(outDir);
+try
+{
+    Directory.CreateDirectory(outDir);
+}
+catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+{
+    return Fail($"--out 폴더를 만들 수 없습니다: {outDir}: {ex.Message}");
+}
 Console.WriteLine($"스위트 {suite.Name} ({suite.Dir}) · 작업 {tasks.Count}건{(parsed.Repeat > 1 ? $" × {parsed.Repeat}회" : "")} → {outDir}");
 
 var runner = new BenchmarkRunner(new RunnerSetup(fs, new SystemProcessRunner(TimeProvider.System), backend, options, TimeProvider.System,

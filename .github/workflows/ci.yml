@@ -190,11 +190,14 @@ jobs:
           $props = Join-Path $env:RUNNER_TEMP 'Directory.Build.1.0.0.props'
           (Get-Content -Raw Directory.Build.props) -replace '<Version>[^<]*</Version>', '<Version>1.0.0</Version>' | Set-Content $props
           if (-not ((Get-Content -Raw $props) -match '<Version>1\.0\.0</Version>')) { throw 'altered props lacks Version 1.0.0' }
-          $out = & pwsh -NoProfile -File ./deploy/build-package.ps1 -PublishDir artifacts/publish/win-x64 -OutDir (Join-Path $env:RUNNER_TEMP 'gate-check-1.0') -BuildProps $props -LicenseExceptions $provisional 2>&1 | Out-String
-          $code = $LASTEXITCODE
-          if ($code -eq 0) { throw 'gate passed a provisional approval in 1.0.0' }
-          if (-not $out.Contains('provisional approval cannot ship in 1.0.0')) { Write-Host $out; throw "output lacks the provisional-approval message" }
-          Write-Host "version 1.0.0: gate failed as expected (exit $code)"
+          # 두 패키지 모두: 반입 zip과 현장 키트는 같은 게이트 코드를 쓰지만, 한쪽만 게이트를 건너뛰게 바뀌어도 잡히도록 각각 시험한다
+          foreach ($case in @(@{ package = 'pelly'; publish = 'artifacts/publish/win-x64' }, @{ package = 'field-kit'; publish = 'artifacts/publish-eval/win-x64' })) {
+            $out = & pwsh -NoProfile -File ./deploy/build-package.ps1 -Package $case.package -PublishDir $case.publish -OutDir (Join-Path $env:RUNNER_TEMP "gate-check-1.0-$($case.package)") -BuildProps $props -LicenseExceptions $provisional 2>&1 | Out-String
+            $code = $LASTEXITCODE
+            if ($code -eq 0) { throw "$($case.package): gate passed a provisional approval in 1.0.0" }
+            if (-not $out.Contains('provisional approval cannot ship in 1.0.0')) { Write-Host $out; throw "$($case.package): output lacks the provisional-approval message" }
+            Write-Host "$($case.package) version 1.0.0: gate failed as expected (exit $code)"
+          }
           exit 0
       - name: Build package
         shell: pwsh

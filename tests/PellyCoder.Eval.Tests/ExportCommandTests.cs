@@ -188,6 +188,19 @@ public sealed class ExportCommandTests : IDisposable
     }
 
     [Fact]
+    public void Export_OutIsAFile_Exits4_WithMessage()
+    {
+        var input = MakeSingle();
+        var outFile = System.IO.Path.Combine(_dir, "out.txt");
+        File.WriteAllText(outFile, "x");
+
+        var (code, output, _) = Export(input, outFile);
+
+        Assert.Equal(4, code);
+        Assert.Contains($"--out이 폴더가 아니라 파일입니다: {outFile}", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Export_RefusesIdsOutsideTheFormat_AndNamesThem()
     {
         var dir = System.IO.Path.Combine(_dir, "bad-ids");

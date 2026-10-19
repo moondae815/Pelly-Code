@@ -23,6 +23,9 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
     /// <summary>Arguments that are not options (<c>compare</c>: the two summary files).</summary>
     public IReadOnlyList<string> Positional { get; init; } = [];
 
+    /// <summary><c>validate --deep</c>: also runs the judge tests on the original sources.</summary>
+    public bool Deep { get; init; }
+
     public const string Usage = """
         사용법: dotnet run --project eval/PellyCoder.Eval -- [옵션]
 
@@ -37,6 +40,7 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
 
         검사: dotnet run --project eval/PellyCoder.Eval -- validate [--suite <폴더>] [--config <pelly.json>]
           실행 전에 작업 정의(id·판정·대상 파일·프로젝트 형식)를 점검합니다. LLM·SQL에 접속하지 않습니다.
+          --deep            판정 테스트를 원본에서 실제로 실행합니다(tests는 실패, failingTests는 통과해야 함). 정적 검사에 오류가 없을 때만, 복원·빌드가 필요해 느립니다
           종료 코드 0 오류 없음(경고는 있어도 됨) · 4 오류 있음 또는 스위트를 읽을 수 없음
 
         비교: dotnet run --project eval/PellyCoder.Eval -- compare <기준선 summary.json> <후보 summary.json>
@@ -51,7 +55,7 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
     private static readonly Dictionary<string, string[]> Options = new(StringComparer.Ordinal)
     {
         [Run] = ["--suite", "--tasks", "--kind", "--out", "--config", "--repeat", "--keep-work"],
-        [Validate] = ["--suite", "--config"],
+        [Validate] = ["--suite", "--config", "--deep"],
         [Compare] = [],
     };
 
@@ -69,6 +73,7 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
         var start = args.Count > 0 && args[0] == command ? 1 : 0;
         var allowed = Options[command];
         string? tasks = null, kind = null, outDir = null, config = null, suite = null;
+        var deep = false;
         var repeat = 1;
         var keepWork = KeepWork.All;
         var positional = new List<string>();
@@ -86,6 +91,11 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
             }
             if (!allowed.Contains(a, StringComparer.Ordinal))
                 return Error($"알 수 없는 인자: {a}");
+            if (a == "--deep")
+            {
+                deep = true;
+                continue;
+            }
             if (i + 1 >= args.Count || args[i + 1].StartsWith("--", StringComparison.Ordinal))
                 return Error($"{a}에 값이 필요합니다");
             var value = args[++i];
@@ -119,6 +129,6 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
             return Error(command == Compare
                 ? "compare에는 <기준선 summary.json> <후보 summary.json> 두 개가 필요합니다"
                 : $"{command}: 인자 {PositionalCount[command]}개가 필요합니다");
-        return new(tasks, kind, outDir, config, false, null, repeat) { Command = command, Suite = suite, KeepWork = keepWork, Positional = positional };
+        return new(tasks, kind, outDir, config, false, null, repeat) { Command = command, Suite = suite, Deep = deep, KeepWork = keepWork, Positional = positional };
     }
 }

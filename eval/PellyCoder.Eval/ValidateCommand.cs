@@ -1,6 +1,7 @@
 using System.IO.Abstractions;
 using System.Text;
 using PellyCoder.Core;
+using PellyCoder.Core.Abstractions;
 using PellyCoder.Core.Config;
 
 namespace PellyCoder.Eval;
@@ -12,7 +13,7 @@ namespace PellyCoder.Eval;
 /// </summary>
 public static class ValidateCommand
 {
-    public static int Run(EvalArguments args, TextWriter output, TextWriter error, IFileSystem? fs = null)
+    public static int Run(EvalArguments args, TextWriter output, TextWriter error, IFileSystem? fs = null, IProcessRunner? processes = null)
     {
         fs ??= new FileSystem();
         var suiteDir = args.Suite ?? EvalPaths.FindSuite();
@@ -48,7 +49,21 @@ public static class ValidateCommand
         }
 
         var (tasks, loadErrors) = BenchmarkTask.TryLoadAll(suite.TasksDir);
-        var issues = SuiteValidator.Validate(suite, tasks, loadErrors, fs, options.Sql.CompatLevel);
+        var issues = SuiteValidator.Validate(suite, tasks, loadErrors, fs, options.Sql.CompatLevel).ToList();
+        var deepSkipped = false;
+        if (args.Deep)
+        {
+            if (issues.Any(i => i.Level == IssueLevel.Error)) deepSkipped = true;
+            else
+            {
+                ArgumentNullException.ThrowIfNull(processes);
+                var resolved = tasks.Select(t => suite.Resolve(t, fs, out _)).OfType<SuiteTask>().ToList();
+                var verifier = new IndependentVerifier(fs, processes, options, null, suite: suite);
+                var scratch = Path.Combine(suite.ResultsDir, "validate-" + DateTime.Now.ToString("yyyyMMdd-HHmmss", System.Globalization.CultureInfo.InvariantCulture));
+                output.WriteLine($"깊은 검사: 판정 테스트를 원본 복사본에서 실행합니다 ({scratch})");
+                issues.AddRange(SuiteValidator.ValidateJudgesAsync(suite, resolved, verifier.RunJudgeTestsAsync, processes, scratch, CancellationToken.None).GetAwaiter().GetResult());
+            }
+        }
 
         int Count(string prefix) => tasks.Count(t => (t.Id ?? "").StartsWith(prefix, StringComparison.Ordinal));
         output.WriteLine($"스위트 {suite.Name} ({suite.Dir}) · 작업 {tasks.Count}건 · cs-legacy {Count("cs-legacy-")} · cs-modern {Count("cs-modern-")} · sql {Count("sql-")}");
@@ -68,6 +83,7 @@ public static class ValidateCommand
         }
 
         var errors = ordered.Count(i => i.Level == IssueLevel.Error);
+        if (deepSkipped) output.WriteLine("정적 검사에 오류가 있어 깊은 검사(--deep)는 하지 않았습니다.");
         output.WriteLine($"오류 {errors}건 · 경고 {ordered.Count - errors}건");
         return errors == 0 ? 0 : 4;
     }

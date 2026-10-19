@@ -34,35 +34,17 @@ public class JudgeTestDefinitionTests
         var created = Path.Combine(Path.GetTempPath(), "pelly-judge-def-" + Guid.NewGuid().ToString("N")[..8]);
         Directory.CreateDirectory(created);
         // Link-free root: through the macOS /var -> /private/var link the restore skips the transitive ProjectReference.
-        var workRoot = Path.Combine(TestRunnerSdkTests.RealPath(created), "work");
+        var scratch = Path.Combine(TestRunnerSdkTests.RealPath(created), "work");
         try
         {
-            WorkCopy.Prepare(Suite, Suite.Resolve(tasks[0], new FileSystem(), out var error) ?? throw new InvalidDataException(error), workRoot);
-            var corpusRoot = Path.Combine(workRoot, "Modern");
+            var fs = new FileSystem();
+            var resolved = tasks.Select(t => Suite.Resolve(t, fs, out var error) ?? throw new InvalidDataException(error)).ToList();
             var processes = new SystemProcessRunner(TimeProvider.System);
-            var restore = await processes.RunAsync(new ProcessSpec("dotnet",
-                ["restore", Path.Combine(corpusRoot, "Modern.sln"), "--nologo", "--disable-parallel"], corpusRoot, TimeSpan.FromMinutes(5)), ct);
-            Assert.True(restore.ExitCode == 0, restore.StdOut + restore.StdErr);
+            var verifier = new IndependentVerifier(fs, processes, new PellyOptions(), null, suite: Suite);
 
-            var tests = tasks.SelectMany(t => t.Judge!.Tests ?? []).Distinct().ToList();
-            var failing = tasks.SelectMany(t => t.Judge!.FailingTests ?? []).Distinct().ToList();
-            var run = await new IndependentVerifier(new FileSystem(), processes, new PellyOptions(), null, suite: Suite)
-                .RunJudgeTestsAsync(tests, failing, corpusRoot, ct);
+            var issues = await SuiteValidator.ValidateJudgesAsync(Suite, resolved, verifier.RunJudgeTestsAsync, processes, scratch, ct);
 
-            Assert.Null(run.Error);
-            var problems = new List<string>();
-            foreach (var t in tasks)
-            {
-                foreach (var name in t.Judge!.Tests ?? [])
-                    if (!run.Results.TryGetValue(name, out var r)) problems.Add($"{t.Id}: 판정 테스트가 결과에 없음 {name}");
-                    else if (r.Passed) problems.Add($"{t.Id}: 판정 테스트가 원본에서 통과함 {name}");
-                foreach (var name in t.Judge.FailingTests ?? [])
-                    if (!run.Results.TryGetValue(name, out var r)) problems.Add($"{t.Id}: failingTests가 결과에 없음 {name}");
-                    else if (!r.Passed) problems.Add($"{t.Id}: failingTests가 원본에서 실패함 {name} ({r.Message})");
-            }
-            Assert.Empty(problems);
-            // The judge project was built from the work copy, never in place.
-            Assert.True(File.Exists(Path.Combine(workRoot, "judges", "Modern", "Shop.Api.JudgeTests", "Shop.Api.JudgeTests.csproj")));
+            Assert.Empty(issues.Select(i => $"{i.Level} {i.TaskId}: {i.Message}"));
         }
         finally
         {

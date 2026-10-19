@@ -1,5 +1,7 @@
 using System.IO.Abstractions;
 using System.Text;
+using PellyCoder.Core.Abstractions;
+using PellyCoder.Core.Testing;
 using PellyCoder.Eval;
 
 namespace PellyCoder.Eval.Tests;
@@ -257,5 +259,140 @@ public sealed class SuiteValidatorTests : IDisposable
         var error = new StringWriter();
         Assert.Equal(4, ValidateCommand.Run(EvalArguments.Parse(["validate", "--suite", Path.Combine(_tmp, "none")]), new StringWriter(), error));
         Assert.Contains("suite.json", error.ToString());
+    }
+
+    // ---- --deep ----
+
+    private sealed class NoProcesses : IProcessRunner
+    {
+        public List<ProcessSpec> Calls { get; } = [];
+        public int ExitCode { get; set; }
+        public Task<ProcessResult> RunAsync(ProcessSpec spec, CancellationToken ct)
+        {
+            Calls.Add(spec);
+            return Task.FromResult(new ProcessResult(ExitCode, "", "boom", [], TimeSpan.Zero, false));
+        }
+    }
+
+    private (BenchmarkSuite Suite, List<SuiteTask> Tasks) DeepTasks(string judgeLines)
+    {
+        _tasks["cs-modern-001"] = ["id: cs-modern-001", "kind: cs", "file: App/Sdk/Calc.cs", "method: Add", "request: \"r\"",
+            "judge:", "  build: true", .. judgeLines.Split('\n')];
+        Issues(); // writes the files
+        var suite = BenchmarkSuite.Load(_suiteDir).Suite!;
+        var fs = new FileSystem();
+        var tasks = BenchmarkTask.TryLoadAll(suite.TasksDir).Tasks.Select(t => suite.Resolve(t, fs, out _)!).ToList();
+        return (suite, tasks);
+    }
+
+    private async Task<(IReadOnlyList<SuiteIssue> Issues, List<string> Roots)> DeepAsync(string judgeLines, JudgeTestRun run, NoProcesses? procs = null)
+    {
+        var (suite, tasks) = DeepTasks(judgeLines);
+        var roots = new List<string>();
+        var scratch = Path.Combine(_tmp, "scratch");
+        var issues = await SuiteValidator.ValidateJudgesAsync(suite, tasks, (_, _, root, _) =>
+        {
+            roots.Add(root);
+            return Task.FromResult(run);
+        }, procs ?? new NoProcesses(), scratch, TestContext.Current.CancellationToken);
+        return (issues, roots);
+    }
+
+    private static JudgeTestRun Run(params (string Name, bool Passed)[] results) =>
+        new(results.ToDictionary(r => r.Name, r => new TestCaseResult(r.Name, r.Passed, null)), null);
+
+    [Fact]
+    public async Task Deep_JudgeTestPassingOnOriginal_IsError()
+    {
+        var (issues, roots) = await DeepAsync("  tests: [\"T.A\"]", Run(("T.A", true)));
+        Has(issues, IssueLevel.Error, "판정 테스트가 원본에서 이미 통과: T.A (빈 판정)");
+        Assert.Equal("cs-modern-001", issues.Single().TaskId);
+        Assert.EndsWith("App", roots.Single());
+    }
+
+    [Fact]
+    public async Task Deep_FailingJudgeTest_IsFine()
+    {
+        var (issues, _) = await DeepAsync("  tests: [\"T.A\"]", Run(("T.A", false)));
+        Assert.Empty(issues);
+    }
+
+    [Fact]
+    public async Task Deep_FailingTestFailingOnOriginal_IsError()
+    {
+        var (issues, _) = await DeepAsync("  failingTests: [\"T.P\"]", Run(("T.P", false)));
+        Has(issues, IssueLevel.Error, "수정 전 동작 테스트가 원본에서 실패: T.P");
+    }
+
+    [Fact]
+    public async Task Deep_NameMissingFromResults_IsError()
+    {
+        var (issues, _) = await DeepAsync("  tests: [\"T.A\"]\n  failingTests: [\"T.P\"]", Run());
+        Has(issues, IssueLevel.Error, "결과에 없음: T.A");
+        Has(issues, IssueLevel.Error, "결과에 없음: T.P");
+    }
+
+    [Fact]
+    public async Task Deep_ToolingError_IsWarning_NotError()
+    {
+        var run = new JudgeTestRun(new Dictionary<string, TestCaseResult>(), "복원 실패", ToolingError: true);
+        var (issues, _) = await DeepAsync("  tests: [\"T.A\"]", run);
+        Has(issues, IssueLevel.Warning, "판정 도구 오류로 확인하지 못함: 복원 실패");
+        Assert.DoesNotContain(issues, i => i.Level == IssueLevel.Error);
+    }
+
+    [Fact]
+    public async Task Deep_SkipsTasksWithoutJudgeTests_AndLegacy()
+    {
+        var (suite, tasks) = DeepTasks("  mustContain: [\"a - b\"]");
+        var legacy = tasks.Single(t => t.Task.Id == "cs-legacy-001");
+        legacy.Task.Judge!.Tests = ["T.X"]; // Validate would reject it; the deep path must still not run it
+        var calls = 0;
+        var issues = await SuiteValidator.ValidateJudgesAsync(suite, tasks, (_, _, _, _) =>
+        {
+            calls++;
+            return Task.FromResult(Run());
+        }, new NoProcesses(), Path.Combine(_tmp, "scratch"), TestContext.Current.CancellationToken);
+        Assert.Equal(0, calls);
+        Assert.Empty(issues);
+    }
+
+    [Fact]
+    public async Task Deep_DeletesScratchCopies()
+    {
+        var scratch = Path.Combine(_tmp, "scratch");
+        await DeepAsync("  tests: [\"T.A\"]", Run(("T.A", false)));
+        Assert.True(!Directory.Exists(scratch) || Directory.GetFileSystemEntries(scratch).Length == 0);
+    }
+
+    [Fact]
+    public async Task Deep_RestoreFailure_IsWarning_AndSkipsTheTask()
+    {
+        Write("App/App.sln", "");
+        var procs = new NoProcesses { ExitCode = 1 };
+        var (issues, roots) = await DeepAsync("  tests: [\"T.A\"]", Run(("T.A", true)), procs);
+        Assert.Empty(roots);
+        Assert.Equal("restore", procs.Calls.Single().Arguments[0]);
+        Assert.Equal(IssueLevel.Warning, issues.Single().Level);
+    }
+
+    [Fact]
+    public void Deep_OnlyValidateAcceptsTheOption()
+    {
+        Assert.True(EvalArguments.Parse(["validate", "--deep"]).Deep);
+        Assert.NotNull(EvalArguments.Parse(["--deep"]).Error);
+        Assert.NotNull(EvalArguments.Parse(["compare", "--deep", "a", "b"]).Error);
+    }
+
+    [Fact]
+    public void ValidateCommand_Deep_WithStaticErrors_DoesNotRun_Exits4()
+    {
+        Edit("cs-modern-001", "request: \"make it subtract\"", "request: \"\"");
+        Issues();
+        var procs = new NoProcesses();
+        var output = new StringWriter();
+        Assert.Equal(4, ValidateCommand.Run(EvalArguments.Parse(["validate", "--deep", "--suite", _suiteDir]), output, new StringWriter(), processes: procs));
+        Assert.Empty(procs.Calls);
+        Assert.Contains("깊은 검사", output.ToString());
     }
 }

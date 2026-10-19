@@ -134,7 +134,8 @@ public class DoctorCommandTests
 
         var result = app.Run("doctor", "--offline-selftest");
 
-        Assert.Equal(0, result.ExitCode);
+        // The output names the failing row: on windows-latest this test failed once with exit 4 (CI 39238902534) and the row is unknown.
+        Assert.True(result.ExitCode == 0, $"exit {result.ExitCode}:\n{result.Output}");
         Assert.Equal(0, doctor.Calls);
         foreach (var name in new[] { "토크나이저", "Roslyn", "ScriptDom", "인코딩", "리소스", "SqlClient" })
             Assert.Contains(name, result.Output);

@@ -33,9 +33,10 @@ public class OfflineSelfTestTests
     }
 
     /// <summary>
-    /// Several self-tests at once (the Cli test classes run in parallel; a user may also start two doctors). On windows-latest the
-    /// SqlClient row intermittently failed with exit 4 after ~6.7 s (CI 39214681652, 39238902534): with pooling on, concurrent
-    /// opens of the same connection string wait on the pool, and the waiter's timeout is not a SqlException.
+    /// Several self-tests at once (the Cli test classes run in parallel; a user may also start two doctors). The Cli self-test tests
+    /// failed intermittently on windows-latest with exit 4 after ~6.7 s (CI 39214681652, 39238902534), failing row unknown. Concurrent
+    /// opens waiting on the SqlClient pool were a hypothesis; this test passed on windows-latest (CI 39239610853), so it is not the cause
+    /// as far as measured. Kept as a guard; the Cli tests now print the self-test output on failure.
     /// </summary>
     [Fact]
     public async Task SelfTest_SqlClientRow_OkWhenRunConcurrently()

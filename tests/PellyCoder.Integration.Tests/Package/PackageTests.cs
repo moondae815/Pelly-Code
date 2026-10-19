@@ -206,6 +206,14 @@ public sealed class PackageTests
 /// <summary>Checks on the committed files that do not need the zip; these run on every OS.</summary>
 public sealed class PackageSourceTests
 {
+    [Theory]
+    [InlineData("xunit.runner.visualstudio 패키지", false)]
+    [InlineData(@"D:\home\runner\work", true)]
+    [InlineData("/home/runner/work", true)]
+    [InlineData("checkout at /home/runner", true)]
+    public void DeveloperUserName_CountsOnlyAsAPathSegment(string text, bool flagged) =>
+        Assert.Equal(flagged, TemplateRules.Violations(text, "runner").Any(v => v.StartsWith("user name", StringComparison.Ordinal)));
+
     [Fact]
     public void RepoTemplate_HasNoSecretsOrRealHosts()
         => Assert.Empty(TemplateRules.Violations(File.ReadAllText(PackageFileList.RepoFile("deploy/pelly.json.template"))));
@@ -264,13 +272,19 @@ public sealed class VersionRecordTests
 
 internal static class TemplateRules
 {
-    public static IReadOnlyList<string> Violations(string text)
+    public static IReadOnlyList<string> Violations(string text) => Violations(text, Environment.UserName);
+
+    /// <param name="user">
+    /// The machine's user name. It counts only as a path segment (<c>/runner/</c>, <c>\runner\</c>, or at the end of a path), not
+    /// anywhere in the text: the CI user is <c>runner</c>, which is also part of the package name <c>xunit.runner.visualstudio</c>.
+    /// </param>
+    public static IReadOnlyList<string> Violations(string text, string user)
     {
         var found = new List<string>();
         foreach (var bad in new[] { "Password", "Pwd", "localhost", "127.0.0.1", "/Users/", @"C:\Users\", @"C:\\Users\\" })
             if (text.Contains(bad, StringComparison.OrdinalIgnoreCase)) found.Add(bad);
-        var user = Environment.UserName;
-        if (user.Length >= 3 && text.Contains(user, StringComparison.OrdinalIgnoreCase)) found.Add($"user name {user}");
+        if (user.Length >= 3 && Regex.IsMatch(text, $@"[\\/]{Regex.Escape(user)}([\\/]|\z|\s)", RegexOptions.IgnoreCase))
+            found.Add($"user name {user}");
         return found;
     }
 }

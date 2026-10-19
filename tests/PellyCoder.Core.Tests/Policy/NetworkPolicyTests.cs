@@ -5,7 +5,8 @@ namespace PellyCoder.Core.Tests.Policy;
 
 /// <summary>
 /// Source policy for "no external communication at runtime" (PRD §5): network, SQL connection and process creation
-/// sites may only appear in the files listed below. Scope is <c>src/</c> only; <c>eval/</c> is a developer tool and is not shipped.
+/// sites may only appear in the files listed below. Scope is <c>src/</c> and <c>eval/PellyCoder.Eval/</c>: the benchmark runner ships
+/// as <c>pelly-eval.exe</c> in the field kit (M4 Task 9). The rest of <c>eval/</c> (corpus, judges) is test material and is not scanned.
 /// Comments and string/char literals are blanked before matching, so prose and <c>nameof</c>-style mentions do not count.
 /// Only creation sites are checked: taking an injected <c>HttpClient</c> or using <c>SqlConnectionStringBuilder</c> is fine.
 /// </summary>
@@ -14,6 +15,10 @@ public sealed class NetworkPolicyTests
     private const string Composition = "src/PellyCoder.Cli/Composition.cs";
     private const string SqlExecutor = "src/PellyCoder.Core/Sql/SqlServerExecutor.cs";
     private const string ProcessRunner = "src/PellyCoder.Core/Processes/SystemProcessRunner.cs";
+    private const string EvalProgram = "eval/PellyCoder.Eval/Program.cs";
+
+    // Scanned folders, relative to the repository root.
+    private static readonly string[] ScanRoots = ["src", "eval/PellyCoder.Eval"];
 
     private sealed record Rule(string Name, Regex Pattern, string[] AllowedFiles);
 
@@ -25,7 +30,7 @@ public sealed class NetworkPolicyTests
 
     private static readonly Rule[] Rules =
     [
-        new("HttpClient/SocketsHttpHandler creation", new Regex(Created("HttpClient") + @"|\bSocketsHttpHandler\b"), [Composition]),
+        new("HttpClient/SocketsHttpHandler creation", new Regex(Created("HttpClient") + @"|\bSocketsHttpHandler\b"), [Composition, EvalProgram]),
         new("SqlConnection creation", new Regex(Created("SqlConnection")), [SqlExecutor]),
         new("raw socket / legacy web API", new Regex(@"\bTcpClient\b|\bUdpClient\b|" + Created("Socket") + @"|WebRequest\b|\bWebClient\b|\bDns\s*\."), []),
         new("process creation", new Regex(Created("Process") + @"|\bProcess\s*\.\s*Start\s*\(|\bnew\s+" + Q + @"ProcessStartInfo\b|\bProcessStartInfo\s+[A-Za-z_][A-Za-z0-9_]*\s*=\s*new\s*\("), [ProcessRunner]),
@@ -111,8 +116,19 @@ public sealed class NetworkPolicyTests
         return hits;
     }
 
+    [Fact]
+    public void ScanCoversTheShippedEvalRunner()
+    {
+        // pelly-eval.exe ships in the field kit; dropping it from the scan would let a new creation site through unseen.
+        var root = FindRepoRoot();
+        var files = SourceFiles(root).Select(f => Path.GetRelativePath(root, f).Replace('\\', '/')).ToList();
+        Assert.Contains(EvalProgram, files);
+        Assert.Contains("eval/PellyCoder.Eval/BenchmarkRunner.cs", files);
+        Assert.DoesNotContain(files, f => f.StartsWith("eval/corpus/", StringComparison.Ordinal));
+    }
+
     private static IEnumerable<string> SourceFiles(string root) =>
-        Directory.EnumerateFiles(Path.Combine(root, "src"), "*.cs", SearchOption.AllDirectories)
+        ScanRoots.SelectMany(dir => Directory.EnumerateFiles(Path.Combine(root, dir.Replace('/', Path.DirectorySeparatorChar)), "*.cs", SearchOption.AllDirectories))
             .Where(f =>
             {
                 var parts = Path.GetRelativePath(root, f).Split(Path.DirectorySeparatorChar);

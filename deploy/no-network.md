@@ -9,6 +9,12 @@ pelly는 실행 중에 설정된 서버 둘에만 접속합니다. 그 밖의 �
 | :--- | :--- | :--- | :--- |
 | Ollama 서버 하나 | HTTP | 설정 `llm.endpoint` | `pelly cs`, `pelly sql`, `pelly doctor` |
 | SQL Server 하나 | TDS (SQL Server 기본 프로토콜) | 설정 `sql.connectionString` 또는 환경 변수 `PELLY_SQL_CONNECTION` | `pelly sql`, `pelly doctor`(연결 문자열이 있을 때만) |
+| Ollama 서버 하나 (`pelly-eval.exe`) | HTTP | 같은 설정 `llm.endpoint` (`--config`로 준 `pelly.json`) | `pelly-eval` 실행(벤치마크), `pelly-eval record` |
+| SQL Server 하나 (`pelly-eval.exe`) | TDS | 같은 설정 `sql.connectionString` 또는 `PELLY_SQL_CONNECTION` | `pelly-eval` 실행에 SQL 작업이 있을 때(판정 쿼리) |
+
+* `pelly-eval.exe`는 현장 키트 zip(`pelly-field-kit-<버전>-win-x64.zip`)에 든 벤치마크 실행 파일입니다. pelly와 같은 설정 규칙으로 위 두 서버에만 접속합니다.
+  * `pelly-eval validate`(`--deep` 포함), `compare`, `export`, `--help`는 서버에 접속하지 않습니다.
+  * 띄우는 프로세스는 `dotnet`(복원·빌드·판정 시험)과 MSBuild입니다. 3절 끝의 프로세스 설명이 같게 적용됩니다.
 
 * 두 주소 모두 사용자가 정합니다. 설정이 없을 때 `llm.endpoint` 기본값은 `http://localhost:11434`(같은 PC)입니다. SQL 기본 주소는 없습니다.
 * 업데이트 확인, 텔레메트리, 오류 보고, 라이선스 확인은 없습니다.
@@ -40,13 +46,13 @@ pelly는 프록시를 직접 설정하지 않습니다. `HttpClient`는 .NET 기
 
 ## 3. 이 정책 테스트가 막는 것
 
-`tests/PellyCoder.Core.Tests/Policy/NetworkPolicyTests.cs`가 `src/` 아래 모든 `*.cs`를 훑습니다. 대상은 `src/`뿐입니다.
-`eval/`은 개발자용 벤치마크 도구이고 반입본에 들어가지 않으므로 훑지 않습니다. `bin/`, `obj/`도 제외합니다.
+`tests/PellyCoder.Core.Tests/Policy/NetworkPolicyTests.cs`가 `src/`와 `eval/PellyCoder.Eval/` 아래 모든 `*.cs`를 훑습니다.
+`eval/PellyCoder.Eval/`은 현장 키트의 `pelly-eval.exe`로 반입되므로 훑습니다. 나머지 `eval/`(시험 코퍼스, 판정 프로젝트)은 시험 재료라 훑지 않습니다. `bin/`, `obj/`도 제외합니다.
 주석과 문자열 안의 언급은 지우고 검사합니다. 위반하면 파일과 줄 번호를 출력하며 실패합니다.
 
 | 생성 지점 | 허용 파일 |
 | :--- | :--- |
-| `new HttpClient(`, `SocketsHttpHandler` | `src/PellyCoder.Cli/Composition.cs` |
+| `new HttpClient(`, `SocketsHttpHandler` | `src/PellyCoder.Cli/Composition.cs`, `eval/PellyCoder.Eval/Program.cs` |
 | `new SqlConnection(` | `src/PellyCoder.Core/Sql/SqlServerExecutor.cs` |
 | `TcpClient`, `UdpClient`, `new Socket(`, `WebRequest`, `WebClient`, `Dns.` | 어디에도 없어야 함 |
 | `new Process`, `Process.Start(`, `new ProcessStartInfo` | `src/PellyCoder.Core/Processes/SystemProcessRunner.cs` |
@@ -74,6 +80,19 @@ pelly는 프록시를 직접 설정하지 않습니다. `HttpClient`는 .NET 기
 | `--out` 폴더, 없으면 현재 폴더 | `pelly doctor --sanitize` | `pelly-doctor-<날짜시각>.json`, `.md` (같은 초에 겹치면 `-2` 식 접미사) |
 | `--out` 폴더, 없으면 현재 폴더 | `pelly report --sanitize` | `pelly-report-<날짜시각>.json`, `.md` (같은 방식) |
 | `%TEMP%\.net\pelly\<해시>\` (환경 변수 `DOTNET_BUNDLE_EXTRACT_BASE_DIR`가 있으면 `<그 값>\pelly\<해시>\`) | `pelly.exe` 첫 실행(그 버전의 첫 실행) | .NET 단일 파일 호스트가 네이티브 `Microsoft.Data.SqlClient.SNI.dll`(약 0.5 MB) 하나를 풉니다. pelly 코드가 아니라 .NET 호스트가 씁니다. 다음 실행부터는 풀린 파일을 다시 씁니다. CI `windows-latest`에서 측정(docs/spikes/S6-single-file.md), 현장 PC는 Windows 미확인 |
+
+#### `pelly-eval.exe` (현장 키트)
+
+| 위치 | 언제 | 내용 |
+| :--- | :--- | :--- |
+| 스위트의 `resultsDir` 아래 `<날짜시각>/` (`--out`을 주면 그 폴더) | `pelly-eval` 실행 | `results.json`, `report.md`, 반복 실행이면 `run-<n>/`과 `summary.json`·`summary.md`. 작업 복사본 `work/<작업 id>/`(원본 루트·지원 파일·판정 프로젝트 사본)과 그 안에서 pelly가 쓰는 `.pelly/`, 빌드 산출물 |
+| `work/` 아래 작업 복사본 삭제 | 작업 종료 시 | `--keep-work`에 따라 지웁니다(`failed`면 통과한 작업만) |
+| 스위트의 `resultsDir` 아래 `validate-<날짜시각>/` | `pelly-eval validate --deep` | 판정 시험을 원본 복사본에서 돌리는 검사용 폴더. 시스템 임시 폴더가 아니라 결과 폴더 아래에 둡니다 |
+| `--out`으로 준 파일 | `pelly-eval record` | 버전 기록 `version-record.json` |
+| `--out`으로 준 폴더 | `pelly-eval export` | 비식별 반출본(`results.json`, `report.md`, `summary.*`, `EXPORT.md`) |
+| `%TEMP%\.net\pelly-eval\<해시>\` (또는 `DOTNET_BUNDLE_EXTRACT_BASE_DIR` 아래) | `pelly-eval.exe` 첫 실행 | .NET 단일 파일 호스트가 네이티브 SNI DLL을 풉니다(pelly.exe와 같음). Windows 미확인 |
+
+* 원본 루트(스위트 `roots`)는 읽기만 합니다. 수정은 작업 복사본에서만 일어납니다.
 
 * `src/`의 코드는 시스템 임시 폴더(`GetTempPath`)를 쓰지 않습니다. 다만 위 마지막 행처럼 .NET 호스트가 `%TEMP%` 아래에 씁니다. AppLocker·WDAC가 `%TEMP%`의 DLL 실행을 막는 PC라면 [install.md](install.md)의 「압축 해제 폴더」를 보십시오.
 * 두 `--sanitize` 출력은 허용 목록 방식의 비식별 결과입니다(`--help` 설명 기준).

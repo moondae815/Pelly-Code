@@ -96,6 +96,37 @@ jobs:
           path: artifacts/publish/win-x64/pelly.exe
           if-no-files-found: error
           retention-days: 1
+      - name: Publish pelly-eval win-x64 single file
+        # 현장 키트(M4 Task 9). csproj의 win-x64 조건부 속성만으로 단일 파일이 나와야 한다
+        run: dotnet publish eval/PellyCoder.Eval -c Release -r win-x64 -o artifacts/publish-eval/win-x64
+      - name: Check published pelly-eval.exe
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Get-ChildItem artifacts/publish-eval/win-x64 | Format-Table Name, Length -AutoSize | Out-String | Write-Host
+          $exe = Resolve-Path artifacts/publish-eval/win-x64/pelly-eval.exe
+          $size = (Get-Item $exe).Length
+          Write-Host ("pelly-eval.exe size: {0} bytes ({1:N1} MB)" -f $size, ($size / 1MB))
+          if (Get-ChildItem artifacts/publish-eval/win-x64 -Filter *.pdb) { throw 'pdb in the publish folder' }
+          $env:DOTNET_BUNDLE_EXTRACT_BASE_DIR = Join-Path $env:RUNNER_TEMP 'pelly-eval-extract'
+
+          & $exe --help | Out-Host
+          if ($LASTEXITCODE -ne 0) { throw "--help exit $LASTEXITCODE" }
+
+          # 내장 스위트가 Windows에서 Legacy 루트를 바르게 판정하는지 본다 (정적 검사, 서버 없음)
+          $out = (& $exe validate --suite eval/benchmark | Out-String)
+          $code = $LASTEXITCODE
+          Write-Host $out
+          if ($code -ne 0) { throw "validate --suite eval/benchmark exit $code" }
+          if (-not $out.Contains('오류 0건')) { throw 'validate output lacks the totals line' }
+          exit 0
+      - name: Upload published pelly-eval.exe for the package job
+        uses: actions/upload-artifact@v4
+        with:
+          name: pelly-eval-publish-win-x64
+          path: artifacts/publish-eval/win-x64/pelly-eval.exe
+          if-no-files-found: error
+          retention-days: 1
 
   package:
     # 반입 zip (Task 9). publish-check가 만든 exe를 그대로 쓴다 (publish는 한 번만 한다)
@@ -110,6 +141,10 @@ jobs:
         with:
           name: pelly-publish-win-x64
           path: artifacts/publish/win-x64
+      - uses: actions/download-artifact@v4
+        with:
+          name: pelly-eval-publish-win-x64
+          path: artifacts/publish-eval/win-x64
       - name: License gate rejects a changed exception (dry run)
         # 승인한 예외의 버전이나 라이선스 파일 해시가 바뀌면 패키지 빌드가 실패해야 한다. 저장소 파일은 건드리지 않는다
         shell: pwsh
@@ -160,26 +195,47 @@ jobs:
           $shaFile = Join-Path $shaDir "$($zip[0].Name).sha256"
           [System.IO.File]::WriteAllText($shaFile, "$hash  $($zip[0].Name)`n")
           "PELLY_PACKAGE_SHA256_FILE=$shaFile" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+      - name: Build field kit
+        # 현장 키트 zip (M4 Task 9). 라이선스 게이트·예외 파일·1.0 잠정 승인 거부는 반입 zip과 같다
+        shell: pwsh
+        run: |
+          ./deploy/build-package.ps1 -Package field-kit -PublishDir artifacts/publish-eval/win-x64 -OutDir artifacts/field-kit
+          $zip = @(Get-ChildItem artifacts/field-kit -Filter 'pelly-field-kit-*-win-x64.zip')
+          if ($zip.Count -ne 1) { throw "expected one zip, found $($zip.Count)" }
+          "PELLY_TEST_FIELD_KIT=$($zip[0].FullName)" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          $hash = (Get-FileHash $zip[0].FullName -Algorithm SHA256).Hash.ToLower()
+          Write-Host "zip sha256: $hash  $($zip[0].Name)"
+          $shaDir = New-Item -ItemType Directory -Force artifacts/field-kit-sha256
+          $shaFile = Join-Path $shaDir "$($zip[0].Name).sha256"
+          [System.IO.File]::WriteAllText($shaFile, "$hash  $($zip[0].Name)`n")
+          "PELLY_FIELD_KIT_SHA256_FILE=$shaFile" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
       - name: Check SHA256SUMS the way install.md does
         shell: pwsh
         run: |
-          $dir = Join-Path $env:RUNNER_TEMP 'pelly-unzip'
-          Expand-Archive $env:PELLY_TEST_PACKAGE $dir
-          Set-Location $dir
-          # install.md 2절의 명령 그대로
-          $result = Get-Content .\SHA256SUMS.txt | ForEach-Object {
-            $hash, $file = $_ -split '  ', 2
-            $actual = (Get-FileHash $file -Algorithm SHA256).Hash.ToLower()
-            if ($actual -eq $hash) { "OK  $file" } else { "다름  $file" }
+          $ErrorActionPreference = 'Stop'
+          foreach ($case in @(@{ zip = $env:PELLY_TEST_PACKAGE; count = 12 }, @{ zip = $env:PELLY_TEST_FIELD_KIT; count = 11 })) {
+            $dir = Join-Path $env:RUNNER_TEMP ('unzip-' + [System.IO.Path]::GetFileNameWithoutExtension($case.zip))
+            Expand-Archive $case.zip $dir
+            Push-Location $dir
+            try {
+              # install.md 2절의 명령 그대로
+              $result = Get-Content .\SHA256SUMS.txt | ForEach-Object {
+                $hash, $file = $_ -split '  ', 2
+                $actual = (Get-FileHash $file -Algorithm SHA256).Hash.ToLower()
+                if ($actual -eq $hash) { "OK  $file" } else { "다름  $file" }
+              }
+            }
+            finally { Pop-Location }
+            Write-Host "== $([System.IO.Path]::GetFileName($case.zip))"
+            $result | Out-Host
+            if ($result -notmatch '\AOK  ') { throw "checksum mismatch in $($case.zip)" }
+            if (@($result).Count -ne $case.count) { throw "expected $($case.count) checked files in $($case.zip), got $(@($result).Count)" }
           }
-          $result | Out-Host
-          if ($result -notmatch '\AOK  ') { throw 'checksum mismatch' }
-          if (@($result).Count -ne 12) { throw "expected 12 checked files, got $(@($result).Count)" }
       - name: Build tests
         run: dotnet build tests/PellyCoder.Integration.Tests -warnaserror
       - name: Package tests
         # zip이 없거나 Skip되거나 필터 오타로 수가 모자라면 실패해야 한다
-        run: dotnet test tests/PellyCoder.Integration.Tests --no-build -- --filter-class "PellyCoder.Integration.Tests.Package.PackageTests" --fail-skips on --minimum-expected-tests 6 --report-xunit-trx --results-directory artifacts/package-tests
+        run: dotnet test tests/PellyCoder.Integration.Tests --no-build -- --filter-class "PellyCoder.Integration.Tests.Package.PackageTests" --fail-skips on --minimum-expected-tests 12 --report-xunit-trx --results-directory artifacts/package-tests
       - name: List package test results
         if: always()
         shell: pwsh
@@ -198,6 +254,18 @@ jobs:
         with:
           name: pelly-package-sha256
           path: ${{ env.PELLY_PACKAGE_SHA256_FILE }}
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pelly-field-kit
+          path: ${{ env.PELLY_TEST_FIELD_KIT }}
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pelly-field-kit-sha256
+          path: ${{ env.PELLY_FIELD_KIT_SHA256_FILE }}
           if-no-files-found: error
           retention-days: 14
 

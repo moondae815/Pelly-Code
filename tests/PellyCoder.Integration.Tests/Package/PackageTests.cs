@@ -9,17 +9,11 @@ using PellyCoder.Integration.Tests.Infrastructure;
 
 namespace PellyCoder.Integration.Tests.Package;
 
-/// <summary>
-/// Checks the air-gap zip built by <c>deploy/build-package.ps1</c> (Task 9). The zip path comes from
-/// <see cref="ZipVariable"/>; the CI <c>package</c> job sets it and runs only this class.
-/// A missing variable on Windows is a failure, not a skip: the job must not pass without looking at the zip.
-/// </summary>
-public sealed class PackageTests
+/// <summary>One built zip: the variable that names it, its allow-list and the files the brief fixes for it.</summary>
+public sealed record PackageKind(string Name, string ZipVariable, string ListFile, string Exe, string[] ExpectedFiles)
 {
-    public const string ZipVariable = "PELLY_TEST_PACKAGE";
-
     // The brief's allow-list (Task 9). deploy/package-files.txt must say the same; the zip must contain exactly this.
-    internal static readonly string[] ExpectedFiles =
+    public static readonly PackageKind Pelly = new("pelly", "PELLY_TEST_PACKAGE", "deploy/package-files.txt", "pelly.exe",
     [
         "pelly.exe",
         "pelly.json.template",
@@ -34,28 +28,73 @@ public sealed class PackageTests
         "version-record.json",
         "benchmark-summary.md",
         "SHA256SUMS.txt",
-    ];
+    ]);
 
-    private static readonly Lazy<string> Extracted = new(Extract);
+    // M4 Task 9: the field kit (pelly-eval.exe, its guides and suite templates). deploy/field-kit-files.txt must say the same.
+    public static readonly PackageKind FieldKit = new("field-kit", "PELLY_TEST_FIELD_KIT", "deploy/field-kit-files.txt", "pelly-eval.exe",
+    [
+        "pelly-eval.exe",
+        "docs/field-guide.md",
+        "docs/field-benchmark.md",
+        "docs/field-results.md",
+        "templates/suite.json",
+        "templates/tasks/cs-modern-001.yaml",
+        "templates/tasks/cs-legacy-001.yaml",
+        "templates/tasks/sql-001.yaml",
+        "sbom.cdx.json",
+        "THIRD-PARTY-NOTICES.md",
+        "licenses/Microsoft.Data.SqlClient.SNI.runtime.LICENSE.txt",
+        "SHA256SUMS.txt",
+    ]);
+
+    public static PackageKind ByName(string name) => name switch
+    {
+        "pelly" => Pelly,
+        "field-kit" => FieldKit,
+        _ => throw new ArgumentOutOfRangeException(nameof(name), name, "unknown package"),
+    };
+}
+
+/// <summary>
+/// Checks the zips built by <c>deploy/build-package.ps1</c> (Task 9): the air-gap zip (<c>PELLY_TEST_PACKAGE</c>) and the
+/// field kit (<c>PELLY_TEST_FIELD_KIT</c>, <c>-Package field-kit</c>). The CI <c>package</c> job sets both and runs only this class.
+/// A missing variable on Windows is a failure, not a skip: the job must not pass without looking at the zips.
+/// </summary>
+public sealed class PackageTests
+{
+    public const string ZipVariable = "PELLY_TEST_PACKAGE";
+    public const string FieldKitVariable = "PELLY_TEST_FIELD_KIT";
+
+    public static TheoryData<string> Packages => new("pelly", "field-kit");
+
+    private static readonly Dictionary<string, Lazy<string>> Extracted = new(StringComparer.Ordinal)
+    {
+        ["pelly"] = new(() => Extract(PackageKind.Pelly)),
+        ["field-kit"] = new(() => Extract(PackageKind.FieldKit)),
+    };
 
     private static readonly Regex SumLine = new(@"\A([0-9a-f]{64})  ([^ ].*)\z");
 
-    [WindowsFact]
-    public void Package_ContainsExactlyAllowedFiles()
+    [WindowsTheory]
+    [MemberData(nameof(Packages))]
+    public void Package_ContainsExactlyAllowedFiles(string package)
     {
-        var root = Extracted.Value;
+        var kind = PackageKind.ByName(package);
+        var root = Extracted[package].Value;
         var actual = Directory.GetFiles(root, "*", SearchOption.AllDirectories)
             .Select(f => Path.GetRelativePath(root, f).Replace('\\', '/'))
             .Order(StringComparer.Ordinal).ToArray();
 
-        Assert.Equal(ExpectedFiles.Order(StringComparer.Ordinal), actual);
-        Assert.Equal(ExpectedFiles.Order(StringComparer.Ordinal), PackageFileList.ZipPaths().Order(StringComparer.Ordinal));
+        Assert.Equal(kind.ExpectedFiles.Order(StringComparer.Ordinal), actual);
+        Assert.Equal(kind.ExpectedFiles.Order(StringComparer.Ordinal), PackageFileList.ZipPaths(kind.ListFile).Order(StringComparer.Ordinal));
     }
 
-    [WindowsFact]
-    public void Package_ChecksumsMatch()
+    [WindowsTheory]
+    [MemberData(nameof(Packages))]
+    public void Package_ChecksumsMatch(string package)
     {
-        var root = Extracted.Value;
+        var kind = PackageKind.ByName(package);
+        var root = Extracted[package].Value;
         var lines = File.ReadAllLines(Path.Combine(root, "SHA256SUMS.txt"));
         var listed = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var line in lines)
@@ -65,7 +104,7 @@ public sealed class PackageTests
             Assert.True(listed.TryAdd(m.Groups[2].Value, m.Groups[1].Value), $"duplicate entry: {m.Groups[2].Value}");
         }
 
-        var files = ExpectedFiles.Where(f => f != "SHA256SUMS.txt").Order(StringComparer.Ordinal).ToArray();
+        var files = kind.ExpectedFiles.Where(f => f != "SHA256SUMS.txt").Order(StringComparer.Ordinal).ToArray();
         Assert.Equal(files, listed.Keys.Order(StringComparer.Ordinal));
         foreach (var file in files)
         {
@@ -78,16 +117,18 @@ public sealed class PackageTests
     [WindowsFact]
     public void Template_HasNoSecretsOrRealHosts()
     {
-        var text = File.ReadAllText(Path.Combine(Extracted.Value, "pelly.json.template"));
+        var text = File.ReadAllText(Path.Combine(Extracted["pelly"].Value, "pelly.json.template"));
         Assert.Empty(TemplateRules.Violations(text));
     }
 
-    [WindowsFact]
-    public void TextFiles_HaveNoDeveloperPaths()
+    [WindowsTheory]
+    [MemberData(nameof(Packages))]
+    public void TextFiles_HaveNoDeveloperPaths(string package)
     {
-        var root = Extracted.Value;
+        var kind = PackageKind.ByName(package);
+        var root = Extracted[package].Value;
         var problems = new List<string>();
-        foreach (var file in ExpectedFiles.Where(f => f != "pelly.exe"))
+        foreach (var file in kind.ExpectedFiles.Where(f => f != kind.Exe))
         {
             var text = File.ReadAllText(Path.Combine(root, file));
             // localhost is not checked here: the docs name it as the built-in default (no-network.md).
@@ -97,37 +138,63 @@ public sealed class PackageTests
         Assert.Empty(problems);
     }
 
-    [WindowsFact]
-    public void Pdb_NotShipped()
+    [WindowsTheory]
+    [MemberData(nameof(Packages))]
+    public void Pdb_NotShipped(string package)
     {
-        Assert.Empty(Directory.GetFiles(Extracted.Value, "*.pdb", SearchOption.AllDirectories));
-        using var zip = ZipFile.OpenRead(ZipPath());
+        var kind = PackageKind.ByName(package);
+        Assert.Empty(Directory.GetFiles(Extracted[package].Value, "*.pdb", SearchOption.AllDirectories));
+        using var zip = ZipFile.OpenRead(ZipPath(kind));
         Assert.DoesNotContain(zip.Entries, e => e.FullName.EndsWith(".pdb", StringComparison.OrdinalIgnoreCase));
     }
 
-    [WindowsFact]
-    public async Task Packaged_SelfTest_Exit0()
+    [WindowsTheory]
+    [MemberData(nameof(Packages))]
+    public async Task Packaged_SelfTest_Exit0(string package)
     {
-        var root = Extracted.Value;
-        var result = await new SystemProcessRunner(TimeProvider.System).RunAsync(
-            new ProcessSpec(Path.Combine(root, "pelly.exe"), ["doctor", "--offline-selftest"], root, TimeSpan.FromMinutes(2)),
-            TestContext.Current.CancellationToken);
+        // pelly: the hidden offline self-test. pelly-eval has none; --help runs the single file without a server.
+        var kind = PackageKind.ByName(package);
+        string[] args = kind == PackageKind.Pelly ? ["doctor", "--offline-selftest"] : ["--help"];
+        var result = await Run(kind, args);
 
         Assert.True(result.ExitCode == 0, $"exit {result.ExitCode}\n{result.StdOut}\n{result.StdErr}");
     }
 
-    private static string ZipPath()
+    [WindowsFact]
+    public async Task FieldKit_ValidateTemplates_Exit4AndNamesUnresolvedRoot()
     {
-        var path = Environment.GetEnvironmentVariable(ZipVariable);
+        // The templates hold placeholder paths (D:\src\<...>), so the suite cannot resolve: exit 4. suite.json itself must be
+        // found and read (the error is about its roots, not a missing file), which shows the template folder layout works.
+        var root = Extracted["field-kit"].Value;
+        var result = await Run(PackageKind.FieldKit, ["validate", "--suite", Path.Combine(root, "templates")]);
+        var output = result.StdOut + result.StdErr;
+
+        Assert.True(result.ExitCode == 4, $"exit {result.ExitCode}\n{output}");
+        Assert.Contains("스위트 오류", output, StringComparison.Ordinal);
+        Assert.Contains("roots[0] (Modern)", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("suite.json이 없습니다", output, StringComparison.Ordinal);
+    }
+
+    private static Task<ProcessResult> Run(PackageKind kind, string[] args)
+    {
+        var root = Extracted[kind.Name].Value;
+        return new SystemProcessRunner(TimeProvider.System).RunAsync(
+            new ProcessSpec(Path.Combine(root, kind.Exe), args, root, TimeSpan.FromMinutes(2)),
+            TestContext.Current.CancellationToken);
+    }
+
+    private static string ZipPath(PackageKind kind)
+    {
+        var path = Environment.GetEnvironmentVariable(kind.ZipVariable);
         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
-            throw new InvalidOperationException($"{ZipVariable} must name the built pelly-<version>-win-x64.zip (was '{path}')");
+            throw new InvalidOperationException($"{kind.ZipVariable} must name the built {kind.Name} zip (was '{path}')");
         return path;
     }
 
-    private static string Extract()
+    private static string Extract(PackageKind kind)
     {
-        var dir = Directory.CreateTempSubdirectory("pelly-package-").FullName;
-        ZipFile.ExtractToDirectory(ZipPath(), dir);
+        var dir = Directory.CreateTempSubdirectory($"pelly-{kind.Name}-").FullName;
+        ZipFile.ExtractToDirectory(ZipPath(kind), dir);
         return dir;
     }
 }
@@ -152,10 +219,16 @@ public sealed class PackageSourceTests
     }
 
     [Fact]
-    public void FileList_MatchesBriefAndSourcesExist()
+    public void FileList_MatchesBriefAndSourcesExist() => AssertListMatchesAndSourcesExist(PackageKind.Pelly);
+
+    [Fact]
+    public void FieldKitFileList_SourcesExist() => AssertListMatchesAndSourcesExist(PackageKind.FieldKit);
+
+    private static void AssertListMatchesAndSourcesExist(PackageKind kind)
     {
-        var entries = PackageFileList.Read();
-        Assert.Equal(PackageTests.ExpectedFiles.Order(StringComparer.Ordinal), entries.Select(e => e.ZipPath).Order(StringComparer.Ordinal));
+        var entries = PackageFileList.Read(kind.ListFile);
+        Assert.Equal(kind.ExpectedFiles.Order(StringComparer.Ordinal), entries.Select(e => e.ZipPath).Order(StringComparer.Ordinal));
+        Assert.Contains(entries, e => e.ZipPath == kind.Exe && e.Source == "publish:" + kind.Exe);
         foreach (var (zipPath, source) in entries)
         {
             if (source is "generated" || source.StartsWith("publish:", StringComparison.Ordinal)) continue;
@@ -198,26 +271,26 @@ internal static class TemplateRules
     }
 }
 
-/// <summary>Reads <c>deploy/package-files.txt</c>: one <c>zip path &lt;- source</c> per line, <c>#</c> comments.</summary>
+/// <summary>Reads an allow-list (<c>deploy/package-files.txt</c>, <c>deploy/field-kit-files.txt</c>): one <c>zip path &lt;- source</c> per line, <c>#</c> comments.</summary>
 internal static class PackageFileList
 {
     private static readonly Regex Line = new(@"\A(\S+) <- (\S+)\z");
 
-    public static IReadOnlyList<(string ZipPath, string Source)> Read()
+    public static IReadOnlyList<(string ZipPath, string Source)> Read(string listFile = "deploy/package-files.txt")
     {
         var result = new List<(string, string)>();
-        foreach (var raw in File.ReadAllLines(RepoFile("deploy/package-files.txt")))
+        foreach (var raw in File.ReadAllLines(RepoFile(listFile)))
         {
             var line = raw.Trim();
             if (line.Length == 0 || line.StartsWith('#')) continue;
             var m = Line.Match(line);
-            if (!m.Success) throw new FormatException($"package-files.txt: bad line '{raw}'");
+            if (!m.Success) throw new FormatException($"{listFile}: bad line '{raw}'");
             result.Add((m.Groups[1].Value, m.Groups[2].Value));
         }
         return result;
     }
 
-    public static IEnumerable<string> ZipPaths() => Read().Select(e => e.ZipPath);
+    public static IEnumerable<string> ZipPaths(string listFile = "deploy/package-files.txt") => Read(listFile).Select(e => e.ZipPath);
 
     public static string RepoFile(string relative)
     {

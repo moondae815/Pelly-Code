@@ -13,6 +13,14 @@ public sealed class WindowsFactAttribute : FactAttribute, ITraitAttribute
     public IReadOnlyCollection<KeyValuePair<string, string>> GetTraits() => EnvFact.Traits(TestEnvKind.Windows);
 }
 
+public sealed class WindowsTheoryAttribute : TheoryAttribute, ITraitAttribute
+{
+    public WindowsTheoryAttribute([CallerFilePath] string? sourceFilePath = null, [CallerLineNumber] int sourceLineNumber = -1)
+        : base(sourceFilePath, sourceLineNumber) => Skip = EnvFact.SkipIfMissing(TestEnvKind.Windows);
+
+    public IReadOnlyCollection<KeyValuePair<string, string>> GetTraits() => EnvFact.Traits(TestEnvKind.Windows);
+}
+
 public sealed class SqlServerFactAttribute : FactAttribute, ITraitAttribute
 {
     public SqlServerFactAttribute([CallerFilePath] string? sourceFilePath = null, [CallerLineNumber] int sourceLineNumber = -1)

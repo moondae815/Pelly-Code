@@ -1,22 +1,29 @@
 #requires -Version 7.0
 <#
 .SYNOPSIS
-  Builds the air-gap import zip pelly-<Version>-win-x64.zip (Task 9, PRD §11.1).
+  Builds the air-gap import zip pelly-<Version>-win-x64.zip (Task 9, PRD §11.1), or with -Package field-kit the field kit
+  pelly-field-kit-<Version>-win-x64.zip (pelly-eval.exe, field guides, suite templates; M4 Task 9).
 
 .DESCRIPTION
-  1. dotnet tool restore, then CycloneDX writes sbom.cdx.json for src/PellyCoder.Cli (transitive packages,
+  1. dotnet tool restore, then CycloneDX writes sbom.cdx.json for the package's project (src/PellyCoder.Cli or
+     eval/PellyCoder.Eval; transitive packages,
      win-x64 runtime). The self-contained .NET runtime packs are added as components (they are not NuGet
      package references, so CycloneDX does not list them).
   2. THIRD-PARTY-NOTICES.md is generated from the SBOM. A license that is not MIT, Apache-2.0, BSD-2-Clause or
      BSD-3-Clause fails the script (R7). A component without a license id is resolved from its nuspec in the
      local NuGet cache; anything still unresolved fails. deploy/license-exceptions.json may allow a package by
      exact id, version and license file SHA-256, only with a human approver recorded.
-  3. Only the files in deploy/package-files.txt are staged.
+  3. Only the files in the allow-list (deploy/package-files.txt or deploy/field-kit-files.txt) are staged.
+     deploy/version-record.json must match the Version (pelly only; the field kit records on site).
   4. SHA256SUMS.txt: "<sha256 hex>  <relative path>" for every other file.
   5. The zip.
 
+.PARAMETER Package
+  pelly (default): the air-gap zip from src/PellyCoder.Cli. field-kit: the field kit from eval/PellyCoder.Eval.
+  The license gate, the exception file and the provisional-approval refusal at 1.0 apply to both alike.
+
 .PARAMETER PublishDir
-  Output folder of the win-x64 single-file publish (the publish-check command).
+  Output folder of the win-x64 single-file publish (the publish-check command) of the package's project.
 
 .PARAMETER OutDir
   Folder for the staging folder, the zip and intermediate files. Recreated.
@@ -31,6 +38,7 @@
 #>
 [CmdletBinding()]
 param(
+    [ValidateSet('pelly', 'field-kit')][string]$Package = 'pelly',
     [Parameter(Mandatory)][string]$PublishDir,
     [Parameter(Mandatory)][string]$OutDir,
     [string]$LicenseExceptions = (Join-Path $PSScriptRoot 'license-exceptions.json'),
@@ -41,7 +49,14 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $Repo = Split-Path -Parent $PSScriptRoot
-$CliProject = Join-Path $Repo 'src/PellyCoder.Cli/PellyCoder.Cli.csproj'
+$Kind = switch ($Package) {
+    'pelly' { @{ Project = 'src/PellyCoder.Cli/PellyCoder.Cli.csproj'; List = 'package-files.txt'; Prefix = 'pelly'; SbomName = 'pelly'
+            Title = 'pelly {0} ({1}) 반입본'; VersionRecord = $true } }
+    'field-kit' { @{ Project = 'eval/PellyCoder.Eval/PellyCoder.Eval.csproj'; List = 'field-kit-files.txt'; Prefix = 'pelly-field-kit'; SbomName = 'pelly-eval'
+            Title = 'pelly 현장 키트 {0} ({1}, pelly-eval.exe)'; VersionRecord = $false } }
+}
+$Project = Join-Path $Repo $Kind.Project
+$ListFile = $Kind.List
 $Rid = 'win-x64'
 $AllowedLicenses = @('MIT', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause')
 $RuntimePacks = @("Microsoft.NETCore.App.Runtime.$Rid", "Microsoft.NETCore.App.Host.$Rid")
@@ -61,7 +76,7 @@ function Write-Utf8Lf([string]$Path, [string[]]$Lines) {
 $props = [xml](Get-Content -Raw $BuildProps)
 $Version = @($props.Project.PropertyGroup | ForEach-Object { $_.SelectSingleNode('Version') } | Where-Object { $_ })[0].InnerText
 if ($Version -notmatch '\A[0-9]+\.[0-9]+\.[0-9]+\z') { throw "unexpected Version in Directory.Build.props: '$Version'" }
-$Name = "pelly-$Version-$Rid"
+$Name = "$($Kind.Prefix)-$Version-$Rid"
 Write-Host "package: $Name"
 
 $PublishDir = (Resolve-Path $PublishDir).Path
@@ -78,14 +93,14 @@ Push-Location $Repo
 try {
     Invoke-Native 'dotnet' @('tool', 'restore')
     # Same RID as the publish so the assets file has the win-x64 target and the runtime pack versions.
-    Invoke-Native 'dotnet' @('restore', $CliProject, '-r', $Rid)
-    Invoke-Native 'dotnet' @('CycloneDX', $CliProject, '--runtime', $Rid, '--disable-package-restore',
+    Invoke-Native 'dotnet' @('restore', $Project, '-r', $Rid)
+    Invoke-Native 'dotnet' @('CycloneDX', $Project, '--runtime', $Rid, '--disable-package-restore',
         '--output-format', 'Json', '--output', $Generated, '--filename', 'sbom.cdx.json',
-        '--set-name', 'pelly', '--set-version', $Version)
+        '--set-name', $Kind.SbomName, '--set-version', $Version)
 }
 finally { Pop-Location }
 
-$assets = Get-Content -Raw (Join-Path $Repo 'src/PellyCoder.Cli/obj/project.assets.json') | ConvertFrom-Json -AsHashtable
+$assets = Get-Content -Raw (Join-Path (Split-Path -Parent $Project) 'obj/project.assets.json') | ConvertFrom-Json -AsHashtable
 $PackageRoots = @($assets['packageFolders'].Keys)
 
 function Find-Nuspec([string]$Id, [string]$Ver) {
@@ -256,7 +271,7 @@ foreach ($a in $approved) {
 $notices = @(
     '# Third-Party Notices',
     '',
-    "pelly $Version ($Rid) 반입본에 들어 있는 서드파티 구성 요소입니다. ``sbom.cdx.json``에서 만들었습니다.",
+    "$($Kind.Title -f $Version, $Rid)에 들어 있는 서드파티 구성 요소입니다. ``sbom.cdx.json``에서 만들었습니다.",
     '',
     '* 범위 `required`는 실행 파일에 들어 있는 것, `excluded`는 빌드에만 쓰고 넣지 않은 것입니다.',
     '* 근거 `SBOM`은 CycloneDX가 적은 값, `nuspec …`은 NuGet 캐시의 패키지 정보에서 읽은 값입니다.',
@@ -290,25 +305,27 @@ Write-Utf8Lf (Join-Path $Generated 'THIRD-PARTY-NOTICES.md') $notices
 
 # --- 3. staging by allow-list ------------------------------------------------------------------------------
 $entries = @()
-foreach ($raw in Get-Content (Join-Path $PSScriptRoot 'package-files.txt')) {
+foreach ($raw in Get-Content (Join-Path $PSScriptRoot $ListFile)) {
     $line = $raw.Trim()
     if ($line.Length -eq 0 -or $line.StartsWith('#')) { continue }
-    if ($line -notmatch '\A(\S+) <- (\S+)\z') { throw "package-files.txt: bad line '$raw'" }
+    if ($line -notmatch '\A(\S+) <- (\S+)\z') { throw "${ListFile}: bad line '$raw'" }
     $entries += [pscustomobject]@{ ZipPath = $Matches[1]; Source = $Matches[2] }
 }
 $dup = $entries | Group-Object ZipPath | Where-Object Count -gt 1
-if ($dup) { throw "package-files.txt: duplicate $($dup.Name -join ', ')" }
+if ($dup) { throw "${ListFile}: duplicate $($dup.Name -join ', ')" }
 
 foreach ($a in $approved) {
     if (-not ($entries | Where-Object { $_.ZipPath -eq $a.Exception['shipAs'] -and $_.Source -eq 'generated' })) {
-        throw "license exception $($a.Component['name']): shipAs '$($a.Exception['shipAs'])' must be a 'generated' line in package-files.txt"
+        throw "license exception $($a.Component['name']): shipAs '$($a.Exception['shipAs'])' must be a 'generated' line in $ListFile"
     }
 }
 
-$record = Get-Content -Raw (Join-Path $PSScriptRoot 'version-record.json') -ErrorAction SilentlyContinue
-if (-not $record) { throw 'deploy/version-record.json is missing — run dotnet run --project eval/PellyCoder.Eval -- record --out deploy/version-record.json on the development PC and commit it (R8)' }
-$recordVersion = ($record | ConvertFrom-Json).pellyVersion
-if ($recordVersion -ne $Version) { throw "version-record.json pellyVersion '$recordVersion' differs from $Version — run the record command again (dotnet run --project eval/PellyCoder.Eval -- record --out deploy/version-record.json)" }
+if ($Kind.VersionRecord) {
+    $record = Get-Content -Raw (Join-Path $PSScriptRoot 'version-record.json') -ErrorAction SilentlyContinue
+    if (-not $record) { throw 'deploy/version-record.json is missing — run dotnet run --project eval/PellyCoder.Eval -- record --out deploy/version-record.json on the development PC and commit it (R8)' }
+    $recordVersion = ($record | ConvertFrom-Json).pellyVersion
+    if ($recordVersion -ne $Version) { throw "version-record.json pellyVersion '$recordVersion' differs from $Version — run the record command again (dotnet run --project eval/PellyCoder.Eval -- record --out deploy/version-record.json)" }
+}
 
 foreach ($e in $entries) {
     if ($e.ZipPath -eq 'SHA256SUMS.txt') { continue }
@@ -332,7 +349,7 @@ Write-Utf8Lf (Join-Path $Staging 'SHA256SUMS.txt') $sums
 
 $staged = @(Get-ChildItem -Recurse -File $Staging | ForEach-Object { [System.IO.Path]::GetRelativePath($Staging, $_.FullName).Replace('\', '/') } | Sort-Object)
 $expected = @($entries.ZipPath | Sort-Object)
-if (Compare-Object $staged $expected) { throw "staged files differ from package-files.txt: $(Compare-Object $staged $expected | Out-String)" }
+if (Compare-Object $staged $expected) { throw "staged files differ from ${ListFile}: $(Compare-Object $staged $expected | Out-String)" }
 
 # --- 5. zip ------------------------------------------------------------------------------------------------
 Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem

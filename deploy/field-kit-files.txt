@@ -1,0 +1,18 @@
+# 현장 키트 zip 허용 목록 (M4 Task 9). deploy/build-package.ps1 -Package field-kit이 이 목록에 있는 파일만 zip에 넣는다.
+# 한 줄에 「zip 안 경로 <- 출처」 하나. 출처:
+#   publish:<경로>  -PublishDir 폴더 기준
+#   generated       스크립트가 만든다 (SBOM, 서드파티 목록, 예외 승인 라이선스 전문, 체크섬)
+#   그 밖           저장소 루트 기준
+# pelly.exe와 그 문서는 반입 zip(deploy/package-files.txt)에 있다. 이 zip에는 넣지 않는다.
+pelly-eval.exe <- publish:pelly-eval.exe
+docs/field-guide.md <- deploy/field-guide.md
+docs/field-benchmark.md <- deploy/field-benchmark.md
+docs/field-results.md <- deploy/field-results.md
+templates/suite.json <- deploy/field-kit/templates/suite.json
+templates/tasks/cs-modern-001.yaml <- deploy/field-kit/templates/tasks/cs-modern-001.yaml
+templates/tasks/cs-legacy-001.yaml <- deploy/field-kit/templates/tasks/cs-legacy-001.yaml
+templates/tasks/sql-001.yaml <- deploy/field-kit/templates/tasks/sql-001.yaml
+sbom.cdx.json <- generated
+THIRD-PARTY-NOTICES.md <- generated
+licenses/Microsoft.Data.SqlClient.SNI.runtime.LICENSE.txt <- generated
+SHA256SUMS.txt <- generated

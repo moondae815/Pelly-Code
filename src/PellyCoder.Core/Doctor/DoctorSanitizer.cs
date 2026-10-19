@@ -26,7 +26,7 @@ public static partial class DoctorSanitizer
         [DoctorFacts.MsBuild] = [DoctorFacts.Found],
         [DoctorFacts.TargetingPack] = [DoctorFacts.FrameworkVersion, DoctorFacts.Installed],
         [DoctorFacts.ServerSettings] = [],
-        [DoctorFacts.Sql] = [DoctorFacts.CanViewDefinition, DoctorFacts.ServerMajor],
+        [DoctorFacts.Sql] = [DoctorFacts.CanViewDefinition, DoctorFacts.ServerMajor, DoctorFacts.AuthMode],
     };
 
     /// <summary>Version-valued facts follow the run report's version rule: a value outside it is written as <c>invalid</c>.</summary>
@@ -43,6 +43,7 @@ public static partial class DoctorSanitizer
     {
         if (BooleanKeys.Contains(key)) return value is "true" or "false" ? value : "invalid";
         if (IntegerKeys.Contains(key)) return IntegerPattern.IsMatch(value) ? value : "invalid";
+        if (key == DoctorFacts.AuthMode) return value is "windows" or "sql" ? value : "invalid";
         if (key == DoctorFacts.TokenizerHash) return HashPattern.IsMatch(value) ? value : "invalid";
         return "invalid"; // a whitelisted key without a rule never passes free text
     }

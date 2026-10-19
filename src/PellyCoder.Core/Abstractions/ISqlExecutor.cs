@@ -20,7 +20,7 @@ public interface ISqlExecutor
     Task<IReadOnlyList<SqlCompileError>> CompileWithNoExecAsync(string batch, SqlSessionSettings settings, CancellationToken ct);
 }
 
-public sealed record SqlServerProbe(string Version, string Database, bool CanViewDefinition);
+public sealed record SqlServerProbe(string Version, string Database, bool CanViewDefinition, string? LoginName = null);
 
 public sealed record SqlColumnInfo(string Name, string TypeDisplay, bool Nullable, bool IsPrimaryKey);
 

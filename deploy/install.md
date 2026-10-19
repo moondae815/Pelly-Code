@@ -117,6 +117,7 @@ notepad "$env:APPDATA\pelly\config.json"
 | `sql.connectionString` | 비밀번호 없는 연결 문자열. `Server=<서버>;Database=<DB>;Integrated Security=true;TrustServerCertificate=True` 형태 |
 
 * 연결 문자열에 `Password`가 있으면 설정 오류(종료 코드 4)입니다. 비밀번호가 필요한 SQL 인증은 환경 변수 `PELLY_SQL_CONNECTION`으로만 지정합니다.
+* Windows 인증(`Integrated Security`)의 실제 도메인 환경 동작은 「Windows 미확인」입니다. `pelly doctor`의 `SQL 연결` 행이 인증 방식과 실제 접속 계정을 보여 주니 첫 접속 때 확인하십시오.
 * SQL을 쓰지 않으면 `sql` 항목은 비워 두어도 됩니다.
 * `sql.allowedHosts` 항목은 연결 문자열의 `Server=` 뒤에 쓴 값 그대로(또는 그 호스트 부분)여야 합니다. 대소문자는 구분하지 않습니다. 예: `Server=db01\SQL2022`이면 `db01\SQL2022` 또는 `db01`, `Server=tcp:db01,1433`이면 `db01`. IP로 접속하면 IP를 적습니다. `.`나 `(local)`은 바꿔 주지 않으니 호스트 이름을 쓰십시오.
 * 설정은 `내장 기본값 → 사용자 설정 → 작업 공간 pelly.json → 환경 변수 PELLY__<섹션>__<키> → 명령줄 옵션` 순으로 합쳐지고 뒤의 것이 이깁니다.

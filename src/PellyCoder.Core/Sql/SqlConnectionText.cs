@@ -24,6 +24,17 @@ public static class SqlConnectionText
         return PasswordKeys.Any(b.ContainsKey);
     }
 
+    /// <summary>True for <c>Integrated Security=true|yes|sspi</c> or <c>Trusted_Connection=true|yes|sspi</c>; keys are case-insensitive.</summary>
+    public static bool UsesIntegratedSecurity(string connectionString)
+    {
+        var b = Parse(connectionString);
+        if (b is null) return false;
+        foreach (var key in new[] { "Integrated Security", "Trusted_Connection", "Trusted Connection" })
+            if (b.TryGetValue(key, out var v) && v?.ToString()?.Trim().ToLowerInvariant() is "true" or "yes" or "sspi")
+                return true;
+        return false;
+    }
+
     /// <summary>Replaces password values with ***; unparsable text is masked entirely.</summary>
     public static string Mask(string cs)
     {

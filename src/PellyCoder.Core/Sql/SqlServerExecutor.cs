@@ -39,11 +39,11 @@ public sealed class SqlServerExecutor(string? connectionString) : ISqlExecutor
     public async Task<SqlServerProbe> ProbeAsync(CancellationToken ct)
         => await RunAsync(async conn =>
         {
-            var row = await conn.QuerySingleAsync<(string Version, string Database, int CanView)>(Cmd(
+            var row = await conn.QuerySingleAsync<(string Version, string Database, int CanView, string? LoginName)>(Cmd(
                 "SELECT @@VERSION AS Version, DB_NAME() AS [Database], " +
-                "CAST(CASE WHEN HAS_PERMS_BY_NAME(DB_NAME(), 'DATABASE', 'VIEW DEFINITION') = 1 THEN 1 ELSE 0 END AS int) AS CanView", ct: ct));
+                "CAST(CASE WHEN HAS_PERMS_BY_NAME(DB_NAME(), 'DATABASE', 'VIEW DEFINITION') = 1 THEN 1 ELSE 0 END AS int) AS CanView, SUSER_SNAME() AS LoginName", ct: ct));
             var first = row.Version.Split('\n')[0].Trim();
-            return new SqlServerProbe(first, row.Database, row.CanView == 1);
+            return new SqlServerProbe(first, row.Database, row.CanView == 1, row.LoginName);
         }, ct);
 
     public async Task<IReadOnlyList<SqlObjectName>> FindMissingAsync(IReadOnlyList<SqlObjectName> names, CancellationToken ct)

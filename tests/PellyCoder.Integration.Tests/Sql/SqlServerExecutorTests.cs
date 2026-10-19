@@ -70,6 +70,7 @@ public class SqlServerExecutorTests
         var probe = await Executor().ProbeAsync(CancellationToken.None);
         Assert.Equal("PellyCorpus", probe.Database);
         Assert.True(probe.CanViewDefinition);
+        Assert.Equal("sa", probe.LoginName);
         Assert.StartsWith("Microsoft SQL Server", probe.Version);
         Assert.DoesNotContain('\n', probe.Version);
     });

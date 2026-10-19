@@ -491,8 +491,49 @@ public sealed class DoctorServiceTests
         var c = Get(await Create().RunAsync(CancellationToken.None), "SQL 연결");
 
         Assert.Equal(DoctorStatus.Ok, c.Status);
-        Assert.Equal("localhost/PellyCorpus, Microsoft SQL Server 2022", c.Detail);
+        Assert.Equal("localhost/PellyCorpus, SQL 로그인, Microsoft SQL Server 2022", c.Detail);
         Assert.DoesNotContain("Secret", c.Detail);
+    }
+
+    [Fact]
+    public async Task Sql_WindowsAuth_DetailNamesAuthAndLogin()
+    {
+        EnqueueProbes();
+        SqlOptionsAllowed("Server=localhost,14333;Database=PellyCorpus;Integrated Security=true");
+        _sql!.Probe = new SqlServerProbe("Microsoft SQL Server 2022\nx", "PellyCorpus", true, "CORP\\kim");
+
+        var c = Get(await Create().RunAsync(CancellationToken.None), "SQL 연결");
+
+        Assert.Equal("localhost/PellyCorpus, Windows 인증 (CORP\\kim), Microsoft SQL Server 2022", c.Detail);
+        Assert.Equal("windows", c.Facts![DoctorFacts.AuthMode]);
+    }
+
+    [Fact]
+    public async Task Sql_SqlLogin_DetailSaysSqlLogin()
+    {
+        EnqueueProbes();
+        SqlOptionsAllowed();
+        _sql!.Probe = new SqlServerProbe("Microsoft SQL Server 2022\nx", "PellyCorpus", true, "sa");
+
+        var c = Get(await Create().RunAsync(CancellationToken.None), "SQL 연결");
+
+        Assert.Equal("localhost/PellyCorpus, SQL 로그인 (sa), Microsoft SQL Server 2022", c.Detail);
+        Assert.Equal("sql", c.Facts![DoctorFacts.AuthMode]);
+    }
+
+    [Fact]
+    public async Task Sanitize_DropsLoginName_KeepsAuthMode()
+    {
+        EnqueueProbes();
+        SqlOptionsAllowed("Server=localhost,14333;Database=PellyCorpus;Integrated Security=true");
+        _sql!.Probe = new SqlServerProbe("Microsoft SQL Server 2022\nx", "PellyCorpus", true, "CORP\\kim");
+
+        var checks = await Create().RunAsync(CancellationToken.None);
+        var json = DoctorSanitizer.ToJson(checks);
+
+        Assert.DoesNotContain("kim", json);
+        Assert.DoesNotContain("CORP", json);
+        Assert.Contains("\"authMode\": \"windows\"", json);
     }
 
     [Fact]

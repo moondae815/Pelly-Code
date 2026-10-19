@@ -28,6 +28,7 @@ public static class DoctorFacts
     public const string TokenizerHash = "tokenizerHash";
     public const string CanViewDefinition = "canViewDefinition";
     public const string ServerMajor = "serverMajor";
+    public const string AuthMode = "authMode";
     public const string FrameworkVersion = "frameworkVersion";
     public const string Installed = "installed";
 }

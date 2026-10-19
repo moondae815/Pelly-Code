@@ -5,6 +5,17 @@ namespace PellyCoder.Core.Tests.Sql;
 
 public class SqlConnectionTextTests
 {
+    [Theory]
+    [InlineData("Server=x;Integrated Security=true", true)]
+    [InlineData("Server=x;Integrated Security=SSPI", true)]
+    [InlineData("Server=x;Trusted_Connection=yes", true)]
+    [InlineData("server=x; integrated security = True ;", true)]
+    [InlineData("Server=x;TRUSTED_CONNECTION=Yes", true)]
+    [InlineData("Server=x;User Id=sa;Password=x", false)]
+    [InlineData("Server=x;Integrated Security=false;User Id=sa", false)]
+    public void UsesIntegratedSecurity_Detects(string cs, bool expected)
+        => Assert.Equal(expected, SqlConnectionText.UsesIntegratedSecurity(cs));
+
     [Fact]
     public void Mask_HidesPassword()
     {

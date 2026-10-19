@@ -157,10 +157,15 @@ public sealed class DoctorService(
             var probe = await sql.ProbeAsync(ct);
             if (!probe.CanViewDefinition)
                 return new(name, DoctorStatus.Fail, "VIEW DEFINITION 권한 필요", "접속 계정에 VIEW DEFINITION 권한을 부여하세요",
-                    Facts((DoctorFacts.CanViewDefinition, "false"), (DoctorFacts.ServerMajor, ServerMajor(probe.Version))));
+                    Facts((DoctorFacts.CanViewDefinition, "false"), (DoctorFacts.ServerMajor, ServerMajor(probe.Version)),
+                        (DoctorFacts.AuthMode, SqlConnectionText.UsesIntegratedSecurity(cs) ? "windows" : "sql")));
             var firstLine = probe.Version.Split('\n', 2)[0].Trim();
-            return new(name, DoctorStatus.Ok, $"{endpoint.DataSource}/{endpoint.Database}, {firstLine}", null,
-                Facts((DoctorFacts.CanViewDefinition, "true"), (DoctorFacts.ServerMajor, ServerMajor(probe.Version))));
+            var windows = SqlConnectionText.UsesIntegratedSecurity(cs);
+            var login = string.IsNullOrWhiteSpace(probe.LoginName) ? "" : $" ({probe.LoginName.Trim()})";
+            var auth = (windows ? "Windows 인증" : "SQL 로그인") + login;
+            return new(name, DoctorStatus.Ok, $"{endpoint.DataSource}/{endpoint.Database}, {auth}, {firstLine}", null,
+                Facts((DoctorFacts.CanViewDefinition, "true"), (DoctorFacts.ServerMajor, ServerMajor(probe.Version)),
+                    (DoctorFacts.AuthMode, windows ? "windows" : "sql")));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

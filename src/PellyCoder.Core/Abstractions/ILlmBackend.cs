@@ -36,7 +36,10 @@ public sealed record LlmServerStatus(
     bool ModelLoaded,
     string? Renderer,
     TimeSpan Latency,
-    string? Error);
+    string? Error,
+    string? ModelDigest = null,
+    string? ModelFormat = null,
+    string? ModelQuantization = null);
 
 public interface ILlmBackend
 {

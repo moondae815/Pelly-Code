@@ -5,5 +5,6 @@
   "modelDigest": "cd2692a833e66c4c98991b67e9fbaa0bb15a93285baac9240c022f2f40075b6d",
   "modelFormat": "safetensors",
   "modelQuantization": "nvfp4",
-  "recordedAt": "2026-10-18T14:46:06Z"
+  "modelGgufSha256": null,
+  "recordedAt": "2026-10-19T06:49:58Z"
 }

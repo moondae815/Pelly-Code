@@ -306,9 +306,9 @@ foreach ($a in $approved) {
 }
 
 $record = Get-Content -Raw (Join-Path $PSScriptRoot 'version-record.json') -ErrorAction SilentlyContinue
-if (-not $record) { throw 'deploy/version-record.json is missing — run deploy/record-versions.sh on the development PC and commit it (R8)' }
+if (-not $record) { throw 'deploy/version-record.json is missing — run dotnet run --project eval/PellyCoder.Eval -- record --out deploy/version-record.json on the development PC and commit it (R8)' }
 $recordVersion = ($record | ConvertFrom-Json).pellyVersion
-if ($recordVersion -ne $Version) { throw "version-record.json pellyVersion '$recordVersion' differs from $Version — run deploy/record-versions.sh again" }
+if ($recordVersion -ne $Version) { throw "version-record.json pellyVersion '$recordVersion' differs from $Version — run the record command again (dotnet run --project eval/PellyCoder.Eval -- record --out deploy/version-record.json)" }
 
 foreach ($e in $entries) {
     if ($e.ZipPath -eq 'SHA256SUMS.txt') { continue }

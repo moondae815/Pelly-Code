@@ -111,12 +111,14 @@ public sealed class AcceptanceTests : IDisposable
     {
         var b = Baseline();
         var json = RepeatSummary.ToJson(b);
-        Assert.Contains("\"formatVersion\": 1", json, StringComparison.Ordinal);
+        Assert.Contains("\"formatVersion\": 2", json, StringComparison.Ordinal);
         Assert.Equal(b.MeanSuccesses, RepeatSummary.FromJson(json).MeanSuccesses);
 
         // Task 5 summaries had no formatVersion.
-        Assert.Throws<JsonException>(() => RepeatSummary.FromJson(json.Replace("\"formatVersion\": 1,", "", StringComparison.Ordinal)));
-        Assert.Throws<JsonException>(() => RepeatSummary.FromJson(json.Replace("\"formatVersion\": 1", "\"formatVersion\": 2", StringComparison.Ordinal)));
+        Assert.Throws<JsonException>(() => RepeatSummary.FromJson(json.Replace("\"formatVersion\": 2,", "", StringComparison.Ordinal)));
+        Assert.Throws<JsonException>(() => RepeatSummary.FromJson(json.Replace("\"formatVersion\": 2", "\"formatVersion\": 3", StringComparison.Ordinal)));
+        Assert.Throws<JsonException>(() => RepeatSummary.FromJson(json.Replace("\"formatVersion\": 2", "\"formatVersion\": 0", StringComparison.Ordinal)));
+        Assert.Equal(1, RepeatSummary.FromJson(json.Replace("\"formatVersion\": 2", "\"formatVersion\": 1", StringComparison.Ordinal)).FormatVersion);
         // A required field missing (meanSuccesses) is an error, not 0.
         Assert.Throws<JsonException>(() => RepeatSummary.FromJson(Remove(json, "meanSuccesses")));
         Assert.Throws<JsonException>(() => RepeatSummary.FromJson(Remove(json, "groups")));
@@ -131,7 +133,7 @@ public sealed class AcceptanceTests : IDisposable
         var noisePath = Write("noise.json", Make([18, 18, 18], [10, 10, 11], [20, 20, 20]));
         var cancelledPath = Write("cancelled.json", Baseline() with { Cancelled = true });
         var oldPath = Path.Combine(_dir, "old.json");
-        File.WriteAllText(oldPath, RepeatSummary.ToJson(Baseline()).Replace("\"formatVersion\": 1,", "", StringComparison.Ordinal));
+        File.WriteAllText(oldPath, RepeatSummary.ToJson(Baseline()).Replace("\"formatVersion\": 2,", "", StringComparison.Ordinal));
 
         var (code, output) = Run(basePath, goodPath);
         Assert.Equal(0, code);
@@ -155,6 +157,48 @@ public sealed class AcceptanceTests : IDisposable
 
         (code, _) = Run(basePath);
         Assert.Equal(4, code);
+    }
+
+    private static RepeatSummaryData WithIdentity(RepeatSummaryData d, string? ollama, string? digest) =>
+        d with { Conditions = d.Conditions! with { OllamaVersion = ollama, ModelDigest = digest } };
+
+    [Fact]
+    public void Comparability_DifferentModelDigest_IsRefused()
+    {
+        var b = WithIdentity(Baseline(), "0.40.0", "cd2692a833e6" + new string('0', 52));
+        var c = WithIdentity(Baseline(), "0.40.0", "ffffffffffff" + new string('1', 52));
+
+        var problems = Acceptance.Comparability(b, c);
+
+        Assert.Contains("모델 digest가 다릅니다 (cd2692a833e6 ≠ ffffffffffff)", problems);
+        var (code, _) = Run(Write("b.json", b), Write("c.json", c));
+        Assert.Equal(4, code);
+    }
+
+    [Fact]
+    public void Comparability_DifferentOllamaVersion_IsRefused()
+    {
+        var d = new string('a', 64);
+        var problems = Acceptance.Comparability(WithIdentity(Baseline(), "0.40.0", d), WithIdentity(Baseline(), "0.41.2", d));
+
+        Assert.Contains(problems, p => p.Contains("Ollama 버전이 다릅니다 (0.40.0 ≠ 0.41.2)", StringComparison.Ordinal));
+        var (code, _) = Run(Write("b.json", WithIdentity(Baseline(), "0.40.0", d)), Write("c.json", WithIdentity(Baseline(), "0.41.2", d)));
+        Assert.Equal(4, code);
+    }
+
+    [Fact]
+    public void Comparability_OneSideNullIdentity_IsNotRefused_ButShownInConditionDifferences()
+    {
+        var b = WithIdentity(Baseline(), null, null);
+        var c = WithIdentity(Baseline(), "0.40.0", new string('a', 64));
+
+        Assert.Empty(Acceptance.Comparability(b, c));
+        var fields = Acceptance.ConditionDifferences(b.Conditions!, c.Conditions!).Select(d => d.Field).ToList();
+        Assert.Contains("ollamaVersion", fields);
+        Assert.Contains("modelDigest", fields);
+        var (code, output) = Run(Write("b.json", b), Write("c.json", c));
+        Assert.NotEqual(4, code);
+        Assert.Contains("modelDigest", output, StringComparison.Ordinal);
     }
 
     private (int Code, string Output) Run(params string[] paths)

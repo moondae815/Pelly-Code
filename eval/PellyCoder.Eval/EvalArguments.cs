@@ -13,6 +13,7 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
     public const string Run = "run";
     public const string Validate = "validate";
     public const string Compare = "compare";
+    public const string Record = "record";
 
     /// <summary><c>run</c> (default), <c>validate</c> or <c>compare</c>.</summary>
     public string Command { get; init; } = Run;
@@ -22,6 +23,9 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
 
     /// <summary>Arguments that are not options (<c>compare</c>: the two summary files).</summary>
     public IReadOnlyList<string> Positional { get; init; } = [];
+
+    /// <summary><c>record --gguf-sha256</c>: the model file's SHA-256 (64 hex digits, checked by the command).</summary>
+    public string? GgufSha256 { get; init; }
 
     /// <summary><c>validate --deep</c>: also runs the judge tests on the original sources.</summary>
     public bool Deep { get; init; }
@@ -46,6 +50,10 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
         비교: dotnet run --project eval/PellyCoder.Eval -- compare <기준선 summary.json> <후보 summary.json>
           R4 채택 규칙으로 판정합니다. 종료 코드 0 채택 · 3 거절 · 4 판정 불가
 
+        기록: dotnet run --project eval/PellyCoder.Eval -- record --out <파일> [--gguf-sha256 <hex>] [--config <pelly.json>]
+          서버의 Ollama 버전과 모델 식별 정보(digest·형식·양자화)를 JSON으로 씁니다. 접속 주소는 쓰지 않습니다.
+          종료 코드 0 기록함 · 3 모델이 서버에 없음 · 4 접속 불가 또는 인자 오류
+
         SQL 연결은 환경 변수 PELLY_SQL_CONNECTION. 없거나 허용 목록에 없으면 sql 작업은 건너뜁니다.
         산출물: results.json, report.md, work/<id>/ (작업별 스위트 루트 복사본과 .pelly/runs 로그); --repeat N>1이면 회차마다 run-<k>/ 아래에
         종료 코드: 0 실행 완료 · 1 검증 불변 조건 위반 · 2 중단 · 4 설정 오류(스위트 오류 포함) 또는 LLM 서버 연결 불가
@@ -57,6 +65,7 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
         [Run] = ["--suite", "--tasks", "--kind", "--out", "--config", "--repeat", "--keep-work"],
         [Validate] = ["--suite", "--config", "--deep"],
         [Compare] = [],
+        [Record] = ["--out", "--gguf-sha256", "--config"],
     };
 
     /// <summary>Positional arguments each subcommand requires.</summary>
@@ -65,6 +74,7 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
         [Run] = 0,
         [Validate] = 0,
         [Compare] = 2,
+        [Record] = 0,
     };
 
     public static EvalArguments Parse(IReadOnlyList<string> args)
@@ -72,7 +82,7 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
         var command = args.Count > 0 && Options.ContainsKey(args[0]) ? args[0] : Run;
         var start = args.Count > 0 && args[0] == command ? 1 : 0;
         var allowed = Options[command];
-        string? tasks = null, kind = null, outDir = null, config = null, suite = null;
+        string? tasks = null, kind = null, outDir = null, config = null, suite = null, gguf = null;
         var deep = false;
         var repeat = 1;
         var keepWork = KeepWork.All;
@@ -108,6 +118,7 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
                     kind = value;
                     break;
                 case "--out": outDir = value; break;
+                case "--gguf-sha256": gguf = value; break;
                 case "--repeat":
                     if (!int.TryParse(value, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out repeat) || repeat < 1)
                         return Error($"--repeat는 1 이상의 정수: {value}");
@@ -125,10 +136,11 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
             }
         }
 
+        if (command == Record && outDir is null) return Error("record에는 --out <파일>이 필요합니다");
         if (positional.Count != PositionalCount[command])
             return Error(command == Compare
                 ? "compare에는 <기준선 summary.json> <후보 summary.json> 두 개가 필요합니다"
                 : $"{command}: 인자 {PositionalCount[command]}개가 필요합니다");
-        return new(tasks, kind, outDir, config, false, null, repeat) { Command = command, Suite = suite, Deep = deep, KeepWork = keepWork, Positional = positional };
+        return new(tasks, kind, outDir, config, false, null, repeat) { Command = command, Suite = suite, Deep = deep, GgufSha256 = gguf, KeepWork = keepWork, Positional = positional };
     }
 }

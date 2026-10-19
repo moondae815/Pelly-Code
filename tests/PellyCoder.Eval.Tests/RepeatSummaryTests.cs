@@ -72,6 +72,37 @@ public sealed class RepeatSummaryTests : IDisposable
     }
 
     [Fact]
+    public void Summary_V1File_ReadsWithNullModelIdentity()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "docs", "m3b-baseline.summary.json"))) dir = dir.Parent;
+        Assert.NotNull(dir);
+
+        var s = RepeatSummary.FromJson(File.ReadAllText(Path.Combine(dir.FullName, "docs", "m3b-baseline.summary.json")));
+
+        Assert.Equal(1, s.FormatVersion);
+        Assert.Null(s.Conditions!.OllamaVersion);
+        Assert.Null(s.Conditions.ModelDigest);
+    }
+
+    [Fact]
+    public void Summary_WritesFormatVersion2_WithModelIdentity()
+    {
+        var conditions = new RunConditions("qwen", "cs-v2", "sql-v1", "Retry", 512,
+            new SamplingOptions(0.6, 0.95, 20, 1.0, 0.0), new SamplingOptions(0.1, 0.9, 20, 1.05, 0.0), "0.9.0", null, null,
+            "0.40.0", new string('c', 64));
+        var data = RepeatSummary.Build([[Pass("cs-modern-001")]]) with { Conditions = conditions };
+
+        var json = RepeatSummary.ToJson(data);
+
+        Assert.Equal(2, RepeatSummaryData.CurrentFormatVersion);
+        Assert.Contains("\"formatVersion\": 2", json, StringComparison.Ordinal);
+        var back = RepeatSummary.FromJson(json);
+        Assert.Equal("0.40.0", back.Conditions!.OllamaVersion);
+        Assert.Equal(new string('c', 64), back.Conditions.ModelDigest);
+    }
+
+    [Fact]
     public async Task Repeat_WritesRunFolders()
     {
         var conditions = new RunConditions("qwen", "cs-v2", "sql-v1", "Retry", 512,

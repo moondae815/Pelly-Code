@@ -71,7 +71,8 @@ public static class Acceptance
 
     /// <summary>
     /// Why two summaries cannot be judged by R4 (empty when they can): a cancelled series, missing conditions/runs/groups,
-    /// a different run count, task set or per-run number of tasks that ran. Differing <see cref="RunConditions"/> are
+    /// a different run count, task set or per-run number of tasks that ran, or a different model digest / Ollama version when both
+    /// summaries record one (a side without it, e.g. a v1 file, is not refused). Differing <see cref="RunConditions"/> are
     /// expected (the candidate's change) and are listed by <see cref="ConditionDifferences"/>, not refused.
     /// </summary>
     public static IReadOnlyList<string> Comparability(RepeatSummaryData baseline, RepeatSummaryData candidate)
@@ -84,6 +85,14 @@ public static class Acceptance
             if (s.Runs.Count == 0) problems.Add($"{name}: 회차(runs)가 없습니다.");
             else if (s.Runs.Count != s.RunCount) problems.Add($"{name}: runCount {s.RunCount}와 runs {s.Runs.Count}개가 다릅니다.");
             if (s.Groups.Count == 0) problems.Add($"{name}: 범주(groups)가 없습니다.");
+        }
+
+        if (baseline.Conditions is { } bc && candidate.Conditions is { } cc)
+        {
+            if (bc.ModelDigest is { } bd && cc.ModelDigest is { } cd && bd != cd)
+                problems.Add($"모델 digest가 다릅니다 ({Head(bd)} ≠ {Head(cd)})");
+            if (bc.OllamaVersion is { } bo && cc.OllamaVersion is { } co && bo != co)
+                problems.Add($"Ollama 버전이 다릅니다 ({bo} ≠ {co})");
         }
 
         if (baseline.RunCount != candidate.RunCount)
@@ -122,6 +131,8 @@ public static class Acceptance
 
     private static JsonObject ToObject(RunConditions conditions) =>
         JsonSerializer.SerializeToNode(conditions, RepeatSummary.Json)!.AsObject();
+
+    private static string Head(string digest) => digest.Length <= 12 ? digest : digest[..12];
 
     internal static string F(double v) => v.ToString("0.00", CultureInfo.InvariantCulture);
 

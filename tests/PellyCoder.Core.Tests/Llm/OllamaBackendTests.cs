@@ -302,6 +302,31 @@ public class OllamaBackendTests
     }
 
     [Fact]
+    public async Task Status_ReadsDigestFormatQuantization_FromTagsRow()
+    {
+        var digest = new string('a', 64);
+        var handler = new StubHttpHandler()
+            .OnJson("/api/version", """{"version":"0.40.0"}""")
+            .OnJson("/api/tags", $$$"""{"models":[{"name":"other:1b","model":"other:1b","digest":"zzz","details":{"format":"gguf","quantization_level":"Q4"}},{"name":"{{{Model}}}","model":"{{{Model}}}","digest":"{{{digest}}}","details":{"format":"safetensors","quantization_level":"nvfp4"}}]}""")
+            .OnJson("/api/ps", """{"models":[]}""")
+            .OnJson("/api/show", Fixture("show.json"));
+        var (backend, _) = Create(handler);
+
+        var s = await backend.GetStatusAsync(CancellationToken.None);
+
+        Assert.Equal(digest, s.ModelDigest);
+        Assert.Equal("safetensors", s.ModelFormat);
+        Assert.Equal("nvfp4", s.ModelQuantization);
+        Assert.Equal(1, handler.CountFor("/api/tags"));
+
+        var (noRow, _) = Create(HealthyServer());
+        var none = await noRow.GetStatusAsync(CancellationToken.None);
+        Assert.Null(none.ModelDigest);
+        Assert.Null(none.ModelFormat);
+        Assert.Null(none.ModelQuantization);
+    }
+
+    [Fact]
     public async Task Status_InstalledButNotLoaded()
     {
         var (backend, _) = Create(HealthyServer(psModels: "[]"));

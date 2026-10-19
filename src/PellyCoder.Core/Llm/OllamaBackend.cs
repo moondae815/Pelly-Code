@@ -89,12 +89,22 @@ public sealed partial class OllamaBackend : ILlmBackend, IOllamaDiagnostics
         var installed = false;
         var loaded = false;
         string? renderer = null;
+        string? digest = null, format = null, quantization = null;
         var errors = new List<string>();
 
         try
         {
             using var tags = await SendJsonAsync(HttpMethod.Get, "api/tags", null, StatusTimeout, ct);
-            installed = ListContainsModel(tags.RootElement);
+            installed = ListContainsModel(tags.RootElement, out var row);
+            if (row is { } r)
+            {
+                digest = GetString(r, "digest");
+                if (r.TryGetProperty("details", out var details) && details.ValueKind == JsonValueKind.Object)
+                {
+                    format = GetString(details, "format");
+                    quantization = GetString(details, "quantization_level");
+                }
+            }
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
@@ -127,7 +137,7 @@ public sealed partial class OllamaBackend : ILlmBackend, IOllamaDiagnostics
         }
 
         return new LlmServerStatus(true, version, installed, loaded, renderer, latency,
-            errors.Count == 0 ? null : string.Join("; ", errors));
+            errors.Count == 0 ? null : string.Join("; ", errors), digest, format, quantization);
     }
 
     public async Task<int?> ChatPromptTokenCountAsync(string system, string user, CancellationToken ct)
@@ -326,8 +336,14 @@ public sealed partial class OllamaBackend : ILlmBackend, IOllamaDiagnostics
         }
     }
 
-    private bool ListContainsModel(JsonElement root)
+    private static string? GetString(JsonElement element, string name) =>
+        element.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+
+    private bool ListContainsModel(JsonElement root) => ListContainsModel(root, out _);
+
+    private bool ListContainsModel(JsonElement root, out JsonElement? row)
     {
+        row = null;
         if (!root.TryGetProperty("models", out var models) || models.ValueKind != JsonValueKind.Array)
             return false;
         var wanted = _options.Model;
@@ -338,7 +354,10 @@ public sealed partial class OllamaBackend : ILlmBackend, IOllamaDiagnostics
                 {
                     var s = v.GetString();
                     if (s == wanted || (alt is not null && s == alt))
+                    {
+                        row = m;
                         return true;
+                    }
                 }
 
         return false;

@@ -24,6 +24,8 @@ if (parsed.Help || parsed.Error is not null)
 if (parsed.Command == EvalArguments.Compare) return CompareCommand.Run(parsed.Positional, Console.Out); // R4 verdict: 0 adopted, 3 rejected, 4 not judged
 if (parsed.Command == EvalArguments.Validate) return ValidateCommand.Run(parsed, Console.Out, Console.Error, processes: new SystemProcessRunner(TimeProvider.System)); // offline definition check: 0 no errors, 4 errors
 
+if (parsed.Command == EvalArguments.Record) return await RunRecordAsync(parsed);
+
 var suiteDir = parsed.Suite ?? EvalPaths.FindSuite();
 if (suiteDir is null) return Fail($"eval/benchmark/{BenchmarkSuite.FileName}을 찾을 수 없습니다 — 저장소 안에서 실행하거나 --suite <폴더>를 지정하세요.");
 var suiteLoad = BenchmarkSuite.Load(suiteDir);
@@ -75,7 +77,8 @@ var runner = new BenchmarkRunner(new RunnerSetup(fs, new SystemProcessRunner(Tim
 var json = new JsonSerializerOptions { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 var prompts = PromptResources.LoadDefault();
 var conditions = new RunConditions(options.Llm.Model, prompts.Version, prompts.SqlVersion, options.Llm.ThinkMode.ToString(),
-    options.Budget.Think, options.Sampling.Think, options.Sampling.Code, PellyInfo.Version, parsed.Tasks, parsed.Kind);
+    options.Budget.Think, options.Sampling.Think, options.Sampling.Code, PellyInfo.Version, parsed.Tasks, parsed.Kind,
+    status.Version, status.ModelDigest);
 var header = $"* 실행: {stamp} · pelly {PellyInfo.Version} · 모델 `{options.Llm.Model}` ({options.Llm.Endpoint}, Ollama {status.Version}) · "
     + $"thinkMode {options.Llm.ThinkMode} · {Environment.OSVersion.Platform}\n* 스위트: {suite.Name}\n* 선택: --tasks {parsed.Tasks ?? "*"} --kind {parsed.Kind ?? "*"}"
     + (parsed.Repeat > 1 ? $" --repeat {parsed.Repeat}" : "");
@@ -135,4 +138,22 @@ static int Fail(string message)
 {
     Console.Error.WriteLine(message);
     return 4;
+}
+
+// record: needs only the config and the backend (no suite); the HttpClient lives here, as in the run path below.
+static async Task<int> RunRecordAsync(EvalArguments parsed)
+{
+    var fs = new FileSystem();
+    if (parsed.Config is not null && !File.Exists(parsed.Config)) return Fail($"설정 파일이 없습니다: {parsed.Config}");
+    var environment = Environment.GetEnvironmentVariables().Cast<System.Collections.DictionaryEntry>()
+        .ToDictionary(e => (string)e.Key, e => (string?)e.Value);
+    var loaded = PellyOptionsLoader.Load(fs, PellyPaths.UserConfigPath(), parsed.Config, environment, new Dictionary<string, string?>());
+    if (loaded.Options is not { } options) return Fail("설정 오류:\n  " + string.Join("\n  ", loaded.Errors));
+    using var cts = new CancellationTokenSource();
+    Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
+    using var http = new HttpClient(new SocketsHttpHandler { ConnectTimeout = TimeSpan.FromSeconds(options.Llm.ConnectTimeoutSeconds) })
+    {
+        Timeout = Timeout.InfiniteTimeSpan,
+    };
+    return await RecordCommand.RunAsync(parsed, new OllamaBackend(http, options.Llm, TimeProvider.System), options, Console.Out, cts.Token);
 }

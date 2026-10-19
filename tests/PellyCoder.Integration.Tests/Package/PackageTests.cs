@@ -174,10 +174,12 @@ public sealed class VersionRecordTests
         var text = File.ReadAllText(PackageFileList.RepoFile("deploy/version-record.json"));
         using var doc = System.Text.Json.JsonDocument.Parse(text);
         var root = doc.RootElement;
-        string[] keys = ["pellyVersion", "ollamaVersion", "model", "modelDigest", "modelFormat", "modelQuantization", "recordedAt"];
+        string[] keys = ["pellyVersion", "ollamaVersion", "model", "modelDigest", "modelFormat", "modelQuantization", "modelGgufSha256", "recordedAt"];
         Assert.Equal(keys.Order(StringComparer.Ordinal), root.EnumerateObject().Select(p => p.Name).Order(StringComparer.Ordinal));
         Assert.Equal(typeof(PackageTests).Assembly.GetName().Version!.ToString(3), root.GetProperty("pellyVersion").GetString());
         Assert.Matches(Hex64, root.GetProperty("modelDigest").GetString()!);
+        var gguf = root.GetProperty("modelGgufSha256");
+        if (gguf.ValueKind != System.Text.Json.JsonValueKind.Null) Assert.Matches(Hex64, gguf.GetString()!);
         foreach (var bad in new[] { "http", "localhost", "127.0.0.1", "/Users/", @"C:\\Users" })
             Assert.DoesNotContain(bad, text, StringComparison.OrdinalIgnoreCase);
     }

@@ -159,7 +159,7 @@ dotnet tool restore   # CycloneDX 6.3.1 (SBOM)
 pwsh ./deploy/build-package.ps1 -PublishDir artifacts/publish/win-x64 -OutDir artifacts/package
 ```
 * zip에는 `deploy/package-files.txt` 허용 목록의 13개 파일만 들어갑니다(실행 파일·설정 템플릿·문서·`SHA256SUMS.txt`·SBOM·서드파티 라이선스·버전 기록·벤치마크 요약). 허용되지 않은 라이선스가 있으면 스크립트가 실패하며, 예외는 `deploy/license-exceptions.json`에 승인자와 함께 적습니다(현재 하나, 잠정).
-* `deploy/version-record.json`은 개발 PC의 Ollama에서 `deploy/record-versions.sh`로 다시 만듭니다. 반입 전에 사람이 다시 실행합니다.
+* `deploy/version-record.json`은 개발 PC의 Ollama에서 `dotnet run --project eval/PellyCoder.Eval -- record --out deploy/version-record.json`으로 다시 만듭니다(현장 모델의 GGUF SHA-256은 `--gguf-sha256 <hex>`). 반입 전에 사람이 다시 실행합니다.
 * 설치·사용·IDE·외부 통신 없음 문서는 [deploy/](deploy/)에 있고 zip의 `docs/`에도 들어갑니다. 현재 CI는 Windows에서만 이 zip을 검증하며, 실제 폐쇄망 PC는 **Windows 미확인**(M4)입니다.
 
 ## 벤치마크 실행

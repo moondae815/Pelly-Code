@@ -13,7 +13,8 @@ namespace PellyCoder.Eval;
 /// </summary>
 public sealed record RunConditions(
     string Model, string CsPromptVersion, string SqlPromptVersion, string ThinkMode, int BudgetThink,
-    SamplingOptions SamplingThink, SamplingOptions SamplingCode, string? PellyVersion, string? Tasks, string? Kind);
+    SamplingOptions SamplingThink, SamplingOptions SamplingCode, string? PellyVersion, string? Tasks, string? Kind,
+    string? OllamaVersion = null, string? ModelDigest = null);
 
 /// <summary>One task across the runs.</summary>
 /// <param name="Group">Id prefix group (<c>cs-legacy</c>, <c>cs-modern</c>, <c>sql</c>): the R4 category.</param>
@@ -55,8 +56,11 @@ public sealed record RepeatSummaryData(
     IReadOnlyList<RunRepeatSummary> Runs, IReadOnlyList<GroupRepeatSummary> Groups, IReadOnlyList<TaskRepeatSummary> Tasks,
     RunConditions? Conditions = null, bool Cancelled = false)
 {
-    /// <summary>The <c>summary.json</c> layout this code writes and the only one <see cref="RepeatSummary.FromJson"/> reads.</summary>
-    public const int CurrentFormatVersion = 1;
+    /// <summary>The <c>summary.json</c> layout this code writes this code writes; <see cref="RepeatSummary.FromJson"/> also reads version 1.</summary>
+    public const int CurrentFormatVersion = 2;
+
+    /// <summary>The oldest layout still read (1: no model identity in the conditions; those read as null).</summary>
+    public const int MinReadableFormatVersion = 1;
 
     /// <summary>Layout version; a summary without it (Task 5) is refused rather than read with defaults.</summary>
     [JsonRequired]
@@ -115,8 +119,8 @@ public static partial class RepeatSummary
     public static RepeatSummaryData FromJson(string json)
     {
         var data = JsonSerializer.Deserialize<RepeatSummaryData>(json, Json) ?? throw new JsonException("summary.json이 비어 있습니다.");
-        if (data.FormatVersion != RepeatSummaryData.CurrentFormatVersion)
-            throw new JsonException($"summary.json formatVersion {data.FormatVersion}을 읽을 수 없습니다(지원: {RepeatSummaryData.CurrentFormatVersion}).");
+        if (data.FormatVersion is < RepeatSummaryData.MinReadableFormatVersion or > RepeatSummaryData.CurrentFormatVersion)
+            throw new JsonException($"summary.json formatVersion {data.FormatVersion}을 읽을 수 없습니다(지원: {RepeatSummaryData.MinReadableFormatVersion}~{RepeatSummaryData.CurrentFormatVersion}).");
         return data;
     }
 

@@ -121,6 +121,19 @@ public sealed class DoctorServiceTests
     }
 
     [Fact]
+    public async Task ModelRow_ShowsDigestHead_WhenServerReportsIt()
+    {
+        _backend.Status = new LlmServerStatus(true, "0.40.0", true, false, "qwen3.5", TimeSpan.FromMilliseconds(3), null,
+            "cd2692a833e66c4c98991b67e9fbaa0bb15a93285baac9240c022f2f40075b6d");
+        EnqueueProbes();
+
+        var checks = await Create().RunAsync(CancellationToken.None);
+
+        Assert.Contains("digest cd2692a833e6", Get(checks, "모델").Detail, StringComparison.Ordinal);
+        Assert.DoesNotContain("cd2692a833e66", Get(checks, "모델").Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task TemplateMismatch_IsWarn()
     {
         EnqueueProbes(templatePrompt: 25);

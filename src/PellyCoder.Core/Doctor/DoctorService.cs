@@ -63,12 +63,12 @@ public sealed class DoctorService(
         }
         else if (!status.ModelLoaded)
         {
-            checks.Add(new(DoctorFacts.Model, DoctorStatus.Warn, "설치됨, 아직 로드되지 않음 — 첫 요청은 모델 로딩으로 느릴 수 있습니다", null,
+            checks.Add(new(DoctorFacts.Model, DoctorStatus.Warn, "설치됨, 아직 로드되지 않음 — 첫 요청은 모델 로딩으로 느릴 수 있습니다" + DigestNote(status, " · "), null,
                 Facts((DoctorFacts.Loaded, "false"))));
         }
         else
         {
-            checks.Add(new(DoctorFacts.Model, DoctorStatus.Ok, $"{options.Llm.Model} (로드됨)", null, Facts((DoctorFacts.Loaded, "true"))));
+            checks.Add(new(DoctorFacts.Model, DoctorStatus.Ok, $"{options.Llm.Model} (로드됨{DigestNote(status, ", ")})", null, Facts((DoctorFacts.Loaded, "true"))));
         }
 
         var modelUsable = serverOk && status.ModelInstalled;
@@ -213,6 +213,10 @@ public sealed class DoctorService(
         var m = System.Text.RegularExpressions.Regex.Match(version, @"(?<![0-9.])([0-9]{1,2})\.[0-9]+\.[0-9]+\.[0-9]+");
         return m.Success ? m.Groups[1].Value : "";
     }
+
+    /// <summary>The model's digest head (12 chars), so a swapped model file is visible in the report; not a secret.</summary>
+    private static string DigestNote(LlmServerStatus status, string separator) =>
+        string.IsNullOrEmpty(status.ModelDigest) ? "" : $"{separator}digest {(status.ModelDigest.Length <= 12 ? status.ModelDigest : status.ModelDigest[..12])}";
 
     private static DoctorCheck Skipped(string name, string reason) => new(name, DoctorStatus.Warn, reason, null);
 

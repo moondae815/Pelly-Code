@@ -7,6 +7,9 @@ namespace PellyCoder.Eval;
 /// </summary>
 public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, string? Config, bool Help, string? Error, int Repeat = 1)
 {
+    /// <summary><c>--keep-work</c>: which work copies to keep.</summary>
+    public KeepWork KeepWork { get; init; } = KeepWork.All;
+
     public const string Run = "run";
     public const string Validate = "validate";
     public const string Compare = "compare";
@@ -29,6 +32,7 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
           --out <폴더>      출력 폴더 (기본: 스위트의 resultsDir/<yyyyMMdd-HHmmss>/, 내장 스위트는 eval/results/)
           --config <파일>   pelly.json (사용자 설정과 환경 변수 위에 적용; SQL 허용 목록은 여기서 지정)
           --repeat <N>      같은 작업 집합을 N회 실행 (기본 1). N>1이면 회차별 결과는 run-<k>/, 상위에 summary.md·summary.json
+          --keep-work <all|failed|none>  작업 복사본 보존 (기본 all; 현장 실제 코드에서는 failed 권장)
           --help            이 도움말
 
         비교: dotnet run --project eval/PellyCoder.Eval -- compare <기준선 summary.json> <후보 summary.json>
@@ -42,7 +46,7 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
     /// <summary>Value options each subcommand accepts (<c>--help</c> is accepted everywhere).</summary>
     private static readonly Dictionary<string, string[]> Options = new(StringComparer.Ordinal)
     {
-        [Run] = ["--suite", "--tasks", "--kind", "--out", "--config", "--repeat"],
+        [Run] = ["--suite", "--tasks", "--kind", "--out", "--config", "--repeat", "--keep-work"],
         [Validate] = ["--suite"],
         [Compare] = [],
     };
@@ -62,6 +66,7 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
         var allowed = Options[command];
         string? tasks = null, kind = null, outDir = null, config = null, suite = null;
         var repeat = 1;
+        var keepWork = KeepWork.All;
         var positional = new List<string>();
 
         EvalArguments Error(string message) => new(null, null, null, null, false, message) { Command = command };
@@ -93,6 +98,15 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
                     if (!int.TryParse(value, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out repeat) || repeat < 1)
                         return Error($"--repeat는 1 이상의 정수: {value}");
                     break;
+                case "--keep-work":
+                    switch (value)
+                    {
+                        case "all": keepWork = KeepWork.All; break;
+                        case "failed": keepWork = KeepWork.Failed; break;
+                        case "none": keepWork = KeepWork.None; break;
+                        default: return Error($"--keep-work는 all, failed, none 중 하나: {value}");
+                    }
+                    break;
                 default: config = value; break;
             }
         }
@@ -101,6 +115,6 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
             return Error(command == Compare
                 ? "compare에는 <기준선 summary.json> <후보 summary.json> 두 개가 필요합니다"
                 : $"{command}: 인자 {PositionalCount[command]}개가 필요합니다");
-        return new(tasks, kind, outDir, config, false, null, repeat) { Command = command, Suite = suite, Positional = positional };
+        return new(tasks, kind, outDir, config, false, null, repeat) { Command = command, Suite = suite, KeepWork = keepWork, Positional = positional };
     }
 }

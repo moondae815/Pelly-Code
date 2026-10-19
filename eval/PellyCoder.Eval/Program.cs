@@ -71,7 +71,7 @@ Directory.CreateDirectory(outDir);
 Console.WriteLine($"스위트 {suite.Name} ({suite.Dir}) · 작업 {tasks.Count}건{(parsed.Repeat > 1 ? $" × {parsed.Repeat}회" : "")} → {outDir}");
 
 var runner = new BenchmarkRunner(new RunnerSetup(fs, new SystemProcessRunner(TimeProvider.System), backend, options, TimeProvider.System,
-    suite, sql, sqlSkip, Console.WriteLine));
+    suite, sql, sqlSkip, Console.WriteLine, KeepWork: parsed.KeepWork));
 var json = new JsonSerializerOptions { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 var prompts = PromptResources.LoadDefault();
 var conditions = new RunConditions(options.Llm.Model, prompts.Version, prompts.SqlVersion, options.Llm.ThinkMode.ToString(),

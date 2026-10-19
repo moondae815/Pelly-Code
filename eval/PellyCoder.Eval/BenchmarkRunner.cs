@@ -14,7 +14,10 @@ namespace PellyCoder.Eval;
 public sealed record RunnerSetup(
     IFileSystem Fs, IProcessRunner Processes, ILlmBackend Backend, PellyOptions Options, TimeProvider Time, BenchmarkSuite Suite,
     ISqlExecutor? Sql, string? SqlSkipReason, Action<string> Log, Func<bool>? IsWindows = null,
-    IIndependentVerifier? Verifier = null);
+    IIndependentVerifier? Verifier = null, KeepWork KeepWork = KeepWork.All);
+
+/// <summary>Which task work copies (<c>work/&lt;id&gt;</c>) survive the run.</summary>
+public enum KeepWork { All, Failed, None }
 
 /// <summary>
 /// Runs one benchmark task end to end (design §10.6): copy the task's suite root into <c>&lt;out&gt;/work/&lt;id&gt;/</c>, restore
@@ -25,6 +28,35 @@ public sealed class BenchmarkRunner(RunnerSetup setup)
     private static readonly TimeSpan RestoreTimeout = TimeSpan.FromMinutes(5);
 
     public async Task<TaskResult> RunAsync(SuiteTask suiteTask, string outDir, CancellationToken ct)
+    {
+        var workRoot = Path.Combine(outDir, "work", suiteTask.Task.Id);
+        var existedBefore = Directory.Exists(workRoot);
+        var result = await RunCoreAsync(suiteTask, outDir, ct); // a cancelled run throws: its folder is never removed
+        if (!existedBefore) RemoveWorkCopy(workRoot, result);
+        return result;
+    }
+
+    /// <summary>Applies the keep-work policy once the result is final; a locked file only warns and never changes the result.</summary>
+    private void RemoveWorkCopy(string workRoot, TaskResult result)
+    {
+        var remove = setup.KeepWork switch
+        {
+            KeepWork.None => true,
+            KeepWork.Failed => result.Status == VerificationResult.Passed,
+            _ => false,
+        };
+        if (!remove || !Directory.Exists(workRoot)) return;
+        try
+        {
+            Directory.Delete(workRoot, recursive: true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            setup.Log($"[{result.Id}] 경고: 작업 복사본을 지우지 못했습니다 ({workRoot}): {ex.Message}");
+        }
+    }
+
+    private async Task<TaskResult> RunCoreAsync(SuiteTask suiteTask, string outDir, CancellationToken ct)
     {
         var task = suiteTask.Task;
         var isLegacy = suiteTask.IsLegacy;

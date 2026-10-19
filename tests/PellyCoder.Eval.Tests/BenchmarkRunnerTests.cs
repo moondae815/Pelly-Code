@@ -84,6 +84,50 @@ public sealed class BenchmarkRunnerTests : IDisposable
         Assert.Equal(violation, result.InvariantViolated);
     }
 
+    [Fact]
+    public async Task Runner_KeepWorkFailed_DeletesPassedTaskFolder_KeepsFailed()
+    {
+        var suite = PlainSuite();
+        var fs = new FileSystem();
+        var outDir = Path.Combine(_root, "out");
+        var passed = await RunWithAsync(suite, fs, KeepWork.Failed, "cs-modern-901", VerificationResult.Pass, outDir);
+        var failed = await RunWithAsync(suite, fs, KeepWork.Failed, "cs-modern-902", VerificationResult.Fail("빌드 오류: CS0103"), outDir);
+
+        Assert.Equal(VerificationResult.Passed, passed.Status);
+        Assert.Equal(VerificationResult.Failed, failed.Status);
+        Assert.False(Directory.Exists(Path.Combine(outDir, "work", "cs-modern-901")));
+        Assert.True(Directory.Exists(Path.Combine(outDir, "work", "cs-modern-902")));
+        Assert.Equal(1, passed.Attempts);
+    }
+
+    [Fact]
+    public async Task Runner_KeepWorkNone_DeletesBoth_AfterArtifactsAreRead()
+    {
+        var suite = PlainSuite();
+        var fs = new FileSystem();
+        var outDir = Path.Combine(_root, "out");
+        var passed = await RunWithAsync(suite, fs, KeepWork.None, "cs-modern-901", VerificationResult.Pass, outDir);
+        var failed = await RunWithAsync(suite, fs, KeepWork.None, "cs-modern-902", VerificationResult.Fail("빌드 오류: CS0103"), outDir);
+
+        Assert.False(Directory.Exists(Path.Combine(outDir, "work", "cs-modern-901")));
+        Assert.False(Directory.Exists(Path.Combine(outDir, "work", "cs-modern-902")));
+        Assert.All(new[] { passed, failed }, r => { Assert.Equal(1, r.Attempts); Assert.NotNull(r.TtftSeconds); });
+    }
+
+    private async Task<TaskResult> RunWithAsync(BenchmarkSuite suite, IFileSystem fs, KeepWork keep, string id, VerificationResult verdict, string outDir)
+    {
+        var task = new BenchmarkTask
+        {
+            Id = id, Kind = "cs", File = "Plain/Calc.cs", Method = "Add", Request = "오버플로를 검사해줘",
+            Judge = new BenchmarkJudge { Build = true, MustContain = ["checked("] },
+        };
+        var options = Assert.IsType<PellyOptions>(
+            PellyOptionsLoader.Load(fs, null, null, new Dictionary<string, string?>(), new Dictionary<string, string?>()).Options);
+        var runner = new BenchmarkRunner(new RunnerSetup(fs, new SystemProcessRunner(TimeProvider.System), new OneShotBackend(Edit),
+            options, TimeProvider.System, suite, null, "no SQL", _ => { }, Verifier: new FixedVerifier(verdict), KeepWork: keep));
+        return await runner.RunAsync(Resolve(suite, task, fs), outDir, TestContext.Current.CancellationToken);
+    }
+
     /// <summary>A suite with one root <c>Plain</c> holding <c>Calc.cs</c>.</summary>
     private BenchmarkSuite PlainSuite()
     {

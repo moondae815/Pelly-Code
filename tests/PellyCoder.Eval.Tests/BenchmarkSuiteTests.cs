@@ -100,7 +100,8 @@ public sealed class BenchmarkSuiteTests : IDisposable
     public void Load_NullRootOrNulCharacter_IsErrorNotException()
     {
         var nullRoot = Suite("null-root", """{ "formatVersion": 1, "name": "s", "roots": [ null ] }""");
-        var nul = Suite("nul", """{ "formatVersion": 1, "name": "s", "roots": [ { "name": "A", "path": "a\u0000b" } ], "supportFiles": ["x\u0000y"], "resultsDir": "r\u0000" }""");
+        var nul = Suite("nul-char", // not "nul": a reserved device name on Windows
+            """{ "formatVersion": 1, "name": "s", "roots": [ { "name": "A", "path": "a\u0000b" } ], "supportFiles": ["x\u0000y"], "resultsDir": "r\u0000" }""");
 
         foreach (var dir in new[] { nullRoot, nul })
         {

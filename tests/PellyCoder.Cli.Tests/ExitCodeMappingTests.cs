@@ -7,6 +7,7 @@ using PellyCoder.Core.Config;
 using PellyCoder.Core.Doctor;
 using PellyCoder.Core.Fsm;
 using Spectre.Console.Cli.Testing;
+using Spectre.Console.Testing;
 
 namespace PellyCoder.Cli.Tests;
 
@@ -160,6 +161,57 @@ public class ExitCodeMappingTests
         Assert.Equal(2, result.ExitCode);
     }
 
+    /// <summary>
+    /// A value option written without its value is an argument error (exit 4) naming the option: under strict parsing
+    /// Spectre otherwise fills it with its internal "__default_command" token, so <c>report --sanitize --out</c> wrote
+    /// to <c>./__default_command/</c> and <c>sql --object</c> preflighted an object of that name.
+    /// </summary>
+    [Theory]
+    [InlineData("--out", "report", "--sanitize", "--out")]
+    [InlineData("--out", "doctor", "--sanitize", "--out")]
+    [InlineData("--since", "report", "--since")]
+    [InlineData("--project", "doctor", "--project")]
+    [InlineData("--object", "sql", "/w/src/A.sql", "do it", "--object")]
+    [InlineData("--line", "sql", "/w/src/A.sql", "do it", "--line")]
+    [InlineData("--line", "cs", File, "do it", "--line")]
+    [InlineData("--method", "cs", File, "do it", "--method")]
+    [InlineData("--class", "cs", File, "do it", "--method", "M", "--class")]
+    [InlineData("--max-retries", "cs", File, "do it", "--method", "M", "--max-retries")]
+    [InlineData("--config", "cs", File, "do it", "--method", "M", "--config")]
+    [InlineData("--model", "cs", File, "do it", "--method", "M", "--model")]
+    [InlineData("--out", "report", "--out", "--sanitize")]
+    [InlineData("--object", "sql", "/w/src/A.sql", "do it", "--object", "--dry-run")]
+    public void ValueOptionWithoutValue_Exit4_NamesTheOption(string option, params string[] args)
+    {
+        var console = new TestConsole();
+
+        var exit = CliApp.RejectOptionWithoutValue(args, console);
+
+        Assert.Equal(4, exit);
+        Assert.Contains($"{option} 옵션에 값이 없습니다", console.Output);
+        Assert.Equal(option, CliApp.FindOptionWithoutValue(args));
+    }
+
+    [Theory]
+    [InlineData("report", "--sanitize", "--out=/w/export")]
+    [InlineData("cs", File, "do it", "--method", "M", "--", "--line")]
+    [InlineData("frobnicate", "--out")]
+    [InlineData("cs", File, "do it", "--method", "M", "--dry-run")]
+    public void ValueOptionCheck_LeavesOtherLinesToSpectre(params string[] args) =>
+        Assert.Null(CliApp.FindOptionWithoutValue(args));
+
+    /// <summary>Program.cs runs the check before Spectre, so every command in <see cref="CliApp.Configure"/> must be in the map.</summary>
+    [Fact]
+    public void ValueOptionCheck_KnowsEveryCommand()
+    {
+        foreach (var command in new[] { "cs", "sql", "doctor", "report" })
+        {
+            var help = Build(CancellationToken.None).Run(command, "--help");
+            Assert.Equal(0, help.ExitCode);
+        }
+        Assert.Equal(["cs", "doctor", "report", "sql"], CliApp.CommandSettings.Keys.Order().ToArray());
+    }
+
     /// <summary>Command lines from README and deploy/*.md still parse under strict parsing (cancelled token: no real work runs).</summary>
     [Theory]
     [InlineData("cs", File, "null 검사 추가", "--line", "1", "--pause-on-exit")]
@@ -174,6 +226,7 @@ public class ExitCodeMappingTests
     [InlineData("report", "--since", "2026-10-01", "--sanitize", "--out", "/w/export")]
     public void DocumentedCommandLines_Parse(params string[] args)
     {
+        Assert.Null(CliApp.FindOptionWithoutValue(args));
         var result = Build(Cancelled()).Run(args);
 
         Assert.True(result.ExitCode != 4, $"exit 4: {result.Output}");

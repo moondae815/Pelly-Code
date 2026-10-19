@@ -92,7 +92,7 @@ public sealed class SqlEndToEndTests(ITestOutputHelper output) : IDisposable
 
         var result = await new SystemProcessRunner(TimeProvider.System).RunAsync(
             new ProcessSpec("dotnet",
-                [CliDll(), "sql", file, SqlE2E.Sql001Request, "--dry-run", "--yes",
+                [CliBinary.Dll(), "sql", file, SqlE2E.Sql001Request, "--dry-run", "--yes",
                  "--model", TestEnv.OllamaModel!, "--endpoint", TestEnv.OllamaEndpoint!],
                 _copy.Root, TimeSpan.FromMinutes(10),
                 new Dictionary<string, string> { ["PELLY_SQL_CONNECTION"] = TestEnv.SqlConnection! }),
@@ -170,20 +170,5 @@ public sealed class SqlEndToEndTests(ITestOutputHelper output) : IDisposable
         var runRequest = new RunRequest(file, null, null, null, request, Yes: true, DryRun: false, MaxRetries: null,
             ObjectName: objectName, Kind: EditKind.Sql);
         return await SqlE2E.RunAsync(_copy.Root, options, backend, runRequest, output, test);
-    }
-
-    /// <summary>
-    /// The pelly CLI built next to this test assembly's configuration (the project reference with
-    /// <c>ReferenceOutputAssembly=false</c> makes the test build build it first, so it is never stale).
-    /// </summary>
-    private static string CliDll()
-    {
-        var baseDir = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar));
-        var tfm = baseDir.Name;
-        var configuration = baseDir.Parent!.Name;
-        var repo = Directory.GetParent(CorpusPaths.Root)!.Parent!.FullName;
-        var dll = Path.Combine(repo, "src", "PellyCoder.Cli", "bin", configuration, tfm, "pelly.dll");
-        Assert.True(File.Exists(dll), $"pelly CLI가 빌드되어 있지 않습니다: {dll}");
-        return dll;
     }
 }

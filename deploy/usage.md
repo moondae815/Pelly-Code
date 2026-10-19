@@ -85,6 +85,7 @@ SQL 안의 `#임시테이블` 컬럼, 동적 SQL 안의 문장, 다른 DB·연�
 * 원본 상태의 테스트를 돌리지 못하면 알림과 함께 빌드로만 검증합니다.
 * 제한 시간은 `test.timeoutSeconds`(기본 300초)입니다.
 * 레거시 프로젝트는 `test.command` 설정이 필요하며 Windows 미확인입니다.
+* 테스트별 결과를 읽는 테스트 프로젝트: VSTest 방식(`Microsoft.NET.Test.Sdk`, 측정은 xunit v2), `xunit.v3`, `xunit.v3.mtp-*`. `MSTest.Sdk` 같은 다른 Testing Platform 프로젝트는 종료 코드만 봅니다.
 * 여러 대상 프레임워크(`TargetFrameworks`)를 가진 Testing Platform 테스트 프로젝트(xunit v3, MSTest.Sdk 등)는 **첫 번째 TFM만** 실행합니다. 나머지 TFM에서만 깨지는 테스트는 잡지 못합니다.
 
 ## 종료 코드

@@ -20,8 +20,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- 현장 테스트 프로젝트가 쓰는 테스트 패키지와 버전을 그대로 씁니다. 중앙 패키지 관리(Directory.Packages.props)를 쓰면 Version을 뺍니다. -->
-    <PackageReference Include="{테스트 패키지, 예: xunit.v3}" Version="{버전}" />
+    <!-- 내장 판정 프로젝트와 같은 xunit.v3.mtp-v2를 권합니다. 폐쇄망에서 복원할 수 있는 버전을 씁니다(사내 NuGet 미러나 로컬 캐시).
+         pelly가 테스트별 결과를 읽는 패키지: xunit.v3.mtp-v2, xunit.v3, xunit v2(Microsoft.NET.Test.Sdk + xunit.runner.visualstudio).
+         중앙 패키지 관리(Directory.Packages.props)를 쓰면 Version을 뺍니다. -->
+    <PackageReference Include="xunit.v3.mtp-v2" Version="{폐쇄망에서 복원할 수 있는 버전, 예: 4.0.2}" />
   </ItemGroup>
 
 </Project>

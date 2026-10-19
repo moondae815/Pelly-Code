@@ -403,6 +403,27 @@ public sealed class SuiteValidatorTests : IDisposable
     }
 
     [Fact]
+    public void JudgeProjectNamingJudgeTargetRootOnlyInAComment_Warns()
+    {
+        JudgeProject("    <!-- 대상은 $(JudgeTargetRoot) 아래로 참조합니다 -->\n    <Compile Include=\"D:/src/App/Order.cs\" />");
+        Has(Issues(), IssueLevel.Warning, "$(JudgeTargetRoot)를 쓰지 않습니다");
+    }
+
+    [Fact]
+    public void JudgeProjectWithUnfilledPlaceholder_Warns()
+    {
+        var path = JudgeProject("    <ProjectReference Include=\"$(JudgeTargetRoot)/{루트 안 대상 프로젝트 경로}/Sdk.csproj\" />");
+        Has(Issues(), IssueLevel.Warning, $"판정 프로젝트 {path}: 템플릿 자리 표시가 남아 있습니다: {{루트 안 대상 프로젝트 경로}}");
+    }
+
+    [Fact]
+    public void JudgeProjectWithAProjectTypeGuid_IsNotAPlaceholder()
+    {
+        JudgeProject("    <ProjectReference Include=\"$(JudgeTargetRoot)/Sdk/Sdk.csproj\"><Project>{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}</Project></ProjectReference>");
+        Assert.Empty(Issues());
+    }
+
+    [Fact]
     public void JudgeProjectThatIsNotXml_Warns()
     {
         var path = Path.Combine(_suiteDir, "judges", "App", "Bad", "Bad.csproj");

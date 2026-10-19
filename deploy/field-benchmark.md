@@ -142,6 +142,8 @@ D:\pelly-field\suite\judges\Modern\Modern.JudgeTests\
   * 원본 경로(`D:\src\…`나 `..\..\…`)로 참조하면 수정본이 아니라 **원본**을 빌드·시험합니다. 판정은 조용히 틀리고, 원본 폴더에 `bin`·`obj`가 생깁니다.
   * `validate`가 `$(JudgeTargetRoot)`를 거치지 않는 `ProjectReference`와, `$(JudgeTargetRoot)`를 쓰지 않는 판정 프로젝트를 경고합니다.
 * 프로젝트 이름(csproj 파일 이름)은 `tests`에 쓴 테스트 전체 이름의 앞부분이어야 합니다. 예: 프로젝트 `Modern.JudgeTests`, 테스트 `Modern.JudgeTests.OrderJudgeTests.cs_modern_001_ShippedThrows`.
+* **테스트 패키지는 pelly가 테스트별 결과를 읽을 수 있는 것을 씁니다.** 템플릿은 내장 판정 프로젝트와 같은 `xunit.v3.mtp-v2`입니다. 그 밖에 `xunit.v3`, xunit v2(`Microsoft.NET.Test.Sdk` + `xunit.runner.visualstudio`)도 테스트별 결과를 읽습니다. `MSTest.Sdk` 같은 다른 Testing Platform 프로젝트는 종료 코드만 보므로 판정 프로젝트로 쓰지 마십시오.
+* `validate`는 템플릿의 `{…}` 자리 표시가 남아 있으면 경고합니다.
 * **테스트 패키지는 폐쇄망에서 복원할 수 있어야 합니다.** 현장 테스트 프로젝트가 이미 쓰는 패키지와 버전(사내 NuGet 미러나 로컬 캐시에 있는 것)을 쓰십시오. 마지막에 `validate --deep`으로 복원까지 확인합니다.
 * `supportFiles`의 `Directory.Build.props`·`Directory.Packages.props`는 작업 폴더 맨 위에 복사되므로 판정 프로젝트에도 적용됩니다. 중앙 패키지 관리를 쓰면 `PackageReference`에서 `Version`을 뺍니다.
 

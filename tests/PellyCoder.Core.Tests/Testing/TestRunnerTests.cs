@@ -66,6 +66,42 @@ public class TestRunnerTests : IDisposable
         Assert.Equal(3, run.Results.Count);
     }
 
+    /// <summary>
+    /// The plain xunit.v3 package runs the in-process console runner, which takes <c>-trx &lt;file&gt;</c> and rejects
+    /// <c>-result-trx</c> ("unknown option", exit 3, no TRX — measured 2026-10-19 with 3.2.2 and 4.0.2); only xunit.v3.mtp-* uses <c>-result-trx</c>.
+    /// </summary>
+    [Theory]
+    [InlineData("xunit.v3", "3.2.2")]
+    [InlineData("xunit.v3", "4.0.2")]
+    public async Task Runner_PlainXunitV3Project_RunsDotnetRunWithTrx(string package, string version)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(Proj)!);
+        File.WriteAllText(Proj, $"""<Project Sdk="Microsoft.NET.Sdk"><ItemGroup><PackageReference Include="{package}" Version="{version}" /></ItemGroup></Project>""");
+        _procs.Enqueue(Ok());
+        _procs.Enqueue(Ok(), () => File.WriteAllText(Trx, TrxParserTests.Fixture("modern-pass.trx")));
+
+        var run = await Runner().RunAsync(Dotnet, Proj, _dir, Trx, TestContext.Current.CancellationToken);
+
+        Assert.Equal(["run", "--project", Proj, "--no-build", "--", "-trx", Trx], _procs.Calls[1].Arguments);
+        Assert.True(run.PerTestResults);
+        Assert.Equal(3, run.Results.Count);
+    }
+
+    [Theory]
+    [InlineData("xunit.v3.mtp-v2", "4.0.2")]
+    [InlineData("xunit.v3.mtp-v1", "3.2.2")]
+    public async Task Runner_XunitV3MtpProject_KeepsResultTrx(string package, string version)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(Proj)!);
+        File.WriteAllText(Proj, $"""<Project Sdk="Microsoft.NET.Sdk"><ItemGroup><PackageReference Include="{package}" Version="{version}" /></ItemGroup></Project>""");
+        _procs.Enqueue(Ok());
+        _procs.Enqueue(Ok(), () => File.WriteAllText(Trx, TrxParserTests.Fixture("modern-pass.trx")));
+
+        await Runner().RunAsync(Dotnet, Proj, _dir, Trx, TestContext.Current.CancellationToken);
+
+        Assert.Equal(["run", "--project", Proj, "--no-build", "--", "-result-trx", Trx], _procs.Calls[1].Arguments);
+    }
+
     private const string XunitV3Ref = """<ItemGroup><PackageReference Include="xunit.v3.mtp-v2" Version="4.0.2" /></ItemGroup>""";
 
     [Fact]

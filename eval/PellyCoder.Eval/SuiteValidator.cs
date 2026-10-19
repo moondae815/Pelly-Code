@@ -179,7 +179,13 @@ public static partial class SuiteValidator
                 issues.Add(new(IssueLevel.Warning, null, $"판정 프로젝트 {csproj}: ProjectReference '{include}'가 {JudgeTargetRootReference}를 거치지 않습니다 — "
                     + "수정본이 아니라 원본을 빌드·시험합니다(원본 폴더에 bin/obj가 생김)"));
         }
-        if (!text.Contains(JudgeTargetRootReference, StringComparison.OrdinalIgnoreCase))
+        // Attribute values and element text only: a comment that names the property (the template has one) is not a use of it.
+        var values = doc.Descendants().SelectMany(e => e.Attributes().Select(a => a.Value)
+            .Concat(e.Nodes().OfType<XText>().Select(t => t.Value))).ToList();
+        var placeholders = values.SelectMany(v => TemplatePlaceholder().Matches(v).Select(m => m.Value)).Distinct(StringComparer.Ordinal).ToList();
+        if (placeholders.Count > 0)
+            issues.Add(new(IssueLevel.Warning, null, $"판정 프로젝트 {csproj}: 템플릿 자리 표시가 남아 있습니다: {string.Join(", ", placeholders)}"));
+        if (!values.Any(v => v.Contains(JudgeTargetRootReference, StringComparison.OrdinalIgnoreCase)))
             issues.Add(new(IssueLevel.Warning, null, $"판정 프로젝트 {csproj}: {JudgeTargetRootReference}를 쓰지 않습니다 — 수정본을 시험하지 않습니다 (ProjectReference 또는 Compile을 {JudgeTargetRootReference} 아래로 지정하세요)"));
         return issues;
     }
@@ -379,6 +385,10 @@ public static partial class SuiteValidator
             return [];
         }
     }
+
+    /// <summary>A template placeholder such as <c>{대상 프로젝트}</c>: braces around text with a non-ASCII (Korean) character, so GUIDs in braces are not matched.</summary>
+    [GeneratedRegex(@"\{[^{}\r\n]*[^\x00-\x7F][^{}\r\n]*\}")]
+    private static partial Regex TemplatePlaceholder();
 
     [GeneratedRegex(@"\A(cs-(modern|legacy)|sql)-[0-9]{3}\z")]
     private static partial Regex TaskId();

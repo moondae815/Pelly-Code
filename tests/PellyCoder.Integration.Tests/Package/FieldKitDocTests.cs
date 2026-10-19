@@ -49,8 +49,13 @@ public sealed class FieldKitDocTests
     public void JudgeTemplate_PassesTheJudgeContract_AndNamesTheProperty()
     {
         var path = PackageFileList.RepoFile(JudgeTemplate);
-        Assert.Empty(SuiteValidator.JudgeProjectIssues(new System.IO.Abstractions.FileSystem(), path));
+        // The template is meant to be filled in: its only issue is the unfilled placeholder warning.
+        var issues = SuiteValidator.JudgeProjectIssues(new System.IO.Abstractions.FileSystem(), path);
+        Assert.All(issues, i => Assert.Contains("템플릿 자리 표시가 남아 있습니다", i.Message, StringComparison.Ordinal));
+        Assert.Single(issues);
         var text = File.ReadAllText(path);
+        // Same runner as the built-in judges (xunit.v3.mtp-v2): the TRX path pelly reads is the Testing Platform one.
+        Assert.Contains("xunit.v3.mtp-v2", text, StringComparison.Ordinal);
         Assert.Contains("<ProjectReference Include=\"$(JudgeTargetRoot)/", text, StringComparison.Ordinal);
         // The kit folder layout is judges/<root>/<project>/, as the runner expects (BenchmarkSuite.JudgesDir).
         Assert.Equal("Modern", Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(path))));

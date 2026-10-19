@@ -143,6 +143,9 @@ public sealed class TestRunner(IProcessRunner processes, BuildOptions build, Tes
             // own Testing Platform mode needs a global.json opt-in.
             case TestProjectKind.XunitV3:
                 return new ProcessSpec("dotnet", Run("--", "-result-trx", trxPath), workDir, timeout, BuildVerifier.DotnetChildEnv);
+            case TestProjectKind.XunitV3Native:
+                // The plain xunit.v3 package's in-process console runner rejects -result-trx ("unknown option", exit 3) and takes -trx.
+                return new ProcessSpec("dotnet", Run("--", "-trx", trxPath), workDir, timeout, BuildVerifier.DotnetChildEnv);
             case TestProjectKind.OtherTestingPlatform:
                 // Per-test TRX for these (MSTest.Sdk, plain Microsoft.Testing.Platform) is unverified: exit code only (R7).
                 return new ProcessSpec("dotnet", Run(), workDir, timeout, BuildVerifier.DotnetChildEnv);
@@ -153,10 +156,17 @@ public sealed class TestRunner(IProcessRunner processes, BuildOptions build, Tes
         }
     }
 
-    internal enum TestProjectKind { VsTest, XunitV3, OtherTestingPlatform }
+    /// <summary>
+    /// <see cref="TestProjectKind.XunitV3"/>: xunit.v3.mtp-* (Microsoft.Testing.Platform, <c>-result-trx</c>).
+    /// <see cref="TestProjectKind.XunitV3Native"/>: the plain xunit.v3 package (in-process console runner, <c>-trx</c>).
+    /// </summary>
+    internal enum TestProjectKind { VsTest, XunitV3, XunitV3Native, OtherTestingPlatform }
 
     private static readonly System.Text.RegularExpressions.Regex XunitV3Ref =
         new(@"<PackageReference\s+[^>]*Include\s*=\s*""xunit\.v3", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+    private static readonly System.Text.RegularExpressions.Regex XunitV3MtpRef =
+        new(@"<PackageReference\s+[^>]*Include\s*=\s*""xunit\.v3\.mtp", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
     private static readonly string[] TestingPlatformSignals =
     [
@@ -170,7 +180,8 @@ public sealed class TestRunner(IProcessRunner processes, BuildOptions build, Tes
         var text = ReadSafe(testProject);
         if (NearestBuildProps(testProject) is { } props) text += "\n" + ReadSafe(props);
 
-        if (XunitV3Ref.IsMatch(text)) return TestProjectKind.XunitV3;
+        if (XunitV3MtpRef.IsMatch(text)) return TestProjectKind.XunitV3;
+        if (XunitV3Ref.IsMatch(text)) return TestProjectKind.XunitV3Native;
         if (TestingPlatformSignals.Any(sig => text.Contains(sig, StringComparison.OrdinalIgnoreCase))
             || GlobalJsonOptsIntoTestingPlatform(Path.GetDirectoryName(Path.GetFullPath(testProject))))
             return TestProjectKind.OtherTestingPlatform;

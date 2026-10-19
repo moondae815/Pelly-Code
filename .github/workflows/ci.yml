@@ -78,7 +78,7 @@ jobs:
           $version = (& $exe --version | Out-String).Trim()
           if ($LASTEXITCODE -ne 0) { throw "--version exit $LASTEXITCODE" }
           Write-Host "version: $version"
-          if (-not $version.StartsWith('0.9.0')) { throw "unexpected version: $version" }
+          if (-not $version.StartsWith('0.9.1')) { throw "unexpected version: $version" }
 
           & $exe cs --help | Out-Host
           if ($LASTEXITCODE -ne 0) { throw "cs --help exit $LASTEXITCODE" }

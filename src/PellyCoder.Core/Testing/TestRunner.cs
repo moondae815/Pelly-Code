@@ -142,14 +142,14 @@ public sealed class TestRunner(IProcessRunner processes, BuildOptions build, Tes
             // `dotnet test` cannot be used: on .NET 10 it refuses VSTest options for Testing Platform projects, and its
             // own Testing Platform mode needs a global.json opt-in.
             case TestProjectKind.XunitV3:
-                return new ProcessSpec("dotnet", Run("--", "-result-trx", trxPath), workDir, timeout, BuildVerifier.EnglishEnv);
+                return new ProcessSpec("dotnet", Run("--", "-result-trx", trxPath), workDir, timeout, BuildVerifier.DotnetChildEnv);
             case TestProjectKind.OtherTestingPlatform:
                 // Per-test TRX for these (MSTest.Sdk, plain Microsoft.Testing.Platform) is unverified: exit code only (R7).
-                return new ProcessSpec("dotnet", Run(), workDir, timeout, BuildVerifier.EnglishEnv);
+                return new ProcessSpec("dotnet", Run(), workDir, timeout, BuildVerifier.DotnetChildEnv);
             default:
                 return new ProcessSpec("dotnet",
                     ["test", testProject, "--no-build", "--nologo", "--logger", $"trx;LogFileName={trxPath}"],
-                    workDir, timeout, BuildVerifier.EnglishEnv);
+                    workDir, timeout, BuildVerifier.DotnetChildEnv);
         }
     }
 
@@ -256,7 +256,7 @@ public sealed class TestRunner(IProcessRunner processes, BuildOptions build, Tes
         var tokens = SplitCommand(test.Command!)
             .Select(t => t.Replace("{project}", testProject).Replace("{dll}", dll).Replace("{trx}", trxPath))
             .ToList();
-        return new ProcessSpec(tokens[0], tokens.Skip(1).ToList(), workDir, TimeSpan.FromSeconds(test.TimeoutSeconds), BuildVerifier.EnglishEnv);
+        return new ProcessSpec(tokens[0], tokens.Skip(1).ToList(), workDir, TimeSpan.FromSeconds(test.TimeoutSeconds), BuildVerifier.DotnetChildEnv);
     }
 
     private static string AssemblyName(string testProject)

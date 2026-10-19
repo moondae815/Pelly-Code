@@ -102,7 +102,7 @@ pelly는 프록시를 직접 설정하지 않습니다. `HttpClient`는 .NET 기
 디스크 읽기·쓰기 말고 pelly가 띄우는 외부 프로세스도 있습니다. 목록과 접속 범위는 3절 끝을 보십시오.
 
 * `pelly doctor`는 .NET SDK 확인을 위해 `dotnet --version`을 실행합니다(현재 폴더에서, 결과의 버전 문자열만 읽음). 이 프로세스의 접속은 따로 측정하지 않았습니다.
-* pelly는 띄우는 `dotnet`에 텔레메트리 끄기 변수를 넣지 않습니다. .NET CLI는 기본으로 사용 통계를 보낼 수 있으니 폐쇄망 PC에는 사용자 환경 변수 `DOTNET_CLI_TELEMETRY_OPTOUT=1`을 두십시오. Windows 미확인.
+* pelly는 띄우는 모든 프로세스(`dotnet`, MSBuild, `test.command`, doctor의 `dotnet --version`)에 텔레메트리 끄기 변수 `DOTNET_CLI_TELEMETRY_OPTOUT=1`·`TESTINGPLATFORM_TELEMETRY_OPTOUT=1`과 `DOTNET_NOLOGO=1`·`DOTNET_CLI_WORKLOAD_UPDATE_NOTIFY_DISABLE=1`을 넣습니다. pelly 밖에서 `dotnet`을 직접 쓸 때를 위해 폐쇄망 PC에 사용자 환경 변수 `DOTNET_CLI_TELEMETRY_OPTOUT=1`을 두는 것도 권합니다. 이 변수가 실제 접속을 막는지는 측정하지 않았습니다. Windows 미확인.
 * `pelly cs`의 빌드·시험 단계는 `dotnet build`/`dotnet run`/`dotnet test`, MSBuild, `test.command`를 실행합니다. 이 프로세스가 쓰는 `bin/`·`obj/`와 그 접속은 pelly가 통제하지 않습니다.
 
 ## 5. 확인 방법

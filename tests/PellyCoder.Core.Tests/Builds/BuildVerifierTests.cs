@@ -17,7 +17,7 @@ public sealed class BuildVerifierTests
         new(exit, stdout, stderr, bytes ?? Encoding.UTF8.GetBytes(stdout), TimeSpan.FromSeconds(1), timedOut);
 
     [Fact]
-    public async Task Sdk_RunsDesignCommandWithEnglishEnv()
+    public async Task Sdk_RunsDesignCommandWithEnglishTelemetryOffEnv()
     {
         var runner = new ScriptedProcessRunner();
         runner.Enqueue(Result());
@@ -29,6 +29,10 @@ public sealed class BuildVerifierTests
         Assert.Equal(["build", Csproj, "--no-restore", "--nologo", "-v", "q", "-clp:NoSummary;ErrorsOnly"], call.Arguments);
         Assert.Equal("en", call.Environment!["DOTNET_CLI_UI_LANGUAGE"]);
         Assert.Equal("1033", call.Environment["VSLANG"]);
+        Assert.Equal("1", call.Environment["DOTNET_CLI_TELEMETRY_OPTOUT"]);
+        Assert.Equal("1", call.Environment["TESTINGPLATFORM_TELEMETRY_OPTOUT"]);
+        Assert.Equal("1", call.Environment["DOTNET_NOLOGO"]);
+        Assert.Equal("1", call.Environment["DOTNET_CLI_WORKLOAD_UPDATE_NOTIFY_DISABLE"]);
         Assert.Equal(Path.GetDirectoryName(Csproj), call.WorkingDirectory);
     }
 

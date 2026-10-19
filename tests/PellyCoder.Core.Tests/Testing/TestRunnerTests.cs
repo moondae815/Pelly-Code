@@ -42,6 +42,8 @@ public class TestRunnerTests : IDisposable
         Assert.Equal(["test", Proj, "--no-build", "--nologo", "--logger", $"trx;LogFileName={Trx}"], _procs.Calls[1].Arguments);
         Assert.Equal("en", _procs.Calls[1].Environment!["DOTNET_CLI_UI_LANGUAGE"]);
         Assert.Equal("1033", _procs.Calls[1].Environment!["VSLANG"]);
+        Assert.Equal("1", _procs.Calls[1].Environment!["DOTNET_CLI_TELEMETRY_OPTOUT"]);
+        Assert.Equal("1", _procs.Calls[1].Environment!["TESTINGPLATFORM_TELEMETRY_OPTOUT"]);
         Assert.Equal(TimeSpan.FromSeconds(300), _procs.Calls[1].Timeout);
         Assert.Equal(3, run.Results.Count);
         Assert.True(run.PerTestResults);

@@ -210,6 +210,7 @@ public sealed class DoctorServiceTests
         Assert.Equal("dotnet", call.FileName);
         Assert.Equal(["--version"], call.Arguments);
         Assert.Equal(TimeSpan.FromSeconds(10), call.Timeout);
+        Assert.Equal("1", call.Environment!["DOTNET_CLI_TELEMETRY_OPTOUT"]);
     }
 
     [Fact]

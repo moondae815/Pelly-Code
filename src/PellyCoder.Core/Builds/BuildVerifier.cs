@@ -17,10 +17,19 @@ public sealed class BuildVerifier(IProcessRunner processes, BuildOptions options
         Cp949 = Encoding.GetEncoding(949);
     }
 
-    internal static readonly IReadOnlyDictionary<string, string> EnglishEnv = new Dictionary<string, string>
+    /// <summary>
+    /// Environment for every process pelly starts (dotnet build/test/run, MSBuild, test.command, doctor's dotnet --version):
+    /// English output for the parsers, and the .NET CLI and Microsoft.Testing.Platform telemetry and first-run notices off,
+    /// so a child never tries to send usage data (deploy/no-network.md §4).
+    /// </summary>
+    internal static readonly IReadOnlyDictionary<string, string> DotnetChildEnv = new Dictionary<string, string>
     {
         ["DOTNET_CLI_UI_LANGUAGE"] = "en",
         ["VSLANG"] = "1033",
+        ["DOTNET_CLI_TELEMETRY_OPTOUT"] = "1",
+        ["TESTINGPLATFORM_TELEMETRY_OPTOUT"] = "1",
+        ["DOTNET_NOLOGO"] = "1",
+        ["DOTNET_CLI_WORKLOAD_UPDATE_NOTIFY_DISABLE"] = "1",
     };
 
     public Task<BuildRun> BuildAsync(BuildTool tool, string csprojPath, string workspaceRoot, CancellationToken ct) =>
@@ -35,7 +44,7 @@ public sealed class BuildVerifier(IProcessRunner processes, BuildOptions options
             [.. ArgumentsFor(tool, csprojPath), .. PropertyArguments(tool, properties)],
             Path.GetDirectoryName(csprojPath) ?? ".",
             TimeSpan.FromSeconds(options.TimeoutSeconds),
-            EnglishEnv);
+            DotnetChildEnv);
 
         var result = await processes.RunAsync(spec, ct);
         if (result.TimedOut)

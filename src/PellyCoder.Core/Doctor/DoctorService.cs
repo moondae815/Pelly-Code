@@ -177,7 +177,7 @@ public sealed class DoctorService(
         try
         {
             var result = await processes.RunAsync(
-                new ProcessSpec("dotnet", ["--version"], fs.Directory.GetCurrentDirectory(), DotnetTimeout), ct);
+                new ProcessSpec("dotnet", ["--version"], fs.Directory.GetCurrentDirectory(), DotnetTimeout, BuildVerifier.DotnetChildEnv), ct);
             var version = result.StdOut.Trim();
             return result.ExitCode == 0 && !result.TimedOut && version.Length > 0
                 ? new(name, DoctorStatus.Ok, version, null, Facts((DoctorFacts.DotnetVersion, version)))

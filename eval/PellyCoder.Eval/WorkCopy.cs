@@ -7,8 +7,14 @@ public static class WorkCopy
     private static readonly string[] Excluded = ["bin", "obj", ".pelly", "TestResults", ".git", ".vs"];
 
     /// <summary>
+    /// A <c>.git</c> file (git worktree, submodule) is a workspace marker for <c>WorkspaceLocator</c>: copied, it would make a
+    /// stray workspace root inside the work copy. Left out at any depth (case ignored), like the <c>.git</c> folder.
+    /// </summary>
+    private const string GitMarker = ".git";
+
+    /// <summary>
     /// Recursive copy without the folders named in <see cref="Excluded"/> and <paramref name="exclude"/> (names, case ignored,
-    /// at any depth).
+    /// at any depth) and without <c>.git</c> files.
     /// </summary>
     public static void CopyDirectory(string from, string to, IReadOnlyCollection<string>? exclude = null)
     {
@@ -20,7 +26,11 @@ public static class WorkCopy
     {
         Directory.CreateDirectory(to);
         foreach (var file in Directory.GetFiles(from))
-            File.Copy(file, Path.Combine(to, Path.GetFileName(file)));
+        {
+            var name = Path.GetFileName(file);
+            if (string.Equals(name, GitMarker, StringComparison.OrdinalIgnoreCase)) continue;
+            File.Copy(file, Path.Combine(to, name));
+        }
         foreach (var dir in Directory.GetDirectories(from))
         {
             var name = Path.GetFileName(dir);

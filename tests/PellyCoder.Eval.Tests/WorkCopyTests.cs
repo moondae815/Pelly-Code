@@ -57,7 +57,7 @@ public sealed class WorkCopyTests : IDisposable
     public void Prepare_ExcludesGitAndVsAtAnyDepth_KeepsPackages()
     {
         var source = Path.Combine(_root, "suite", "src-root");
-        foreach (var f in new[] { ".git/HEAD", "sub/.vs/x", "sub/bin/a.dll", "packages/Foo.1.0/lib/a.dll", "extra/big.bin", "src/A.cs" })
+        foreach (var f in new[] { ".git/HEAD", "sub/.git", "sub/.vs/x", "sub/bin/a.dll", "packages/Foo.1.0/lib/a.dll", "extra/big.bin", "src/A.cs" })
         {
             var path = Path.Combine(source, f.Replace('/', Path.DirectorySeparatorChar));
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);

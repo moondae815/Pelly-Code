@@ -78,6 +78,40 @@ public sealed class BenchmarkSuiteTests : IDisposable
         var root = Assert.Single(load.Suite!.Roots);
         Assert.Equal(Path.GetFullPath(Path.Combine(dir, "ERP 본사", "소스")), root.Path);
         Assert.Equal(Path.Combine(dir, "results"), load.Suite.ResultsDir);
+
+        // Review Focus 4: the target resolves and is copied under work/<root name>/ with the space and Korean intact.
+        var source = Path.Combine(root.Path, "주문 서비스", "Order.cs");
+        Directory.CreateDirectory(Path.GetDirectoryName(source)!);
+        File.WriteAllText(source, "class Order {}");
+        var task = load.Suite.Resolve(new BenchmarkTask { Id = "cs-001", Kind = "cs", File = "Erp/주문 서비스/Order.cs" }, _fs, out var error);
+        Assert.Null(error);
+        Assert.Equal(source, task!.SourceFile);
+        Assert.Equal("주문 서비스/Order.cs", task.RelativeFile);
+
+        var work = Path.Combine(_root, "작업 폴더");
+        var copied = WorkCopy.Prepare(load.Suite, task, work);
+
+        Assert.Equal(Path.Combine(work, "Erp", "주문 서비스", "Order.cs"), copied);
+        Assert.True(File.Exists(copied));
+        Assert.StartsWith(Path.Combine(work, "Erp") + Path.DirectorySeparatorChar, copied, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Load_NullRootOrNulCharacter_IsErrorNotException()
+    {
+        var nullRoot = Suite("null-root", """{ "formatVersion": 1, "name": "s", "roots": [ null ] }""");
+        var nul = Suite("nul", """{ "formatVersion": 1, "name": "s", "roots": [ { "name": "A", "path": "a\u0000b" } ], "supportFiles": ["x\u0000y"], "resultsDir": "r\u0000" }""");
+
+        foreach (var dir in new[] { nullRoot, nul })
+        {
+            var load = BenchmarkSuite.Load(dir);
+            Assert.Null(load.Suite);
+            Assert.NotEmpty(load.Errors);
+        }
+        Assert.Contains("roots[0]", Assert.Single(BenchmarkSuite.Load(nullRoot).Errors), StringComparison.Ordinal);
+        Assert.Equal(3, BenchmarkSuite.Load(nul).Errors.Count);
+        Assert.Null(TestPaths.Suite.Resolve(new BenchmarkTask { Id = "cs-002", Kind = "cs", File = "Modern/a\0.cs" }, _fs, out var error));
+        Assert.Contains("cs-002", error, StringComparison.Ordinal);
     }
 
     [Fact]

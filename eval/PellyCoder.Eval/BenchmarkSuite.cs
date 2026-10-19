@@ -67,7 +67,7 @@ public sealed partial class BenchmarkSuite
     /// <summary>Reads <c>&lt;dir&gt;/suite.json</c>; never throws for a bad suite, every problem goes to <see cref="SuiteLoad.Errors"/>.</summary>
     public static SuiteLoad Load(string dir)
     {
-        var full = Path.GetFullPath(dir);
+        if (FullPath(Environment.CurrentDirectory, dir) is not { } full) return new(null, [$"스위트 폴더 경로가 올바르지 않습니다: {dir}"]);
         var file = Path.Combine(full, FileName);
         if (!File.Exists(file)) return new(null, [$"{FileName}이 없습니다: {file}"]);
 
@@ -97,6 +97,11 @@ public sealed partial class BenchmarkSuite
             errors.Add("roots에 루트가 하나 이상 필요합니다");
         foreach (var (r, i) in (data.Roots ?? []).Select((r, i) => (r, i)))
         {
+            if (r is null)
+            {
+                errors.Add($"roots[{i}]: 루트가 비어 있습니다(null)");
+                continue;
+            }
             var label = $"roots[{i}]" + (string.IsNullOrEmpty(r.Name) ? "" : $" ({r.Name})");
             var ok = true;
             if (r.Name is null || !RootName().IsMatch(r.Name))
@@ -117,7 +122,8 @@ public sealed partial class BenchmarkSuite
 
             string? path = null;
             if (string.IsNullOrWhiteSpace(r.Path)) errors.Add($"{label}: path가 필요합니다");
-            else if (!Directory.Exists(path = Path.GetFullPath(Path.Combine(full, r.Path))))
+            else if ((path = FullPath(full, r.Path)) is null) errors.Add($"{label}: path가 올바르지 않습니다: {r.Path}");
+            else if (!Directory.Exists(path))
                 errors.Add($"{label}: 폴더가 없습니다: {path}");
             else if (roots.FirstOrDefault(x => Overlaps(x.Path, path)) is { } other)
                 errors.Add($"{label}: 루트 {other.Name}와 같은 폴더이거나 한쪽이 다른 쪽 안에 있습니다: {path}");
@@ -135,16 +141,17 @@ public sealed partial class BenchmarkSuite
         var support = new List<string>();
         foreach (var s in data.SupportFiles ?? [])
         {
-            var path = string.IsNullOrWhiteSpace(s) ? null : Path.GetFullPath(Path.Combine(full, s));
-            if (path is null || !File.Exists(path)) errors.Add($"supportFiles: 파일이 없습니다: {path ?? "(빈 값)"}");
+            var path = string.IsNullOrWhiteSpace(s) ? null : FullPath(full, s);
+            if (path is null || !File.Exists(path)) errors.Add($"supportFiles: 파일이 없습니다: {path ?? (string.IsNullOrWhiteSpace(s) ? "(빈 값)" : s)}");
             else if (support.Any(x => string.Equals(Path.GetFileName(x), Path.GetFileName(path), StringComparison.OrdinalIgnoreCase)))
                 errors.Add($"supportFiles: 파일 이름이 겹칩니다(작업 폴더 한곳에 복사됨): {Path.GetFileName(path)}");
             else support.Add(path);
         }
 
-        var results = string.IsNullOrWhiteSpace(data.ResultsDir) ? "results" : data.ResultsDir;
+        var results = FullPath(full, string.IsNullOrWhiteSpace(data.ResultsDir) ? "results" : data.ResultsDir);
+        if (results is null) errors.Add($"resultsDir가 올바르지 않습니다: {data.ResultsDir}");
         if (errors.Count > 0) return new(null, errors);
-        return new(new BenchmarkSuite(full, data.Name!, roots, support, TrimEnd(Path.GetFullPath(Path.Combine(full, results)))), []);
+        return new(new BenchmarkSuite(full, data.Name!, roots, support, TrimEnd(results!)), []);
     }
 
     /// <summary>
@@ -155,6 +162,8 @@ public sealed partial class BenchmarkSuite
     {
         error = null;
         var file = task.File ?? "";
+        if (file.Contains('\0'))
+            return Fail(out error, $"{task.Id}: file에 널 문자가 있습니다");
         if (file.Contains('\\'))
             return Fail(out error, $"{task.Id}: file의 경로 구분자는 /만 씁니다: {file}");
         var parts = file.Split('/');
@@ -182,6 +191,20 @@ public sealed partial class BenchmarkSuite
     {
         error = message;
         return null;
+    }
+
+    /// <summary><paramref name="path"/> against <paramref name="baseDir"/> (or absolute), or null for a path the OS rejects (<c>\0</c>, …): Load never throws.</summary>
+    private static string? FullPath(string baseDir, string path)
+    {
+        if (path.Contains('\0')) return null;
+        try
+        {
+            return Path.GetFullPath(Path.Combine(baseDir, path));
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return null;
+        }
     }
 
     private static string TrimEnd(string path) => Path.TrimEndingDirectorySeparator(path);

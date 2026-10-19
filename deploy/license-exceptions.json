@@ -5,7 +5,7 @@
     "licenseFileSha256": "9335e8bad875dd7be4eebd55d2335eb6433d1cea61aadb3817af7807bef8932a",
     "licenseName": "Microsoft Software License Terms (MICROSOFT.DATA.SQLCLIENT.SNI LIBRARY)",
     "reason": "Microsoft.Data.SqlClient 7.1.1(MIT)이 Windows에서 쓰는 네이티브 SNI(Microsoft.Data.SqlClient.SNI.dll)입니다. pelly.exe 안에 들어 있고 첫 실행 때 풀립니다. 라이선스 3a가 애플리케이션 일부로 재배포하는 것을 허용합니다.",
-    "approvedBy": "M3b 컨트롤러 잠정 승인 (2026-10-18, 사람 확인 대기)",
+    "approvedBy": "Daesung Moon (2026-10-19, M4 반입 전 결정)",
     "shipAs": "licenses/Microsoft.Data.SqlClient.SNI.runtime.LICENSE.txt"
   }
 ]

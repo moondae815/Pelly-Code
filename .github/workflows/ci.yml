@@ -177,15 +177,20 @@ jobs:
           # 마지막 네이티브 명령(일부러 실패시킨 빌드)의 종료 코드가 스텝 종료 코드가 되지 않게 끝낸다
           exit 0
       - name: License gate rejects a provisional approval in 1.0 (dry run)
-        # 버전이 1.0.0 이상이면 approvedBy에 「잠정」이 든 예외로는 패키지가 만들어지면 안 된다. 저장소 파일은 건드리지 않는다
+        # 버전이 1.0.0 이상이면 approvedBy에 「잠정」이 든 예외로는 패키지가 만들어지면 안 된다. 저장소의 예외는 사람이 승인했으므로
+        # (2026-10-19) approvedBy를 잠정으로 바꾼 사본으로 시험한다. 저장소 파일은 건드리지 않는다
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          if (-not ((Get-Content -Raw deploy/license-exceptions.json) -match '잠정')) { throw 'precondition: no provisional approval to test with' }
+          $ex = @(Get-Content -Raw deploy/license-exceptions.json | ConvertFrom-Json -AsHashtable)
+          $ex[0]['approvedBy'] = '컨트롤러 잠정 승인 (CI 시험용)'
+          $provisional = Join-Path $env:RUNNER_TEMP 'exceptions-provisional.json'
+          ConvertTo-Json -InputObject $ex -Depth 8 | Set-Content $provisional
+          if (-not ((Get-Content -Raw $provisional) -match '잠정')) { throw 'precondition: altered exceptions lack a provisional approval' }
           $props = Join-Path $env:RUNNER_TEMP 'Directory.Build.1.0.0.props'
           (Get-Content -Raw Directory.Build.props) -replace '<Version>[^<]*</Version>', '<Version>1.0.0</Version>' | Set-Content $props
           if (-not ((Get-Content -Raw $props) -match '<Version>1\.0\.0</Version>')) { throw 'altered props lacks Version 1.0.0' }
-          $out = & pwsh -NoProfile -File ./deploy/build-package.ps1 -PublishDir artifacts/publish/win-x64 -OutDir (Join-Path $env:RUNNER_TEMP 'gate-check-1.0') -BuildProps $props 2>&1 | Out-String
+          $out = & pwsh -NoProfile -File ./deploy/build-package.ps1 -PublishDir artifacts/publish/win-x64 -OutDir (Join-Path $env:RUNNER_TEMP 'gate-check-1.0') -BuildProps $props -LicenseExceptions $provisional 2>&1 | Out-String
           $code = $LASTEXITCODE
           if ($code -eq 0) { throw 'gate passed a provisional approval in 1.0.0' }
           if (-not $out.Contains('provisional approval cannot ship in 1.0.0')) { Write-Host $out; throw "output lacks the provisional-approval message" }
@@ -223,7 +228,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          foreach ($case in @(@{ zip = $env:PELLY_TEST_PACKAGE; count = 12 }, @{ zip = $env:PELLY_TEST_FIELD_KIT; count = 12 })) {
+          foreach ($case in @(@{ zip = $env:PELLY_TEST_PACKAGE; count = 13 }, @{ zip = $env:PELLY_TEST_FIELD_KIT; count = 13 })) {
             $dir = Join-Path $env:RUNNER_TEMP ('unzip-' + [System.IO.Path]::GetFileNameWithoutExtension($case.zip))
             Expand-Archive $case.zip $dir
             Push-Location $dir

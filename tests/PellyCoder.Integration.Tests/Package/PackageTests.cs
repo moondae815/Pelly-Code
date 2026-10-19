@@ -16,6 +16,7 @@ public sealed record PackageKind(string Name, string ZipVariable, string ListFil
     public static readonly PackageKind Pelly = new("pelly", "PELLY_TEST_PACKAGE", "deploy/package-files.txt", "pelly.exe",
     [
         "pelly.exe",
+        "LICENSE",
         "pelly.json.template",
         "docs/install.md",
         "docs/usage.md",
@@ -34,6 +35,7 @@ public sealed record PackageKind(string Name, string ZipVariable, string ListFil
     public static readonly PackageKind FieldKit = new("field-kit", "PELLY_TEST_FIELD_KIT", "deploy/field-kit-files.txt", "pelly-eval.exe",
     [
         "pelly-eval.exe",
+        "LICENSE",
         "docs/field-guide.md",
         "docs/field-benchmark.md",
         "docs/field-results.md",

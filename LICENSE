@@ -1,0 +1,12 @@
+Copyright (c) 2026 Payletter. All rights reserved.
+
+pelly(pelly-eval 포함)와 함께 배포되는 문서·템플릿은 Payletter의 사내 사용만을 위한 소프트웨어입니다.
+Payletter의 서면 허락 없이 복제·수정·배포·공개하거나 제3자에게 제공할 수 없습니다.
+이 소프트웨어는 "있는 그대로" 제공되며, 명시적이든 묵시적이든 어떠한 보증도 하지 않습니다.
+
+함께 들어 있는 서드파티 구성요소는 각자의 라이선스를 따릅니다(THIRD-PARTY-NOTICES.md, licenses/).
+
+This software, including pelly-eval and the accompanying documents and templates, is for internal use at Payletter only.
+It may not be copied, modified, distributed, published or provided to third parties without Payletter's written permission.
+It is provided "as is", without warranty of any kind. Third-party components remain under their own licenses
+(see THIRD-PARTY-NOTICES.md and licenses/).

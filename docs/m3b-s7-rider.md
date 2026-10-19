@@ -1,5 +1,7 @@
 # S7. Rider External Tools 실기 확인표
 
+> **상태: 실기 미확인으로 종결 (2026-10-19 사람 결정).** 현장 개발 PC는 Visual Studio를 쓰므로 Rider 실기 확인은 하지 않습니다. 이 표는 나중에 Rider로 확인할 사람을 위해 남깁니다. Visual Studio는 `deploy/ide-external-tools.md`의 현장 확인표로 확인합니다.
+
 사람이 JetBrains Rider에서 직접 확인합니다. 구현자가 준비한 것은 이 표와 준비물뿐입니다.
 **결과 칸은 비어 있습니다.** 확인한 뒤 채우고 알려 주십시오. 결과는 `deploy/ide-external-tools.md`의 「Rider 실기 확인 결과」 절에 옮깁니다.
 

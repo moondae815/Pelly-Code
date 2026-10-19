@@ -5,6 +5,7 @@
 #   그 밖           저장소 루트 기준
 # pelly.exe와 그 문서는 반입 zip(deploy/package-files.txt)에 있다. 이 zip에는 넣지 않는다.
 pelly-eval.exe <- publish:pelly-eval.exe
+LICENSE <- LICENSE
 docs/field-guide.md <- deploy/field-guide.md
 docs/field-benchmark.md <- deploy/field-benchmark.md
 docs/field-results.md <- deploy/field-results.md

@@ -19,6 +19,7 @@
 | v1.8 | 2026-10-18 | M2b 반영(상세는 설계 문서 §3 D26~D28, §5, §8.1, §8.4, §8.6, §8.10, §8.12, §10.6): FR-00 `pelly sql` 옵션 정리, FR-07 `dotnet user-secrets` 제외(R3)·허용 목록이 비면 접속 안 함(R4)·서버/데이터베이스 키 중복과 Failover Partner 거부·원본 대상의 금지 구문은 LOCATE에서 종료 5(R2)·금지 구문 범위(`ALTER DATABASE` 변형, `EXEC … OPENDATASOURCE`), §8.1 벤치마크 30건(M2b, R9)·50건(M3) |
 | v1.9 | 2026-10-18 | M3a 반영(상세는 설계 문서 §8.2, §8.5, §8.7, §8.9, §8.10, §8.12~§8.14, §11): FR-00 `--test`(C# 전용)·`--verbose`·`--pause-on-exit`·`report`(`--since`·`--sanitize`·`--out`) 구현 상태, FR-02 DTO 슬라이스(enum·public 필드·시그니처 한 단계), FR-06 5번 `--test` 구체화(프로젝트 종류별 실행, 새로 실패한 테스트만, `test.timeoutSeconds`, 요청과 모순되는 테스트의 알려진 한계 25%)와 변화 없음 가드, FR-08 전체 doctor(`--project`·`--sanitize`·숨은 `--offline-selftest`), FR-09 비식별 허용 목록(`TEST`, 앵커·ASCII 숫자·버전은 숫자로 시작), §5 대기 시간 `QueueSeconds`, 로드맵 M3를 M3a(완료)·M3b로 분리 (M3a R1~R11) |
 | v1.10 | 2026-10-19 | M3b 반영(상세는 설계 문서 §8.1, §8.2, §8.13, §9.2, §10.4, §10.6, §11): §2.2·§8.1 검증 불변 조건은 독립 빌드·컴파일 결과로만 판정하고 동작 판정 실패는 모델 실패(`Judge`)로 센다, 외부 벤치마크 50건(Legacy 18 · Modern 12 동작 판정 · SQL 20)과 3회 반복 기준선(평균 47.67건, 위반 0), §7.2·§8.2 튜닝 후보 3개 모두 R4로 거절돼 기본값 유지와 회귀 차단 절차(`--repeat 3` + `compare`), §11.1 실제 반입 패키지 구성(`pelly-0.9.0-win-x64.zip` 13개 파일, SBOM 도구 버전 고정, 라이선스 게이트와 잠정 예외 하나, 버전 기록은 모델 digest — GGUF SHA-256은 M4), CI 실행 6회(잡 키 5개), 로드맵 M3b 결과 (M3b T1~T11) |
+| v1.11 | 2026-10-19 | M4 준비 반영(상세는 설계 문서 §10.6, §11): §8.1 벤치마크 스위트(`suite.json` 루트 목록, 작업 `file` = `<루트 이름>/<경로>`, 내장 스위트 `eval/benchmark/suite.json`, `--suite`·`--keep-work`)와 사전 검사 `validate`(정적, `--deep`은 원본에서 판정 시험 실행), 실행 조건에 Ollama 버전·모델 digest 기록(요약 `formatVersion` 2, 1도 읽음, `compare`는 digest·Ollama 버전이 다르면 판정 거부), `record`(버전 기록, `modelGgufSha256` 추가), `export`(비식별 반출), FR-08 doctor SQL 행의 인증 방식(Windows 인증 / SQL 로그인)과 `--sanitize`에서 로그인 이름 제거, §11.1 두 번째 반입 zip `pelly-field-kit-0.9.1-win-x64.zip`(`pelly-eval.exe` 단일 파일 + 현장 절차 문서 + 스위트 템플릿), `pelly`의 값이 필요한 옵션에 값이 없으면 종료 4와 .NET 텔레메트리 끔 환경 변수(0.9.1), §9 M4 현장 키트 절차와 반입 전 사람 결정 다섯 가지, 버전 `0.9.1` (M4 준비 T1~T10) |
 
 ---
 
@@ -61,7 +62,7 @@
 * **사전 측정 환경 (외부):** §8.5 외부 개발 환경. 여기서 나온 수치는 참고치이며 KPI 판정에 쓰지 않습니다.
 * **벤치마크 세트:**
   * **외부용:** 실제 코드 구조를 모사한 샘플 코퍼스 기반 30건(M2b: C# 18건 + SQL 12건) → **50건(M3b, 완료: C# 30건 + SQL 20건)**(§8.1 참조)
-  * **폐쇄망용:** 실제 코드베이스 기반 같은 규모의 세트(M4에서 폐쇄망 안에서 작성)
+  * **폐쇄망용:** 실제 코드베이스 기반 같은 규모의 세트(M4에서 폐쇄망 안에서 작성). 현장 키트(§11.1)의 `pelly-eval.exe`와 `deploy/field-*.md`, 스위트 템플릿으로 만들고 `pelly-eval validate`로 점검합니다
 * 같은 모델 파일(GGUF SHA-256 일치)과 같은 Ollama 버전으로 측정합니다(Q10). 외부 사전 측정의 모델은 GGUF가 아니라 `nvfp4`라 digest로 기록하고 GGUF 해시 대조는 M4 작업입니다(§11.1).
 
 ### 2.2 지표
@@ -272,7 +273,7 @@ Ollama에는 공개된 토큰화 전용 엔드포인트가 없으므로 다음�
 폐쇄망에서는 문제가 생겨도 외부에서 원격 지원을 받기 어려우므로, 사용자가 스스로 환경 문제를 찾을 수 있게 합니다.
 * **Ollama 서버:** 연결 가능 여부·지연(`GET /api/version`), 대상 모델 존재(`/api/tags`), 로드 상태(`/api/ps`), 테스트 생성 1회로 TTFT 실측. 서버 환경 변수(Flash Attention, KV 캐시 타입 등)는 API로 확인할 수 없으므로 **서버 관리자 확인 체크리스트**(§7.1)를 함께 표시합니다.
 * **빌드 도구:** .NET SDK 버전, `vswhere`·`MSBuild.exe` 경로와 버전, .NET Framework Developer Pack(대상 타겟팅 팩) 설치 여부
-* **SQL:** 접속 가능 여부, 화이트리스트 일치, 검증 계정 권한
+* **SQL:** 접속 가능 여부, 화이트리스트 일치, 검증 계정 권한. 인증 방식(Windows 인증 / SQL 로그인)과 접속한 로그인을 함께 보이며, `--sanitize`는 로그인을 지우고 `authMode`만 남깁니다 (M4 준비)
 * **pelly 자체:** 버전, 내장 토크나이저 해시, 설정 파일 경로와 적용 값
 * **구현 (M3a):** 위 항목 전부를 한 표로 보입니다(Ollama 서버·모델·렌더러·템플릿 일치·토크나이저 일치·응답 시간·pelly·설정·.NET SDK·MSBuild·타겟팅 팩·서버 설정 체크리스트·SQL 연결). `--project <csproj>`는 타겟팅 팩을 확인할 프로젝트를 지정합니다(Windows 전용, Windows 미확인). Fail이 있으면 종료 4입니다.
 * **`--sanitize [--out <폴더>]`:** 화면 대신 `json`·`md` 파일로 저장합니다. 행 이름(알려진 목록)·상태와 행마다 정한 사실(버전·지연 ms·로드 여부·일치 여부 등 짧은 토큰)만 남기고 설명·조치 문장, 경로, 연결 문자열은 남기지 않습니다. 버전은 숫자로 시작하는 규칙을, 타겟팅 팩 프레임워크 버전은 `v4.8` 형태의 모니커 규칙을 통과해야 하며 아니면 `invalid`입니다.
@@ -423,7 +424,9 @@ pelly가 요청마다 지정하는 값: `options.num_ctx = 8192`, `keep_alive = 
   * **동작 판정은 Modern C# 12건에만 둡니다** (M3b R1): 코퍼스 밖 판정 프로젝트 둘(`Shop.Api.JudgeTests`, 가짜 Dapper·`SqlConnection`을 쓰는 `Shop.Data.JudgeTests`)이 `judge.tests`(수정 뒤 통과)와 `judge.failingTests`(수정 뒤 실패, 수정 전 동작을 고정한 테스트용)를 판정합니다. Legacy는 Windows가 아니면 빌드·테스트가 안 되고 SQL은 모델 SQL을 실행하면 DB 무변경 원칙과 부딪혀서 문자열 판정을 유지하며, 전체 판정은 M4입니다. 판정 도구 오류는 생략(`JudgeTooling`)으로 따로 세어 불변 조건 위반으로 세지 않습니다.
 * **수집 지표:** §2.2의 모든 KPI를 실행 로그(`.pelly/runs`)에서 자동 집계. 검증 불변 조건은 실행기가 결과를 pelly와 별개로 다시 검증해 판정하며, 독립 검증이 생략된 실행(Windows가 아닌 환경의 Legacy 등)은 분모에서 빼고 따로 표시합니다. 실행 방법과 첫 측정은 `eval/benchmark/README.md`, `docs/m2b-benchmark.md`.
 * **M3b 50건 결과 (기준선 = 최종 KPI, 2026-10-18, `docs/m3b-baseline.md`):** 3회 반복(`--repeat 3`) 평균 성공 **47.67건**(회차별 48·47·48, 성공률 94.0~96.0%, 목표 ≥ 85% 충족). 범주별 cs-legacy 18.00 · cs-modern 9.67 · sql 20.00. 검증 불변 조건 위반은 3회 모두 **0건**(독립 검증 32건, 생략 18건 = Legacy). 작업 시간 중위값 1.90초, TTFT 중위 0.12~0.25초, 패치 포맷 파싱 100%, 추론 토큰 최대 512. 실패는 cs-modern 3건(003 2/3, 007 0/3, 008 0/3)의 경계값 실수뿐입니다. 이 수치는 개발 Mac(Ollama, nvfp4 모델) 참고치이며 KPI 최종 판정은 M4 폐쇄망입니다(§2.1).
-* **폐쇄망 벤치마크:** M4에서 같은 형식으로 실제 코드 기반 세트를 폐쇄망 안에서 작성합니다. 평가 실행기는 폐쇄망에서도 그대로 동작해야 합니다.
+* **스위트와 사전 검사 (M4 준비):** 실행기는 `suite.json`(`roots`: 이름·경로·`exclude`, `supportFiles`, `resultsDir`)이 있는 폴더를 스위트로 읽습니다. 내장 스위트는 `eval/benchmark/suite.json`이고 현장 세트는 같은 모양의 폴더를 만들어 `--suite <폴더>`로 줍니다. 작업의 `file`은 `<루트 이름>/<루트 안 경로>`이며 Legacy 여부는 루트 이름이 아니라 가장 가까운 csproj가 비 SDK 형식인지로 정합니다. `--keep-work <all|failed|none>`은 작업 복사본 보존 범위입니다. `validate`는 실행 전에 정의(id·판정·대상 파일·프로젝트 형식)를 LLM·SQL 없이 점검하고, `validate --deep`은 판정 시험을 원본에서 실제로 돌립니다(`tests`는 실패, `failingTests`는 통과해야 함). 내장 스위트 회귀는 48/50, 위반 0건입니다(`docs/m4-suite-regression.md`).
+* **실행 조건과 반출 (M4 준비):** 반복 요약은 `formatVersion` 2이며 실행 조건에 Ollama 버전과 모델 digest를 담습니다(1도 읽습니다). `compare`는 digest나 Ollama 버전이 다른 요약을 판정하지 않습니다. `record`가 버전 기록(`version-record.json`)을 쓰고(`--gguf-sha256`으로 `modelGgufSha256` 기록) `export`가 결과를 비식별해 반출용 폴더로 씁니다.
+* **폐쇄망 벤치마크:** M4에서 같은 형식으로 실제 코드 기반 세트를 폐쇄망 안에서 작성합니다. 실행기는 현장 키트 zip의 `pelly-eval.exe` 단일 파일로 반입하며 폐쇄망에서도 그대로 동작합니다(pelly와 같은 설정 규칙으로 Ollama·SQL 서버에만 접속, `deploy/no-network.md`).
 
 ### 8.2 회귀 평가
 * `Prompts.cs`, 샘플링 값, 슬라이서 로직을 바꿀 때마다 외부 벤치마크 전체를 실행합니다.
@@ -496,6 +499,8 @@ pelly가 요청마다 지정하는 값: `options.num_ctx = 8192`, `keep_alive = 
   * 설치, `pelly doctor`로 서버·빌드 도구·SQL·Windows 인증 점검
   * 실제 코드 기반 폐쇄망 벤치마크 작성 및 실행 → **KPI 최종 판정**
   * 설정 파일로 가능한 튜닝은 폐쇄망 안에서 진행. 코드 수정이 필요하면 비식별 리포트를 반출해 외부에서 수정 → 재반입
+  * **현장 키트 절차 요약 (`deploy/field-guide.md`):** 반입 zip 둘의 SHA-256 확인 → 설치와 `pelly doctor` → 모델 GGUF SHA-256 계산과 `pelly-eval record --gguf-sha256`로 버전 기록 → 현장 스위트 작성과 `pelly-eval validate`(필요하면 `--deep`) → 기준선 `--repeat 3` 실행 → 후보 설정으로 같은 조건 재측정과 `compare` → `pelly-eval export`·`pelly report --sanitize`로 비식별 결과 반출 → `field-results.md` 기입. 명령은 Windows에서 실행해 보지 못했습니다(Windows 미확인).
+  * **반입 전 사람 결정 다섯 가지:** ① `Microsoft.Data.SqlClient.SNI.runtime` 라이선스 잠정 예외의 승인 또는 거부(거부하면 관리 코드 SNI로 바꿈) ② pelly 자체 `LICENSE` ③ S7 Rider 실기 확인 결과 ④ 폐쇄망 정보 Q9~Q13 ⑤ 반입 신청
 
 ---
 
@@ -529,9 +534,10 @@ pelly가 요청마다 지정하는 값: `options.num_ctx = 8192`, `keep_alive = 
 | 문서 | 설치 가이드, 사용 가이드, `server-checklist.md`(서버 관리자용) |
 | 무결성 | 모든 파일의 SHA-256 체크섬 목록 |
 | 보안 심사 자료 | SBOM(CycloneDX), 서드파티 라이선스 목록, "실행 중 외부 통신 없음" 명세(§5) |
-| 버전 기록 | `version-record.json`(`pellyVersion`, `ollamaVersion`, `model`, `modelDigest`, `modelFormat`, `modelQuantization`, `recordedAt`)과 벤치마크 결과 요약. 모델 GGUF SHA-256은 M4에서 현장 모델로 기록 |
+| 버전 기록 | `version-record.json`(`pellyVersion`, `ollamaVersion`, `model`, `modelDigest`, `modelFormat`, `modelQuantization`, `modelGgufSha256`(현장에서 `record --gguf-sha256`으로 채움), `recordedAt`)과 벤치마크 결과 요약. 모델 GGUF SHA-256은 M4에서 현장 모델로 기록 |
+| 현장 키트 | 둘째 zip `pelly-field-kit-<버전>-win-x64.zip`(아래 M4 준비 구성) |
 
-**M3b 실제 구성 (M3b T9·T10, 버전 `0.9.0`, M4 현장 확인 뒤 `1.0.0`):** CI `package` 잡이 `pelly-0.9.0-win-x64.zip`을 만들고, 들어가는 파일은 `deploy/package-files.txt`의 허용 목록 13개뿐입니다.
+**M3b 실제 구성 (M3b T9·T10, 첫 반입본 `0.9.0`, 현재 `0.9.1`, M4 현장 확인 뒤 `1.0.0`):** CI `package` 잡이 `pelly-0.9.1-win-x64.zip`을 만들고, 들어가는 파일은 `deploy/package-files.txt`의 허용 목록 13개뿐입니다.
 
 | 구분 | 파일 |
 | :--- | :--- |
@@ -542,6 +548,8 @@ pelly가 요청마다 지정하는 값: `options.num_ctx = 8192`, `keep_alive = 
 
 * **라이선스 게이트:** MIT·Apache-2.0·BSD 계열이 아닌 패키지가 나오면 패키지 스크립트가 실패합니다. 예외는 `deploy/license-exceptions.json`에 패키지 id·버전·라이선스 파일 SHA-256·승인자를 적은 것만 허용합니다. **현재 예외는 하나**(`Microsoft.Data.SqlClient.SNI.runtime` 7.1.0, 네이티브 SNI의 Microsoft 재배포 라이선스)이며 컨트롤러의 **잠정 승인으로 사람 확인 대기** 중입니다. 사람이 거절하면 Windows에서도 관리 코드 SNI로 바꾸고 예외를 지웁니다(M4 반입 전).
 * **버전 기록 (R8 대체):** Ollama 버전과 모델 태그, 모델 digest·형식·양자화(`modelDigest`·`modelFormat`·`modelQuantization`)를 담습니다. 개발 PC 모델은 GGUF가 아닌 safetensors `nvfp4`라 GGUF SHA-256을 읽을 수 없고, 벤치마크하지 않은 20GB 모델을 따로 받아 해시하는 것은 의미가 없어서, **현장 모델의 GGUF SHA-256은 M4에서 기록합니다.** 지금은 패키지가 현장 모델 파일의 동일성을 증명하지 못합니다.
+**M4 준비 구성 (현장 키트, 버전 `0.9.1`):** 같은 `package` 잡이 둘째 zip `pelly-field-kit-0.9.1-win-x64.zip`을 만듭니다(`build-package.ps1 -Package field-kit`). 허용 목록은 `deploy/field-kit-files.txt`이며 `pelly-eval.exe`(단일 파일), 현장 절차 문서(`docs/field-guide.md`, `field-benchmark.md`, `field-results.md`), 스위트·작업 템플릿(`templates/`), `sbom.cdx.json`, `THIRD-PARTY-NOTICES.md`, 예외 승인 라이선스 전문, `SHA256SUMS.txt`가 들어갑니다. `pelly.exe`와 설치 문서는 첫 zip에만 있습니다. `pelly-eval.exe`는 개발자 도구가 아니라 현장에서 기준선을 재는 반입 대상이며, 그래서 `NetworkPolicyTests`가 `eval/PellyCoder.Eval/`도 훑습니다.
+
 * **`LICENSE` 파일 없음:** pelly 자체의 라이선스는 사람이 정합니다. 정해지면 허용 목록에 한 줄을 더합니다.
 * 개발자 PC의 설정 파일·경로·연결 문자열은 zip에 들어가면 안 되며 패키지 테스트가 검사합니다.
 

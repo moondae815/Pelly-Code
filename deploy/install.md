@@ -5,7 +5,7 @@
 
 ## 반입 zip 구성
 
-`pelly-0.9.0-win-x64.zip`을 풀면 이렇게 나옵니다.
+`pelly-0.9.1-win-x64.zip`을 풀면 이렇게 나옵니다.
 
 | 파일 | 용도 |
 | :--- | :--- |
@@ -38,8 +38,8 @@ zip 안의 `SHA256SUMS.txt`는 zip이 바뀌면 함께 바뀔 수 있습니다. 
 CI는 패키지를 만들 때 이 값을 로그(`zip sha256:` 줄)에 남기고, zip 옆에 별도 아티팩트 `pelly-<버전>-win-x64.zip.sha256`(`pelly-package-sha256`)으로 둡니다. 형식은 `<소문자 SHA-256>  <zip 이름>` 한 줄입니다.
 
 ```powershell
-Get-FileHash .\pelly-0.9.0-win-x64.zip -Algorithm SHA256
-Get-Content .\pelly-0.9.0-win-x64.zip.sha256
+Get-FileHash .\pelly-0.9.1-win-x64.zip -Algorithm SHA256
+Get-Content .\pelly-0.9.1-win-x64.zip.sha256
 ```
 
 두 값이 같아야 합니다(대소문자 무시). 1절에서 풀기 전에 확인해도 됩니다.
@@ -83,7 +83,7 @@ PowerShell에서 사용자 PATH에 추가합니다. 관리자 권한은 필요 �
 pelly --version
 ```
 
-`0.9.0`으로 시작하면 됩니다. (Windows 미확인: PATH 반영은 새 터미널부터입니다. IDE는 재시작해야 할 수 있습니다.)
+`0.9.1`으로 시작하면 됩니다. (Windows 미확인: PATH 반영은 새 터미널부터입니다. IDE는 재시작해야 할 수 있습니다.)
 PATH를 건드리지 않고 `pelly.exe` 전체 경로로 실행해도 됩니다. IDE External Tools는 전체 경로를 씁니다.
 
 ## 4. 설정 파일

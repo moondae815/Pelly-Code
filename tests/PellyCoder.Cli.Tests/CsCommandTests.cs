@@ -318,7 +318,7 @@ public class CsCommandTests
 
         var result = h.App.Run("--version");
 
-        Assert.StartsWith("0.9.0", result.Output.Trim());
+        Assert.StartsWith("0.9.1", result.Output.Trim());
     }
 
     [Theory]

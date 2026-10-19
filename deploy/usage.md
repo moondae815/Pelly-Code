@@ -130,7 +130,7 @@ pelly doctor --sanitize --out C:\export
 * SQL 경로(`pelly sql`)도 Windows에서 실기 확인하지 않았습니다(Windows 미확인).
 * Razor 뷰(`.cshtml`)와 설정 파일(`web.config`, `appsettings.json`)은 수정 대상이 아닙니다.
 * 컨트롤러 액션의 라우팅·필터 특성(`[HttpPost]`, `[Authorize]` 등)은 바꿀 수 없습니다. 의도된 동작입니다.
-* 벤치마크는 0.9.0 기본값 그대로 50건 × 3회에서 평균 47.67건(약 95%) 성공이었습니다. 튜닝 후보 세 개는 채택 기준을 넘지 못해 기본값을 유지했습니다. 상세는 반입 패키지의 `benchmark-summary.md`에 있습니다. 이 수치는 개발 PC(Mac) 기준이고, Windows·GPU 서버 값은 M4에서 확인합니다.
+* 벤치마크는 0.9.0 이전 빌드의 기본값(0.9.1도 같음) 그대로 50건 × 3회에서 평균 47.67건(약 95%) 성공이었습니다. 튜닝 후보 세 개는 채택 기준을 넘지 못해 기본값을 유지했습니다. 상세는 반입 패키지의 `benchmark-summary.md`에 있습니다. 이 수치는 개발 PC(Mac) 기준이고, Windows·GPU 서버 값은 M4에서 확인합니다.
 
 ## 관련 문서
 

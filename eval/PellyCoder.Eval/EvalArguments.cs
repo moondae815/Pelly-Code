@@ -15,7 +15,7 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
     public const string Compare = "compare";
     public const string Record = "record";
 
-    /// <summary><c>run</c> (default), <c>validate</c> or <c>compare</c>.</summary>
+    /// <summary><c>run</c> (default), <c>validate</c>, <c>compare</c> or <c>record</c>.</summary>
     public string Command { get; init; } = Run;
 
     /// <summary><c>--suite</c>: the suite folder (holding <c>suite.json</c>); null: the repository's built-in suite.</summary>
@@ -52,7 +52,7 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
 
         기록: dotnet run --project eval/PellyCoder.Eval -- record --out <파일> [--gguf-sha256 <hex>] [--config <pelly.json>]
           서버의 Ollama 버전과 모델 식별 정보(digest·형식·양자화)를 JSON으로 씁니다. 접속 주소는 쓰지 않습니다.
-          종료 코드 0 기록함 · 3 모델이 서버에 없음 · 4 접속 불가 또는 인자 오류
+          종료 코드 0 기록함 · 3 모델이 서버에 없거나 서버가 버전·digest를 알리지 않음 · 4 접속 불가·인자 오류·파일 쓰기 실패
 
         SQL 연결은 환경 변수 PELLY_SQL_CONNECTION. 없거나 허용 목록에 없으면 sql 작업은 건너뜁니다.
         산출물: results.json, report.md, work/<id>/ (작업별 스위트 루트 복사본과 .pelly/runs 로그); --repeat N>1이면 회차마다 run-<k>/ 아래에

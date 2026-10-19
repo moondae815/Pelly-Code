@@ -56,7 +56,7 @@ public sealed record RepeatSummaryData(
     IReadOnlyList<RunRepeatSummary> Runs, IReadOnlyList<GroupRepeatSummary> Groups, IReadOnlyList<TaskRepeatSummary> Tasks,
     RunConditions? Conditions = null, bool Cancelled = false)
 {
-    /// <summary>The <c>summary.json</c> layout this code writes this code writes; <see cref="RepeatSummary.FromJson"/> also reads version 1.</summary>
+    /// <summary>The <c>summary.json</c> layout this code writes; <see cref="RepeatSummary.FromJson"/> also reads version 1.</summary>
     public const int CurrentFormatVersion = 2;
 
     /// <summary>The oldest layout still read (1: no model identity in the conditions; those read as null).</summary>
@@ -115,7 +115,7 @@ public static partial class RepeatSummary
     public static string ToJson(RepeatSummaryData data) => JsonSerializer.Serialize(data, Json);
 
     /// <summary>Reads a <c>summary.json</c> strictly: every constructor field must be present and non-null where declared so,
-    /// and <see cref="RepeatSummaryData.FormatVersion"/> must be <see cref="RepeatSummaryData.CurrentFormatVersion"/>.</summary>
+    /// and <see cref="RepeatSummaryData.FormatVersion"/> must be between <see cref="RepeatSummaryData.MinReadableFormatVersion"/> and <see cref="RepeatSummaryData.CurrentFormatVersion"/>.</summary>
     public static RepeatSummaryData FromJson(string json)
     {
         var data = JsonSerializer.Deserialize<RepeatSummaryData>(json, Json) ?? throw new JsonException("summary.json이 비어 있습니다.");

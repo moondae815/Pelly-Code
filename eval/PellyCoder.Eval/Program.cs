@@ -24,20 +24,8 @@ if (parsed.Help || parsed.Error is not null)
 if (parsed.Command == EvalArguments.Compare) return CompareCommand.Run(parsed.Positional, Console.Out); // R4 verdict: 0 adopted, 3 rejected, 4 not judged
 if (parsed.Command == EvalArguments.Validate) return ValidateCommand.Run(parsed, Console.Out, Console.Error, processes: new SystemProcessRunner(TimeProvider.System)); // offline definition check: 0 no errors, 4 errors
 
-if (parsed.Command == EvalArguments.Record) return await RunRecordAsync(parsed);
-
-var suiteDir = parsed.Suite ?? EvalPaths.FindSuite();
-if (suiteDir is null) return Fail($"eval/benchmark/{BenchmarkSuite.FileName}을 찾을 수 없습니다 — 저장소 안에서 실행하거나 --suite <폴더>를 지정하세요.");
-var suiteLoad = BenchmarkSuite.Load(suiteDir);
-if (suiteLoad.Suite is not { } suite) return Fail("스위트 오류:\n  " + string.Join("\n  ", suiteLoad.Errors));
-if (!Directory.Exists(suite.TasksDir)) return Fail($"작업 폴더가 없습니다: {suite.TasksDir}");
+// Shared composition root of `run` and `record`: the only HttpClient / backend construction in this program.
 var fs = new FileSystem();
-var tasks = BenchmarkTask.LoadAll(suite.TasksDir).Where(t => TaskFilter.Matches(t, parsed.Tasks, parsed.Kind))
-    .Select(t => (Task: t, Resolved: suite.Resolve(t, fs, out var error), Error: error)).ToList();
-if (tasks.Count == 0) return Fail($"선택된 작업이 없습니다 (--tasks {parsed.Tasks ?? "*"}, --kind {parsed.Kind ?? "*"}).");
-foreach (var (_, _, error) in tasks.Where(t => t.Resolved is null))
-    Console.Error.WriteLine($"작업 정의 오류: {error}");
-
 if (parsed.Config is not null && !File.Exists(parsed.Config)) return Fail($"설정 파일이 없습니다: {parsed.Config}");
 var environment = Environment.GetEnvironmentVariables().Cast<System.Collections.DictionaryEntry>()
     .ToDictionary(e => (string)e.Key, e => (string?)e.Value);
@@ -51,6 +39,20 @@ using var http = new HttpClient(new SocketsHttpHandler { ConnectTimeout = TimeSp
     Timeout = Timeout.InfiniteTimeSpan, // OllamaBackend enforces its own timers (as the CLI's composition root does).
 };
 var backend = new OllamaBackend(http, options.Llm, TimeProvider.System);
+
+if (parsed.Command == EvalArguments.Record) return await RecordCommand.RunAsync(parsed, backend, options, Console.Out, cts.Token);
+
+var suiteDir = parsed.Suite ?? EvalPaths.FindSuite();
+if (suiteDir is null) return Fail($"eval/benchmark/{BenchmarkSuite.FileName}을 찾을 수 없습니다 — 저장소 안에서 실행하거나 --suite <폴더>를 지정하세요.");
+var suiteLoad = BenchmarkSuite.Load(suiteDir);
+if (suiteLoad.Suite is not { } suite) return Fail("스위트 오류:\n  " + string.Join("\n  ", suiteLoad.Errors));
+if (!Directory.Exists(suite.TasksDir)) return Fail($"작업 폴더가 없습니다: {suite.TasksDir}");
+var tasks = BenchmarkTask.LoadAll(suite.TasksDir).Where(t => TaskFilter.Matches(t, parsed.Tasks, parsed.Kind))
+    .Select(t => (Task: t, Resolved: suite.Resolve(t, fs, out var error), Error: error)).ToList();
+if (tasks.Count == 0) return Fail($"선택된 작업이 없습니다 (--tasks {parsed.Tasks ?? "*"}, --kind {parsed.Kind ?? "*"}).");
+foreach (var (_, _, error) in tasks.Where(t => t.Resolved is null))
+    Console.Error.WriteLine($"작업 정의 오류: {error}");
+
 var status = await backend.GetStatusAsync(cts.Token);
 if (!status.Reachable || !status.ModelInstalled)
     return Fail($"LLM 서버를 쓸 수 없습니다 ({options.Llm.Endpoint}, 모델 {options.Llm.Model}): {status.Error ?? "모델이 설치되어 있지 않습니다"}");
@@ -138,22 +140,4 @@ static int Fail(string message)
 {
     Console.Error.WriteLine(message);
     return 4;
-}
-
-// record: needs only the config and the backend (no suite); the HttpClient lives here, as in the run path below.
-static async Task<int> RunRecordAsync(EvalArguments parsed)
-{
-    var fs = new FileSystem();
-    if (parsed.Config is not null && !File.Exists(parsed.Config)) return Fail($"설정 파일이 없습니다: {parsed.Config}");
-    var environment = Environment.GetEnvironmentVariables().Cast<System.Collections.DictionaryEntry>()
-        .ToDictionary(e => (string)e.Key, e => (string?)e.Value);
-    var loaded = PellyOptionsLoader.Load(fs, PellyPaths.UserConfigPath(), parsed.Config, environment, new Dictionary<string, string?>());
-    if (loaded.Options is not { } options) return Fail("설정 오류:\n  " + string.Join("\n  ", loaded.Errors));
-    using var cts = new CancellationTokenSource();
-    Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
-    using var http = new HttpClient(new SocketsHttpHandler { ConnectTimeout = TimeSpan.FromSeconds(options.Llm.ConnectTimeoutSeconds) })
-    {
-        Timeout = Timeout.InfiniteTimeSpan,
-    };
-    return await RecordCommand.RunAsync(parsed, new OllamaBackend(http, options.Llm, TimeProvider.System), options, Console.Out, cts.Token);
 }

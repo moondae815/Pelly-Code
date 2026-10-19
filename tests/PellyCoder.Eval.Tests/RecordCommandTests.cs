@@ -100,6 +100,43 @@ public sealed class RecordCommandTests : IDisposable
         Assert.False(File.Exists(path));
     }
 
+    [Theory]
+    [InlineData(null, "cd2692a833e66c4c98991b67e9fbaa0bb15a93285baac9240c022f2f40075b6d")]
+    [InlineData("0.40.0", null)]
+    [InlineData("0.40.0", "sha256:not-hex")]
+    public async Task Record_ServerWithoutVersionOrValidDigest_Exits3_WritesNothing(string? version, string? digest)
+    {
+        var (code, _, path) = await Record(new LlmServerStatus(true, version, true, false, null, TimeSpan.Zero, null, digest, "safetensors", "nvfp4"));
+
+        Assert.Equal(3, code);
+        Assert.False(File.Exists(path));
+    }
+
+    [Fact]
+    public async Task Record_TagsListFailed_Exits4_NotModelMissing()
+    {
+        var (code, output, path) = await Record(new LlmServerStatus(true, "0.40.0", false, false, null, TimeSpan.Zero, "tags broke"));
+
+        Assert.Equal(4, code);
+        Assert.Contains("tags broke", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("모델이 서버에 없습니다", output, StringComparison.Ordinal);
+        Assert.False(File.Exists(path));
+    }
+
+    [Fact]
+    public async Task Record_UnwritableOut_Exits4_WithMessage()
+    {
+        var blocker = Path.Combine(_dir, "blocker");
+        File.WriteAllText(blocker, "x"); // a file where the parent folder of --out would have to be
+        var parsed = EvalArguments.Parse(["record", "--out", Path.Combine(blocker, "sub", "v.json")]);
+        var output = new StringWriter();
+
+        var code = await RecordCommand.RunAsync(parsed, new FakeBackend(Healthy()), Options(), output, CancellationToken.None);
+
+        Assert.Equal(4, code);
+        Assert.Contains("기록 파일을 쓸 수 없습니다", output.ToString(), StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task Record_ServerUnreachable_Exits4()
     {

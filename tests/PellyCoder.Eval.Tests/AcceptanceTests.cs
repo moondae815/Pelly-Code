@@ -197,7 +197,7 @@ public sealed class AcceptanceTests : IDisposable
         Assert.Contains("ollamaVersion", fields);
         Assert.Contains("modelDigest", fields);
         var (code, output) = Run(Write("b.json", b), Write("c.json", c));
-        Assert.NotEqual(4, code);
+        Assert.Equal(3, code); // identical results: rule 1 (+1.0 mean gain) fails, so a verdict is reached
         Assert.Contains("modelDigest", output, StringComparison.Ordinal);
     }
 

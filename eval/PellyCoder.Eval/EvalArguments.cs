@@ -14,8 +14,9 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
     public const string Validate = "validate";
     public const string Compare = "compare";
     public const string Record = "record";
+    public const string Export = "export";
 
-    /// <summary><c>run</c> (default), <c>validate</c>, <c>compare</c> or <c>record</c>.</summary>
+    /// <summary><c>run</c> (default), <c>validate</c>, <c>compare</c>, <c>record</c> or <c>export</c>.</summary>
     public string Command { get; init; } = Run;
 
     /// <summary><c>--suite</c>: the suite folder (holding <c>suite.json</c>); null: the repository's built-in suite.</summary>
@@ -54,6 +55,11 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
           서버의 Ollama 버전과 모델 식별 정보(digest·형식·양자화)를 JSON으로 씁니다. 접속 주소는 쓰지 않습니다.
           종료 코드 0 기록함 · 3 모델이 서버에 없거나 서버가 버전·digest를 알리지 않음 · 4 접속 불가·인자 오류·파일 쓰기 실패
 
+        반출: dotnet run --project eval/PellyCoder.Eval -- export <결과 폴더> --out <폴더>
+          결과 폴더(단일 실행 results.json 또는 --repeat의 summary.json + run-<k>/)를 비식별해 --out에 씁니다. KPI 필드는 그대로,
+          사유·검증 상세·생략 사유 본문과 접속 주소·경로는 지웁니다. 작업 복사본(work/)과 .pelly/runs는 복사하지 않습니다(pelly 실행 기록은 pelly report --sanitize).
+          종료 코드 0 반출함 · 4 입력 없음·--out이 비어 있지 않음·인자 오류
+
         SQL 연결은 환경 변수 PELLY_SQL_CONNECTION. 없거나 허용 목록에 없으면 sql 작업은 건너뜁니다.
         산출물: results.json, report.md, work/<id>/ (작업별 스위트 루트 복사본과 .pelly/runs 로그); --repeat N>1이면 회차마다 run-<k>/ 아래에
         종료 코드: 0 실행 완료 · 1 검증 불변 조건 위반 · 2 중단 · 4 설정 오류(스위트 오류 포함) 또는 LLM 서버 연결 불가
@@ -66,6 +72,7 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
         [Validate] = ["--suite", "--config", "--deep"],
         [Compare] = [],
         [Record] = ["--out", "--gguf-sha256", "--config"],
+        [Export] = ["--out"],
     };
 
     /// <summary>Positional arguments each subcommand requires.</summary>
@@ -75,6 +82,7 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
         [Validate] = 0,
         [Compare] = 2,
         [Record] = 0,
+        [Export] = 1,
     };
 
     public static EvalArguments Parse(IReadOnlyList<string> args)
@@ -137,9 +145,11 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
         }
 
         if (command == Record && outDir is null) return Error("record에는 --out <파일>이 필요합니다");
+        if (command == Export && positional.Count == 1 && outDir is null) return Error("export에는 --out <폴더>가 필요합니다");
         if (positional.Count != PositionalCount[command])
             return Error(command == Compare
                 ? "compare에는 <기준선 summary.json> <후보 summary.json> 두 개가 필요합니다"
+                : command == Export ? "export에는 <결과 폴더> 하나가 필요합니다"
                 : $"{command}: 인자 {PositionalCount[command]}개가 필요합니다");
         return new(tasks, kind, outDir, config, false, null, repeat) { Command = command, Suite = suite, Deep = deep, GgufSha256 = gguf, KeepWork = keepWork, Positional = positional };
     }

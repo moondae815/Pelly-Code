@@ -24,6 +24,8 @@ if (parsed.Help || parsed.Error is not null)
 if (parsed.Command == EvalArguments.Compare) return CompareCommand.Run(parsed.Positional, Console.Out); // R4 verdict: 0 adopted, 3 rejected, 4 not judged
 if (parsed.Command == EvalArguments.Validate) return ValidateCommand.Run(parsed, Console.Out, Console.Error, processes: new SystemProcessRunner(TimeProvider.System)); // offline definition check: 0 no errors, 4 errors
 
+if (parsed.Command == EvalArguments.Export) return ExportCommand.Run(parsed, Console.Out); // sanitized carry-out copy: 0 done, 4 refused
+
 // Shared composition root of `run` and `record`: the only HttpClient / backend construction in this program.
 var fs = new FileSystem();
 if (parsed.Config is not null && !File.Exists(parsed.Config)) return Fail($"설정 파일이 없습니다: {parsed.Config}");

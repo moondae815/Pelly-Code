@@ -31,6 +31,11 @@ public sealed class BenchmarkTask
             .Build();
         var task = deserializer.Deserialize<BenchmarkTask>(System.IO.File.ReadAllText(path))
             ?? throw new InvalidDataException("내용이 없습니다");
+        // An empty YAML value (`id:`) deserializes to null despite the defaults; the checks and the runner expect strings.
+        task.Id ??= "";
+        task.Kind ??= "";
+        task.File ??= "";
+        task.Request ??= "";
         task.SourceName = Path.GetFileNameWithoutExtension(path);
         return task;
     }
@@ -58,9 +63,13 @@ public sealed class BenchmarkTask
         return ([.. tasks.OrderBy(t => t.Id, StringComparer.Ordinal)], errors);
     }
 
-    /// <summary>Every <c>*.yaml</c> in <paramref name="tasksDir"/>, ordered by id.</summary>
+    /// <summary>
+    /// Every <c>*.yaml</c> in <paramref name="tasksDir"/>, ordered by id; throws on a file that cannot be read. For the built-in
+    /// suite's tests only: <c>run</c> and <c>validate</c> use <see cref="TryLoadAll"/> (a field suite must not crash them).
+    /// </summary>
     public static IReadOnlyList<BenchmarkTask> LoadAll(string tasksDir) =>
         [.. Directory.GetFiles(tasksDir, "*.yaml").Select(Load).OrderBy(t => t.Id, StringComparer.Ordinal)];
+
 }
 
 public sealed class BenchmarkJudge

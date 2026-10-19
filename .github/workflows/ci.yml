@@ -113,6 +113,16 @@ jobs:
           & $exe --help | Out-Host
           if ($LASTEXITCODE -ne 0) { throw "--help exit $LASTEXITCODE" }
 
+          # 실행 경로의 내장 구성 요소(네이티브 SNI, 포함 프롬프트·토크나이저)를 pelly와 같은 여섯 행으로 확인한다 (--help만으로는 실행 경로를 못 본다)
+          foreach ($run in 'first', 'second') {
+            $t = Measure-Command { & $exe --offline-selftest | Out-Host }
+            if ($LASTEXITCODE -ne 0) { throw "pelly-eval --offline-selftest ($run) exit $LASTEXITCODE" }
+            Write-Host ("pelly-eval offline-selftest {0} run: {1:N2} s" -f $run, $t.TotalSeconds)
+          }
+          $selftest = (& $exe --offline-selftest | Out-String)
+          if ($LASTEXITCODE -ne 0) { throw "pelly-eval --offline-selftest exit $LASTEXITCODE" }
+          if (-not $selftest.Contains('| SqlClient | Ok |')) { Write-Host $selftest; throw 'offline-selftest output lacks the SqlClient Ok row' }
+
           # 내장 스위트가 Windows에서 Legacy 루트를 바르게 판정하는지 본다 (정적 검사, 서버 없음)
           $out = (& $exe validate --suite eval/benchmark | Out-String)
           $code = $LASTEXITCODE
@@ -213,7 +223,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          foreach ($case in @(@{ zip = $env:PELLY_TEST_PACKAGE; count = 12 }, @{ zip = $env:PELLY_TEST_FIELD_KIT; count = 11 })) {
+          foreach ($case in @(@{ zip = $env:PELLY_TEST_PACKAGE; count = 12 }, @{ zip = $env:PELLY_TEST_FIELD_KIT; count = 12 })) {
             $dir = Join-Path $env:RUNNER_TEMP ('unzip-' + [System.IO.Path]::GetFileNameWithoutExtension($case.zip))
             Expand-Archive $case.zip $dir
             Push-Location $dir

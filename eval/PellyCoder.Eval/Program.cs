@@ -11,7 +11,8 @@ using PellyCoder.Core.Processes;
 using PellyCoder.Core.Sql;
 using PellyCoder.Eval;
 
-// Benchmark runner (design §10.6). Exit codes: 0 done, 1 verification invariant violated, 2 cancelled, 4 setup error.
+// Benchmark runner (design §10.6). Exit codes: 0 done, 1 verification invariant violated, 2 cancelled, 4 setup error
+// (unreadable task files and a non-empty --out included).
 // `compare <baseline> <candidate>` judges two --repeat summaries by the R4 rule (Acceptance.cs).
 Console.OutputEncoding = Encoding.UTF8;
 var parsed = EvalArguments.Parse(args);
@@ -21,6 +22,8 @@ if (parsed.Help || parsed.Error is not null)
     Console.WriteLine(EvalArguments.Usage);
     return parsed.Error is null ? 0 : 4;
 }
+// Hidden: the packaged single file's bundled components (pelly doctor --offline-selftest rows), before any config or HTTP client.
+if (parsed.OfflineSelfTest) return SelfTestCommand.Run(Console.Out); // 0 all Ok, 4 otherwise
 if (parsed.Command == EvalArguments.Compare) return CompareCommand.Run(parsed.Positional, Console.Out); // R4 verdict: 0 adopted, 3 rejected, 4 not judged
 if (parsed.Command == EvalArguments.Validate) return ValidateCommand.Run(parsed, Console.Out, Console.Error, processes: new SystemProcessRunner(TimeProvider.System)); // offline definition check: 0 no errors, 4 errors
 
@@ -49,11 +52,17 @@ if (suiteDir is null) return Fail($"eval/benchmark/{BenchmarkSuite.FileName}을 
 var suiteLoad = BenchmarkSuite.Load(suiteDir);
 if (suiteLoad.Suite is not { } suite) return Fail("스위트 오류:\n  " + string.Join("\n  ", suiteLoad.Errors));
 if (!Directory.Exists(suite.TasksDir)) return Fail($"작업 폴더가 없습니다: {suite.TasksDir}");
-var tasks = BenchmarkTask.LoadAll(suite.TasksDir).Where(t => TaskFilter.Matches(t, parsed.Tasks, parsed.Kind))
-    .Select(t => (Task: t, Resolved: suite.Resolve(t, fs, out var error), Error: error)).ToList();
+var plan = RunPlan.Prepare(suite, fs, parsed.Tasks, parsed.Kind);
+if (plan.LoadErrors.Count > 0)
+    return Fail("작업 파일을 읽을 수 없습니다 (validate로 확인하세요):\n  " + string.Join("\n  ", plan.LoadErrors));
+var tasks = plan.Tasks;
 if (tasks.Count == 0) return Fail($"선택된 작업이 없습니다 (--tasks {parsed.Tasks ?? "*"}, --kind {parsed.Kind ?? "*"}).");
-foreach (var (_, _, error) in tasks.Where(t => t.Resolved is null))
-    Console.Error.WriteLine($"작업 정의 오류: {error}");
+foreach (var t in tasks.Where(t => t.Resolved is null))
+    Console.Error.WriteLine($"작업 정의 오류: {t.Error}");
+
+var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
+var outDir = Path.GetFullPath(parsed.Out ?? Path.Combine(suite.ResultsDir, stamp));
+if (RunPlan.OutConflict(outDir) is { } outConflict) return Fail(outConflict);
 
 var status = await backend.GetStatusAsync(cts.Token);
 if (!status.Reachable || !status.ModelInstalled)
@@ -71,8 +80,6 @@ if (tasks.Any(t => t.Task.Kind == "sql" && t.Resolved is not null))
         sql = new SqlServerExecutor(options.Sql.ConnectionString);
 }
 
-var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
-var outDir = Path.GetFullPath(parsed.Out ?? Path.Combine(suite.ResultsDir, stamp));
 Directory.CreateDirectory(outDir);
 Console.WriteLine($"스위트 {suite.Name} ({suite.Dir}) · 작업 {tasks.Count}건{(parsed.Repeat > 1 ? $" × {parsed.Repeat}회" : "")} → {outDir}");
 
@@ -95,6 +102,7 @@ async Task<RepeatedRun.RunOnce> RunOnceAsync(string dir, int run)
     var cancelled = false;
     foreach (var (task, resolved, error) in tasks)
     {
+        // Definition failures (schema, unresolved target) are recorded and never run: their ids may not even be path-safe.
         if (resolved is null)
         {
             results.Add(TaskResult.Failed(task, false, error!, "Definition"));

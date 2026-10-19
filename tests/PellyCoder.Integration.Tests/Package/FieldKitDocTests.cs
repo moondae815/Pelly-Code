@@ -22,7 +22,10 @@ public sealed class FieldKitDocTests
         "deploy/field-kit/templates/tasks/cs-modern-001.yaml",
         "deploy/field-kit/templates/tasks/cs-legacy-001.yaml",
         "deploy/field-kit/templates/tasks/sql-001.yaml",
+        JudgeTemplate,
     ];
+
+    private const string JudgeTemplate = "deploy/field-kit/templates/judges/Modern/Modern.JudgeTests/Modern.JudgeTests.csproj";
 
     // Edited existing docs: the Password rule cannot apply (install.md explains that key), so only developer paths are checked.
     private static readonly string[] EditedDocs = ["deploy/install.md", "deploy/server-checklist.md", "deploy/ide-external-tools.md"];
@@ -40,6 +43,17 @@ public sealed class FieldKitDocTests
             var issues = SuiteValidator.SchemaIssues(task, Path.GetFileNameWithoutExtension(path));
             Assert.True(issues.Count == 0, $"{id}: {string.Join("; ", issues.Select(i => i.Message))}");
         }
+    }
+
+    [Fact]
+    public void JudgeTemplate_PassesTheJudgeContract_AndNamesTheProperty()
+    {
+        var path = PackageFileList.RepoFile(JudgeTemplate);
+        Assert.Empty(SuiteValidator.JudgeProjectIssues(new System.IO.Abstractions.FileSystem(), path));
+        var text = File.ReadAllText(path);
+        Assert.Contains("<ProjectReference Include=\"$(JudgeTargetRoot)/", text, StringComparison.Ordinal);
+        // The kit folder layout is judges/<root>/<project>/, as the runner expects (BenchmarkSuite.JudgesDir).
+        Assert.Equal("Modern", Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(path))));
     }
 
     [Fact]

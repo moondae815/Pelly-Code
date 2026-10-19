@@ -3,8 +3,11 @@ namespace PellyCoder.Eval;
 /// <summary>Copies a suite root into a task's work folder so runs never touch the original sources.</summary>
 public static class WorkCopy
 {
-    /// <summary>Left out at any depth (case ignored): build output, pelly state, test results, VCS and IDE folders.</summary>
-    private static readonly string[] Excluded = ["bin", "obj", ".pelly", "TestResults", ".git", ".vs"];
+    /// <summary>
+    /// Left out at any depth (case ignored): build output, pelly state, test results, VCS (git, SVN, Mercurial, TFVC local
+    /// workspace) and IDE folders. VCS folders only cost copy time; the work root's own <c>.svn</c> marker is made by <see cref="Prepare"/>.
+    /// </summary>
+    internal static readonly string[] Excluded = ["bin", "obj", ".pelly", "TestResults", ".git", ".vs", ".svn", ".hg", "$tf"];
 
     /// <summary>
     /// A <c>.git</c> file (git worktree, submodule) is a workspace marker for <c>WorkspaceLocator</c>: copied, it would make a

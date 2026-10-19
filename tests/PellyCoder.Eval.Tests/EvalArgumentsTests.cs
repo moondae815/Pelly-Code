@@ -49,4 +49,30 @@ public class EvalArgumentsTests
         Assert.Equal("--keep-work는 all, failed, none 중 하나: Failed", EvalArguments.Parse(["--keep-work", "Failed"]).Error);
         Assert.Equal("알 수 없는 인자: --keep-work", EvalArguments.Parse(["validate", "--keep-work", "none"]).Error);
     }
+
+    [Fact]
+    public void Parse_OfflineSelfTest_IsAHiddenRunFlag()
+    {
+        var parsed = EvalArguments.Parse(["--offline-selftest"]);
+        Assert.Null(parsed.Error);
+        Assert.True(parsed.OfflineSelfTest);
+        Assert.False(EvalArguments.Parse([]).OfflineSelfTest);
+        Assert.Equal("알 수 없는 인자: --offline-selftest", EvalArguments.Parse(["validate", "--offline-selftest"]).Error);
+        Assert.DoesNotContain("--offline-selftest", EvalArguments.Usage, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Usage_Compare_SaysDifferingModelIdentityIsNotJudged() =>
+        Assert.Contains("모델 digest나 Ollama 버전이 다르면 판정 불가(4)", EvalArguments.Usage, StringComparison.Ordinal);
+
+    [Fact]
+    public void OfflineSelfTest_SameRowsAsPelly_AllOk_Exit0()
+    {
+        var output = new StringWriter();
+        var code = SelfTestCommand.Run(output);
+        var text = output.ToString();
+        Assert.True(code == 0, text);
+        foreach (var row in PellyCoder.Core.Doctor.OfflineSelfTest.Run())
+            Assert.Contains($"| {row.Name} | Ok |", text, StringComparison.Ordinal);
+    }
 }

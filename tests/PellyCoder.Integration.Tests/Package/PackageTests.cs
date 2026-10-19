@@ -41,6 +41,7 @@ public sealed record PackageKind(string Name, string ZipVariable, string ListFil
         "templates/tasks/cs-modern-001.yaml",
         "templates/tasks/cs-legacy-001.yaml",
         "templates/tasks/sql-001.yaml",
+        "templates/judges/Modern/Modern.JudgeTests/Modern.JudgeTests.csproj",
         "sbom.cdx.json",
         "THIRD-PARTY-NOTICES.md",
         "licenses/Microsoft.Data.SqlClient.SNI.runtime.LICENSE.txt",
@@ -152,12 +153,15 @@ public sealed class PackageTests
     [MemberData(nameof(Packages))]
     public async Task Packaged_SelfTest_Exit0(string package)
     {
-        // pelly: the hidden offline self-test. pelly-eval has none; --help runs the single file without a server.
+        // Both exes have the hidden offline self-test (the same Core rows): it proves the single file's bundled native SNI,
+        // embedded prompts and tokenizer work without a server — the run path of pelly-eval, not only its --help.
         var kind = PackageKind.ByName(package);
-        string[] args = kind == PackageKind.Pelly ? ["doctor", "--offline-selftest"] : ["--help"];
+        string[] args = kind.Name == "pelly" ? ["doctor", "--offline-selftest"] : ["--offline-selftest"];
         var result = await Run(kind, args);
 
         Assert.True(result.ExitCode == 0, $"exit {result.ExitCode}\n{result.StdOut}\n{result.StdErr}");
+        foreach (var row in new[] { "토크나이저", "Roslyn", "ScriptDom", "인코딩", "리소스", "SqlClient" })
+            Assert.Contains(row, result.StdOut, StringComparison.Ordinal);
     }
 
     [WindowsFact]

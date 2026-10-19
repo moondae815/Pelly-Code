@@ -187,6 +187,50 @@ public sealed class ExportCommandTests : IDisposable
         Assert.Equal(4, Export(Directory.CreateDirectory(System.IO.Path.Combine(_dir, "empty")).FullName).Code);
     }
 
+    [Fact]
+    public void Export_RefusesIdsOutsideTheFormat_AndNamesThem()
+    {
+        var dir = System.IO.Path.Combine(_dir, "bad-ids");
+        Directory.CreateDirectory(dir);
+        var rows = Rows();
+        rows[0] = rows[0] with { Id = "cs-modern-정산마감" };
+        rows[1] = rows[1] with { Id = "../sql-001" };
+        File.WriteAllText(System.IO.Path.Combine(dir, "results.json"), JsonSerializer.Serialize(rows, Json));
+
+        var (code, output, dest) = Export(dir);
+
+        Assert.Equal(4, code);
+        Assert.Contains("작업 id 형식이 올바르지 않습니다", output);
+        Assert.Contains("'cs-modern-정산마감'", output);
+        Assert.Contains("'../sql-001'", output);
+        Assert.False(Directory.Exists(dest));
+    }
+
+    [Fact]
+    public void Export_Repeat_RefusesABadIdInTheSummaryOrAnyRun()
+    {
+        var input = MakeRepeat();
+        var summaryPath = System.IO.Path.Combine(input, "summary.json");
+        var summary = RepeatSummary.FromJson(File.ReadAllText(summaryPath));
+        File.WriteAllText(summaryPath, RepeatSummary.ToJson(summary with
+        {
+            Tasks = [.. summary.Tasks.Select((t, i) => i == 0 ? t with { Id = "sql-erp-001" } : t)],
+        }));
+        var (code, output, dest) = Export(input);
+        Assert.Equal(4, code);
+        Assert.Contains("'sql-erp-001'", output);
+        Assert.False(Directory.Exists(dest));
+
+        var input2 = MakeRepeat("20261019-222222");
+        var run2 = System.IO.Path.Combine(input2, "run-2", "results.json");
+        var rows = Rows();
+        rows[3] = rows[3] with { Id = "cs-legacy-1" };
+        File.WriteAllText(run2, JsonSerializer.Serialize(rows, Json));
+        var second = Export(input2);
+        Assert.Equal(4, second.Code);
+        Assert.Contains("'cs-legacy-1'", second.Out);
+    }
+
     private static string LegacyLine(string report) => report.Split('\n').Single(l => l.StartsWith("Legacy 빌드 판정 생략:", StringComparison.Ordinal));
 
     [Fact]

@@ -34,6 +34,7 @@ public sealed class SuiteValidatorTests : IDisposable
         Write("App/Old/Old.csproj", "<Project ToolsVersion=\"15.0\" xmlns=\"http://schemas.microsoft.com/developer/msbuild/2003\"></Project>");
         Write("App/Old/Svc.cs", "namespace N;\npublic class Svc\n{\n    public int Run(int x)\n    {\n        return x + 1;\n    }\n}\n");
         Write("App/Db/usp_A.sql", "CREATE PROCEDURE dbo.usp_A\nAS\nBEGIN\n    SELECT 1;\nEND\nGO\n");
+        Write("App/App.sln", ""); // the SDK-style task's root holds exactly one solution (the runner restores it)
     }
 
     public void Dispose()
@@ -261,16 +262,173 @@ public sealed class SuiteValidatorTests : IDisposable
         Assert.Contains("suite.json", error.ToString());
     }
 
+    // ---- crash paths (I4) ----
+
+    [Fact]
+    public void EmptyId_IsAnError_NotACrash()
+    {
+        Edit("cs-modern-001", "id: cs-modern-001", "id:");
+        var issues = Issues();
+        Has(issues, IssueLevel.Error, "id 형식이 올바르지 않습니다");
+        Has(issues, IssueLevel.Error, "id가 파일 이름과 다릅니다");
+    }
+
+    [Fact]
+    public void ValidateCommand_EmptyId_Exits4()
+    {
+        Edit("cs-modern-001", "id: cs-modern-001", "id:");
+        Issues();
+        var output = new StringWriter();
+        Assert.Equal(4, ValidateCommand.Run(EvalArguments.Parse(["validate", "--suite", _suiteDir]), output, new StringWriter()));
+        Assert.Contains("id 형식", output.ToString());
+    }
+
+    [Fact]
+    public void Load_NormalizesEmptyFieldsToEmptyStrings()
+    {
+        File.WriteAllText(Path.Combine(_suiteDir, "tasks", "x.yaml"), "id:\nkind:\nfile:\nrequest:\n");
+        var task = BenchmarkTask.Load(Path.Combine(_suiteDir, "tasks", "x.yaml"));
+        Assert.Equal(("", "", "", ""), (task.Id, task.Kind, task.File, task.Request));
+    }
+
+    [Theory]
+    [InlineData("io")]
+    [InlineData("denied")]
+    public void CsprojThatCannotBeRead_IsAnError_NotACrash(string failure)
+    {
+        Issues(); // writes the files
+        var suite = BenchmarkSuite.Load(_suiteDir).Suite!;
+        var (tasks, errors) = BenchmarkTask.TryLoadAll(suite.TasksDir);
+        var issues = SuiteValidator.Validate(suite, tasks, errors, new CsprojReadFails(failure), 160);
+        Has(issues, IssueLevel.Error, "대상 프로젝트 파일을 읽을 수 없음");
+    }
+
+    /// <summary>Real file system whose <c>File.ReadAllText</c> of a csproj throws (a locked or permission-denied project file).</summary>
+    internal sealed class CsprojReadFails(string failure) : FileSystem
+    {
+        public override IFile File => new ThrowingFile(this, failure);
+
+        private sealed class ThrowingFile(IFileSystem fs, string failure) : FileWrapper(fs)
+        {
+            public override string ReadAllText(string path) => path.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase)
+                ? failure == "io" ? throw new IOException("locked") : throw new UnauthorizedAccessException("denied")
+                : base.ReadAllText(path);
+        }
+    }
+
+    // ---- restore contract (I2) ----
+
+    [Fact]
+    public void SdkRootWithoutSolution_Warns()
+    {
+        File.Delete(Path.Combine(_work, "App", "App.sln"));
+        var issues = Issues();
+        Has(issues, IssueLevel.Warning, "루트 App: 맨 위에 .sln 파일이 없습니다");
+        Assert.DoesNotContain(issues, i => i.Level == IssueLevel.Error);
+    }
+
+    [Fact]
+    public void SdkRootWithTwoSolutions_WarnsAndNamesTheOneRestored()
+    {
+        Write("App/B.sln", "");
+        Has(Issues(), IssueLevel.Warning, "루트 App: 맨 위에 .sln 파일이 2개 있습니다 — 이름순 첫 파일 App.sln만 복원합니다");
+    }
+
+    [Fact]
+    public void RootWithOnlyLegacyAndSqlTasks_NeedsNoSolution()
+    {
+        File.Delete(Path.Combine(_work, "App", "App.sln"));
+        _tasks.Remove("cs-modern-001");
+        Assert.DoesNotContain(Issues(), i => i.Message.Contains(".sln", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void SolutionChoice_IsOrdinalByFileName_AndIgnoresOtherExtensions()
+    {
+        var root = Path.Combine(_tmp, "sln");
+        Directory.CreateDirectory(Path.Combine(root, "sub"));
+        foreach (var f in new[] { "b.sln", "B.sln", "a.slnx", "sub/0.sln" })
+            File.WriteAllText(Path.Combine(root, f), "");
+        var fs = new FileSystem();
+        var names = SolutionRestore.Solutions(fs, root).Select(Path.GetFileName).ToList();
+        // Case-insensitive file systems (macOS default, Windows) hold only one of b.sln/B.sln.
+        Assert.All(names, n => Assert.EndsWith(".sln", n, StringComparison.Ordinal));
+        Assert.Equal(names.Order(StringComparer.Ordinal), names);
+        Assert.Equal(names[0], Path.GetFileName(SolutionRestore.Pick(fs, root)));
+    }
+
+    [Fact]
+    public void RestoreTail_LastFiveNonEmptyLines_StdErrFirst_ThenStdOut()
+    {
+        var err = new ProcessResult(1, "out line", "1\n\n2\n3\r\n4\n5\n6\n   \n", [], TimeSpan.Zero, false);
+        Assert.Equal("2 / 3 / 4 / 5 / 6", SolutionRestore.Tail(err));
+        var outOnly = new ProcessResult(1, "a\nerror NU1101: 패키지 없음\n", "", [], TimeSpan.Zero, false);
+        Assert.Equal("a / error NU1101: 패키지 없음", SolutionRestore.Tail(outOnly));
+        Assert.Equal("", SolutionRestore.Tail(new ProcessResult(1, "", "", [], TimeSpan.Zero, false)));
+        var longLine = new string('x', 1000);
+        Assert.True(SolutionRestore.Tail(new ProcessResult(1, "", longLine, [], TimeSpan.Zero, false)).Length <= 301);
+    }
+
+    // ---- judge project contract (I1) ----
+
+    private string JudgeProject(string body)
+    {
+        var path = Path.Combine(_suiteDir, "judges", "App", "App.JudgeTests", "App.JudgeTests.csproj");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <ItemGroup>\n" + body + "\n  </ItemGroup>\n</Project>\n");
+        return path;
+    }
+
+    [Fact]
+    public void JudgeProjectReferencingTheOriginal_Warns()
+    {
+        var path = JudgeProject("    <ProjectReference Include=\"..\\..\\..\\..\\App\\Sdk\\Sdk.csproj\" />");
+        var issues = Issues();
+        Has(issues, IssueLevel.Warning, $"판정 프로젝트 {path}: ProjectReference '..\\..\\..\\..\\App\\Sdk\\Sdk.csproj'가 $(JudgeTargetRoot)를 거치지 않습니다");
+        Assert.DoesNotContain(issues, i => i.Level == IssueLevel.Error);
+    }
+
+    [Fact]
+    public void JudgeProjectThroughJudgeTargetRoot_IsQuiet()
+    {
+        JudgeProject("    <ProjectReference Include=\"$(JudgeTargetRoot)/Sdk/Sdk.csproj\" />");
+        Assert.Empty(Issues());
+    }
+
+    [Fact]
+    public void JudgeProjectNotUsingJudgeTargetRoot_Warns()
+    {
+        JudgeProject("    <PackageReference Include=\"xunit.v3.mtp-v2\" Version=\"4.0.2\" />");
+        Has(Issues(), IssueLevel.Warning, "$(JudgeTargetRoot)를 쓰지 않습니다");
+    }
+
+    [Fact]
+    public void JudgeProjectThatIsNotXml_Warns()
+    {
+        var path = Path.Combine(_suiteDir, "judges", "App", "Bad", "Bad.csproj");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, "<Project");
+        Has(Issues(), IssueLevel.Warning, $"판정 프로젝트를 읽을 수 없음: {path}");
+    }
+
+    [Fact]
+    public void BuiltInJudgeProjects_PassTheContract()
+    {
+        foreach (var csproj in Directory.GetFiles(Path.Combine(TestPaths.Suite.Dir, "judges"), "*.csproj", SearchOption.AllDirectories))
+            Assert.Empty(SuiteValidator.JudgeProjectIssues(new FileSystem(), csproj));
+    }
+
     // ---- --deep ----
 
     private sealed class NoProcesses : IProcessRunner
     {
         public List<ProcessSpec> Calls { get; } = [];
         public int ExitCode { get; set; }
+        public string StdErr { get; set; } = "boom";
         public Task<ProcessResult> RunAsync(ProcessSpec spec, CancellationToken ct)
         {
             Calls.Add(spec);
-            return Task.FromResult(new ProcessResult(ExitCode, "", "boom", [], TimeSpan.Zero, false));
+            return Task.FromResult(new ProcessResult(ExitCode, "", StdErr, [], TimeSpan.Zero, false));
         }
     }
 
@@ -369,11 +527,13 @@ public sealed class SuiteValidatorTests : IDisposable
     public async Task Deep_RestoreFailure_IsWarning_AndSkipsTheTask()
     {
         Write("App/App.sln", "");
-        var procs = new NoProcesses { ExitCode = 1 };
+        var procs = new NoProcesses { ExitCode = 1, StdErr = "  Determining projects to restore...\n\nerror NU1301: 원본을 불러올 수 없습니다\n" };
         var (issues, roots) = await DeepAsync("  tests: [\"T.A\"]", Run(("T.A", true)), procs);
         Assert.Empty(roots);
         Assert.Equal("restore", procs.Calls.Single().Arguments[0]);
         Assert.Equal(IssueLevel.Warning, issues.Single().Level);
+        // The restore's own last lines say why (offline NuGet mirror, missing package), not just the exit code.
+        Has(issues, IssueLevel.Warning, "(종료 1): Determining projects to restore... / error NU1301: 원본을 불러올 수 없습니다");
     }
 
     [Fact]

@@ -21,12 +21,10 @@ public enum KeepWork { All, Failed, None }
 
 /// <summary>
 /// Runs one benchmark task end to end (design §10.6): copy the task's suite root into <c>&lt;out&gt;/work/&lt;id&gt;/</c>, restore
-/// (SDK-style solutions, not timed), run the orchestrator with <c>--yes</c> (timed), read the run's logs, re-verify independently, judge.
+/// (SDK-style roots: the solution <see cref="SolutionRestore.Pick"/> chooses, not timed), run the orchestrator with <c>--yes</c> (timed), read the run's logs, re-verify independently, judge.
 /// </summary>
 public sealed class BenchmarkRunner(RunnerSetup setup)
 {
-    private static readonly TimeSpan RestoreTimeout = TimeSpan.FromMinutes(5);
-
     public async Task<TaskResult> RunAsync(SuiteTask suiteTask, string outDir, CancellationToken ct)
     {
         var workRoot = Path.Combine(outDir, "work", suiteTask.Task.Id);
@@ -76,12 +74,11 @@ public sealed class BenchmarkRunner(RunnerSetup setup)
         if (originalTarget is null)
             return TaskResult.Failed(task, isLegacy, "원본에서 대상을 찾지 못함 (작업 정의 오류)", "Definition");
 
-        if (Directory.GetFiles(corpusRoot, "*.sln").FirstOrDefault() is { } sln && !isLegacy)
+        if (!isLegacy && SolutionRestore.Pick(setup.Fs, corpusRoot) is { } sln)
         {
-            var restore = await setup.Processes.RunAsync(
-                new ProcessSpec("dotnet", ["restore", sln, "--nologo", "--disable-parallel"], corpusRoot, RestoreTimeout), ct);
-            if (restore.ExitCode != 0)
-                return TaskResult.EnvironmentSkipped(task, isLegacy, "복원 실패", $"dotnet restore 종료 {restore.ExitCode}");
+            var restore = await setup.Processes.RunAsync(SolutionRestore.Spec(sln, corpusRoot), ct);
+            if (restore.ExitCode != 0 || restore.TimedOut)
+                return TaskResult.EnvironmentSkipped(task, isLegacy, "복원 실패", SolutionRestore.WithTail($"dotnet restore {SolutionRestore.Head(restore)}", restore));
         }
 
         var ui = new EvalUserInteraction(task.Id, setup.Log);

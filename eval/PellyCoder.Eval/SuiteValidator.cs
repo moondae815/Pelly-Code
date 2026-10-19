@@ -1,6 +1,7 @@
 using System.IO.Abstractions;
 using System.Text.RegularExpressions;
 using System.Xml;
+using System.Xml.Linq;
 using PellyCoder.Core.Abstractions;
 using PellyCoder.Core.CSharp;
 using PellyCoder.Core.Files;
@@ -20,7 +21,10 @@ public static partial class SuiteValidator
 {
     private static readonly string[] BuildInputs = ["Directory.Build.props", "Directory.Build.targets", "Directory.Packages.props", "global.json", "NuGet.config"];
     private static readonly string[] Categories = ["cs-legacy", "cs-modern", "sql"];
-    private static readonly string[] SkippedFolders = ["bin", "obj", ".pelly", "TestResults", ".git", ".vs", "packages"];
+    private static readonly string[] SkippedFolders = [.. WorkCopy.Excluded, "packages"];
+
+    /// <summary>The MSBuild property reference a judge project must build the work copy through (case ignored, as MSBuild does).</summary>
+    private const string JudgeTargetRootReference = "$(" + IndependentVerifier.JudgeTargetRootProperty + ")";
 
     /// <summary>Definition rules that need no file (id, kind, judge). Doc templates (<c>--template</c>) are checked with this too.</summary>
     public static IReadOnlyList<SuiteIssue> SchemaIssues(BenchmarkTask task, string? fileName)
@@ -68,6 +72,7 @@ public static partial class SuiteValidator
         issues.AddRange(loadErrors.Select(e => new SuiteIssue(IssueLevel.Error, null, e)));
 
         var seen = new HashSet<string>(StringComparer.Ordinal);
+        var sdkRoots = new List<SuiteRoot>();
         foreach (var task in tasks.OrderBy(t => t.Id, StringComparer.Ordinal))
         {
             var schema = SchemaIssues(task, task.SourceName);
@@ -76,7 +81,8 @@ public static partial class SuiteValidator
                 issues.Add(new(IssueLevel.Error, task.Id, $"id가 중복됩니다: {task.Id}"));
             if (task.Judge is null || schema.Any(i => i.Level == IssueLevel.Error && i.Message.StartsWith("알 수 없는 kind", StringComparison.Ordinal)))
                 continue;
-            issues.AddRange(CheckFiles(suite, task, fs, compatLevel));
+            issues.AddRange(CheckFiles(suite, task, fs, compatLevel, out var resolved));
+            if (resolved is { IsLegacy: false } && task.Kind == "cs" && !sdkRoots.Contains(resolved.Root)) sdkRoots.Add(resolved.Root);
         }
 
         foreach (var category in Categories)
@@ -84,27 +90,109 @@ public static partial class SuiteValidator
                 issues.Add(new(IssueLevel.Warning, null, $"작업이 0건인 범주: {category}"));
 
         issues.AddRange(CheckRoots(suite, fs));
+        issues.AddRange(CheckSolutions(sdkRoots, fs));
+        issues.AddRange(CheckJudgeProjects(suite, fs));
         return issues;
     }
 
-    private static List<SuiteIssue> CheckFiles(BenchmarkSuite suite, BenchmarkTask task, IFileSystem fs, int compatLevel)
+    /// <summary>
+    /// <see cref="BenchmarkSuite.Resolve"/> that never throws: a target csproj that cannot be read (not XML, locked, no permission)
+    /// becomes <paramref name="error"/>. <c>validate</c> reports it, <c>run</c> records the task as a Definition failure.
+    /// </summary>
+    public static SuiteTask? TryResolve(BenchmarkSuite suite, BenchmarkTask task, IFileSystem fs, out string? error)
+    {
+        try
+        {
+            var resolved = suite.Resolve(task, fs, out error);
+            if (resolved is null) error ??= $"{task.Id}: 대상 파일을 해석하지 못함";
+            return resolved;
+        }
+        catch (Exception ex) when (ex is XmlException or IOException or UnauthorizedAccessException)
+        {
+            error = $"{task.Id}: 대상 프로젝트 파일을 읽을 수 없음: {ex.Message}";
+            return null;
+        }
+    }
+
+    /// <summary>Whether <paramref name="id"/> has the only accepted form (no business or system names can hide in it).</summary>
+    public static bool IsValidId(string? id) => id is not null && TaskId().IsMatch(id);
+
+    /// <summary>SDK-style C# roots: the runner restores the first top-level <c>*.sln</c>; none or several is likely a wrong root.</summary>
+    private static List<SuiteIssue> CheckSolutions(IEnumerable<SuiteRoot> sdkRoots, IFileSystem fs)
+    {
+        var issues = new List<SuiteIssue>();
+        foreach (var root in sdkRoots)
+        {
+            var solutions = SolutionRestore.Solutions(fs, root.Path);
+            if (solutions.Count == 0)
+                issues.Add(new(IssueLevel.Warning, null, $"루트 {root.Name}: 맨 위에 .sln 파일이 없습니다 — 복원하지 않고 빌드해 실패할 수 있습니다 (모던 루트는 복원할 솔루션이 있는 폴더로 지정하세요)"));
+            else if (solutions.Count > 1)
+                issues.Add(new(IssueLevel.Warning, null, $"루트 {root.Name}: 맨 위에 .sln 파일이 {solutions.Count}개 있습니다 — 이름순 첫 파일 {fs.Path.GetFileName(solutions[0])}만 복원합니다"));
+        }
+        return issues;
+    }
+
+    /// <summary>Every <c>judges/**/*.csproj</c> of the suite against the judge contract (<see cref="JudgeProjectIssues"/>).</summary>
+    private static List<SuiteIssue> CheckJudgeProjects(BenchmarkSuite suite, IFileSystem fs)
+    {
+        var dir = fs.Path.Combine(suite.Dir, "judges");
+        if (!fs.Directory.Exists(dir)) return [];
+        string[] projects;
+        try
+        {
+            projects = fs.Directory.GetFiles(dir, "*.csproj", SearchOption.AllDirectories)
+                .Where(p => !fs.Path.GetRelativePath(dir, p).Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).Any(part => SkippedFolders.Contains(part, StringComparer.OrdinalIgnoreCase)))
+                .Order(StringComparer.Ordinal).ToArray();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return [new(IssueLevel.Warning, null, $"판정 프로젝트 폴더를 읽을 수 없음: {dir}: {ex.Message}")];
+        }
+        return [.. projects.SelectMany(p => JudgeProjectIssues(fs, p))];
+    }
+
+    /// <summary>
+    /// The judge contract: the runner copies a judge project next to the work copy and builds it with
+    /// <c>-p:JudgeTargetRoot=&lt;work copy of the root&gt;</c>. A <c>ProjectReference</c> that does not go through
+    /// <c>$(JudgeTargetRoot)</c> builds and tests the original sources (writing <c>bin</c>/<c>obj</c> there) instead of the edit;
+    /// a project that never uses the property does not see the edit at all. Warnings: the judge then fails silently, not loudly.
+    /// </summary>
+    public static IReadOnlyList<SuiteIssue> JudgeProjectIssues(IFileSystem fs, string csproj)
+    {
+        string text;
+        XDocument doc;
+        try
+        {
+            text = fs.File.ReadAllText(csproj);
+            doc = XDocument.Parse(text);
+        }
+        catch (Exception ex) when (ex is XmlException or IOException or UnauthorizedAccessException)
+        {
+            return [new(IssueLevel.Warning, null, $"판정 프로젝트를 읽을 수 없음: {csproj}: {ex.Message}")];
+        }
+
+        var issues = new List<SuiteIssue>();
+        foreach (var reference in doc.Descendants().Where(e => e.Name.LocalName == "ProjectReference"))
+        {
+            var include = (string?)reference.Attribute("Include") ?? "";
+            if (!include.Contains(JudgeTargetRootReference, StringComparison.OrdinalIgnoreCase))
+                issues.Add(new(IssueLevel.Warning, null, $"판정 프로젝트 {csproj}: ProjectReference '{include}'가 {JudgeTargetRootReference}를 거치지 않습니다 — "
+                    + "수정본이 아니라 원본을 빌드·시험합니다(원본 폴더에 bin/obj가 생김)"));
+        }
+        if (!text.Contains(JudgeTargetRootReference, StringComparison.OrdinalIgnoreCase))
+            issues.Add(new(IssueLevel.Warning, null, $"판정 프로젝트 {csproj}: {JudgeTargetRootReference}를 쓰지 않습니다 — 수정본을 시험하지 않습니다 (ProjectReference 또는 Compile을 {JudgeTargetRootReference} 아래로 지정하세요)"));
+        return issues;
+    }
+
+    private static List<SuiteIssue> CheckFiles(BenchmarkSuite suite, BenchmarkTask task, IFileSystem fs, int compatLevel, out SuiteTask? resolved)
     {
         var issues = new List<SuiteIssue>();
         void Error(string message) => issues.Add(new(IssueLevel.Error, task.Id, message));
 
-        SuiteTask? resolved;
-        try
+        resolved = TryResolve(suite, task, fs, out var error);
+        if (resolved is null)
         {
-            resolved = suite.Resolve(task, fs, out var error);
-            if (resolved is null)
-            {
-                Error(error ?? "대상 파일을 해석하지 못함");
-                return issues;
-            }
-        }
-        catch (XmlException ex)
-        {
-            Error($"대상 프로젝트 파일을 읽을 수 없음: {ex.Message}");
+            Error(error!);
             return issues;
         }
 
@@ -192,13 +280,12 @@ public static partial class SuiteValidator
                 {
                     WorkCopy.Prepare(suite, task, work);
                     var root = Path.Combine(work, task.Root.Name);
-                    var sln = Directory.GetFiles(root, "*.sln").OrderBy(f => f, StringComparer.Ordinal).FirstOrDefault();
-                    if (sln is not null)
+                    if (SolutionRestore.Pick(new FileSystem(), root) is { } sln) // the runner's choice (one shared rule)
                     {
-                        var restore = await processes.RunAsync(new ProcessSpec("dotnet", ["restore", sln, "--nologo", "--disable-parallel"], root, TimeSpan.FromMinutes(5)), ct);
-                        if (restore.ExitCode != 0)
+                        var restore = await processes.RunAsync(SolutionRestore.Spec(sln, root), ct);
+                        if (restore.ExitCode != 0 || restore.TimedOut)
                         {
-                            issues.Add(new(IssueLevel.Warning, id, $"원본 복원에 실패해 판정 테스트를 확인하지 못함 (종료 {restore.ExitCode})"));
+                            issues.Add(new(IssueLevel.Warning, id, SolutionRestore.WithTail($"원본 복원에 실패해 판정 테스트를 확인하지 못함 ({SolutionRestore.Head(restore)})", restore)));
                             continue;
                         }
                     }

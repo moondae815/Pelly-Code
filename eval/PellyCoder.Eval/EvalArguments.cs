@@ -31,13 +31,16 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
     /// <summary><c>validate --deep</c>: also runs the judge tests on the original sources.</summary>
     public bool Deep { get; init; }
 
+    /// <summary>Hidden <c>--offline-selftest</c> (run only, not in <see cref="Usage"/>): the packaged exe's bundled-component check.</summary>
+    public bool OfflineSelfTest { get; init; }
+
     public const string Usage = """
         사용법: dotnet run --project eval/PellyCoder.Eval -- [옵션]
 
           --suite <폴더>    스위트 폴더(suite.json이 있는 곳, 기본: 저장소의 eval/benchmark)
           --tasks <패턴>    작업 id 접두사 또는 글롭(*, ?). 쉼표로 여러 개 (예: cs-modern, sql-00?, cs-legacy-001,sql)
           --kind <cs|sql>   작업 종류
-          --out <폴더>      출력 폴더 (기본: 스위트의 resultsDir/<yyyyMMdd-HHmmss>/, 내장 스위트는 eval/results/)
+          --out <폴더>      출력 폴더 (기본: 스위트의 resultsDir/<yyyyMMdd-HHmmss>/, 내장 스위트는 eval/results/). 비어 있지 않으면 거절(종료 4)
           --config <파일>   pelly.json (사용자 설정과 환경 변수 위에 적용; SQL 허용 목록은 여기서 지정)
           --repeat <N>      같은 작업 집합을 N회 실행 (기본 1). N>1이면 회차별 결과는 run-<k>/, 상위에 summary.md·summary.json
           --keep-work <all|failed|none>  작업 복사본 보존 (기본 all; 현장 실제 코드에서는 failed 권장)
@@ -49,7 +52,8 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
           종료 코드 0 오류 없음(경고는 있어도 됨) · 4 오류 있음 또는 스위트를 읽을 수 없음
 
         비교: dotnet run --project eval/PellyCoder.Eval -- compare <기준선 summary.json> <후보 summary.json>
-          R4 채택 규칙으로 판정합니다. 종료 코드 0 채택 · 3 거절 · 4 판정 불가
+          R4 채택 규칙으로 판정합니다. 두 요약의 모델 digest나 Ollama 버전이 다르면 판정 불가(4)입니다.
+          종료 코드 0 채택 · 3 거절 · 4 판정 불가
 
         기록: dotnet run --project eval/PellyCoder.Eval -- record --out <파일> [--gguf-sha256 <hex>] [--config <pelly.json>]
           서버의 Ollama 버전과 모델 식별 정보(digest·형식·양자화)를 JSON으로 씁니다. 접속 주소는 쓰지 않습니다.
@@ -58,22 +62,26 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
         반출: dotnet run --project eval/PellyCoder.Eval -- export <결과 폴더> --out <폴더>
           결과 폴더(단일 실행 results.json 또는 --repeat의 summary.json + run-<k>/)를 비식별해 --out에 씁니다. KPI 필드는 그대로,
           사유·검증 상세·생략 사유 본문과 접속 주소·경로는 지웁니다. 작업 복사본(work/)과 .pelly/runs는 복사하지 않습니다(pelly 실행 기록은 pelly report --sanitize).
-          종료 코드 0 반출함 · 4 입력 없음·--out이 비어 있지 않음·인자 오류
+          작업 id가 cs-modern-NNN · cs-legacy-NNN · sql-NNN 형식이 아니면 반출하지 않습니다.
+          종료 코드 0 반출함 · 4 입력 없음·--out이 비어 있지 않음·id 형식 오류·인자 오류
 
         SQL 연결은 환경 변수 PELLY_SQL_CONNECTION. 없거나 허용 목록에 없으면 sql 작업은 건너뜁니다.
         산출물: results.json, report.md, work/<id>/ (작업별 스위트 루트 복사본과 .pelly/runs 로그); --repeat N>1이면 회차마다 run-<k>/ 아래에
-        종료 코드: 0 실행 완료 · 1 검증 불변 조건 위반 · 2 중단 · 4 설정 오류(스위트 오류 포함) 또는 LLM 서버 연결 불가
+        id 형식이 틀리거나 대상을 해석하지 못한 작업은 실행하지 않고 실패(Definition)로 기록합니다. 작업 YAML을 읽을 수 없으면 종료 4.
+        종료 코드: 0 실행 완료 · 1 검증 불변 조건 위반 · 2 중단 · 4 설정 오류(스위트·작업 파일 오류 포함) 또는 LLM 서버 연결 불가
         """;
 
-    /// <summary>Value options each subcommand accepts (<c>--help</c> is accepted everywhere).</summary>
+    /// <summary>Options each subcommand accepts (<c>--help</c> is accepted everywhere); <see cref="Flags"/> take no value.</summary>
     private static readonly Dictionary<string, string[]> Options = new(StringComparer.Ordinal)
     {
-        [Run] = ["--suite", "--tasks", "--kind", "--out", "--config", "--repeat", "--keep-work"],
+        [Run] = ["--suite", "--tasks", "--kind", "--out", "--config", "--repeat", "--keep-work", "--offline-selftest"],
         [Validate] = ["--suite", "--config", "--deep"],
         [Compare] = [],
         [Record] = ["--out", "--gguf-sha256", "--config"],
         [Export] = ["--out"],
     };
+
+    private static readonly string[] Flags = ["--deep", "--offline-selftest"];
 
     /// <summary>Positional arguments each subcommand requires.</summary>
     private static readonly Dictionary<string, int> PositionalCount = new(StringComparer.Ordinal)
@@ -92,6 +100,7 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
         var allowed = Options[command];
         string? tasks = null, kind = null, outDir = null, config = null, suite = null, gguf = null;
         var deep = false;
+        var selfTest = false;
         var repeat = 1;
         var keepWork = KeepWork.All;
         var positional = new List<string>();
@@ -109,9 +118,10 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
             }
             if (!allowed.Contains(a, StringComparer.Ordinal))
                 return Error($"알 수 없는 인자: {a}");
-            if (a == "--deep")
+            if (Flags.Contains(a, StringComparer.Ordinal))
             {
-                deep = true;
+                if (a == "--deep") deep = true;
+                else selfTest = true;
                 continue;
             }
             if (i + 1 >= args.Count || args[i + 1].StartsWith("--", StringComparison.Ordinal))
@@ -151,6 +161,6 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
                 ? "compare에는 <기준선 summary.json> <후보 summary.json> 두 개가 필요합니다"
                 : command == Export ? "export에는 <결과 폴더> 하나가 필요합니다"
                 : $"{command}: 인자 {PositionalCount[command]}개가 필요합니다");
-        return new(tasks, kind, outDir, config, false, null, repeat) { Command = command, Suite = suite, Deep = deep, GgufSha256 = gguf, KeepWork = keepWork, Positional = positional };
+        return new(tasks, kind, outDir, config, false, null, repeat) { Command = command, Suite = suite, Deep = deep, OfflineSelfTest = selfTest, GgufSha256 = gguf, KeepWork = keepWork, Positional = positional };
     }
 }

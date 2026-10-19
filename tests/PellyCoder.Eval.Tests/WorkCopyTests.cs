@@ -81,6 +81,26 @@ public sealed class WorkCopyTests : IDisposable
     }
 
     [Fact]
+    public void Copy_ExcludesSvnHgAndTfvcFoldersAtAnyDepth()
+    {
+        var from = Path.Combine(_root, "from-vcs");
+        foreach (var f in new[] { ".svn/wc.db", "sub/.SVN/x", ".hg/store/x", "sub/.hg/y", "$tf/1/x", "sub/$TF/y", "sub/A.cs", ".svnignore" })
+        {
+            var path = Path.Combine(from, f.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, "x");
+        }
+        var to = Path.Combine(_root, "to-vcs");
+
+        WorkCopy.CopyDirectory(from, to);
+
+        var copied = Directory.GetFiles(to, "*", SearchOption.AllDirectories)
+            .Select(f => Path.GetRelativePath(to, f).Replace(Path.DirectorySeparatorChar, '/'))
+            .Order(StringComparer.Ordinal);
+        Assert.Equal([".svnignore", "sub/A.cs"], copied);
+    }
+
+    [Fact]
     public void CopyJudges_UsesSuiteJudgesFolder()
     {
         var suite = TestPaths.Suite;

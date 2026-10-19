@@ -57,7 +57,7 @@ public static class ValidateCommand
             else
             {
                 ArgumentNullException.ThrowIfNull(processes);
-                var resolved = tasks.Select(t => suite.Resolve(t, fs, out _)).OfType<SuiteTask>().ToList();
+                var resolved = tasks.Select(t => SuiteValidator.TryResolve(suite, t, fs, out _)).OfType<SuiteTask>().ToList();
                 var verifier = new IndependentVerifier(fs, processes, options, null, suite: suite);
                 var scratch = Path.Combine(suite.ResultsDir, "validate-" + DateTime.Now.ToString("yyyyMMdd-HHmmss", System.Globalization.CultureInfo.InvariantCulture));
                 output.WriteLine($"깊은 검사: 판정 테스트를 원본 복사본에서 실행합니다 ({scratch})");

@@ -12,6 +12,7 @@ templates/suite.json <- deploy/field-kit/templates/suite.json
 templates/tasks/cs-modern-001.yaml <- deploy/field-kit/templates/tasks/cs-modern-001.yaml
 templates/tasks/cs-legacy-001.yaml <- deploy/field-kit/templates/tasks/cs-legacy-001.yaml
 templates/tasks/sql-001.yaml <- deploy/field-kit/templates/tasks/sql-001.yaml
+templates/judges/Modern/Modern.JudgeTests/Modern.JudgeTests.csproj <- deploy/field-kit/templates/judges/Modern/Modern.JudgeTests/Modern.JudgeTests.csproj
 sbom.cdx.json <- generated
 THIRD-PARTY-NOTICES.md <- generated
 licenses/Microsoft.Data.SqlClient.SNI.runtime.LICENSE.txt <- generated

@@ -27,7 +27,7 @@
 | `roots` | 목록 (하나 이상) | 작업 폴더 `work/<id>/<name>/`으로 복사되는 원본 폴더 |
 | `roots[].name` | 문자열 | 형식 `\A[A-Za-z0-9_-]+\z`, 서로 달라야 함(대소문자 무시). `judges`는 쓸 수 없음 |
 | `roots[].path` | 문자열 | 존재하는 폴더. 두 루트가 같은 폴더이거나 한쪽이 다른 쪽 안에 있으면 오류 |
-| `roots[].exclude` | 문자열 목록 (선택) | 복사에서 뺄 폴더 **이름**(경로 아님, 어느 깊이에서든, 대소문자 무시). `bin`·`obj`·`.pelly`·`TestResults`·`.git`·`.vs`는 항상 뺍니다 |
+| `roots[].exclude` | 문자열 목록 (선택) | 복사에서 뺄 폴더 **이름**(경로 아님, 어느 깊이에서든, 대소문자 무시). `bin`·`obj`·`.pelly`·`TestResults`·`.git`·`.vs`·`.svn`·`.hg`·`$tf`는 항상 뺍니다 |
 | `supportFiles` | 문자열 목록 (선택) | 작업 폴더 맨 위(`work/<id>/`)에 파일 이름 그대로 복사할 파일. 존재해야 하고 파일 이름이 서로 달라야 함 |
 | `resultsDir` | 문자열 (선택) | 기본 출력 폴더의 부모. 기본 `results` |
 
@@ -96,12 +96,14 @@ dotnet run --project eval/PellyCoder.Eval -- --tasks sql --config <pelly.json> #
 dotnet run --project eval/PellyCoder.Eval -- --suite <스위트 폴더> --config <pelly.json> --keep-work failed   # 현장 스위트
 ```
 * `--keep-work <all|failed|none>`: 작업 복사본(`work/<id>/`) 보존 범위. 기본 `all`, 현장 실제 코드는 `failed`를 권장합니다. `results.json` 행은 그대로입니다.
-* 결과 폴더: `<스위트 resultsDir>/<yyyyMMdd-HHmmss>/`, 내장 스위트는 `eval/results/…`(`--out`으로 변경, git 추적 제외)
+* 결과 폴더: `<스위트 resultsDir>/<yyyyMMdd-HHmmss>/`, 내장 스위트는 `eval/results/…`(`--out`으로 변경, git 추적 제외). 비어 있지 않은 `--out`은 거절합니다(종료 4). 이전 결과에 이어 쓰면 남은 작업 폴더의 작업이 「생략」으로 집계되기 때문입니다
   * `report.md`(KPI 표·실패 유형·작업별 결과), `results.json`, `work/<id>/`(작업별 스위트 루트 복사본과 `.pelly/runs` 로그)
 * 검증 불변 조건(종료 0 = 검증 통과, PRD §2.2)은 실행기가 결과를 pelly와 별개로 다시 **빌드(C#)·NOEXEC 컴파일(SQL)** 해 판정합니다. 동작 판정·문자열 판정의 실패는 위반이 아니라 모델 실패(`Judge`)입니다. **분모는 독립 빌드·컴파일이 `Passed`/`Failed`인 종료 0 실행만**이고, 생략된 실행(Windows가 아닌 환경의 Legacy, 검증기 예외)은 "독립 검증 생략 N건"으로 따로 표시되며 판정된 것이 없으면 "판정 불가"입니다.
-* 종료 코드: 0 실행 완료 · 1 검증 불변 조건 위반 · 2 중단 · 4 설정 오류 또는 LLM 서버 연결 불가
+* 작업 정의 오류: id 형식·필드 조합이 `validate`의 정의 규칙을 어기거나 대상을 해석하지 못한(프로젝트 파일을 읽을 수 없음 포함) 작업은 실행하지 않고 실패(`Definition`)로 기록합니다. 작업 YAML을 읽을 수 없으면 실행하지 않고 종료 4입니다.
+* 복원: SDK 형식 작업은 루트 맨 위의 `*.sln` 중 이름순(서수) 첫 파일을 `dotnet restore`합니다(`validate --deep`도 같은 파일). 실패하면 `환경 오류(복원 실패)`로 생략하고, 상세에 복원 출력의 마지막 5줄을 붙입니다.
+* 종료 코드: 0 실행 완료 · 1 검증 불변 조건 위반 · 2 중단 · 4 설정 오류(작업 파일·`--out` 포함) 또는 LLM 서버 연결 불가
 * **반복 실행·비교 (M3b):** `--repeat N`은 `run-1/`…`run-N/`과 상위 `summary.md`·`summary.json`(`formatVersion` 2, 1도 읽음. 실행 조건에 Ollama 버전·모델 digest 포함)을 만듭니다. `compare <기준선 summary.json> <후보 summary.json>`은 R4 채택 규칙(평균 +1.0건 이상, 범주별 −0.5건 넘게 감소 없음, 위반 0건, 시간 중위값 1.5배 이하)으로 판정합니다(종료 0 채택 · 3 거절 · 4 판정 불가. 모델 digest나 Ollama 버전이 다른 요약은 판정 불가). 기준선은 `docs/m3b-baseline.summary.json`입니다.
-* **하위 명령 (M4 준비):** `validate [--suite] [--config] [--deep]`는 실행 전에 정의를 점검합니다(종료 0 오류 없음 · 4 오류 있음, `--deep`은 판정 시험을 원본에서 실제로 실행). `record --out <파일> [--gguf-sha256 <hex>]`는 버전 기록, `export <결과 폴더> --out <폴더>`는 비식별 반출본을 씁니다. 전체 도움말은 `-- --help`입니다.
+* **하위 명령 (M4 준비):** `validate [--suite] [--config] [--deep]`는 실행 전에 정의를 점검합니다(종료 0 오류 없음 · 4 오류 있음, `--deep`은 판정 시험을 원본에서 실제로 실행). `record --out <파일> [--gguf-sha256 <hex>]`는 버전 기록, `export <결과 폴더> --out <폴더>`는 비식별 반출본을 씁니다(id가 정해진 형식이 아니면 반출하지 않고 종료 4). 숨은 `--offline-selftest`는 `pelly doctor --offline-selftest`와 같은 내장 구성 요소 점검입니다(배포본 확인용). 전체 도움말은 `-- --help`입니다.
 * **`sql` 작업에는 SQL Server가 필요합니다.**
   * 연결은 환경 변수 `PELLY_SQL_CONNECTION`(비밀번호가 있는 연결은 환경 변수로만).
   * `--config`의 pelly.json에 허용 목록을 둡니다: `{"sql":{"allowedHosts":["localhost"],"allowedDatabases":["PellyCorpus"]}}`

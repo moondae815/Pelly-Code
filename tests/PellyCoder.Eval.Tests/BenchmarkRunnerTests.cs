@@ -114,6 +114,42 @@ public sealed class BenchmarkRunnerTests : IDisposable
         Assert.All(new[] { passed, failed }, r => { Assert.Equal(1, r.Attempts); Assert.NotNull(r.TtftSeconds); });
     }
 
+    [Fact]
+    public async Task Runner_RestoreFailure_SkipDetailCarriesTheLastRestoreLines()
+    {
+        var suite = PlainSuite();
+        File.WriteAllText(Path.Combine(suite.Roots[0].Path, "Plain.sln"), "");
+        var task = new BenchmarkTask
+        {
+            Id = "cs-modern-901", Kind = "cs", File = "Plain/Calc.cs", Method = "Add", Request = "오버플로를 검사해줘",
+            Judge = new BenchmarkJudge { Build = true, MustContain = ["checked("] },
+        };
+        var fs = new FileSystem();
+        var options = Assert.IsType<PellyOptions>(
+            PellyOptionsLoader.Load(fs, null, null, new Dictionary<string, string?>(), new Dictionary<string, string?>()).Options);
+        var procs = new FailingRestore("  Determining projects to restore...\nerror NU1301: 원본 'offline'을 불러올 수 없습니다.\n");
+        var runner = new BenchmarkRunner(new RunnerSetup(fs, procs, new OneShotBackend(Edit),
+            options, TimeProvider.System, suite, null, "no SQL", _ => { }, Verifier: new FixedVerifier(VerificationResult.Pass)));
+
+        var result = await runner.RunAsync(Resolve(suite, task, fs), Path.Combine(_root, "out"), TestContext.Current.CancellationToken);
+
+        Assert.Equal(VerificationResult.Skipped, result.Status);
+        Assert.Equal("환경 오류(복원 실패): dotnet restore 종료 1: Determining projects to restore... / error NU1301: 원본 'offline'을 불러올 수 없습니다.",
+            result.SkipReason);
+        Assert.Equal(["restore", Path.Combine(_root, "out", "work", "cs-modern-901", "Plain", "Plain.sln")], procs.Calls.Single().Arguments.Take(2));
+    }
+
+    private sealed class FailingRestore(string stdErr) : IProcessRunner
+    {
+        public List<ProcessSpec> Calls { get; } = [];
+
+        public Task<ProcessResult> RunAsync(ProcessSpec spec, CancellationToken ct)
+        {
+            Calls.Add(spec);
+            return Task.FromResult(new ProcessResult(1, "", stdErr, [], TimeSpan.Zero, false));
+        }
+    }
+
     private async Task<TaskResult> RunWithAsync(BenchmarkSuite suite, IFileSystem fs, KeepWork keep, string id, VerificationResult verdict, string outDir)
     {
         var task = new BenchmarkTask

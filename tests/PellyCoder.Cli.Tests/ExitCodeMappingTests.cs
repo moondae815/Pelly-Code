@@ -150,7 +150,8 @@ public class ExitCodeMappingTests
     {
         var result = Build(Cancelled()).Run("doctor", "--offline-selftest");
 
-        Assert.NotEqual(4, result.ExitCode);
+        // On failure the output names the self-test row that failed (a Windows-only flake must be diagnosable from the log).
+        Assert.True(result.ExitCode != 4, $"exit {result.ExitCode}: {result.Output}");
     }
 
     [Fact]

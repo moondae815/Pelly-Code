@@ -1,0 +1,9 @@
+id: cs-legacy-001
+kind: cs
+category: mvc
+file: Legacy/<프로젝트>/<폴더>/<파일>.cs
+line: 1   # 대상 멤버 안의 줄 번호로 바꾸세요(1부터)
+request: "<한국어 요청문. 사용자가 pelly에 입력하는 그대로>"
+judge:
+  build: true
+  mustAdd: ["<수정된 대상에 원본보다 더 많이 나와야 하는 문자열>"]

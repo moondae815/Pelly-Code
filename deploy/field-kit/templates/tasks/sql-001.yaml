@@ -1,0 +1,8 @@
+id: sql-001
+kind: sql
+file: Sql/<폴더>/<객체>.sql
+# object: <파일에 객체가 여러 개일 때만: 대상 객체 이름>
+request: "<한국어 요청문. 사용자가 pelly에 입력하는 그대로>"
+judge:
+  sqlCompile: true
+  mustContain: ["<수정된 대상에 있어야 하는 문자열>"]

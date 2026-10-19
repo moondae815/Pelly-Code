@@ -1,0 +1,9 @@
+id: cs-modern-001
+kind: cs
+file: Modern/<프로젝트>/<폴더>/<파일>.cs
+method: <대상 메서드 이름>
+request: "<한국어 요청문. 사용자가 pelly에 입력하는 그대로>"
+judge:
+  build: true
+  tests: ["<네임스페이스>.<테스트 클래스>.<고쳐진 뒤 통과할 테스트 이름>"]
+  failingTests: ["<네임스페이스>.<테스트 클래스>.<수정 전 동작을 고정한 테스트 이름>"]

@@ -121,6 +121,18 @@ public static class Program
                 return SmokeCommand().GetAwaiter().GetResult();
             case "callers":
                 return CallersCommand();
+            case "score":
+                Directory.CreateDirectory(SpikePaths.Results);
+                var scores = Report.ScoreAll(SpikePaths.Raw, SpikePaths.Cases, SpikePaths.Corpus);
+                File.WriteAllText(Path.Combine(SpikePaths.Results, "results.csv"), Report.Csv(scores));
+                Console.WriteLine($"scored {scores.Count} runs -> results/results.csv");
+                return 0;
+            case "report":
+                Directory.CreateDirectory(SpikePaths.Results);
+                var md = Report.Summary(Report.ScoreAll(SpikePaths.Raw, SpikePaths.Cases, SpikePaths.Corpus), Report.LoadRaws(SpikePaths.Raw));
+                File.WriteAllText(Path.Combine(SpikePaths.Results, "summary.md"), md);
+                Console.Write(md);
+                return 0;
             default:
                 Console.Error.WriteLine(Usage);
                 return 2;

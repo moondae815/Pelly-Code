@@ -1,0 +1,13 @@
+{
+  "caseId": "d2-legacy-pending-history",
+  "arm": "A",
+  "rep": 1,
+  "modelDigest": "a7eb95c53bcf",
+  "promptTokens": 1400,
+  "think": null,
+  "thinkTruncated": false,
+  "output": "- [ ] T1 cs Legacy/Shop.Web/Services/OrderService.cs#Cancel Pending이면 이력을 하나 더 남긴다\n",
+  "doneReason": "stop",
+  "evalCount": 30,
+  "seconds": 2.0
+}

@@ -7,6 +7,8 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.9.0" />
     <PackageReference Include="Microsoft.SqlServer.TransactSql.ScriptDom" Version="170.191.0" />
+    <!-- Core는 중앙 버전(10.0.13)을 쓰지만 스파이크는 중앙 관리를 끄므로 전이 버전(9.0.18, 취약)으로 풀린다. -->
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../../src/PellyCoder.Core/PellyCoder.Core.csproj" />

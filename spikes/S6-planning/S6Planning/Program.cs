@@ -20,7 +20,8 @@ public static class Program
                 var gold = GoldLoader.Load(Path.Combine(SpikePaths.Cases, args[1]));
                 var rendered = CorpusIndexBuilder.Build(SpikePaths.Corpus, gold.Scope).Render();
                 Console.Write(rendered);
-                Console.WriteLine($"tokens={QwenTokenCounter.Shared.Count(rendered)}");
+                var prompt = PlanPrompt.Raw(QwenChatTemplate.LoadDefault(), gold.Request, CorpusIndexBuilder.Build(SpikePaths.Corpus, gold.Scope), think: true);
+                Console.WriteLine($"tokens={QwenTokenCounter.Shared.Count(rendered)} prompt={PlanPrompt.CountTokens(prompt)}");
                 return 0;
             default:
                 Console.Error.WriteLine(Usage);

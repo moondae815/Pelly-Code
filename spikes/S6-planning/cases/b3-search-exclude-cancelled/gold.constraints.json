@@ -1,6 +1,8 @@
 {
-  "optional": ["T3"],
+  "optional": [
+    "T3"
+  ],
   "order": [],
   "groups": [],
-  "notes": "OrderService.SearchAsync는 요청 객체로 '취소 제외'를 표현할 수 없어 정답이 아니다(넣어도 감점 없음)."
+  "notes": "OrderService.SearchAsync는 요청 객체로 '취소 제외'를 표현할 수 없어 정답이 아니다(넣어도 감점 없음). 교체 사유: 설계 §4 후보(usp_BuildSettlement + DailySettlementJob)는 같은 계산이 usp_SettleDaily와 레거시 배치에도 있어 정답이 모호하고, 기본 수수료율은 상수 필드라 v1 대상인지 불확실해 바꿨다."
 }

@@ -1,7 +1,35 @@
 {
   "optional": [],
-  "order": [["T1", "T2"], ["T1", "T3"], ["T1", "T4"], ["T1", "T5"]],
-  "groups": [["T1", "T2", "T3", "T4", "T5"]],
-  "notes": "함정: IOrderService.GetOrder와 OrderController.Detail(서비스의 GetOrder 호출)은 바꾸면 안 된다. 정밀도는 판정에 쓰지 않지만 오답으로 따로 센다(forbidden)."
-,"forbidden": ["Legacy/Shop.Web/Services/IOrderService.cs#GetOrder", "Legacy/Shop.Web/Controllers/OrderController.cs#Detail"]
+  "order": [
+    [
+      "T1",
+      "T2"
+    ],
+    [
+      "T1",
+      "T3"
+    ],
+    [
+      "T1",
+      "T4"
+    ],
+    [
+      "T1",
+      "T5"
+    ]
+  ],
+  "groups": [
+    [
+      "T1",
+      "T2",
+      "T3",
+      "T4",
+      "T5"
+    ]
+  ],
+  "notes": "함정: IOrderService.GetOrder와 OrderController.Detail(서비스의 GetOrder 호출)은 바꾸면 안 된다. 정밀도는 판정에 쓰지 않지만 오답으로 따로 센다(forbidden). 교체 사유: 설계 §4 후보(IOrderDao.UpdateStatus 변경) 대신, 숨은 구현체(테스트의 가짜 DAO)와 바꾸면 틀리는 대상을 함께 갖는 이름 변경으로 바꿨다.",
+  "forbidden": [
+    "Legacy/Shop.Web/Services/IOrderService.cs#GetOrder",
+    "Legacy/Shop.Web/Controllers/OrderController.cs#Detail"
+  ]
 }

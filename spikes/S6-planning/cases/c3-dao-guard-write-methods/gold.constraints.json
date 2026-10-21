@@ -2,5 +2,5 @@
   "optional": [],
   "order": [],
   "groups": [],
-  "notes": "GetOrder와 SearchOrders는 읽기라 대상이 아니다. 인터페이스와 가짜 DAO는 시그니처가 그대로라 바꾸지 않는다."
+  "notes": "GetOrder와 SearchOrders는 읽기라 대상이 아니다. 인터페이스와 가짜 DAO는 시그니처가 그대로라 바꾸지 않는다. 교체 사유: 저장소 시간 제한을 C1로 옮겨, 레거시 DAO의 쓰기 메서드 검사로 바꿨다."
 }

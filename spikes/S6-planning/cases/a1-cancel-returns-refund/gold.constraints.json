@@ -1,0 +1,6 @@
+{
+  "optional": [],
+  "order": [["T1", "T2"], ["T1", "T3"]],
+  "groups": [["T1", "T2", "T3"]],
+  "notes": "테스트 CancelAsync_WhenShipped_CurrentlyCancels는 await만 하므로 반환 형식이 바뀌어도 컴파일된다. 정답에 넣지 않는다(넣어도 감점 없음)."
+}

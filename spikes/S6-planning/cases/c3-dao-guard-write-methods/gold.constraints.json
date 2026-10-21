@@ -1,0 +1,6 @@
+{
+  "optional": [],
+  "order": [],
+  "groups": [],
+  "notes": "GetOrder와 SearchOrders는 읽기라 대상이 아니다. 인터페이스와 가짜 DAO는 시그니처가 그대로라 바꾸지 않는다."
+}

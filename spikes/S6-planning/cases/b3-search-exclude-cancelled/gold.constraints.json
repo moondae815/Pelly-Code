@@ -1,0 +1,6 @@
+{
+  "optional": ["T3"],
+  "order": [],
+  "groups": [],
+  "notes": "OrderService.SearchAsync는 요청 객체로 '취소 제외'를 표현할 수 없어 정답이 아니다(넣어도 감점 없음)."
+}

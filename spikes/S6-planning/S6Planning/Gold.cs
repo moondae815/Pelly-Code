@@ -67,6 +67,8 @@ public static class GoldLoader
         var plan = PlanParser.Parse(body);
         if (plan.InvalidLines.Count > 0)
             throw new InvalidDataException($"{caseDir}: invalid task line: {plan.InvalidLines[0]}");
+        if (plan.ExtraLines > 0)
+            throw new InvalidDataException($"{caseDir}: gold body may hold only task lines ({plan.ExtraLines} other line(s)).");
 
         using var json = JsonDocument.Parse(File.ReadAllText(Path.Combine(caseDir, "gold.constraints.json"), Encoding.UTF8));
         var root = json.RootElement;

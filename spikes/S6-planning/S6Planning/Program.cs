@@ -8,7 +8,7 @@ public static class Program
 
     private static string? Gate()
     {
-        var reason = ApprovalGate.Check(SpikePaths.Cases, Runner.GoldCommit(SpikePaths.Spike));
+        var reason = ApprovalGate.Check(SpikePaths.Cases, Runner.GoldCommit(SpikePaths.Spike), Runner.CasesDirty(SpikePaths.Spike));
         if (reason is not null)
             Console.Error.WriteLine("refused: " + reason);
         return reason;
@@ -50,7 +50,7 @@ public static class Program
                 var path = Runner.RawPath(SpikePaths.Raw, arm, c.Id, rep);
                 if (File.Exists(path))
                     continue;
-                var r = await Runner.RunOnceAsync(http, model, digest!, c, idx, arm, rep, CancellationToken.None);
+                var r = await Runner.RunOnceAsync(http, model, digest!, c, idx, arm, rep, CancellationToken.None, Runner.GoldCommit(SpikePaths.Spike));
                 Directory.CreateDirectory(Path.GetDirectoryName(path)!);
                 File.WriteAllText(path, r.ToJson());
                 Console.WriteLine($"{arm} {c.Id} #{rep} {r.Seconds:F1}s done={r.DoneReason} truncated={r.ThinkTruncated}");
@@ -92,7 +92,7 @@ public static class Program
             var text = CallerFinder.Plan(SpikePaths.Corpus, c.Scope, c.Tasks[0]);
             var path = Runner.RawPath(SpikePaths.Raw, "C", c.Id, 1);
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            File.WriteAllText(path, new RawRecord(c.Id, "C", 1, null, null, null, false, text, null, null, null).ToJson());
+            File.WriteAllText(path, new RawRecord(c.Id, "C", 1, null, null, null, false, text, null, null, null, Runner.GoldCommit(SpikePaths.Spike)).ToJson());
             Console.WriteLine($"C {c.Id}: {PlanParser.Parse(text).Tasks.Count} tasks");
         }
         return 0;
@@ -122,14 +122,19 @@ public static class Program
             case "callers":
                 return CallersCommand();
             case "score":
+                if (Gate() is not null)
+                    return 2;
                 Directory.CreateDirectory(SpikePaths.Results);
-                var scores = Report.ScoreAll(SpikePaths.Raw, SpikePaths.Cases, SpikePaths.Corpus);
+                var scores = Report.ScoreAll(SpikePaths.Raw, SpikePaths.Cases, SpikePaths.Corpus, Runner.GoldCommit(SpikePaths.Spike));
                 File.WriteAllText(Path.Combine(SpikePaths.Results, "results.csv"), Report.Csv(scores));
                 Console.WriteLine($"scored {scores.Count} runs -> results/results.csv");
                 return 0;
             case "report":
+                if (Gate() is not null)
+                    return 2;
                 Directory.CreateDirectory(SpikePaths.Results);
-                var md = Report.Summary(Report.ScoreAll(SpikePaths.Raw, SpikePaths.Cases, SpikePaths.Corpus), Report.LoadRaws(SpikePaths.Raw));
+                var commit = Runner.GoldCommit(SpikePaths.Spike);
+                var md = Report.Summary(Report.ScoreAll(SpikePaths.Raw, SpikePaths.Cases, SpikePaths.Corpus, commit), Report.LoadRaws(SpikePaths.Raw), commit);
                 File.WriteAllText(Path.Combine(SpikePaths.Results, "summary.md"), md);
                 Console.Write(md);
                 return 0;

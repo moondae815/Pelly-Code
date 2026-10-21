@@ -5,7 +5,11 @@ namespace S6Planning;
 /// <summary>One V2-1 task line: <c>- [ ] T&lt;n&gt; &lt;cs|sql&gt; &lt;path&gt;[#Member] &lt;request&gt; [G&lt;k&gt;]</c>.</summary>
 public sealed record PlanTask(string Id, string Kind, string Path, string? Symbol, string Request, string? Group);
 
-/// <summary>Parsed output. Checkbox lines that break the grammar are invalid; any other non-blank line is extra text.</summary>
+/// <summary>
+/// Parsed output. A task-shaped line (any bullet or number followed by a checkbox, or a "T&lt;n&gt; cs|sql" token) that is
+/// not exactly the grammar is invalid, so an off-grammar task can never hide an invented target; other non-blank lines
+/// are extra text.
+/// </summary>
 public sealed record ParsedPlan(IReadOnlyList<PlanTask> Tasks, IReadOnlyList<string> InvalidLines, int ExtraLines)
 {
     public bool Parsed => Tasks.Count > 0 && InvalidLines.Count == 0;
@@ -15,6 +19,9 @@ public static partial class PlanParser
 {
     [GeneratedRegex(@"^- \[ \] (T\d+) (cs|sql) (\S+?)(?:#(\S+))? (.+?)(?: \[(G\d+)\])?\s*$")]
     private static partial Regex TaskLine();
+
+    [GeneratedRegex(@"^\s*(?:[-*+]|\d+[.)])\s*\[.?\]|\bT\d+\s+(?:cs|sql)\s")]
+    private static partial Regex TaskShaped();
 
     public static ParsedPlan Parse(string text)
     {
@@ -26,7 +33,7 @@ public static partial class PlanParser
             var line = raw.TrimEnd('\r');
             if (line.Trim().Length == 0)
                 continue;
-            if (!line.StartsWith("- [", StringComparison.Ordinal))
+            if (!line.StartsWith("- [", StringComparison.Ordinal) && !TaskShaped().IsMatch(line))
             {
                 extra++;
                 continue;

@@ -10,7 +10,7 @@ namespace S6Planning;
 /// <summary>One stored response. Scoring reads only these files, so rules can change without calling the model again.</summary>
 public sealed record RawRecord(
     string CaseId, string Arm, int Rep, string? ModelDigest, int? PromptTokens, string? Think, bool ThinkTruncated,
-    string Output, string? DoneReason, int? EvalCount, double? Seconds)
+    string Output, string? DoneReason, int? EvalCount, double? Seconds, string? GoldCommit = null)
 {
     private static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web) { WriteIndented = true };
 
@@ -26,7 +26,7 @@ public sealed record RawRecord(
 /// </summary>
 public static class ApprovalGate
 {
-    public static string? Check(string casesDir, string goldCommit)
+    public static string? Check(string casesDir, string goldCommit, bool casesDirty = false)
     {
         var approvalPath = Path.Combine(casesDir, "APPROVED.json");
         if (!File.Exists(approvalPath))
@@ -35,6 +35,8 @@ public static class ApprovalGate
         var drafts = GoldLoader.LoadAll(casesDir).Where(c => c.Status != "approved").Select(c => c.Id).ToList();
         if (drafts.Count > 0)
             return $"gold is not approved (draft or other status): {string.Join(", ", drafts)}";
+        if (casesDirty)
+            return "cases/ has uncommitted or untracked changes: the gold that is scored must be the committed, approved gold.";
 
         using var doc = JsonDocument.Parse(File.ReadAllText(approvalPath));
         var approved = doc.RootElement.TryGetProperty("goldCommit", out var c) ? c.GetString() : null;
@@ -88,7 +90,8 @@ public static class Runner
         return null;
     }
 
-    public static async Task<RawRecord> RunOnceAsync(HttpClient http, string model, string digest, GoldCase c, CorpusIndex idx, string arm, int rep, CancellationToken ct)
+    public static async Task<RawRecord> RunOnceAsync(HttpClient http, string model, string digest, GoldCase c, CorpusIndex idx, string arm, int rep, CancellationToken ct,
+        string? goldCommit = null)
     {
         var t = QwenChatTemplate.LoadDefault();
         var sw = Stopwatch.StartNew();
@@ -112,7 +115,7 @@ public static class Runner
 
         var r2 = await GenerateAsync(http, GenerateBody(model, prompt, CodeSampling, 1024, [t.EndOfTurn]), ct);
         evalTotal += r2.EvalCount ?? 0;
-        return new RawRecord(c.Id, arm, rep, digest, r2.PromptTokens, think, truncated, r2.Text, r2.DoneReason, evalTotal, sw.Elapsed.TotalSeconds);
+        return new RawRecord(c.Id, arm, rep, digest, r2.PromptTokens, think, truncated, r2.Text, r2.DoneReason, evalTotal, sw.Elapsed.TotalSeconds, goldCommit);
     }
 
     private sealed record Generated(string Text, string? DoneReason, int? EvalCount, int? PromptTokens);
@@ -140,6 +143,17 @@ public static class Runner
         var output = p.StandardOutput.ReadToEnd().Trim();
         p.WaitForExit();
         return p.ExitCode == 0 ? output : throw new InvalidOperationException("git log failed: " + p.StandardError.ReadToEnd());
+    }
+
+    /// <summary>True when git reports any change (including untracked files) under cases/.</summary>
+    public static bool CasesDirty(string spikeDir)
+    {
+        var psi = new ProcessStartInfo("git", ["-C", spikeDir, "status", "--porcelain", "--", "cases"])
+            { RedirectStandardOutput = true, RedirectStandardError = true };
+        using var p = Process.Start(psi) ?? throw new InvalidOperationException("git did not start");
+        var output = p.StandardOutput.ReadToEnd();
+        p.WaitForExit();
+        return p.ExitCode != 0 || output.Trim().Length > 0;
     }
 
     public static string RawPath(string rawDir, string arm, string caseId, int rep) =>

@@ -33,7 +33,7 @@ public class ReportTests
     [Fact] public void Csv_header_follows_record_order()
     {
         var csv = Report.Csv(Fx.Scores(4, 4));
-        Assert.StartsWith("CaseId,Category,Arm,Rep,Parsed,Recall,Precision,Hallucinated,Forbidden,OrderViolations,GroupOk,KindOk,Outside,ExampleCopy,Usable\n", csv);
+        Assert.StartsWith("CaseId,Category,Arm,Rep,Parsed,Recall,Precision,Hallucinated,Forbidden,OrderViolations,GroupOk,KindOk,Outside,ExampleCopy,Usable,NearMiss\n", csv);
         Assert.Equal(5, csv.Trim().Split('\n').Length);
     }
 }

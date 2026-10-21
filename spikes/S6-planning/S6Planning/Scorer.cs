@@ -3,7 +3,8 @@ namespace S6Planning;
 /// <summary>Machine score of one output against one gold case (design §6.2).</summary>
 public sealed record RunScore(
     string CaseId, char Category, string Arm, int Rep, bool Parsed, double Recall, double Precision,
-    int Hallucinated, int Forbidden, int OrderViolations, bool GroupOk, bool KindOk, int Outside, bool ExampleCopy, bool Usable);
+    int Hallucinated, int Forbidden, int OrderViolations, bool GroupOk, bool KindOk, int Outside, bool ExampleCopy, bool Usable,
+    int NearMiss = 0);
 
 public static class Scorer
 {
@@ -37,16 +38,41 @@ public static class Scorer
             return labels.Count <= 1 && labels.All(l => l is not null);
         });
 
-        var goldKind = gold.Tasks.GroupBy(TargetKey.Of).ToDictionary(g => g.Key, g => g.First().Kind, StringComparer.Ordinal);
-        var kindOk = tasks.All(t => !goldKind.TryGetValue(TargetKey.Of(t), out var k) || k == t.Kind);
+        // Kind accuracy is judged per file: a task on a gold file with a kind no gold task on that file has.
+        var goldKinds = gold.Tasks.GroupBy(t => FileKey(t.Path)).ToDictionary(g => g.Key, g => g.Select(t => t.Kind).ToHashSet(), StringComparer.Ordinal);
+        var kindOk = tasks.All(t => !goldKinds.TryGetValue(FileKey(t.Path), out var kinds) || kinds.Contains(t.Kind));
+        var nearMiss = tasks.Count(t => !index.Exists(t) && IsNearMiss(t, index));
         var outside = outSet.Count(k => !accepted.Contains(k));
         var exampleCopy = PlanPrompt.ExampleNames.Any(n => output.Contains(n, StringComparison.Ordinal));
 
         var usable = parsed.Parsed && recall >= 1 && hallucinated == 0 && forbiddenHits == 0 && orderViolations == 0
-                     && groupOk && kindOk && !exampleCopy && (gold.Category != 'D' || outside == 0);
+                     && groupOk && !exampleCopy && (gold.Category != 'D' || outside == 0);
 
         return new RunScore(gold.Id, gold.Category, arm, rep, parsed.Parsed, recall, precision, hallucinated, forbiddenHits,
-            orderViolations, groupOk, kindOk, outside, exampleCopy, usable);
+            orderViolations, groupOk, kindOk, outside, exampleCopy, usable, nearMiss);
+    }
+
+    private static string FileKey(string path) => TargetKey.Of("sql", path, null);
+
+    /// <summary>
+    /// A missing target that exists after undoing one formatting slip: quotes/backticks, a space before '#', a generic
+    /// argument list, or the wrong kind. Reported beside <see cref="RunScore.Hallucinated"/>; it does not change it.
+    /// </summary>
+    private static bool IsNearMiss(PlanTask t, CorpusIndex index)
+    {
+        static string Clean(string s) => s.Trim('`', '\'', '"');
+        var path = Clean(t.Path);
+        var symbol = t.Symbol is null ? null : Clean(t.Symbol);
+        if (symbol is null && t.Request.StartsWith('#'))
+            symbol = Clean(t.Request[1..].Split(' ', 2)[0]);
+        if (symbol is not null)
+        {
+            var lt = symbol.IndexOf('<');
+            if (lt > 0)
+                symbol = symbol[..lt];
+        }
+        var other = t.Kind == "cs" ? "sql" : "cs";
+        return index.Exists(t.Kind, path, symbol) || index.Exists(other, path, symbol);
     }
 }
 

@@ -11,7 +11,7 @@ public static class Report
                 .Select(f => RawRecord.FromJson(File.ReadAllText(f))).ToList()
             : [];
 
-    public static IReadOnlyList<RunScore> ScoreAll(string rawDir, string casesDir, string corpusRoot)
+    public static IReadOnlyList<RunScore> ScoreAll(string rawDir, string casesDir, string corpusRoot, string? requiredGoldCommit = null)
     {
         var golds = GoldLoader.LoadAll(casesDir).ToDictionary(g => g.Id);
         var indexes = new Dictionary<string, CorpusIndex>();
@@ -20,6 +20,8 @@ public static class Report
         {
             if (!golds.TryGetValue(raw.CaseId, out var gold))
                 throw new InvalidDataException($"raw record for unknown case '{raw.CaseId}'");
+            if (requiredGoldCommit is not null && raw.GoldCommit != requiredGoldCommit)
+                throw new InvalidDataException($"raw {raw.Arm}/{raw.CaseId}/{raw.Rep} was produced against gold {raw.GoldCommit ?? "(none)"}, not the approved {requiredGoldCommit}.");
             if (!indexes.TryGetValue(gold.Id, out var idx))
                 indexes[gold.Id] = idx = CorpusIndexBuilder.Build(corpusRoot, gold.Scope);
             scores.Add(Scorer.Score(gold, idx, raw.Arm, raw.Rep, raw.Output));
@@ -29,16 +31,18 @@ public static class Report
 
     public static string Csv(IReadOnlyList<RunScore> s)
     {
-        var sb = new StringBuilder("CaseId,Category,Arm,Rep,Parsed,Recall,Precision,Hallucinated,Forbidden,OrderViolations,GroupOk,KindOk,Outside,ExampleCopy,Usable\n");
+        var sb = new StringBuilder("CaseId,Category,Arm,Rep,Parsed,Recall,Precision,Hallucinated,Forbidden,OrderViolations,GroupOk,KindOk,Outside,ExampleCopy,Usable,NearMiss\n");
         foreach (var r in s)
             sb.AppendJoin(',', r.CaseId, r.Category, r.Arm, r.Rep, r.Parsed, F(r.Recall), F(r.Precision), r.Hallucinated, r.Forbidden,
-                r.OrderViolations, r.GroupOk, r.KindOk, r.Outside, r.ExampleCopy, r.Usable).Append('\n');
+                r.OrderViolations, r.GroupOk, r.KindOk, r.Outside, r.ExampleCopy, r.Usable, r.NearMiss).Append('\n');
         return sb.ToString();
     }
 
-    public static string Summary(IReadOnlyList<RunScore> s, IReadOnlyList<RawRecord> raws)
+    public static string Summary(IReadOnlyList<RunScore> s, IReadOnlyList<RawRecord> raws, string? goldCommit = null)
     {
         var sb = new StringBuilder();
+        var digests = raws.Select(r => r.ModelDigest).Where(d => d is not null).Distinct().ToList();
+        sb.Append($"goldCommit `{goldCommit ?? "(not given)"}` · model digest {(digests.Count == 0 ? "(none)" : string.Join(", ", digests.Select(d => "`" + d + "`")))}\n\n");
         var modelArms = s.Select(x => x.Arm).Where(a => a != "C").Distinct().Order(StringComparer.Ordinal).ToList();
 
         sb.Append("## 범주별 「초안으로 쓸 만함」\n\n| 범주 |");
@@ -55,11 +59,11 @@ public static class Report
         }
         sb.Append("| 전체 |");
         foreach (var a in modelArms) sb.Append(' ').Append(Rate(s.Where(x => x.Arm == a).ToList())).Append(" |");
-        sb.Append("\n\n## arm별 지표\n\n| arm | 평균 재현율 | 평균 정밀도 | 파싱 실패 | 지어낸 대상이 있는 반복 | 금지 대상을 건드린 반복 | 순서 위반 반복 | 예시 복사 | think 잘림 | 판정 |\n| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | :--- |\n");
+        sb.Append("\n\n## arm별 지표\n\n| arm | 평균 재현율 | 평균 정밀도 | 파싱 실패 | 지어낸 대상이 있는 반복 | 금지 대상을 건드린 반복 | 순서 위반 반복 | 그중 표기만 틀린 반복 | 종류 오류 반복 | 예시 복사 | think 잘림 | 판정 |\n| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | :--- |\n");
         foreach (var a in modelArms)
         {
             var x = s.Where(r => r.Arm == a).ToList();
-            sb.Append($"| {a} | {F(x.Average(r => r.Recall))} | {F(x.Average(r => r.Precision))} | {x.Count(r => !r.Parsed)} | {x.Count(r => r.Hallucinated > 0)} | {x.Count(r => r.Forbidden > 0)} | {x.Count(r => r.OrderViolations > 0)} | {x.Count(r => r.ExampleCopy)} | {raws.Count(r => r.Arm == a && r.ThinkTruncated)} | {Verdict.Decide(x)} |\n");
+            sb.Append($"| {a} | {F(x.Average(r => r.Recall))} | {F(x.Average(r => r.Precision))} | {x.Count(r => !r.Parsed)} | {x.Count(r => r.Hallucinated > 0)} | {x.Count(r => r.Forbidden > 0)} | {x.Count(r => r.OrderViolations > 0)} | {x.Count(r => r.NearMiss > 0)} | {x.Count(r => !r.KindOk)} | {x.Count(r => r.ExampleCopy)} | {raws.Count(r => r.Arm == a && r.ThinkTruncated)} | {Verdict.Decide(x)} |\n");
         }
 
         var c = s.Where(r => r.Arm == "C").ToList();

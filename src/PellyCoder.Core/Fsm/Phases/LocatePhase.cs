@@ -14,7 +14,7 @@ namespace PellyCoder.Core.Fsm.Phases;
 /// Resolves the project, its C# version and the single member to edit (by line, by name, or from the request text with a
 /// model pick as the last resort — design §8.4), then the build tool. Unless this is a dry run it starts the baseline build
 /// of the untouched project, which runs while SLICE and EDIT proceed (design §7.3), and with <c>--test</c> the baseline
-/// tests right after it. A failed lookup returns before that.
+/// tests right after it. A failed lookup returns before that. A task group run resolves no build tool and starts nothing.
 /// </summary>
 public sealed class LocatePhase(
     IFileSystem fs, IUserInteraction ui, BuildToolResolver tools, BuildVerifier builds, ModelMemberPicker picker,
@@ -64,7 +64,10 @@ public sealed class LocatePhase(
             return outcome;
 
         ctx.Candidate = chosen;
+        ctx.OriginalTargetDisplay = chosen.Display;
         ctx.Target = new EditTarget(EditKind.CSharp, ctx.FilePath, chosen.Display, chosen.Span, csproj);
+        // A group run neither builds nor tests: the group builds the affected projects once at its end (design §6).
+        if (ctx.Request.Group is not null) return PhaseOutcome.Ok;
         return await StartBaselineAsync(ctx, csproj, ct);
     }
 

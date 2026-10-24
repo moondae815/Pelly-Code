@@ -26,7 +26,8 @@ public sealed class FsmOrchestrator(
     /// <summary>Runs the request and reports how it left the target file (see <see cref="RunResult"/>).</summary>
     public async Task<RunResult> RunDetailedAsync(RunRequest request, CancellationToken ct)
     {
-        var ctx = new RunContext(RunLogger.NewRunId(time), request, options);
+        // A group re-run starts from the group build's errors attributed to this task (design §6).
+        var ctx = new RunContext(RunLogger.NewRunId(time), request, options) { Feedback = request.Group?.InitialFeedback };
         var messages = new MessageSink(ui, ctx);
         var logStarted = false;
         // Null until the file was read; then the file as this run leaves it (null when unknown after a failed rollback).
@@ -102,7 +103,7 @@ public sealed class FsmOrchestrator(
             }
         }
         return new RunResult(ctx.ExitCode, ctx.RunId, ctx.FilePath.Length == 0 ? null : ctx.FilePath,
-            ctx.Original, final, ctx.FailureKind);
+            ctx.Original, final, ctx.FailureKind, ctx.Candidate?.Display);
     }
 
     /// <summary>Runs a logging or display call; a failure is noted in the messages and never changes the outcome.</summary>

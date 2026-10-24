@@ -27,11 +27,15 @@ public sealed class ApplyPhase(FileGuard fileGuard, FeedbackBuilder feedback, IU
             return Mismatch(ctx, patch.Failure!);
 
         // Before the dry-run branch and the baseline wait: a rejected shape must not wait for or touch anything.
-        // Compared with the original (not the last write) so helpers added by earlier attempts stay editable.
+        // Compared with the original (not the last write) so helpers added by earlier attempts stay editable. A group run may
+        // change the target's signature and name, so it names the target as in the original, not as last seen.
+        var group = ctx.Request.Group is not null;
+        var targetDisplay = group ? ctx.OriginalTargetDisplay! : ctx.Candidate!.Display;
         ShapeCheck shape;
         try
         {
-            shape = MemberShapeGuard.Check(ctx.Original.Text, patch.NewText!, ctx.Candidate!.Display, ctx.Language!.Version);
+            shape = MemberShapeGuard.Check(ctx.Original.Text, patch.NewText!, targetDisplay, ctx.Language!.Version,
+                group ? ShapeAllowance.TargetSignatureAndName : ShapeAllowance.MemberBodyOnly);
         }
         catch (ShapeTargetNotFoundException ex)
         {
@@ -52,7 +56,7 @@ public sealed class ApplyPhase(FileGuard fileGuard, FeedbackBuilder feedback, IU
 
         // Before the dry-run branch and any write: an edit that leaves the target as in the original (a no-op block, a
         // reformat, or undoing an earlier attempt) is not a change. Helpers it added stay editable for the next attempt.
-        if (NoChangeGuard.CSharpUnchanged(ctx.Original.Text, patch.NewText!, ctx.Candidate.Display, ctx.Language.Version))
+        if (NoChangeGuard.CSharpUnchanged(ctx.Original.Text, patch.NewText!, targetDisplay, ctx.Language.Version))
             return NoChange(ctx);
 
         if (ctx.Request.DryRun)
@@ -67,7 +71,24 @@ public sealed class ApplyPhase(FileGuard fileGuard, FeedbackBuilder feedback, IU
             return failed;
         await AwaitBaselineTestsAsync(ctx, ct);
 
-        return await PatchWriter.WriteAsync(ctx, fileGuard, feedback, patch, ct);
+        var written = await PatchWriter.WriteAsync(ctx, fileGuard, feedback, patch, ct);
+        if (written == PhaseOutcome.Ok && group) FollowTarget(ctx, shape.NewTargetDisplay!);
+        return written;
+    }
+
+    /// <summary>
+    /// Points the run at the target as just written, so VERIFY, REVIEW and a retry's SLICE find a renamed or re-signed member.
+    /// Leaves the run as it was when the written text holds no single such member (SLICE then reports it as not found).
+    /// </summary>
+    private static void FollowTarget(RunContext ctx, string display)
+    {
+        var previous = ctx.Candidate!;
+        var found = MemberLocator.Locatable(ctx.Current.Text, ctx.Language!.Version)
+            .Where(c => c.Display == display && c.ContainingType == previous.ContainingType)
+            .ToList();
+        if (found.Count != 1) return;
+        ctx.Candidate = found[0];
+        ctx.Target = ctx.Target! with { SymbolDisplay = found[0].Display, MemberSpan = found[0].Span };
     }
 
     /// <summary>Null when the run may write; otherwise the outcome to end it with. Runs the checks once per run.</summary>

@@ -26,7 +26,8 @@ public sealed class SlicePhase(IFileSystem fs, FileGuard fileGuard, ITokenCounte
         var language = ctx.Language!;
         var previous = ctx.Candidate!;
         // Re-find by the requested name, or by the name of the member LOCATE resolved (--line, request text or model pick).
-        var found = ctx.Request.MethodName is { } method
+        // A group run always uses the member as last seen: its edit may have renamed it.
+        var found = ctx.Request.MethodName is { } method && ctx.Request.Group is null
             ? MemberLocator.FindByName(current.Text, language.Version, ctx.Request.ClassName, method)
             : MemberLocator.Locatable(current.Text, language.Version)
                 .Where(c => c.ContainingType == previous.ContainingType && MemberLocator.NameOf(c.Display) == MemberLocator.NameOf(previous.Display))

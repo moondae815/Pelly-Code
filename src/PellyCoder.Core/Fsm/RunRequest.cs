@@ -15,12 +15,20 @@ namespace PellyCoder.Core.Fsm;
 /// One <c>pelly cs</c> invocation. The target is <paramref name="Line"/> (1-based, not with a class or method name), else
 /// <paramref name="MethodName"/>, else found from the request text (design 8.4). <paramref name="MaxRetries"/> null means
 /// <c>retry.max</c> from the options. <paramref name="RunTests"/> (<c>--test</c>) adds the test step to VERIFY.
-/// <paramref name="Host"/> is set when <c>pelly apply</c> runs this request as one of its tasks.
+/// <paramref name="Host"/> is set when <c>pelly apply</c> runs this request as one of its tasks; <paramref name="Group"/>
+/// when that task belongs to a task group.
 /// </summary>
 public sealed record RunRequest(
     string FilePath, string? ClassName, string? MethodName, int? Line, string Request, bool Yes, bool DryRun, int? MaxRetries,
     string? ObjectName = null, EditKind Kind = EditKind.CSharp, bool Verbose = false, bool RunTests = false,
-    ApplyHost? Host = null);
+    ApplyHost? Host = null, GroupRun? Group = null);
+
+/// <summary>
+/// The request is one task of a task group (design §6). The group verifies with one build of the affected projects at its
+/// end, so the run neither builds nor tests, and the target's signature and name may change. <paramref name="InitialFeedback"/>
+/// (the group build's errors attributed to this task, on a re-run) is the first attempt's feedback.
+/// </summary>
+public sealed record GroupRun(Feedback? InitialFeedback);
 
 /// <summary>
 /// The <c>pelly apply</c> run that hosts this request. Its caller already holds the workspace lock for the whole apply, so
@@ -32,9 +40,11 @@ public sealed record ApplyHost(Workspace Workspace);
 /// Outcome of one run. <paramref name="Original"/> is the file as first read (null when the run failed before reading it).
 /// <paramref name="Final"/> is the file as the run left it: the last write on success; after a failure, rejection or
 /// cancellation the rolled-back file, or <paramref name="Original"/> when nothing was written; null when it is unknown
-/// (not read, or the rollback found the file changed outside pelly or failed).
+/// (not read, or the rollback found the file changed outside pelly or failed). <paramref name="TargetDisplay"/> is the
+/// target member's display as the run last saw it (a group run's rename or signature change shows here); null without a C# target.
 /// </summary>
-public sealed record RunResult(int ExitCode, string RunId, string? FilePath, FileSnapshot? Original, FileSnapshot? Final, string? FailureKind);
+public sealed record RunResult(int ExitCode, string RunId, string? FilePath, FileSnapshot? Original, FileSnapshot? Final, string? FailureKind,
+    string? TargetDisplay = null);
 
 /// <summary>State of a <c>pelly sql</c> run (set by SQL LOCATE; null for C# runs).</summary>
 public sealed class SqlRunState(SqlScript originalScript, int targetIndex, SqlObjectName target, SqlObjectKind kind,
@@ -107,6 +117,12 @@ public sealed class RunContext(string runId, RunRequest request, PellyOptions op
     public IReadOnlyList<PellyCoder.Core.Rules.ProjectRule> Rules { get; set; } = [];
 
     public EditTarget? Target { get; set; }
+
+    /// <summary>
+    /// The target's display in <see cref="Original"/> (set by Locate). <see cref="Candidate"/> follows a group run's rename or
+    /// signature change; the shape and no-change checks compare against the original member through this.
+    /// </summary>
+    public string? OriginalTargetDisplay { get; set; }
 
     /// <summary>Set by SQL LOCATE; null in C# runs.</summary>
     public SqlRunState? Sql { get; set; }

@@ -39,11 +39,11 @@ public class RulesInitCommandTests
     }
 
     private static (CommandAppTester App, MockFileSystem Fs, TestConsole Console) Build(
-        byte[]? agents, bool interactive = true, bool answer = true)
+        byte[]? agents, bool interactive = true, bool answer = true, string? source = null)
     {
         var fs = new MockFileSystem();
         fs.AddDirectory("/w/.git");
-        fs.AddFile("/w/src/C.cs", new MockFileData(AsyncSource()));
+        fs.AddFile("/w/src/C.cs", new MockFileData(source ?? AsyncSource()));
         if (agents is not null) fs.AddFile("/w/AGENTS.md", new MockFileData(agents));
         fs.Directory.SetCurrentDirectory("/w");
         var console = new TestConsole().Width(300);
@@ -144,6 +144,30 @@ public class RulesInitCommandTests
         Assert.EndsWith("\r\n\r\n## Other\r\ntail\r\n", text);
         Assert.DoesNotContain("old", text);
         Assert.DoesNotContain("\n", text.Replace("\r\n", ""));
+    }
+
+    [Fact]
+    public void Init_ForceWithEmptyDraft_KeepsExistingRules_Exit4()
+    {
+        var original = Utf8("# AGENTS.md\n\n## Pelly rules\n- [*] 손으로 쓴 규칙\n- [sql] 두 번째 규칙\n");
+        var (app, fs, _) = Build(original, source: "namespace N;\npublic class C { }\n");
+
+        var r = app.Run("rules", "init", "--force", "--yes");
+
+        Assert.Equal(4, r.ExitCode);
+        Assert.Contains("초안 규칙이 0개라 기존 규칙 2개를 지우지 않습니다", r.Output);
+        Assert.Equal(original, fs.File.ReadAllBytes("/w/AGENTS.md"));
+    }
+
+    [Fact]
+    public void Init_ForceWithEmptyDraft_ExistingSectionWithoutRules_Replaces()
+    {
+        var (app, fs, _) = Build(Utf8("## Pelly rules\n<!-- 비어 있음 -->\n"), source: "namespace N;\npublic class C { }\n");
+
+        var r = app.Run("rules", "init", "--force", "--yes");
+
+        Assert.Equal(0, r.ExitCode);
+        Assert.Contains("일관된 패턴을 찾지 못했습니다", fs.File.ReadAllText("/w/AGENTS.md"));
     }
 
     [Fact]

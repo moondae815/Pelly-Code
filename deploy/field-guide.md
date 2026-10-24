@@ -146,6 +146,23 @@ pelly-eval compare D:\pelly-field\baseline\summary.json D:\pelly-field\candidate
 채택 규칙(R4): 평균 +1.0건 이상, 범주별 −0.5건 넘는 감소 없음, 위반 0건, 시간 중위값 1.5배 이하.
 후보마다 `candidate-2`, `candidate-3`…으로 폴더를 나눕니다.
 
+### 8.1 프로젝트 규칙(AGENTS.md) 효과 측정 (PRD §12.6)
+
+규칙 효과는 **대상 코드에 보이지 않는 팀 관례**가 걸리는 작업에서만 나타납니다(외부 사전 측정: 내장 50건 +1.3%p, 관례 작업 6건 0/6 → 6/6, `docs/v2-3-rules-premeasure.md`).
+
+1. 실제 코드 루트에서 `pelly rules init --dry-run`으로 초안을 보고, 팀 관례 중 코드에 잘 드러나지 않는 것을 한 줄씩 더해 `AGENTS.md`를 만듭니다(예: 현재 시각 함수, 공통 예외 타입, 금지 API). 코드에 보이는 관례(주석 언어 등)는 모델이 이미 따라 하므로 효과가 작습니다.
+2. 그 관례가 걸리는 작업을 스위트에 넣고 `mustContain`(써야 하는 것)·`mustNotAdd`(새로 쓰면 안 되는 것)로 판정합니다. 관례가 걸리는 작업 비율은 실제 요청 이력에 가깝게 잡습니다.
+3. `AGENTS.md`는 작업 공간 루트에 있어야 합니다. 코드 쪽에 두지 않으려면 루트의 `overlay` 폴더나 `supportFiles`로 넣습니다(`eval/benchmark-rules/README.md`).
+4. 같은 스위트를 규칙 없이, 그리고 규칙과 함께 한 번씩 돌려 비교합니다.
+
+```cmd
+pelly-eval --suite <폴더> --config <pelly.json> --repeat 3 --no-rules --keep-work failed --out D:\pelly-field\rules-off
+pelly-eval --suite <폴더> --config <pelly.json> --repeat 3 --keep-work failed --out D:\pelly-field\rules-on
+pelly-eval compare D:\pelly-field\rules-off\summary.json D:\pelly-field\rules-on\summary.json
+```
+
+`--no-rules`는 작업 복사본의 `AGENTS.md`를 모두 지우고 돌립니다(요약의 조건에 `rulesRemoved: true`). 결과는 `field-results.md` 8.1에 적습니다.
+
 ## 9. 반출
 
 반출 가능 여부는 사내 보안 규정을 따릅니다. 아래 명령은 비식별본을 만들 뿐, 반출을 허가하지 않습니다.

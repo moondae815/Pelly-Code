@@ -23,7 +23,7 @@ public class GoldTests
     [Fact] public void Front_matter_fields_are_read()
     {
         var c = GoldLoader.Load(Path.Combine(TestPaths.Cases, "a3-rename-getorder"));
-        Assert.Equal(('A', "draft"), (c.Category, c.Status));
+        Assert.Equal(('A', "approved"), (c.Category, c.Status));
         Assert.Equal(new[] { "Legacy" }, c.Scope);
         Assert.Equal(5, c.Tasks.Count);
         Assert.Equal(2, c.Forbidden.Count);

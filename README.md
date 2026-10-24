@@ -6,6 +6,7 @@
 - [PRD](docs/PRD.md)
 - [v1 설계](docs/superpowers/specs/2026-10-17-pelly-coder-v1-design.md)
 - 현장 모델 파일 기준선(M4): [GGUF `Q4_K_M` 50건 × 3회](docs/m4-gguf-baseline.md)
+- 프로젝트 규칙(V2-3) 외부 사전 측정: [규칙 있음/없음 50건 × 3회](docs/v2-3-rules-premeasure.md)
 - 벤치마크·튜닝 기록(M3b): [기준선 50건 × 3회](docs/m3b-baseline.md) · [튜닝(채택 없음)](docs/m3b-tuning.md) · [S6 단일 파일](docs/spikes/S6-single-file.md) · [S7 Rider 확인표](docs/m3b-s7-rider.md)
 - 반입·운영 가이드: [설치](deploy/install.md) · [사용](deploy/usage.md) · [IDE External Tools](deploy/ide-external-tools.md) · [서버 확인 사항](deploy/server-checklist.md) · [외부 통신 없음](deploy/no-network.md)
 - [구현 계획](docs/superpowers/plans/)

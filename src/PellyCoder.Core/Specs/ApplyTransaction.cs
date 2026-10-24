@@ -112,8 +112,7 @@ public sealed class ApplyTransaction(FileGuard guard, Workspace ws, string apply
 public static class SpecTaskPaths
 {
     /// <summary>Case-insensitive on Windows and macOS (their default file systems), ordinal elsewhere.</summary>
-    public static StringComparer Comparer { get; } =
-        OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+    public static StringComparer Comparer => PathComparers.ForOs;
 
     /// <summary>The task path (either separator) under <paramref name="root"/>, made full as the FSM preflight makes it.</summary>
     public static string FullPath(IPath path, string root, string taskPath) =>

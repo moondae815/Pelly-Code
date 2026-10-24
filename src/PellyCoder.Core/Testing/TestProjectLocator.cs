@@ -1,7 +1,6 @@
 using System.IO.Abstractions;
 using System.Text.RegularExpressions;
-using System.Xml;
-using System.Xml.Linq;
+using PellyCoder.Core.Builds;
 using PellyCoder.Core.Config;
 using PellyCoder.Core.Files;
 
@@ -38,7 +37,7 @@ public static partial class TestProjectLocator
         {
             var name = fs.Path.GetFileNameWithoutExtension(candidate);
             if (!name.Contains("Test", StringComparison.OrdinalIgnoreCase)) continue;
-            if (References(fs, candidate).Any(r => comparer.Equals(r, target))) found.Add(candidate);
+            if (ProjectReferenceGraph.References(fs, candidate).Any(r => comparer.Equals(r, target))) found.Add(candidate);
         }
         return found.Distinct(comparer).ToList();
     }
@@ -63,26 +62,6 @@ public static partial class TestProjectLocator
                 var full = fs.Path.GetFullPath(fs.Path.Combine(fs.Path.GetDirectoryName(sln) ?? root, Slashes(m.Groups["path"].Value, fs)));
                 if (fs.File.Exists(full)) yield return full;
             }
-        }
-    }
-
-    private static IEnumerable<string> References(IFileSystem fs, string csproj)
-    {
-        XDocument doc;
-        try
-        {
-            doc = XDocument.Parse(fs.File.ReadAllText(csproj));
-        }
-        catch (XmlException)
-        {
-            yield break; // an unreadable project cannot be matched
-        }
-
-        var dir = fs.Path.GetDirectoryName(csproj) ?? ".";
-        foreach (var include in doc.Descendants().Where(e => e.Name.LocalName == "ProjectReference").Select(e => (string?)e.Attribute("Include")))
-        {
-            if (!string.IsNullOrWhiteSpace(include))
-                yield return fs.Path.GetFullPath(fs.Path.Combine(dir, Slashes(include, fs)));
         }
     }
 

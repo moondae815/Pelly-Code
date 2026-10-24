@@ -4,6 +4,8 @@ using PellyCoder.Core.Config;
 using PellyCoder.Core.Files;
 using PellyCoder.Core.Llm;
 using PellyCoder.Core.Patchers;
+using PellyCoder.Core.Reporting;
+using PellyCoder.Core.Rules;
 using PellyCoder.Core.Workspaces;
 
 namespace PellyCoder.Core.Fsm.Phases;
@@ -31,6 +33,25 @@ public sealed class PreflightPhase(IFileSystem fs, FileGuard fileGuard, ILlmBack
         ctx.Lock = WorkspaceLock.TryAcquire(fs, ws);
         if (ctx.Lock is null)
             return Env(ctx, $"다른 pelly 실행이 진행 중입니다 (작업 폴더: {ws.Root}). 그 실행이 끝난 뒤 다시 시도하세요.");
+
+        var loaded = RulesLoader.Load(fs, ws);
+        if (loaded.Errors.Count > 0)
+        {
+            var first = loaded.Errors[0];
+            var where = first.Line > 0 ? $"줄 {first.Line}: " : "";
+            var more = loaded.Errors.Count > 1 ? $" 외 {loaded.Errors.Count - 1}건" : "";
+            return EnvKind(ctx, FailureKinds.RulesInvalid,
+                $"{RulesLoader.FileName}의 Pelly rules 절에 오류가 있습니다 ({where}{first.Message}{more}). `pelly rules check`로 확인하세요");
+        }
+        foreach (var rule in loaded.Rules)
+        {
+            var token = SpecialTokenGuard.FindIn(rule.Text, specialTokens)
+                ?? (rule.Forbid is null ? null : SpecialTokenGuard.FindIn(rule.Forbid, specialTokens));
+            if (token is not null)
+                return EnvKind(ctx, FailureKinds.RulesInvalid,
+                    $"{RulesLoader.FileName} 줄 {rule.Line}의 규칙에 모델 제어 토큰 '{token}'이(가) 있어 실행할 수 없습니다");
+        }
+        ctx.Rules = loaded.Rules;
 
         try
         {
@@ -69,6 +90,12 @@ public sealed class PreflightPhase(IFileSystem fs, FileGuard fileGuard, ILlmBack
                 + $"`ollama pull {llm.Model}`로 받거나 llm.model 설정을 확인하세요 (`pelly doctor`).");
 
         return PhaseOutcome.Ok;
+    }
+
+    private static PhaseOutcome EnvKind(RunContext ctx, string kind, string message)
+    {
+        ctx.FailureKind = kind;
+        return Env(ctx, message);
     }
 
     private static PhaseOutcome Env(RunContext ctx, string message)

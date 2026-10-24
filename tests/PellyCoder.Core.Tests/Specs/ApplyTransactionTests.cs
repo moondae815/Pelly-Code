@@ -244,6 +244,26 @@ public sealed class ApplyTransactionTests : IDisposable
     }
 
     [Fact]
+    public async Task Group_rollback_reports_a_file_edited_outside_after_the_last_record()
+    {
+        string p = Make("a.txt", "one\n");
+        string q = Make("b.txt", "bee\n");
+        var tx = new ApplyTransaction(_guard, _ws, "apply-g6");
+        tx.BeginGroup("G1");
+        var a0 = _guard.Read(p);
+        tx.Track(a0);
+        tx.Record(a0, await Write(a0, "two\n"));
+        var b0 = _guard.Read(q);
+        tx.Track(b0);
+        tx.Record(b0, await Write(b0, "bee2\n"));
+        File.WriteAllText(p, "two-outside\n"); // saved in an IDE while the group build ran: no task reads it again
+
+        Assert.Equal([p], await tx.RollbackGroupAsync(CancellationToken.None));
+        Assert.Equal("two-outside\n", File.ReadAllText(p));
+        Assert.Equal("bee\n", File.ReadAllText(q));
+    }
+
+    [Fact]
     public async Task Full_rollback_after_group_rollback_returns_apply_originals()
     {
         string p = Make("a.txt", "one\n");

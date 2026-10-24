@@ -321,8 +321,14 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                // Unexpected failure: the group's edits were never verified or approved, so they must not stay.
-                await UndoGroupAsync(tx, g, null, 4);
+                // Unexpected failure: the group's edits were never verified or approved, so they must not stay. A failure
+                // of the undo itself must not hide the original exception.
+                try { await UndoGroupAsync(tx, g, null, 4); }
+                catch (Exception undo)
+                {
+                    try { owner.Ui.Warn($"그룹 {g.Id}을 되돌리는 중 오류가 났습니다 ({undo.GetType().Name}: {undo.Message}). 그룹 파일을 직접 확인하세요."); }
+                    catch (Exception warn) when (warn is not OperationCanceledException) { /* the original exception is what matters */ }
+                }
                 throw;
             }
         }
@@ -520,19 +526,26 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                 if (kept.Contains(task.Id)) marks.Add(new SpecMark(task.Id, g.Succeeded[task.Id].RunId));
                 else if (failureKind is not null) marks.Add(new SpecMark(task.Id, g.LastRun.GetValueOrDefault(task.Id) ?? ApplyId!, failureKind));
             }
+            // Before the marks: a failed spec write must not hide the files the group left half-applied.
+            if (notRestored.Count > 0)
+            {
+                owner.Ui.Warn($"그룹 {g.Id}을 되돌리는 중 pelly 밖에서 바뀌어 되돌리지 못한 파일이 있습니다:\n"
+                    + string.Join("\n", notRestored.Select(p => "  " + p))
+                    + (kept.Count > 0 ? $"\n이 파일의 작업은 체크 표시를 유지합니다: {string.Join(", ", kept)}" : "")
+                    + "\n그룹 일부가 적용된 채 남아 빌드가 깨져 있을 수 있습니다.");
+            }
+
             if (marks.Count > 0)
             {
-                if (!await SpecWrittenAsync(_doc.MarkAsync(marks, CancellationToken.None))) return new GroupEnd(Unreviewed(tx, 4), true);
+                var consequence = kept.Count > 0
+                    ? $"작업 {string.Join(", ", kept)}의 체크 표시를 남기지 못했습니다 — --resume 전에 직접 [x]로 표시하세요."
+                    : "이미 적용된 작업은 그대로 둡니다.";
+                if (!await SpecWrittenAsync(_doc.MarkAsync(marks, CancellationToken.None), consequence)) return new GroupEnd(Unreviewed(tx, 4), true);
                 _marked.AddRange(marks.Select(m => m.TaskId));
                 foreach (var id in kept) _done[id] = (g.Succeeded[id].RunId, g.Succeeded[id].Path);
             }
 
-            if (notRestored.Count == 0) return new GroupEnd(exitCode, false);
-            owner.Ui.Warn($"그룹 {g.Id}을 되돌리는 중 pelly 밖에서 바뀌어 되돌리지 못한 파일이 있습니다:\n"
-                + string.Join("\n", notRestored.Select(p => "  " + p))
-                + (kept.Count > 0 ? $"\n이 파일의 작업은 체크 표시를 유지합니다: {string.Join(", ", kept)}" : "")
-                + "\n그룹 일부가 적용된 채 남아 빌드가 깨져 있을 수 있습니다.");
-            return new GroupEnd(4, false);
+            return new GroupEnd(notRestored.Count == 0 ? exitCode : 4, false);
         }
 
         /// <summary>

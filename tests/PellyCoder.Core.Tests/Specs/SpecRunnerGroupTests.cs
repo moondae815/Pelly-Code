@@ -476,6 +476,42 @@ public sealed class SpecRunnerGroupTests : IDisposable
     }
 
     [Fact]
+    public async Task Group_rollback_names_unrestored_files_even_when_the_marks_cannot_be_written()
+    {
+        Spec(Group);
+        _exec.Exit["T2"] = 1;
+        _exec.During["T2"] = () =>
+        {
+            File.AppendAllText(P("src/App/OrderService.cs"), "// outside\n");
+            File.AppendAllText(SpecPath, "\n메모\n"); // the spec is edited too, so writing the marks fails
+        };
+        var code = await Run(Opts());
+
+        Assert.Equal(4, code);
+        Assert.Equal(OrderService + "// T1\n// outside\n", Read("src/App/OrderService.cs"));
+        var warning = Assert.Single(_ui.Warnings, w => w.Contains("그룹 일부가 적용된 채 남아 빌드가 깨져 있을 수 있습니다"));
+        Assert.Contains("OrderService.cs", warning);
+        Assert.Contains(_ui.Warnings, w => w.Contains("명세 파일이 실행 중에 바뀌었습니다"));
+    }
+
+    [Fact]
+    public async Task Failure_while_undoing_after_an_unexpected_exception_keeps_the_original_exception()
+    {
+        Spec(Group);
+        _exec.Throw["T2"] = new InvalidOperationException("boom");
+        _exec.During["T2"] = () =>
+        {
+            File.AppendAllText(P("src/App/OrderService.cs"), "// outside\n");
+            _ui.WarnThrows = new FormatException("markup"); // the undo's warning about that file throws
+        };
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => Run(Opts()));
+
+        Assert.Equal("boom", ex.Message);
+        Assert.Equal(Repo, Read("src/App/Repo.cs"));
+    }
+
+    [Fact]
     public async Task Cancellation_inside_a_group_rolls_the_group_back()
     {
         Spec("- [ ] T0 sql db/a.sql 첫째\n" + Group);

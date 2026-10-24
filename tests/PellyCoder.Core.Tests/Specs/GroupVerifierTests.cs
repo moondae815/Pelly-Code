@@ -182,4 +182,53 @@ public sealed class GroupVerifierTests
         Assert.Equal("GroupUnverifiable", result.FailureKind);
         Assert.Contains("dotnet", result.Reason);
     }
+
+    private static string MsBuild => P("tools/MSBuild.exe");
+
+    /// <summary>A verifier on Windows with MSBuild configured, so legacy projects build.</summary>
+    private GroupVerifier WindowsVerifier()
+    {
+        _fs.AddFile(MsBuild, new MockFileData(""));
+        var options = new BuildOptions { MsbuildPath = MsBuild };
+        return new GroupVerifier(_fs, new BuildVerifier(_processes, options), new BuildToolResolver(_fs, _processes, options, () => true), () => true);
+    }
+
+    [Fact]
+    public async Task Group_builds_ask_both_tools_for_full_paths()
+    {
+        Script(2, []);
+
+        var result = await WindowsVerifier().BuildAsync(Ws, [App, Legacy], TestContext.Current.CancellationToken);
+
+        Assert.True(result.Verifiable, result.Reason);
+        Assert.Equal("dotnet", _processes.Calls[0].FileName);
+        Assert.Contains("-p:GenerateFullPaths=true", _processes.Calls[0].Arguments);
+        Assert.Equal(MsBuild, _processes.Calls[1].FileName);
+        Assert.Contains("/p:GenerateFullPaths=true", _processes.Calls[1].Arguments);
+    }
+
+    [Fact]
+    public async Task Project_relative_error_path_is_resolved_against_the_project_folder()
+    {
+        // Legacy MSBuild without full paths prints the file relative to the project.
+        _fs.AddFile(P("Old/Services/OrderService.cs"), new MockFileData("class OrderService { }"));
+        _processes.Enqueue((_, _) => Task.FromResult(Build(1, false,
+            $@"Services\OrderService.cs(12,5): error CS0029: Cannot implicitly convert type 'string' to 'int' [{Legacy}]")));
+        var result = await WindowsVerifier().BuildAsync(Ws, [Legacy], TestContext.Current.CancellationToken);
+
+        Assert.True(result.Verifiable, result.Reason);
+        var error = Assert.Single(result.Errors);
+        Assert.Equal(("Old/Services/OrderService.cs", 12, "CS0029"), (error.File, error.Line, error.Code));
+    }
+
+    [Fact]
+    public async Task Workspace_relative_error_path_stays_as_it_is()
+    {
+        _fs.AddFile(P("App/B.cs"), new MockFileData("class B { }"));
+        Script(1, new() { [App] = Build(1, false, Line(App, "App/B.cs", 5, "CS0029", "Cannot implicitly convert type 'string' to 'int'")) });
+
+        var result = await Verifier().BuildAsync(Ws, [App], TestContext.Current.CancellationToken);
+
+        Assert.Equal("App/B.cs", Assert.Single(result.Errors).File);
+    }
 }

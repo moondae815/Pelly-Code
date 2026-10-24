@@ -1,6 +1,7 @@
 using System.Text;
 using PellyCoder.Core.Abstractions;
 using PellyCoder.Core.Models;
+using PellyCoder.Core.Rules;
 using PellyCoder.Core.Testing;
 using Diagnostic = PellyCoder.Core.Models.Diagnostic;
 
@@ -166,6 +167,19 @@ public sealed class FeedbackBuilder(ITokenCounter tokens, int budget)
     {
         const string Prefix = "SQL SAFETY REJECTED: ";
         return Done(Prefix + Truncate(reason, r => Prefix + r));
+    }
+
+    /// <summary>Per violation <c>RULE VIOLATION: &lt;rule text&gt;\n  added: &lt;trimmed line&gt;</c>; over budget the entries are dropped from the back.</summary>
+    public Feedback ForRuleViolations(IReadOnlyList<RuleViolation> violations)
+    {
+        var entries = violations.Select(v => $"RULE VIOLATION: {v.Rule.Text}\n  added: {v.AddedLine.Trim()}").Distinct().ToList();
+        if (entries.Count == 0) return Done("RULE VIOLATION");
+        for (var count = entries.Count; count > 1; count--)
+        {
+            var text = string.Join("\n", entries.Take(count));
+            if (Fits(text)) return Done(text);
+        }
+        return Done(entries[0]);
     }
 
     /// <summary>

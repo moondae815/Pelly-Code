@@ -143,4 +143,71 @@ public sealed class RulesFlowTests : IDisposable
         Assert.Contains("### RULES", _backend.Requests[0].RawPrompt);
         Assert.Contains(RuleText, _backend.Requests[0].RawPrompt);
     }
+
+    private const string ResultEdit = "        return a / b;\n=======\n        return Task.Run(() => a / b).Result;\n>>>>>>> REPLACE\n";
+    private const string ResultLine = "        return Task.Run(() => a / b).Result;";
+    private const string GoodAfterResultEdit = ResultLine + "\n=======\n        return b == 0 ? 0 : a / b;\n>>>>>>> REPLACE\n";
+    private const string GoodEdit = "        return a / b;\n=======\n        return b == 0 ? 0 : a / b;\n>>>>>>> REPLACE\n";
+    private const string ForbidRule = "- [Sql] 동기 대기 금지 | forbid: \\.Result\\b";
+
+    private string[] ErrorCodesOnDisk()
+    {
+        var file = Directory.GetFiles(Path.Combine(_root, ".pelly", "runs"), "summary.json", SearchOption.AllDirectories).Single();
+        using var doc = JsonDocument.Parse(File.ReadAllText(file));
+        return doc.RootElement.GetProperty("errorCodes").EnumerateArray().Select(e => e.GetString()!).ToArray();
+    }
+
+    [Fact]
+    public async Task Forbid_Violation_RetriesWithFeedback()
+    {
+        File.WriteAllText(Path.Combine(_root, "Demo", "Demo.csproj"),
+            "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net8.0</TargetFramework>\n  </PropertyGroup>\n</Project>\n");
+        for (var i = 0; i < 2; i++) // baseline, then the build after the compliant retry
+            _processes.Enqueue(new ProcessResult(0, "", "", [], TimeSpan.FromSeconds(1), false));
+        WriteAgents(ForbidRule);
+        _backend.Enqueue(ResultEdit);
+        _backend.Enqueue("Avoid .Result.</think>", evalCount: 10);
+        _backend.Enqueue(GoodAfterResultEdit);
+
+        var exit = await RunCs();
+
+        Assert.Equal(0, exit);
+        Assert.Equal(3, _backend.Requests.Count); // first edit, think, second edit
+        Assert.Contains("### FEEDBACK", _backend.Requests[1].RawPrompt);
+        Assert.Contains("RULE VIOLATION:", _backend.Requests[1].RawPrompt);
+        Assert.Contains("RULE", ErrorCodesOnDisk());
+    }
+
+    [Fact]
+    public async Task Forbid_ViolationEveryAttempt_Exit1()
+    {
+        WriteAgents(ForbidRule);
+        _backend.Enqueue(ResultEdit);
+        for (var i = 1; i < 4; i++)
+        {
+            _backend.Enqueue("Avoid .Result.</think>", evalCount: 10);
+            var current = i == 1 ? ResultLine : ResultLine + " // " + (i - 1);
+            _backend.Enqueue(current + "\n=======\n" + ResultLine + " // " + i + "\n>>>>>>> REPLACE\n");
+        }
+
+        var exit = await RunCs();
+
+        Assert.Equal(1, exit);
+        Assert.Equal("RulesErrors", FailureKindOnDisk());
+        Assert.Equal(CalcSource, File.ReadAllText(CalcPath));
+    }
+
+    [Fact]
+    public async Task Forbid_Timeout_Exit4()
+    {
+        WriteAgents("- [*] 느린 규칙 | forbid: (a+)+$");
+        _backend.Enqueue("        return a / b;\n=======\n        return a / b; // aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!\n>>>>>>> REPLACE\n");
+
+        var exit = await RunCs();
+
+        Assert.Equal(4, exit);
+        Assert.Equal("RulesInvalid", FailureKindOnDisk());
+        Assert.Contains(_ui.Warnings, m => m.Contains("AGENTS.md 줄 4"));
+        Assert.Equal(CalcSource, File.ReadAllText(CalcPath));
+    }
 }

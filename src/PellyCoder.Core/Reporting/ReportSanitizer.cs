@@ -178,7 +178,7 @@ public static partial class ReportSanitizer
         return map;
     }
 
-    public static bool IsAllowedCode(string? code) => code is not null && (code == "TEST" || ErrorCodePattern.IsMatch(code));
+    public static bool IsAllowedCode(string? code) => code is not null && (code is "TEST" or "RULE" || ErrorCodePattern.IsMatch(code));
 
     public static string PromptVersion(string? v) => v is not null && PromptVersionPattern.IsMatch(v) ? v : "invalid";
 

@@ -73,6 +73,7 @@ public sealed class ReportSanitizerTests
     [InlineData("cs0103")]
     [InlineData("Msg01012345678")]
     [InlineData("OrderService")]
+    [InlineData("RULES")]
     public void ErrorCodes_RejectsBypasses(string code) => Assert.False(ReportSanitizer.IsAllowedCode(code));
 
     [Theory]
@@ -82,6 +83,7 @@ public sealed class ReportSanitizerTests
     [InlineData("NU1101")]
     [InlineData("MSB3202")]
     [InlineData("TEST")]
+    [InlineData("RULE")]
     public void ErrorCodes_AcceptsKnownShapes(string code) => Assert.True(ReportSanitizer.IsAllowedCode(code));
 
     [Theory]

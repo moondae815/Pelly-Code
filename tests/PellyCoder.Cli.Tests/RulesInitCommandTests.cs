@@ -71,7 +71,8 @@ public class RulesInitCommandTests
         Assert.Contains("분석: C# 파일 1개, SQL 파일 0개 — 규칙 초안", r.Output);
         Assert.Contains("## Pelly rules", r.Output);
         Assert.Contains("[async]", r.Output);
-        Assert.Contains("/w/AGENTS.md", r.Output);
+        // The command prints the full path in the platform's form (C:\w\AGENTS.md on Windows).
+        Assert.Contains(fs.Path.Combine(fs.Path.GetFullPath("/w"), "AGENTS.md"), r.Output);
         Assert.False(fs.File.Exists("/w/AGENTS.md"));
     }
 

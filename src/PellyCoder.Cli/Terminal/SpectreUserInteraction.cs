@@ -61,6 +61,14 @@ public sealed class SpectreUserInteraction(IAnsiConsole console) : IUserInteract
         console.MarkupLine($"think 토큰: {summary.ThinkTokens.ToString(inv)}{(summary.ThinkTruncated ? " (잘림)" : "")}");
         console.MarkupLine($"매칭 단계: {Markup.Escape(summary.MatchStages.Count == 0 ? "-" : string.Join(", ", summary.MatchStages))}");
         console.MarkupLine($"오류 코드: {Markup.Escape(summary.ErrorCodes.Count == 0 ? "-" : string.Join(", ", summary.ErrorCodes))}");
+        var included = summary.RulesIncluded ?? [];
+        var dropped = summary.RulesDropped ?? [];
+        if (included.Count > 0 || dropped.Count > 0)
+        {
+            console.MarkupLine($"규칙: 포함 {included.Count.ToString(inv)}, 제외 {dropped.Count.ToString(inv)}");
+            foreach (var text in included) console.MarkupLine($"  + {Markup.Escape(text)}");
+            foreach (var text in dropped) console.MarkupLine($"  - {Markup.Escape(text)}");
+        }
         if (runDirectory is not null)
             console.MarkupLine($"프롬프트·응답 원문: {Markup.Escape(runDirectory)}");
     }

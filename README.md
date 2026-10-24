@@ -56,7 +56,7 @@ pelly cs <파일> ["<요청문>"] [--class <클래스>] [--method <메서드>] [
 
 **실행 후 표시 옵션**
 * `--verbose`: 실행이 끝난 뒤 단계별 시간·토큰·시도 요약과 실행 폴더 경로를 보여줍니다. 프롬프트 원문은 출력하지 않고 `attempt-N/prompt.txt` 경로를 안내합니다(`pelly sql`에서도 같습니다).
-* `--pause-on-exit`: 결과를 보여준 뒤 키 입력을 기다립니다. IDE External Tools 창이 바로 닫히지 않게 할 때 씁니다. 네 명령(`cs`·`sql`·`doctor`·`report`) 모두의 옵션입니다. 대기 여부는 `Program`이 `--` 앞의 원시 인자로 판정하므로 인자 오류로 끝나도 기다립니다. 입력이 리디렉션되거나 종료 신호를 받으면 기다리지 않습니다. Ctrl+C로 중단한 실행은 기다립니다. 키 대기는 Windows에서 확인하지 않았습니다.
+* `--pause-on-exit`: 결과를 보여준 뒤 키 입력을 기다립니다. IDE External Tools 창이 바로 닫히지 않게 할 때 씁니다. 여섯 명령(`cs`·`sql`·`doctor`·`report`·`rules init`·`rules check`) 모두의 옵션입니다. 대기 여부는 `Program`이 `--` 앞의 원시 인자로 판정하므로 인자 오류로 끝나도 기다립니다. 입력이 리디렉션되거나 종료 신호를 받으면 기다리지 않습니다. Ctrl+C로 중단한 실행은 기다립니다. 키 대기는 Windows에서 확인하지 않았습니다.
 
 예:
 ```bash
@@ -110,6 +110,30 @@ pelly sql Settlement_All.sql "조건 추가" --line 120
 * 허용 목록은 `Data Source`의 `.`, `(local)`, `np:` 형태를 정규화하지 않습니다. 허용 목록과 일치하지 않으면 접속을 거부하므로(fail closed) 호스트 이름을 쓰십시오.
 * 연결 문자열에 서버나 데이터베이스 키가 둘 이상 있거나 `Failover Partner`가 있으면 거부합니다(종료 코드 5).
 * **검증 계정 권한:** DB 수준 **`VIEW DEFINITION`** 하나면 됩니다(`ALTER`·`SHOWPLAN` 불필요). 없으면 객체 존재 검사와 스키마 요약이 동작하지 않으므로 종료 코드 4와 안내 메시지로 멈춥니다. `pelly doctor`가 접속·허용 목록·권한을 점검합니다.
+
+### `pelly rules` — 프로젝트 규칙 (AGENTS.md)
+```bash
+pelly rules init  [--dry-run] [--force] [--yes] [--pause-on-exit]
+pelly rules check [--config <경로>] [--pause-on-exit]
+```
+
+작업 공간 루트의 `AGENTS.md`에 `## Pelly rules` 절을 두면, 지금 작업과 관련된 짧은 규칙만 골라 프롬프트에 넣고 `forbid` 규칙은 코드로 강제합니다. 작업 공간 루트의 파일만 읽고 **하위 폴더의 `AGENTS.md`는 무시합니다**. 파일이나 절이 없으면 규칙 기능은 꺼진 것과 같습니다.
+
+```markdown
+## Pelly rules
+- [*] 주석은 한국어로 작성한다
+- [dapper,sql] SQL은 Dapper 파라미터로만 전달한다
+- [async] .Result나 .Wait()로 기다리지 않는다 | forbid: \.Result\b|\.Wait\(\)
+```
+
+* **문법:** `- [<태그>[,<태그>…]] <규칙>[ | forbid: <정규식>]`. 태그는 `*` 하나이거나 `[A-Za-z0-9_.]`로 된 쉼표 목록입니다. 규칙 문장은 100자 이내(`forbid` 부분 제외), 절 하나에 최대 50개, 같은 문장 중복 불가입니다. `AGENTS.md`는 256 KiB까지 읽습니다.
+* **절의 범위:** `## Pelly rules` 줄(대소문자 무시)부터 다음 `#`·`##` 머리글 줄 또는 파일 끝까지입니다(`###` 이하는 절 안). 절 안에서 `- `로 시작하는 줄은 규칙 문법을 따라야 하고, `* `로 시작하는 줄은 오류입니다. 설명 문장·`<!-- -->` 주석·빈 줄은 무시됩니다.
+* **선택:** `[*]` 규칙은 항상 넣고, 나머지는 태그 중 하나가 이번 SLICE에 들어간 코드 텍스트에 (대소문자 무시) 부분 문자열로 나오면 넣습니다. 파일 순서를 지키고, `budget.rules`(기본 150 토큰)를 넘으면 **아래쪽 규칙부터** 뺍니다. 규칙은 프롬프트의 CONTEXT 뒤, REQUEST 앞(`### RULES`)에 들어갑니다. 규칙 예산은 시스템 예산에서 나눠 `budget.system` 기본값이 600에서 450이 되었습니다. 예전 `pelly.json`에 `budget.system`을 600으로 적어 두었다면 합계가 `budget.inputTotal`을 넘어 종료 코드 4가 되니 450으로 낮추십시오.
+* **`forbid` 강제:** 프롬프트에 들어간 규칙뿐 아니라 **절의 모든 `forbid` 규칙**을 검사합니다. 검사 대상은 **원본 파일 대비 새로 추가된 줄**이고 재시도가 쌓이므로, 앞선 시도에서 남은 위반도 셉니다. 위반하면 `RULE VIOLATION:` 피드백과 함께 재시도하고, 재시도를 소진하면 종료 코드 1(`RulesErrors`)입니다. `--dry-run`은 검증(VERIFY)을 하지 않으므로 forbid 검사도 하지 않습니다. 정규식이 100 ms 안에 끝나지 않으면 검사하지 못한 것이므로 통과시키지 않고 종료 코드 4입니다.
+* **규칙 파일 오류:** 절이 문법에 맞지 않거나 규칙에 모델 제어 토큰 문자열이 있으면 서버를 부르기 전에 종료 코드 4(`RulesInvalid`)로 멈춥니다. `pelly rules check`로 원인을 봅니다.
+* **`pelly rules init`:** 모델을 부르지 않고 코드베이스의 `.cs`·`.sql`을 분석해 규칙 초안을 만듭니다(결정론적). 감지 항목 9개: async 메서드의 `Async` 접미사, `.Result`/`.Wait()` 미사용, `ConfigureAwait(false)`, Dapper 사용, 한국어 주석, 예외 메시지 언어, `var` 사용 습관, 프로시저의 `SET NOCOUNT ON`, FROM/JOIN 객체의 스키마 이름. 규칙마다 `<!-- 근거: … -->` 줄과 함께 초안을 보여 주고 승인을 받은 뒤에 씁니다. **초안은 반드시 사람이 검토하십시오.** 이미 `Pelly rules` 절이 있으면 `--force` 없이는 종료 코드 4이고, `--force`는 그 절만 바꾸며 파일의 인코딩·BOM·줄바꿈 방식을 유지합니다. `--dry-run`은 초안만 보여 줍니다. 승인을 거부하면 종료 코드 2, 비대화형인데 `--yes`가 없으면 종료 코드 4입니다.
+* **`pelly rules check`:** 규칙을 줄·태그·규칙·토큰 수·forbid 표로 보여 줍니다. `[*]` 규칙만으로 `budget.rules`를 넘으면 아래쪽 규칙이 빠진다는 경고를 냅니다. 오류가 있으면 종료 코드 4, 규칙이 없으면 알림과 함께 종료 코드 0입니다.
+* **`--verbose`:** 실행 요약에 포함된 규칙(`+`)과 제외된 규칙(`-`)을 보여 주고 `summary.json`에 `rulesIncluded`·`rulesDropped`를 남깁니다. `pelly report --sanitize`의 반출 보고서에는 담기지 않습니다.
 
 ### `pelly doctor` — 환경 점검
 ```bash

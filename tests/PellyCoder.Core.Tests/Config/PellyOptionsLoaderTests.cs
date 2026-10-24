@@ -23,7 +23,8 @@ public class PellyOptionsLoaderTests
         Assert.Empty(r.Errors);
         var o = r.Options!;
         Assert.Equal(4096, o.Budget.InputTotal);
-        Assert.Equal(600, o.Budget.System);
+        Assert.Equal(450, o.Budget.System);
+        Assert.Equal(150, o.Budget.Rules);
         Assert.Equal(200, o.Budget.Request);
         Assert.Equal(3000, o.Budget.Context);
         Assert.Equal(296, o.Budget.Feedback);
@@ -44,6 +45,21 @@ public class PellyOptionsLoaderTests
         Assert.Empty(o.Sql.AllowedDatabases);
         Assert.Equal(160, o.Sql.CompatLevel);
         Assert.Null(o.Sql.ConnectionString);
+    }
+
+    [Fact]
+    public void LegacyBudgetWithSystem600_ErrorsWithUpgradeHint()
+    {
+        var fs = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            [P(@"C:\w\pelly.json")] = new("""{"budget":{"inputTotal":4096,"system":600,"request":200,"context":3000,"feedback":296,"think":512,"codeOutput":2048}}"""),
+        });
+
+        var r = Load(fs, ws: P(@"C:\w\pelly.json"));
+
+        Assert.Null(r.Options);
+        Assert.Contains(r.Errors, e => e.Contains("exceeds budget:inputTotal (4096)")
+            && e.Contains("budget.system 기본값이 450으로 바뀌었습니다(규칙 150 토큰 분리). pelly.json의 budget.system을 450으로 낮추세요"));
     }
 
     private const string PwdError = "sql:connectionString에 비밀번호가 있습니다 — 비밀번호가 있는 연결은 환경 변수 PELLY_SQL_CONNECTION으로만 지정하세요";
@@ -157,6 +173,15 @@ public class PellyOptionsLoaderTests
         var r = Load(new MockFileSystem(), cli: cli);
         Assert.Null(r.Options);
         Assert.Contains(r.Errors, e => e.Contains("budget"));
+    }
+
+    [Fact]
+    public void InputParts_RulesPushPastInputTotal_ErrorMentionsRules()
+    {
+        var cli = new Dictionary<string, string?> { ["budget:rules"] = "400" };
+        var r = Load(new MockFileSystem(), cli: cli);
+        Assert.Null(r.Options);
+        Assert.Contains(r.Errors, e => e.Contains("budget") && e.Contains("rules"));
     }
 
     [Fact]

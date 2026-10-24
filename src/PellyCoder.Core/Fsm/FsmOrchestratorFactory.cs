@@ -38,7 +38,7 @@ public static class FsmOrchestratorFactory
             new SlicePhase(fs, fileGuard, tokens, options.Budget),
             new EditPhase(prompts, client, feedback, logger, ui),
             new ApplyPhase(fileGuard, feedback, ui, options.Build),
-            new VerifyPhase([new SyntaxStep(fs, feedback), new BuildStep(builds, feedback, options.Build), new TestStep(tests, feedback, options.Test)]),
+            new VerifyPhase([new SyntaxStep(fs, feedback), new RulesStep(feedback), new BuildStep(builds, feedback, options.Build), new TestStep(tests, feedback, options.Test)]),
             new ReviewPhase(ui),
         ];
         return new FsmOrchestrator(phases, fileGuard, logger, fs, options, ui, time);
@@ -64,7 +64,7 @@ public static class FsmOrchestratorFactory
             new SqlSlicePhase(fileGuard, tokens, options.Budget, sql),
             new EditPhase(prompts, client, feedback, logger, ui),
             new SqlApplyPhase(fileGuard, feedback, ui),
-            new VerifyPhase([new SqlObjectStep(sql, feedback), new SqlCompileStep(sql, feedback)]),
+            new VerifyPhase([new RulesStep(feedback), new SqlObjectStep(sql, feedback), new SqlCompileStep(sql, feedback)]),
             new ReviewPhase(ui),
         ];
         return new FsmOrchestrator(phases, fileGuard, logger, fs, options, ui, time);

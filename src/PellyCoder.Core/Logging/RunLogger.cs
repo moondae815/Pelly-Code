@@ -16,7 +16,8 @@ public sealed record RunSummary(
     IReadOnlyDictionary<RunPhase, double> PhaseSeconds, double TtftSeconds, double QueueSeconds,
     string ThinkMode, int ThinkTokens, bool ThinkTruncated,
     int InputTokensLocal, int? InputTokensServer, int? InputTokensCached,
-    IReadOnlyList<MatchStage> MatchStages, IReadOnlyList<string> ErrorCodes, int FormatErrors, string? FailureKind);
+    IReadOnlyList<MatchStage> MatchStages, IReadOnlyList<string> ErrorCodes, int FormatErrors, string? FailureKind,
+    IReadOnlyList<string>? RulesIncluded = null, IReadOnlyList<string>? RulesDropped = null);
 
 /// <summary>
 /// Writes <c>.pelly/runs/&lt;runId&gt;/</c>: <c>events.jsonl</c>, <c>attempt-&lt;n&gt;/*.txt</c>, <c>summary.json</c>.
@@ -119,7 +120,9 @@ public sealed class RunLogger(IFileSystem fs, TimeProvider time)
             new Dictionary<RunPhase, double>(ctx.PhaseSeconds), ttft, queue,
             ctx.Options.Llm.ThinkMode.ToString(), gen?.ThinkTokens ?? 0, gen?.ThinkTruncated ?? false,
             ctx.Prompt?.Tokens ?? 0, gen?.CodeUsage.PromptEvalCount, gen?.CodeUsage.PromptEvalCachedCount,
-            [.. ctx.MatchStages], [.. ctx.ErrorCodes], ctx.FormatErrors, ctx.FailureKind);
+            [.. ctx.MatchStages], [.. ctx.ErrorCodes], ctx.FormatErrors, ctx.FailureKind,
+            ctx.Prompt?.Rules is { } sel ? [.. sel.Included.Select(r => r.Text)] : null,
+            ctx.Prompt?.Rules is { } sel2 ? [.. sel2.Dropped.Select(r => r.Text)] : null);
     }
 
     private string RunsDir(RunContext ctx) => fs.Path.Combine(ctx.Workspace!.PellyDir, "runs");

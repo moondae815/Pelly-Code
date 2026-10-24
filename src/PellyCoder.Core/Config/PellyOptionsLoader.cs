@@ -198,9 +198,15 @@ public static class PellyOptionsLoader
             errors.Add($"sql:compatLevel 값은 90, 100, …, 170 중 하나여야 합니다: {o.Sql.CompatLevel}");
 
         var b = o.Budget;
-        var parts = (long)b.System + b.Request + b.Context + b.Feedback;
+        var parts = (long)b.System + b.Rules + b.Request + b.Context + b.Feedback;
         if (parts > b.InputTotal)
-            errors.Add($"budget: system+request+context+feedback ({parts}) exceeds budget:inputTotal ({b.InputTotal})");
+        {
+            var message = $"budget: system+rules+request+context+feedback ({parts}) exceeds budget:inputTotal ({b.InputTotal})";
+            // Upgrade path: the old default system budget was 600; the rules budget (150) is now split out of it.
+            if (b.System > 450)
+                message += " — budget.system 기본값이 450으로 바뀌었습니다(규칙 150 토큰 분리). pelly.json의 budget.system을 450으로 낮추세요";
+            errors.Add(message);
+        }
         var total = (long)b.InputTotal + b.Think + b.CodeOutput;
         if (total > o.Llm.NumCtx)
             errors.Add($"budget: inputTotal+think+codeOutput ({total}) exceeds llm:numCtx ({o.Llm.NumCtx})");

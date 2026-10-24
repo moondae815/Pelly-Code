@@ -1,6 +1,7 @@
 using PellyCoder.Core.Config;
 using PellyCoder.Core.Llm;
 using PellyCoder.Core.Models;
+using PellyCoder.Core.Rules;
 
 namespace PellyCoder.Core.Tests.Llm;
 
@@ -187,5 +188,34 @@ public sealed class PromptBuilderTests
         var b = NewBuilder(new BudgetOptions { InputTotal = 1 });
         var r = b.BuildCSharp(Target(), FullSlice(), "req", null);
         Assert.Equal(PromptBudgetError.TotalTooLong, r.Error);
+    }
+
+    private static string System(string prompt) => prompt[..prompt.IndexOf("<|im_start|>user\n", StringComparison.Ordinal)];
+
+    [Fact]
+    public void BuildCSharp_InsertsRulesBetweenContextAndRequest()
+    {
+        var rules = new[] { new ProjectRule(3, ["*"], "주석은 한국어로 작성한다", null) };
+        var with = NewBuilder().BuildCSharp(Target(), FullSlice(), "req", null, rules);
+        var without = NewBuilder().BuildCSharp(Target(), FullSlice(), "req", null);
+
+        Assert.Contains("### RULES\n- 주석은 한국어로 작성한다\n### REQUEST", User(with.BasePrompt));
+        Assert.True(User(with.BasePrompt).IndexOf("[EDITABLE: target]", StringComparison.Ordinal) < User(with.BasePrompt).IndexOf("### RULES", StringComparison.Ordinal));
+        Assert.Equal(System(without.BasePrompt), System(with.BasePrompt));
+        Assert.Single(with.Rules!.Included);
+        Assert.True(with.Tokens > without.Tokens);
+    }
+
+    [Fact]
+    public void BuildCSharp_NoRules_NoRulesSection()
+    {
+        var plain = NewBuilder().BuildCSharp(Target(), FullSlice(), "req", null);
+        Assert.DoesNotContain("### RULES", plain.BasePrompt);
+        Assert.Null(plain.Rules);
+
+        var unmatched = NewBuilder().BuildCSharp(Target(), FullSlice(), "req", null, [new ProjectRule(1, ["nomatch"], "x", null)]);
+        Assert.Equal(plain.BasePrompt, unmatched.BasePrompt);
+        Assert.NotNull(unmatched.Rules);
+        Assert.Empty(unmatched.Rules!.Included);
     }
 }

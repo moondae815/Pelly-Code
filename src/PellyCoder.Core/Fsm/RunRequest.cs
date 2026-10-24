@@ -87,6 +87,9 @@ public sealed class RunContext(string runId, RunRequest request, PellyOptions op
     /// <summary>Set by APPLY before the first write; rollback restores from it.</summary>
     public string? BackupPath { get; set; }
 
+    /// <summary>Rules from the workspace AGENTS.md (set by Preflight); empty when there is no file or section.</summary>
+    public IReadOnlyList<PellyCoder.Core.Rules.ProjectRule> Rules { get; set; } = [];
+
     public EditTarget? Target { get; set; }
 
     /// <summary>Set by SQL LOCATE; null in C# runs.</summary>

@@ -38,6 +38,9 @@ public static class FailureKinds
     public const string SqlCompileErrors = "SqlCompileErrors";
     public const string TestErrors = "TestErrors";
 
+    public const string RulesInvalid = "RulesInvalid";
+    public const string RulesErrors = "RulesErrors";
+
     public const string EnvError = "EnvError";
     public const string BudgetExceeded = "BudgetExceeded";
     public const string Rejected = "Rejected";
@@ -50,6 +53,7 @@ public static class FailureKinds
         SqlForbiddenInOriginal, SqlParseErrors, SqlPermission, SqlSafetyRejected, SqlTargetNotAllowed,
         TargetAmbiguous, TargetNotFound,
         SyntaxErrors, BuildErrors, SqlObjectsErrors, SqlCompileErrors, TestErrors,
+        RulesInvalid, RulesErrors,
         EnvError, BudgetExceeded, Rejected, Cancelled,
     };
 

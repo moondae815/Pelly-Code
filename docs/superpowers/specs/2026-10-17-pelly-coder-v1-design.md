@@ -312,7 +312,7 @@ public async Task<int> RunAsync(RunRequest req, CancellationToken ct)
     "template": null,                    // null이면 내장 template.json 사용
     "thinkMode": "retry"                 // D21: off | retry | always
   },
-  "budget": { "inputTotal": 4096, "system": 600, "request": 200, "context": 3000, "feedback": 296,
+  "budget": { "inputTotal": 4096, "system": 450, "rules": 150, "request": 200, "context": 3000, "feedback": 296,
               "think": 512, "codeOutput": 2048 },
   "sampling": {
     // think: 모델 카드 "Thinking, 정밀 코딩" 값 = Ollama Modelfile 기본값 (S3)

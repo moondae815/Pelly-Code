@@ -21,6 +21,7 @@
 | v1.10 | 2026-10-19 | M3b 반영(상세는 설계 문서 §8.1, §8.2, §8.13, §9.2, §10.4, §10.6, §11): §2.2·§8.1 검증 불변 조건은 독립 빌드·컴파일 결과로만 판정하고 동작 판정 실패는 모델 실패(`Judge`)로 센다, 외부 벤치마크 50건(Legacy 18 · Modern 12 동작 판정 · SQL 20)과 3회 반복 기준선(평균 47.67건, 위반 0), §7.2·§8.2 튜닝 후보 3개 모두 R4로 거절돼 기본값 유지와 회귀 차단 절차(`--repeat 3` + `compare`), §11.1 실제 반입 패키지 구성(`pelly-0.9.0-win-x64.zip` 13개 파일, SBOM 도구 버전 고정, 라이선스 게이트와 잠정 예외 하나, 버전 기록은 모델 digest — GGUF SHA-256은 M4), CI 실행 6회(잡 키 5개), 로드맵 M3b 결과 (M3b T1~T11) |
 | v1.11 | 2026-10-19 | M4 준비 반영(상세는 설계 문서 §10.6, §11): §8.1 벤치마크 스위트(`suite.json` 루트 목록, 작업 `file` = `<루트 이름>/<경로>`, 내장 스위트 `eval/benchmark/suite.json`, `--suite`·`--keep-work`)와 사전 검사 `validate`(정적, `--deep`은 원본에서 판정 시험 실행), 실행 조건에 Ollama 버전·모델 digest 기록(요약 `formatVersion` 2, 1도 읽음, `compare`는 digest·Ollama 버전이 다르면 판정 거부), `record`(버전 기록, `modelGgufSha256` 추가), `export`(비식별 반출), FR-08 doctor SQL 행의 인증 방식(Windows 인증 / SQL 로그인)과 `--sanitize`에서 로그인 이름 제거, §11.1 두 번째 반입 zip `pelly-field-kit-0.9.1-win-x64.zip`(`pelly-eval.exe` 단일 파일 + 현장 절차 문서 + 스위트 템플릿), `pelly`의 값이 필요한 옵션에 값이 없으면 종료 4와 .NET 텔레메트리 끔 환경 변수(0.9.1), §9 M4 현장 키트 절차와 반입 전 사람 결정 다섯 가지, 버전 `0.9.1` (M4 준비 T1~T10) |
 | v1.12 | 2026-10-19 | 반입 전 사람 결정 반영: ① `Microsoft.Data.SqlClient.SNI.runtime` 라이선스 예외를 사람이 승인(잠정 해제, 1.0.0 게이트 통과 조건 충족) ② pelly 자체 `LICENSE`는 Payletter 사내 전용(All rights reserved)으로 두 zip 맨 위에 넣음(반입 zip 14개 파일·현장 키트 14개 파일) ③ S7 Rider 실기 확인은 하지 않고 「실기 미확인」으로 종결(현장 개발 PC는 Visual Studio, VS는 M4 현장 확인표) ④ 폐쇄망 정보 Q9~Q13은 질문지 `docs/m4-field-questionnaire.md`로 담당자에게 받음 |
+| v1.13 | 2026-10-24 | V2-3 프로젝트 규칙 구현: 규칙을 `pelly.rules.md` 대신 작업 공간 루트 `AGENTS.md`의 `## Pelly rules` 절로 두고 `pelly rules init`·`pelly rules check` 추가, 규칙을 사용자 메시지(CONTEXT 뒤)에 넣어 시스템 부분을 고정, `budget.system` 600 → 450·`budget.rules` 150, `forbid`는 모든 규칙을 원본 대비 추가된 줄에서 검사하고 정규식 시간 초과는 종료 코드 4, "규칙 도입 효과(+5%p)" KPI는 미측정 (설계 결정 1–6은 `docs/superpowers/plans/2026-10-24-pelly-v2-3-project-rules.md`) |
 
 ---
 
@@ -645,6 +646,8 @@ Superpowers의 TDD(Red → Green) 원칙에서 착안했습니다. v1 검증은 
 * **추가 구성 요소:** `Verifiers/TestRunner.cs`(dotnet test / vstest 선택), `Verifiers/TestBaseline.cs`
 
 ### 12.5 V2-3. 프로젝트 규칙 파일 (`pelly.rules.md`)
+> **구현: 2026-10-24.** 설계 결정 1–6은 `docs/superpowers/plans/2026-10-24-pelly-v2-3-project-rules.md`에 있고 이 절과 다른 점이 있습니다. 파일은 `pelly.rules.md`가 아니라 작업 공간 루트 `AGENTS.md`의 `## Pelly rules` 절입니다. 규칙은 시스템 메시지가 아니라 사용자 메시지의 CONTEXT 뒤에 들어가며, `forbid`는 선택된 규칙만이 아니라 모든 규칙을 검사하고 정규식 시간 초과는 종료 코드 4입니다. `pelly rules init`은 초안을 사람이 검토하게 합니다. **"규칙 도입 효과(+5%p)" KPI는 모델 실행이 필요해 아직 측정하지 않았습니다.** 사용법은 README `pelly rules` 절을 보십시오.
+
 Claude Code의 `CLAUDE.md`, OpenSpec의 프로젝트 문서에서 착안했습니다. 다만 긴 문서를 통째로 넣지 않고, **지금 작업과 관련된 짧은 규칙만** 골라 넣습니다.
 
 * **형식:** 한 줄에 규칙 하나(100자 이내). 앞에 태그를 붙입니다.

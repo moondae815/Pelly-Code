@@ -53,6 +53,7 @@ public class ExitCodeMappingTests
         var services = new ServiceCollection();
         services.AddSingleton<IFileSystem>(fs);
         services.AddSingleton<OptionsResolver>();
+        services.AddSingleton(TimeProvider.System);
         services.AddSingleton<IUserInteraction>(new FakeUi(false));
         services.AddSingleton<IRunner>(runner ?? new CancellingRunner());
         services.AddSingleton<IDoctorRunner>(new CancellingDoctor());
@@ -90,6 +91,14 @@ public class ExitCodeMappingTests
 
         Assert.Equal(4, result.ExitCode);
         Assert.Contains("frobnicate", result.Output);
+    }
+
+    [Fact]
+    public void RulesWithoutSubcommand_Exit4()
+    {
+        var result = Build(CancellationToken.None).Run("rules");
+
+        Assert.Equal(4, result.ExitCode);
     }
 
     [Fact]
@@ -205,12 +214,12 @@ public class ExitCodeMappingTests
     [Fact]
     public void ValueOptionCheck_KnowsEveryCommand()
     {
-        foreach (var command in new[] { "cs", "sql", "doctor", "report" })
+        foreach (var command in new[] { new[] { "cs" }, ["sql"], ["doctor"], ["report"], ["rules", "init"], ["rules", "check"] })
         {
-            var help = Build(CancellationToken.None).Run(command, "--help");
+            var help = Build(CancellationToken.None).Run([.. command, "--help"]);
             Assert.Equal(0, help.ExitCode);
         }
-        Assert.Equal(["cs", "doctor", "report", "sql"], CliApp.CommandSettings.Keys.Order().ToArray());
+        Assert.Equal(["cs", "doctor", "report", "rules check", "rules init", "sql"], CliApp.CommandSettings.Keys.Order().ToArray());
     }
 
     /// <summary>Command lines from README and deploy/*.md still parse under strict parsing (cancelled token: no real work runs).</summary>
@@ -225,6 +234,10 @@ public class ExitCodeMappingTests
     [InlineData("doctor", "--sanitize", "--out", "/w/export")]
     [InlineData("doctor", "--project", "/w/src/A.csproj", "--config", "/w/pelly.json", "--model", "m", "--endpoint", "http://localhost:11434")]
     [InlineData("report", "--since", "2026-10-01", "--sanitize", "--out", "/w/export")]
+    [InlineData("rules", "init", "--dry-run")]
+    [InlineData("rules", "init", "--force", "--yes")]
+    [InlineData("rules", "check")]
+    [InlineData("rules", "check", "--config", "/w/pelly.json")]
     public void DocumentedCommandLines_Parse(params string[] args)
     {
         Assert.Null(CliApp.FindOptionWithoutValue(args));

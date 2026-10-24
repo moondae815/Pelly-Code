@@ -25,15 +25,18 @@ public static class Verdict
         var warm = runs.Skip(1).ToList();
         var list = new List<Judgement>();
 
-        var csFailures = runs.Max(r => r.Issues.Where(i => i.FromCSharpProject).Sum(i => i.Count));
+        var csFailures = runs.Max(r => r.Issues.Where(i => i.FromCSharpProject && i.IsFailure).Sum(i => i.Count));
         var allLoaded = runs.All(r => r.Census.Loaded == r.Census.CSharpTotal);
-        list.Add(new(LoadItem, allLoaded && csFailures == 0, $"불러옴 {cold.Census.Loaded}/{cold.Census.CSharpTotal}, C# 실패 {csFailures}"));
+        list.Add(new(LoadItem, allLoaded && csFailures == 0, $"불러옴 {cold.Census.Loaded}/{cold.Census.CSharpTotal}, C# 실패 {csFailures}, 솔루션 밖 추가 {cold.Census.Extra}"));
 
         var minRate = runs.Min(r => r.Calls.Rate);
         var errors = runs.Max(r => r.Health.CompileErrorsCounted);
         var missing = runs.Max(r => r.Health.MissingMetadataRefs);
-        list.Add(new(TypeInfoItem, errors == 0 && missing == 0 && minRate >= MinCallRate,
-            $"해석률 {minRate:P1}, 컴파일 오류 {errors}, 없는 참조 {missing}"));
+        // 잰 것이 없으면(복원된 C# 프로젝트 0 또는 호출 0) 통과가 아니라 판정 불가다.
+        var measured = runs.Min(r => r.Health.ProjectsMeasured);
+        var nothingMeasured = measured == 0 || runs.Any(r => r.Calls.Total == 0);
+        list.Add(new(TypeInfoItem, nothingMeasured ? null : errors == 0 && missing == 0 && minRate >= MinCallRate,
+            $"측정 프로젝트 {measured}/{cold.Census.CSharpTotal}, 해석률 {minRate:P1}, 컴파일 오류 {errors}, 없는 참조 {missing}"));
 
         var timed = cold.Census.CSharpTotal <= TimedProjectLimit;
         var coldSec = cold.OpenSeconds + cold.CompileSeconds;
@@ -47,7 +50,8 @@ public static class Verdict
         }
 
         var probeMax = runs.Max(r => r.Probe.MaxSeconds);
-        list.Add(new(ProbeItem, probeMax <= ProbeLimitSeconds, $"최대 {probeMax:F2}초"));
+        var probed = runs.Min(r => r.Probe.Methods);
+        list.Add(new(ProbeItem, probed == 0 ? null : probeMax <= ProbeLimitSeconds, $"메서드 {probed}개, 최대 {probeMax:F2}초"));
 
         if (runs.Any(r => r.A3 is not null))
         {

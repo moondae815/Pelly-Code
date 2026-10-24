@@ -38,7 +38,9 @@ public static partial class ProjectCensusReader
                 .Select(p => (string?)p.Attribute("Path")).OfType<string>(),
             _ => [Path.GetFileName(full)],
         };
-        return new ProjectCensus(relative.Select(r => Entry(Path.GetFullPath(Path.Combine(dir, Normalize(r))))).ToList());
+        return new ProjectCensus(relative.Select(r => r.Contains("://", StringComparison.Ordinal)
+            ? new CensusEntry(r, ProjectKind.NonCSharp, true) // Web Site project hosted by URL
+            : Entry(Path.GetFullPath(Path.Combine(dir, Normalize(r))))).ToList());
     }
 
     private static string Normalize(string p) => p.Replace('\\', Path.DirectorySeparatorChar).Replace('/', Path.DirectorySeparatorChar);

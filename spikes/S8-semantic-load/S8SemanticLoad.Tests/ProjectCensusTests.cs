@@ -40,6 +40,14 @@ public class ProjectCensusTests
         Assert.Equal(0, ProjectCensusReader.Read(TestPaths.Fixture("census", "restored", "Restored.sln")).UnrestoredSdk);
     }
 
+    // 최종 리뷰 I4: 웹 사이트 프로젝트는 폴더 경로나 URL로 들어온다. C# 아님으로 세고 예외 없이 읽어야 한다.
+    [Fact] public void Census_reads_web_site_entries_as_non_csharp()
+    {
+        var c = ProjectCensusReader.Read(TestPaths.Fixture("census", "website", "Web.sln"));
+        Assert.Equal((1, 2), (c.SdkCs, c.NonCs));
+        Assert.Contains(c.Entries, e => e.Path == "http://localhost/Web2");
+    }
+
     [Fact] public void Census_accepts_single_csproj()
     {
         var c = ProjectCensusReader.Read(Path.Combine(TestPaths.Corpus, "Modern", "Shop.Api", "Shop.Api.csproj"));

@@ -17,6 +17,8 @@ env:
 jobs:
   measure:
     runs-on: windows-latest
+    # 보조 프로세스가 멈춰도 6시간을 태우지 않게 한다.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -29,11 +31,18 @@ jobs:
           ./eval/corpus/Legacy/build.ps1
           dotnet restore eval/corpus/Modern/Modern.sln
 
+      # 테스트가 실패해도 측정은 돈다(결과 파일에 종료 코드를 남긴다).
       - name: Spike tests (Windows expectations for Legacy)
         shell: pwsh
+        continue-on-error: true
         run: |
-          cd spikes/S8-semantic-load/S8SemanticLoad.Tests
-          dotnet test
+          New-Item -ItemType Directory -Force out | Out-Null
+          Push-Location spikes/S8-semantic-load/S8SemanticLoad.Tests
+          dotnet test 2>&1 | Tee-Object ../../../out/tests.txt
+          $code = $LASTEXITCODE
+          Pop-Location
+          "tests exit $code" | Tee-Object -Append out/exit-codes.txt
+          exit $code
 
       - name: Publish three forms
         shell: pwsh
@@ -58,7 +67,7 @@ jobs:
               $codes += "$form $name exit $LASTEXITCODE"
             }
           }
-          $codes | Tee-Object out/exit-codes.txt
+          $codes | Tee-Object -Append out/exit-codes.txt
 
       - name: MSBuild missing (MSBUILD_EXE_PATH to a bad path)
         shell: pwsh

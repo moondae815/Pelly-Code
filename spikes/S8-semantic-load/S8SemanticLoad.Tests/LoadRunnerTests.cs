@@ -31,6 +31,37 @@ public class LoadRunnerTests
     }
 }
 
+public class DiagnosticAttributionTests
+{
+    // 최종 리뷰 I4: 웹 사이트 프로젝트는 .sln에 폴더 경로로 들어온다. 빈 이름이 모든 메시지와 일치하면 안 된다.
+    [Fact] public void Web_site_entry_does_not_swallow_csharp_failures()
+    {
+        var census = new ProjectCensus([
+            new CensusEntry("/s/App/App.csproj", ProjectKind.SdkCSharp, true),
+            new CensusEntry("/s/WebSite1/", ProjectKind.NonCSharp, true),
+        ]);
+        Assert.True(LoadRunner.IsFromCSharp("Msbuild failed when processing the file '/s/App/App.csproj' with message: x", census));
+        Assert.False(LoadRunner.IsFromCSharp("Cannot open project '/s/WebSite1/' because ...", census));
+    }
+}
+
+public class SingleProjectLoadTests
+{
+    // 최종 리뷰 I3: 단일 csproj를 열면 ProjectReference도 함께 불러와진다. 인구 조사 1개가 다 불러와졌으면 통과다.
+    [Fact] public async Task Single_csproj_with_project_reference_loads()
+    {
+        var csproj = Path.Combine(TestPaths.Corpus, "Modern", "Shop.Api.Tests", "Shop.Api.Tests.csproj");
+        using (var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("dotnet", ["restore", csproj]) { RedirectStandardOutput = true })!)
+        {
+            await p.StandardOutput.ReadToEndAsync();
+            await p.WaitForExitAsync();
+        }
+        var r = await LoadRunner.RunOnceAsync(csproj, new LoadOptions(false, false, "dev"), TestContext.Current.CancellationToken);
+        Assert.Equal((1, 1), (r.Census.Loaded, r.Census.Extra));
+        Assert.True(Verdict.Judge([r]).Single(j => j.Item == Verdict.LoadItem).Pass);
+    }
+}
+
 public class PeakMemoryTests
 {
     // macOS는 PeakWorkingSet64를 0으로 돌려준다. 그때는 현재 working set으로 대신한다.

@@ -28,6 +28,13 @@ public class SemanticMetricsTests
         Assert.Equal(1, r.Total);
     }
 
+    // 최종 리뷰(M2 → 상향): dynamic 인자로 늦게 바인딩되는 호출(ViewBag 등)도 분모에서 뺀다.
+    [Fact] public async Task Late_bound_calls_with_dynamic_arguments_are_excluded()
+    {
+        var r = await SemanticMetrics.MeasureCallsAsync(AdhocFixture.Single("class A { void F(int a){} void M(dynamic d){ F(d); N(); } void N(){} }"));
+        Assert.Equal((1, 1), (r.Total, r.Resolved));
+    }
+
     [Fact] public async Task Health_counts_errors_and_missing_refs()
     {
         var s = AdhocFixture.Single("class A { int x = \"s\"; }", missingRef: "/nope/x.dll");

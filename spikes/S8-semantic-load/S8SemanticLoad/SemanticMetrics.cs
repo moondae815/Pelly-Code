@@ -42,6 +42,8 @@ public static class SemanticMetrics
     {
         if (info.Symbol is null && call.Expression is IdentifierNameSyntax { Identifier.ValueText: "nameof" })
             return true;
+        if (info.CandidateReason == CandidateReason.LateBound)
+            return true;
         return call.Expression is MemberAccessExpressionSyntax ma
             && model.GetTypeInfo(ma.Expression, ct).Type?.TypeKind == TypeKind.Dynamic;
     }

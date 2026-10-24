@@ -34,28 +34,36 @@ public static class LoadRunner
         var diagnostics = workspace.Diagnostics.Concat(events)
             .Where(d => d.Kind == WorkspaceDiagnosticKind.Failure || d.Kind == WorkspaceDiagnosticKind.Warning)
             .DistinctBy(d => (d.Kind, d.Message)).ToList();
-        var nonCsNames = census.Entries.Where(e => e.Kind == ProjectKind.NonCSharp).Select(e => Path.GetFileName(e.Path)).ToList();
         var issues = diagnostics
-            .Select(d => (Kind: DiagnosticClassifier.Classify(d.Message), Cs: !nonCsNames.Any(n => d.Message.Contains(n, StringComparison.OrdinalIgnoreCase))))
-            .GroupBy(x => x).Select(g => new IssueCount(g.Key.Kind, g.Key.Cs, g.Count())).ToList();
+            .Select(d => (Kind: DiagnosticClassifier.Classify(d.Message), Cs: IsFromCSharp(d.Message, census), Failure: d.Kind == WorkspaceDiagnosticKind.Failure))
+            .GroupBy(x => x).Select(g => new IssueCount(g.Key.Kind, g.Key.Cs, g.Key.Failure, g.Count())).ToList();
 
-        var restored = census.Entries.Where(e => e.Restored).Select(e => Path.GetFullPath(e.Path)).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        bool IsRestored(Project p) => p.FilePath is null || census.Entries.Count == 0
-            || restored.Contains(Path.GetFullPath(p.FilePath))
-            || !census.Entries.Any(e => string.Equals(Path.GetFullPath(e.Path), Path.GetFullPath(p.FilePath), StringComparison.OrdinalIgnoreCase));
+        // Match loaded projects to the census by file path: MSBuild also opens ProjectReferences outside the
+        // solution and one Project per target framework, so a plain count would fail healthy solutions.
+        var loadedPaths = csharp.Where(p => p.FilePath is not null).Select(p => Path.GetFullPath(p.FilePath!))
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var censusCs = census.Entries.Where(e => e.Kind != ProjectKind.NonCSharp).Select(e => Path.GetFullPath(e.Path))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var extras = loadedPaths.Where(p => !censusCs.Contains(p) && File.Exists(p))
+            .Select(p => ProjectCensusReader.Read(p).Entries[0]).ToList();
+        var effective = new ProjectCensus([.. census.Entries, .. extras]);
+        var restored = effective.Entries.Where(e => e.Restored).Select(e => Path.GetFullPath(e.Path)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        bool IsRestored(Project p) => p.FilePath is null || restored.Contains(Path.GetFullPath(p.FilePath));
 
         var calls = await SemanticMetrics.MeasureCallsAsync(solution, IsRestored, ct);
-        var health = await SemanticMetrics.MeasureHealthAsync(solution, census, ct);
+        var health = await SemanticMetrics.MeasureHealthAsync(solution, effective, ct);
         var totals = new HealthTotals(
             health.Where(h => h.Restored).Sum(h => h.CompileErrors),
             health.Where(h => !h.Restored).Sum(h => h.CompileErrors),
-            health.Sum(h => h.MissingMetadataRefs));
+            health.Sum(h => h.MissingMetadataRefs),
+            loadedPaths.Count(restored.Contains));
         var probe = await ReferenceProbe.RunAsync(solution, ct: ct);
         A3Result? a3 = o.CheckA3
             ? await CorpusCheck.CheckA3Async(solution, o.CorpusRoot ?? throw new ArgumentException("corpus root needed"), o.CasesDir ?? throw new ArgumentException("cases dir needed"), ct)
             : null;
 
-        var counts = new CensusCounts(census.SdkCs, census.LegacyCs, census.NonCs, census.UnrestoredSdk, csharp.Count);
+        var counts = new CensusCounts(census.SdkCs, census.LegacyCs, census.NonCs, census.UnrestoredSdk,
+            loadedPaths.Count(censusCs.Contains), extras.Count);
         return new LoadReport(
             o.Detail ? "detail" : "field",
             OperatingSystem.IsWindows() ? "windows" : OperatingSystem.IsMacOS() ? "osx" : "linux",
@@ -71,6 +79,23 @@ public static class LoadRunner
     {
         using var p = Process.GetCurrentProcess();
         return p.PeakWorkingSet64 > 0 ? p.PeakWorkingSet64 : p.WorkingSet64;
+    }
+
+    /// <summary>
+    /// False when the message names a non-C# project of the census. Matches by full path or by a non-empty
+    /// name: Web Site projects appear in a .sln as folder paths, whose file name is empty and would match everything.
+    /// </summary>
+    public static bool IsFromCSharp(string message, ProjectCensus census)
+    {
+        foreach (var e in census.Entries.Where(e => e.Kind == ProjectKind.NonCSharp))
+        {
+            var trimmed = e.Path.TrimEnd('/', '\\');
+            var name = Path.GetFileName(trimmed);
+            if ((trimmed.Length > 0 && message.Contains(trimmed, StringComparison.OrdinalIgnoreCase))
+                || (name.Length > 0 && message.Contains(name, StringComparison.OrdinalIgnoreCase)))
+                return false;
+        }
+        return true;
     }
 
     private static string RoslynVersion() =>

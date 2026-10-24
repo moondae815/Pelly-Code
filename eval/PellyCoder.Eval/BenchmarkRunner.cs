@@ -14,7 +14,7 @@ namespace PellyCoder.Eval;
 public sealed record RunnerSetup(
     IFileSystem Fs, IProcessRunner Processes, ILlmBackend Backend, PellyOptions Options, TimeProvider Time, BenchmarkSuite Suite,
     ISqlExecutor? Sql, string? SqlSkipReason, Action<string> Log, Func<bool>? IsWindows = null,
-    IIndependentVerifier? Verifier = null, KeepWork KeepWork = KeepWork.All);
+    IIndependentVerifier? Verifier = null, KeepWork KeepWork = KeepWork.All, bool RemoveRules = false);
 
 /// <summary>Which task work copies (<c>work/&lt;id&gt;</c>) survive the run.</summary>
 public enum KeepWork { All, Failed, None }
@@ -65,7 +65,7 @@ public sealed class BenchmarkRunner(RunnerSetup setup)
         var workRoot = Path.Combine(outDir, "work", task.Id);
         if (Directory.Exists(workRoot))
             return TaskResult.Skipped(task, isLegacy, $"작업 폴더가 이미 있습니다: {workRoot}");
-        var file = WorkCopy.Prepare(setup.Suite, suiteTask, workRoot);
+        var file = WorkCopy.Prepare(setup.Suite, suiteTask, workRoot, setup.RemoveRules);
         var corpusRoot = Path.Combine(workRoot, suiteTask.Root.Name);
 
         var originalText = TextFileCodec.Read(setup.Fs, file).Text;

@@ -91,15 +91,15 @@ catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
 Console.WriteLine($"스위트 {suite.Name} ({suite.Dir}) · 작업 {tasks.Count}건{(parsed.Repeat > 1 ? $" × {parsed.Repeat}회" : "")} → {outDir}");
 
 var runner = new BenchmarkRunner(new RunnerSetup(fs, new SystemProcessRunner(TimeProvider.System), backend, options, TimeProvider.System,
-    suite, sql, sqlSkip, Console.WriteLine, KeepWork: parsed.KeepWork));
+    suite, sql, sqlSkip, Console.WriteLine, KeepWork: parsed.KeepWork, RemoveRules: parsed.NoRules));
 var json = new JsonSerializerOptions { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 var prompts = PromptResources.LoadDefault();
 var conditions = new RunConditions(options.Llm.Model, prompts.Version, prompts.SqlVersion, options.Llm.ThinkMode.ToString(),
     options.Budget.Think, options.Sampling.Think, options.Sampling.Code, PellyInfo.Version, parsed.Tasks, parsed.Kind,
-    status.Version, status.ModelDigest);
+    status.Version, status.ModelDigest, parsed.NoRules ? true : null);
 var header = $"* 실행: {stamp} · pelly {PellyInfo.Version} · 모델 `{options.Llm.Model}` ({options.Llm.Endpoint}, Ollama {status.Version}) · "
     + $"thinkMode {options.Llm.ThinkMode} · {Environment.OSVersion.Platform}\n* 스위트: {suite.Name}\n* 선택: --tasks {parsed.Tasks ?? "*"} --kind {parsed.Kind ?? "*"}"
-    + (parsed.Repeat > 1 ? $" --repeat {parsed.Repeat}" : "");
+    + (parsed.Repeat > 1 ? $" --repeat {parsed.Repeat}" : "") + (parsed.NoRules ? " --no-rules" : "");
 
 async Task<RepeatedRun.RunOnce> RunOnceAsync(string dir, int run)
 {

@@ -223,7 +223,8 @@ public sealed class RulesFlowTests : IDisposable
     public async Task Forbid_Timeout_Exit4()
     {
         WriteAgents("- [*] 느린 규칙 | forbid: (a+)+$");
-        _backend.Enqueue("        return a / b;\n=======\n        return a / b; // aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!\n>>>>>>> REPLACE\n");
+        // In code, not a comment: comments are masked before the forbid check.
+        _backend.Enqueue("        return a / b;\n=======\n        var aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa = 0; return a / b + aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa;\n>>>>>>> REPLACE\n");
 
         var exit = await RunCs();
 
@@ -231,6 +232,19 @@ public sealed class RulesFlowTests : IDisposable
         Assert.Equal("RulesInvalid", FailureKindOnDisk());
         Assert.Contains(_ui.Warnings, m => m.Contains("AGENTS.md 줄 4"));
         Assert.Equal(CalcSource, File.ReadAllText(CalcPath));
+    }
+
+    [Fact]
+    public async Task Forbid_PatternOnlyInCommentOrString_Passes()
+    {
+        WriteAgents(ForbidRule);
+        _backend.Enqueue("        return a / b;\n=======\n        var note = \"t.Result\"; // .Result 대신 직접 계산\n        return a / b;\n>>>>>>> REPLACE\n");
+
+        var exit = await RunCs();
+
+        Assert.Equal(0, exit);
+        Assert.Single(_backend.Requests);
+        Assert.Contains("// .Result 대신 직접 계산", File.ReadAllText(CalcPath));
     }
 
     private const string NolockRule = "- [*] NOLOCK 금지 | forbid: \\bNOLOCK\\b";
@@ -294,5 +308,19 @@ public sealed class RulesFlowTests : IDisposable
         Assert.Equal(1, exit);
         Assert.Equal("RulesErrors", FailureKindOnDisk());
         Assert.Equal(SqlScript, File.ReadAllText(path));
+    }
+
+    [Fact]
+    public async Task Sql_Forbid_PatternOnlyInCommentOrString_Passes()
+    {
+        var (sql, path) = PrepareSql();
+        const string Commented = "    SELECT Id FROM dbo.T WHERE Id = @Id AND 'NOLOCK' <> ''; -- NOLOCK 안 씀";
+        _backend.Enqueue(Search + "\n=======\n" + Commented + "\n>>>>>>> REPLACE\n");
+
+        var exit = await RunSql(sql, path);
+
+        Assert.Equal(0, exit);
+        Assert.Single(_backend.Requests);
+        Assert.Equal(SqlScript.Replace(Search, Commented), File.ReadAllText(path));
     }
 }

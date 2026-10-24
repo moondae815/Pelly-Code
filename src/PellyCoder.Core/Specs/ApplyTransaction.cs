@@ -90,7 +90,9 @@ public sealed class ApplyTransaction(FileGuard guard, Workspace ws, string apply
         }
     }
 
-    private string GroupRunId => $"{applyId}/{_groupId}";
+    // A sibling of the apply's backup folder: nested under it, a workspace folder named like the group would share
+    // paths with the group's files, and the first backup would win for both.
+    private string GroupRunId => $"{applyId}.{_groupId}";
 
     private static void Observe(Entry entry, FileSnapshot read)
     {
@@ -128,7 +130,7 @@ public sealed class ApplyTransaction(FileGuard guard, Workspace ws, string apply
 
     /// <summary>
     /// Opens a checkpoint: from now on each file is backed up, the first time the group sees it, to
-    /// <c>.pelly/backup/&lt;apply-id&gt;/&lt;groupId&gt;/</c> as it was then (which may include earlier tasks' edits).
+    /// <c>.pelly/backup/&lt;apply-id&gt;.&lt;groupId&gt;/</c> as it was then (which may include earlier tasks' edits).
     /// A still-open group is closed. A group id is used once per apply: a second group under the same id would find
     /// the first one's backups (first backup wins) and restore the wrong bytes.
     /// </summary>

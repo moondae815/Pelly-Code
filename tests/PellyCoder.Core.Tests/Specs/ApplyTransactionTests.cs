@@ -189,8 +189,32 @@ public sealed class ApplyTransactionTests : IDisposable
         Assert.Empty(await tx.RollbackGroupAsync(CancellationToken.None));
         Assert.Equal("two\n", File.ReadAllText(p));
         Assert.Equal("bee\n", File.ReadAllText(q));
-        Assert.True(File.Exists(Path.Combine(_ws.PellyDir, "backup", "apply-g1", "G1", "a.txt")));
-        Assert.True(File.Exists(Path.Combine(_ws.PellyDir, "backup", "apply-g1", "G1", "b.txt")));
+        Assert.True(File.Exists(Path.Combine(_ws.PellyDir, "backup", "apply-g1.G1", "a.txt")));
+        Assert.True(File.Exists(Path.Combine(_ws.PellyDir, "backup", "apply-g1.G1", "b.txt")));
+    }
+
+    [Fact]
+    public async Task Group_backups_do_not_collide_with_a_workspace_folder_named_like_the_group()
+    {
+        Directory.CreateDirectory(Path.Combine(_root, "G1"));
+        string nested = Make(Path.Combine("G1", "x.cs"), "nested\n");
+        string top = Make("x.cs", "top\n");
+        var tx = new ApplyTransaction(_guard, _ws, "apply-g7");
+        var n0 = _guard.Read(nested);
+        tx.Track(n0); // apply backup lands at backup/apply-g7/G1/x.cs
+        var n1 = await Write(n0, "nested1\n");
+        tx.Record(n0, n1);
+
+        tx.BeginGroup("G1");
+        var t0 = _guard.Read(top);
+        tx.Track(t0);
+        tx.Record(t0, await Write(t0, "top2\n"));
+        tx.Track(n1);
+        tx.Record(n1, await Write(n1, "nested2\n"));
+
+        Assert.Empty(await tx.RollbackGroupAsync(CancellationToken.None));
+        Assert.Equal("top\n", File.ReadAllText(top));
+        Assert.Equal("nested1\n", File.ReadAllText(nested));
     }
 
     [Fact]
@@ -285,7 +309,7 @@ public sealed class ApplyTransactionTests : IDisposable
         tx.BeginGroup("G1");
         tx.Track(a1);
         tx.Record(a1, await Write(a1, "three\n"));
-        File.Delete(Path.Combine(_ws.PellyDir, "backup", "apply-g5", "G1", "a.txt"));
+        File.Delete(Path.Combine(_ws.PellyDir, "backup", "apply-g5.G1", "a.txt"));
 
         Assert.Equal([p], await tx.RollbackGroupAsync(CancellationToken.None));
         Assert.Equal("three\n", File.ReadAllText(p));

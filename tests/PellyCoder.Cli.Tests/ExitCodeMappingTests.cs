@@ -6,6 +6,7 @@ using PellyCoder.Core.Abstractions;
 using PellyCoder.Core.Config;
 using PellyCoder.Core.Doctor;
 using PellyCoder.Core.Fsm;
+using PellyCoder.Core.Processes;
 using Spectre.Console.Cli.Testing;
 using Spectre.Console.Testing;
 
@@ -58,6 +59,7 @@ public class ExitCodeMappingTests
         services.AddSingleton<IRunner>(runner ?? new CancellingRunner());
         services.AddSingleton<IDoctorRunner>(new CancellingDoctor());
         services.AddSingleton(new ConfigSources(null, new Dictionary<string, string?>()));
+        services.AddSingleton<IProcessRunner>(new SystemProcessRunner(TimeProvider.System)); // apply builds groups only
         services.AddSingleton(typeof(CancellationToken), ct);
 
         var app = new CommandAppTester(new DiTypeRegistrar(services));

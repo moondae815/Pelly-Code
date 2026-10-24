@@ -31,11 +31,7 @@ public static partial class SpecChecker
         var scans = new Scans(fs, ws.Root);
 
         foreach (var task in spec.Tasks)
-        {
-            if (task.Group is not null)
-                issues.Add(new SpecIssue(task.Line, SpecIssueSeverity.Error, "GroupUnsupported", "작업 그룹은 아직 지원하지 않습니다(V2-1b)"));
             CheckTask(fs, ws, task, sqlCompatLevel, scans, issues);
-        }
 
         foreach (var ac in spec.Criteria.Where(c => c.Test is not null))
         {

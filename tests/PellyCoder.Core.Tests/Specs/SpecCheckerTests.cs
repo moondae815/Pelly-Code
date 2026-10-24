@@ -70,13 +70,10 @@ public sealed class SpecCheckerTests
     }
 
     [Fact]
-    public void Group_is_unsupported_in_v2_1a()
+    public void Groups_are_allowed()
     {
-        var r = Check(Fs("- [ ] T1 cs src/App/OrderService.cs#Cancel 요청 [G1]\n"));
-        var issue = Assert.Single(r.Issues);
-        Assert.Equal("GroupUnsupported", issue.Code);
-        Assert.Equal(SpecIssueSeverity.Error, issue.Severity);
-        Assert.Contains("V2-1b", issue.Message);
+        var r = Check(Fs("- [ ] T1 cs src/App/OrderService.cs#Cancel 요청 [G1]\n- [ ] T2 cs src/App/OrderService.cs#OrderService.Cancel 요청 [G1]\n"));
+        Assert.Empty(r.Issues);
     }
 
     [Fact]

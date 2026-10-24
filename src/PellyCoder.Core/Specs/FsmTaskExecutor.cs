@@ -25,8 +25,8 @@ public sealed class FsmTaskExecutor(Func<RunRequest, CancellationToken, Task<Run
         {
             string? cls = null, member = null;
             if (task.Symbol is { Length: > 0 } symbol) (cls, member) = SpecSymbol.Split(symbol);
-            request = new RunRequest(file, cls, member, null, task.Request, o.Yes, o.DryRun, o.MaxRetries,
-                Verbose: o.Verbose, Host: host);
+            request = new RunRequest(file, cls, o.MemberOverride ?? member, null, task.Request, o.Yes, o.DryRun, o.MaxRetries,
+                Verbose: o.Verbose, Host: host, Group: o.Group);
         }
         return run(request, ct);
     }

@@ -1,8 +1,11 @@
 using System.ComponentModel;
 using System.IO.Abstractions;
 using PellyCoder.Core.Abstractions;
+using PellyCoder.Core.Builds;
+using PellyCoder.Core.Feedbacks;
 using PellyCoder.Core.Files;
 using PellyCoder.Core.Fsm;
+using PellyCoder.Core.Llm;
 using PellyCoder.Core.Logging;
 using PellyCoder.Core.Specs;
 using Spectre.Console;
@@ -32,7 +35,7 @@ public sealed class ApplySettings : RunSettings
 /// <summary><c>pelly apply</c>: runs the tasks of a change spec in order through <see cref="SpecRunner"/>.</summary>
 public sealed class ApplyCommand(
     IFileSystem fs, OptionsResolver resolver, IRunner runner, IAnsiConsole console, IUserInteraction ui, TimeProvider time,
-    CancellationToken cancellation)
+    IProcessRunner processes, CancellationToken cancellation)
     : AsyncCommand<ApplySettings>
 {
     public override async Task<int> ExecuteAsync(CommandContext context, ApplySettings settings, CancellationToken _)
@@ -51,9 +54,12 @@ public sealed class ApplyCommand(
         }
 
         var executor = new FsmTaskExecutor((request, ct) => runner.RunDetailedAsync(request, options, ct));
+        var groups = new GroupVerifier(
+            fs, new BuildVerifier(processes, options.Build), new BuildToolResolver(fs, processes, options.Build), OperatingSystem.IsWindows);
         var specRunner = new SpecRunner(
             fs, new FileGuard(fs, time), executor, ui, time, options.Sql.CompatLevel,
-            (ws, id) => new RunLogger(fs, time).Prune(ws, options.Log.RetentionDays, id));
+            (ws, id) => new RunLogger(fs, time).Prune(ws, options.Log.RetentionDays, id),
+            groups, new FeedbackBuilder(QwenTokenCounter.Shared, options.Budget.Feedback), options.Retry.Max);
         var apply = new ApplyOptions(
             settings.Continue, settings.Resume, settings.ReviewAtEnd, settings.Yes, settings.DryRun, settings.MaxRetries, settings.Verbose);
         try

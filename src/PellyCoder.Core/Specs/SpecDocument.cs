@@ -3,6 +3,9 @@ using PellyCoder.Core.Files;
 
 namespace PellyCoder.Core.Specs;
 
+/// <summary>One task's new mark: done with <paramref name="RunId"/>, or failed with it when <paramref name="FailureKind"/> is set.</summary>
+public sealed record SpecMark(string TaskId, string RunId, string? FailureKind = null);
+
 /// <summary>
 /// A change spec on disk. Updates rewrite single lines of the original text and write through
 /// <see cref="FileGuard"/>, so encoding, BOM and newline style are kept and an outside edit is detected.
@@ -31,6 +34,19 @@ public sealed class SpecDocument
 
     public Task<FileWriteResult> MarkFailedAsync(string taskId, string runId, string failureKind, CancellationToken ct) =>
         RewriteTaskAsync([taskId], (line, _) => Compose(line, false, $"<!-- failed: {runId} {failureKind} -->"), ct);
+
+    /// <summary>Marks several tasks in one write: done with a null <see cref="SpecMark.FailureKind"/>, else failed.</summary>
+    public Task<FileWriteResult> MarkAsync(IReadOnlyList<SpecMark> marks, CancellationToken ct)
+    {
+        var byTask = marks.ToDictionary(m => m.TaskId, StringComparer.Ordinal);
+        return RewriteTaskAsync(byTask.Keys, (line, task) =>
+        {
+            var mark = byTask[task.Id];
+            return mark.FailureKind is { } kind
+                ? Compose(line, false, $"<!-- failed: {mark.RunId} {kind} -->")
+                : Compose(line, true, $"<!-- run: {mark.RunId} -->");
+        }, ct);
+    }
 
     public Task<FileWriteResult> ClearMarksAsync(IEnumerable<string> taskIds, CancellationToken ct) =>
         RewriteTaskAsync(taskIds, (line, _) => Compose(line, false, null), ct);

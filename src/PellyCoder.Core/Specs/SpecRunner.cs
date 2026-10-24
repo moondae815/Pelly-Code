@@ -268,10 +268,12 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             public Dictionary<string, string> LastRun { get; } = new(StringComparer.Ordinal);
 
             /// <summary>
-            /// Task ID → its last successful run, file and target display. Only a successful run's display is the member in
-            /// the file: after a failure the FSM rolled the file back, but the display may still show the rejected rename.
+            /// Task ID → its last successful run, file, target display and the private helpers its runs added. Only a successful
+            /// run's display is the member in the file: after a failure the FSM rolled the file back, but the display may still
+            /// show the rejected rename.
             /// </summary>
-            public Dictionary<string, (string RunId, string Path, string? Display)> Succeeded { get; } = new(StringComparer.Ordinal);
+            public Dictionary<string, (string RunId, string Path, string? Display, IReadOnlyList<string> Helpers)> Succeeded { get; } =
+                new(StringComparer.Ordinal);
         }
 
         /// <summary>Runs a group (design §6 "작업 그룹"): scope, baseline build, tasks, verification with re-runs, approval, marks.</summary>
@@ -302,6 +304,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             try { baseline = await owner.Groups!.BuildAsync(ws, scope, ct); }
             catch (OperationCanceledException) { return new GroupEnd(await CancelledAsync(tx), true); }
             if (!baseline.Verifiable) return await UnverifiableBeforeEditAsync(tx, g, baseline.Reason!);
+            if (BaselineHidesDependents(scope, baseline) is { } hidden) return await UnverifiableBeforeEditAsync(tx, g, hidden);
 
             tx.BeginGroup(g.Id);
             try
@@ -322,6 +325,33 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                 await UndoGroupAsync(tx, g, null, 4);
                 throw;
             }
+        }
+
+        /// <summary>
+        /// The reason the group cannot be verified when a scope project another scope project references already fails to
+        /// compile: the build of the referencing project stops there, so its own breakage would never show. A compiler error
+        /// without a file cannot be placed, so it counts against any scope with such a reference. Null when nothing is hidden.
+        /// </summary>
+        private string? BaselineHidesDependents(IReadOnlyList<string> scope, GroupBuild baseline)
+        {
+            if (baseline.Errors.Count == 0) return null;
+            var inScope = new HashSet<string>(scope, PathComparers.ForOs);
+            var referenced = new HashSet<string>(PathComparers.ForOs);
+            foreach (var project in scope)
+                foreach (var dependency in ProjectReferenceGraph.References(owner.Fs, project))
+                    if (inScope.Contains(dependency) && !PathComparers.ForOs.Equals(dependency, project)) referenced.Add(dependency);
+            if (referenced.Count == 0) return null;
+
+            foreach (var error in baseline.Errors)
+            {
+                if (string.IsNullOrEmpty(error.File))
+                    return $"그룹 빌드 검증 불가: 원본 상태에 위치를 알 수 없는 컴파일 오류({error.Code})가 있어 참조하는 프로젝트를 검증할 수 있는지 알 수 없습니다";
+                var project = ProjectFileLocator.FindNearestCsproj(owner.Fs, owner.Fs.Path.Combine(ws.Root, error.File.Replace('\\', '/')));
+                if (project is null || !referenced.Contains(project)) continue;
+                var relative = owner.Fs.Path.GetRelativePath(ws.Root, project).Replace('\\', '/');
+                return $"그룹 빌드 검증 불가 ({relative}): 참조 프로젝트 {relative}에 이미 컴파일 오류가 있어 이를 참조하는 프로젝트를 검증할 수 없습니다 ({error.Code})";
+            }
+            return null;
         }
 
         private async Task<GroupEnd> RunGroupTasksAsync(ApplyTransaction tx, GroupState g, IReadOnlyList<string> scope, GroupBuild baseline,
@@ -347,7 +377,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                 var newErrors = GroupVerifier.NewErrors(baseline, build);
                 if (newErrors.Count == 0) break;
 
-                var members = g.Tasks.Select(t => new GroupMember(t.Id, FullPath(t), g.Succeeded[t.Id].Display ?? "")).ToList();
+                var members = g.Tasks.Select(t => new GroupMember(t.Id, FullPath(t), g.Succeeded[t.Id].Display ?? "", g.Succeeded[t.Id].Helpers)).ToList();
                 var attribution = GroupErrorAttribution.Attribute(owner.Fs, ws, newErrors, members, LanguageVersion.Latest);
                 if (attribution.Unattributed.Count > 0)
                 {
@@ -371,7 +401,9 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                     var display = g.Succeeded[task.Id].Display;
                     var feedback = feedbacks[task.Id];
                     var member = display is null ? null : MemberLocator.NameOf(display);
-                    if (await RunGroupTaskAsync(tx, g, task, new GroupRun(feedback), member, ct) is not { } r) return await GroupAbortedAsync(tx, g);
+                    // The helpers its runs added may hold the error: the re-run may change them.
+                    var rerun = new GroupRun(feedback, g.Succeeded[task.Id].Helpers);
+                    if (await RunGroupTaskAsync(tx, g, task, rerun, member, ct) is not { } r) return await GroupAbortedAsync(tx, g);
                     if (r.ExitCode != 0) return await UndoGroupAsync(tx, g, r.FailureKind ?? $"exit-{r.ExitCode}", r.ExitCode);
                 }
             }
@@ -423,7 +455,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             if (r.Original is not null) tx.Record(r.Original, r.Final);
             g.LastRun[task.Id] = r.RunId;
             if (r.ExitCode == 2 && ct.IsCancellationRequested) throw new OperationCanceledException(ct);
-            if (r.ExitCode == 0) g.Succeeded[task.Id] = (r.RunId, r.Original?.Path ?? FullPath(task), r.TargetDisplay);
+            if (r.ExitCode == 0) g.Succeeded[task.Id] = (r.RunId, r.Original?.Path ?? FullPath(task), r.TargetDisplay, r.AddedHelpers ?? run.EditableHelpers ?? []);
             return r;
         }
 

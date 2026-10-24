@@ -116,6 +116,40 @@ public sealed class GroupModeFlowTests : IDisposable
     }
 
     [Fact]
+    public async Task Group_rerun_may_fix_a_helper_an_earlier_run_added()
+    {
+        // The first group run added Half; the group build found an error inside it.
+        const string withHelper =
+            "namespace Demo;\n\npublic class Calc\n{\n    public int Divide(int a, int b)\n    {\n        return Half(a) / b;\n    }\n\n" +
+            "    private int Half(int x)\n    {\n        return x / 2L;\n    }\n}\n";
+        File.WriteAllText(CalcPath, withHelper);
+        _backend.Enqueue(Block("        return x / 2L;", "        return x / 2;"));
+
+        var result = await Run(Req(CalcPath, new GroupRun(new Feedback("BUILD FAILED", 5), ["Calc.Half(int)"])));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(withHelper.Replace("x / 2L", "x / 2"), File.ReadAllText(CalcPath));
+        // The helper is shown as editable, so the model may write a SEARCH block against it.
+        var prompt = _backend.Requests[0].RawPrompt;
+        var helper = prompt.LastIndexOf("[EDITABLE: helper]", StringComparison.Ordinal);
+        Assert.True(helper >= 0);
+        Assert.Contains("private int Half(int x)", prompt[helper..]);
+        Assert.Contains("Calc.Half(int)", result.AddedHelpers!);
+    }
+
+    [Fact]
+    public async Task Group_run_reports_the_helpers_it_added()
+    {
+        _backend.Enqueue(Block(Header + "\n    {\n" + Original + "\n    }",
+            Header + "\n    {\n        return Checked(a) / b;\n    }\n\n    private int Checked(int x)\n    {\n        return x;\n    }"));
+
+        var result = await Run(Req(CalcPath, new GroupRun(null)));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(["Calc.Checked(int)"], result.AddedHelpers);
+    }
+
+    [Fact]
     public async Task Initial_feedback_reaches_first_prompt()
     {
         const string text = "BUILD FAILED (1 new errors)\nDemo/Use.cs(3): CS1501: No overload for method 'Divide' takes 2 arguments";

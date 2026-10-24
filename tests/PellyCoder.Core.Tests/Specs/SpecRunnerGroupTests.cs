@@ -163,6 +163,28 @@ public sealed class SpecRunnerGroupTests : IDisposable
     }
 
     [Fact]
+    public async Task Error_inside_a_helper_the_task_added_reruns_that_task_with_the_helper_editable()
+    {
+        Spec(Group);
+        // T1 adds a private helper after GetOrder (lines 10-13 once written); the group build finds an error inside it.
+        _exec.Edit["T1"] = text => _exec.Calls.Count(c => c == "T1") > 1
+            ? text
+            : text.Replace("        return id;\n    }\n\n    public void Cancel()",
+                "        return Half(id);\n    }\n\n    private int Half(int id)\n    {\n        return id / 2L;\n    }\n\n    public void Cancel()");
+        _exec.Helpers["T1"] = ["OrderService.Half(int)"];
+        _builds.Results.Enqueue(Built());
+        _builds.Results.Enqueue(Built(Error("src/App/OrderService.cs", 12, "CS0266")));
+        var code = await Run(Opts());
+
+        Assert.Equal(0, code);
+        Assert.Equal(["T1", "T2", "T1"], _exec.Calls);
+        var rerun = _exec.Options[2];
+        Assert.Equal(["OrderService.Half(int)"], rerun.Group!.EditableHelpers!);
+        Assert.Contains("src/App/OrderService.cs(12): CS0266", rerun.Group.InitialFeedback!.Text);
+        Assert.DoesNotContain(_ui.Warnings, w => w.Contains("명세에 빠진 영향 대상"));
+    }
+
+    [Fact]
     public async Task Group_retry_budget_exhausted_rolls_back_exit_1()
     {
         Spec(Group);
@@ -225,6 +247,35 @@ public sealed class SpecRunnerGroupTests : IDisposable
         AssertGroupFilesUntouched();
         Assert.Contains(_ui.Warnings, w => w.Contains("그룹 빌드 검증 불가") && w.Contains("src/Tools/Tools.csproj") && w.Contains("$(SolutionDir)"));
         Assert.Contains("GroupUnverifiable -->", Read("changes/x.md"));
+    }
+
+    [Fact]
+    public async Task Baseline_error_in_a_referenced_scope_project_is_unverifiable_before_any_edit()
+    {
+        // App does not compile, so the build of Web (which references App) never compiles Web: its breakage would be hidden.
+        Spec(Group);
+        _builds.Results.Enqueue(Built(Error("src/App/Controller.cs", 7, "CS0103")));
+        var code = await Run(Opts());
+
+        Assert.Equal(4, code);
+        Assert.Empty(_exec.Calls);
+        Assert.Single(_builds.Calls);
+        AssertGroupFilesUntouched();
+        Assert.Contains(_ui.Warnings, w => w.Contains("그룹 빌드 검증 불가") && w.Contains("참조 프로젝트 src/App/App.csproj에 이미 컴파일 오류가 있어 이를 참조하는 프로젝트를 검증할 수 없습니다"));
+        Assert.Contains("GroupUnverifiable -->", Read("changes/x.md"));
+    }
+
+    [Fact]
+    public async Task Baseline_error_in_a_scope_project_nothing_references_still_runs_the_group()
+    {
+        Make("src/Web/Page.cs", Controller);
+        Spec(Group);
+        _builds.Results.Enqueue(Built(Error("src/Web/Page.cs", 7, "CS0103")));
+        _builds.Results.Enqueue(Built(Error("src/Web/Page.cs", 7, "CS0103")));
+        var code = await Run(Opts());
+
+        Assert.Equal(0, code);
+        Assert.Equal(["T1", "T2"], _exec.Calls);
     }
 
     [Fact]
@@ -547,6 +598,7 @@ public sealed class SpecRunnerGroupTests : IDisposable
         public Dictionary<string, Exception> Throw { get; } = [];
         public Dictionary<string, Func<string, string>> Edit { get; } = [];
         public Dictionary<string, string> Display { get; } = [];
+        public Dictionary<string, IReadOnlyList<string>> Helpers { get; } = [];
 
         public async Task<RunResult> ExecuteAsync(SpecTask task, Workspace ws, TaskRunOptions o, CancellationToken ct)
         {
@@ -565,7 +617,7 @@ public sealed class SpecRunnerGroupTests : IDisposable
             var text = Edit.TryGetValue(task.Id, out var edit) ? edit(original.Text) : original.Text;
             var comment = task.Kind == TaskKind.Sql ? "-- " : "// ";
             var written = await guard.WriteAsync(original, text + comment + task.Id + "\n", CancellationToken.None);
-            return new RunResult(0, runId, path, original, written.Snapshot, null, display);
+            return new RunResult(0, runId, path, original, written.Snapshot, null, display, Helpers.GetValueOrDefault(task.Id));
         }
     }
 }

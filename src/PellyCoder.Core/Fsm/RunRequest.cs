@@ -26,9 +26,11 @@ public sealed record RunRequest(
 /// <summary>
 /// The request is one task of a task group (design §6). The group verifies with one build of the affected projects at its
 /// end, so the run neither builds nor tests, and the target's signature and name may change. <paramref name="InitialFeedback"/>
-/// (the group build's errors attributed to this task, on a re-run) is the first attempt's feedback.
+/// (the group build's errors attributed to this task, on a re-run) is the first attempt's feedback. <paramref name="EditableHelpers"/>
+/// are the displays of the private helpers this task's earlier runs added: a re-run may change them (they are in its original
+/// file, so the shape check would otherwise reject the change) and sees them as editable.
 /// </summary>
-public sealed record GroupRun(Feedback? InitialFeedback);
+public sealed record GroupRun(Feedback? InitialFeedback, IReadOnlyList<string>? EditableHelpers = null);
 
 /// <summary>
 /// The <c>pelly apply</c> run that hosts this request. Its caller already holds the workspace lock for the whole apply, so
@@ -42,9 +44,11 @@ public sealed record ApplyHost(Workspace Workspace);
 /// cancellation the rolled-back file, or <paramref name="Original"/> when nothing was written; null when it is unknown
 /// (not read, or the rollback found the file changed outside pelly or failed). <paramref name="TargetDisplay"/> is the
 /// target member's display as the run last saw it (a group run's rename or signature change shows here); null without a C# target.
+/// <paramref name="AddedHelpers"/> are the displays of the private helpers the run's patches added (and, in a group re-run, the
+/// editable helpers it was given); null when the orchestrator did not report them.
 /// </summary>
 public sealed record RunResult(int ExitCode, string RunId, string? FilePath, FileSnapshot? Original, FileSnapshot? Final, string? FailureKind,
-    string? TargetDisplay = null);
+    string? TargetDisplay = null, IReadOnlyList<string>? AddedHelpers = null);
 
 /// <summary>State of a <c>pelly sql</c> run (set by SQL LOCATE; null for C# runs).</summary>
 public sealed class SqlRunState(SqlScript originalScript, int targetIndex, SqlObjectName target, SqlObjectKind kind,

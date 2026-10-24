@@ -35,7 +35,7 @@ public sealed class ApplyPhase(FileGuard fileGuard, FeedbackBuilder feedback, IU
         try
         {
             shape = MemberShapeGuard.Check(ctx.Original.Text, patch.NewText!, targetDisplay, ctx.Language!.Version,
-                group ? ShapeAllowance.TargetSignatureAndName : ShapeAllowance.MemberBodyOnly);
+                group ? ShapeAllowance.TargetSignatureAndName : ShapeAllowance.MemberBodyOnly, ctx.Request.Group?.EditableHelpers);
         }
         catch (ShapeTargetNotFoundException ex)
         {
@@ -56,7 +56,9 @@ public sealed class ApplyPhase(FileGuard fileGuard, FeedbackBuilder feedback, IU
 
         // Before the dry-run branch and any write: an edit that leaves the target as in the original (a no-op block, a
         // reformat, or undoing an earlier attempt) is not a change. Helpers it added stay editable for the next attempt.
-        if (NoChangeGuard.CSharpUnchanged(ctx.Original.Text, patch.NewText!, targetDisplay, ctx.Language.Version))
+        // A group re-run that only fixes a helper an earlier run added is a change.
+        if (NoChangeGuard.CSharpUnchanged(ctx.Original.Text, patch.NewText!, targetDisplay, ctx.Language.Version)
+            && (ctx.Request.Group?.EditableHelpers ?? []).All(h => NoChangeGuard.CSharpMemberSame(ctx.Original.Text, patch.NewText!, h, ctx.Language.Version)))
             return NoChange(ctx);
 
         if (ctx.Request.DryRun)

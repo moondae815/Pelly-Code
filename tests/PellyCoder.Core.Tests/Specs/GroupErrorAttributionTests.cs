@@ -119,4 +119,68 @@ public sealed class GroupErrorAttributionTests
 
         Assert.Single(result.ByTask["T1"]);
     }
+
+    // The base list is on line 4; GetOrder spans 6-9, Helper 11-14.
+    private const string Service =
+        "namespace Demo;\n" +
+        "\n" +
+        "public class OrderService\n" +
+        "    : IOrderService\n" +
+        "{\n" +
+        "    public long GetOrder(int id)\n" +
+        "    {\n" +
+        "        return Helper(id);\n" +
+        "    }\n" +
+        "\n" +
+        "    private long Helper(int id)\n" +
+        "    {\n" +
+        "        return id;\n" +
+        "    }\n" +
+        "}\n" +
+        "\n" +
+        "public class Other : IOther\n" +
+        "{\n" +
+        "}\n";
+
+    [Fact]
+    public void Error_on_a_type_header_goes_to_every_group_task_targeting_that_type_in_that_file()
+    {
+        // CS0738: OrderService no longer implements IOrderService.GetOrder with the matching return type.
+        _fs.AddFile(P("App/OrderService.cs"), new MockFileData(Service));
+        var getOrder = new GroupMember("T1", P("App/OrderService.cs"), "OrderService.GetOrder(int)");
+        var elsewhere = new GroupMember("T2", P("App/Calc.cs"), "Calc.Divide(int, int)");
+        var onName = Error("App/OrderService.cs", 3, "CS0535");
+        var onBase = Error("App/OrderService.cs", 4, "CS0738");
+
+        var result = GroupErrorAttribution.Attribute(_fs, Ws, [onName, onBase], [getOrder, elsewhere], LanguageVersion.Latest);
+
+        Assert.Equal([onName, onBase], result.ByTask["T1"]);
+        Assert.False(result.ByTask.ContainsKey("T2"));
+        Assert.Empty(result.Unattributed);
+    }
+
+    [Fact]
+    public void Error_on_the_header_of_a_type_no_group_task_targets_stays_unattributed()
+    {
+        _fs.AddFile(P("App/OrderService.cs"), new MockFileData(Service));
+        var getOrder = new GroupMember("T1", P("App/OrderService.cs"), "OrderService.GetOrder(int)");
+
+        var result = GroupErrorAttribution.Attribute(_fs, Ws, [Error("App/OrderService.cs", 17, "CS0535")], [getOrder], LanguageVersion.Latest);
+
+        Assert.Empty(result.ByTask);
+        Assert.Equal("App/OrderService.cs:17", Assert.Single(result.Unattributed).Location);
+    }
+
+    [Fact]
+    public void Error_inside_a_helper_the_task_added_goes_to_that_task()
+    {
+        _fs.AddFile(P("App/OrderService.cs"), new MockFileData(Service));
+        var getOrder = new GroupMember("T1", P("App/OrderService.cs"), "OrderService.GetOrder(int)", ["OrderService.Helper(int)"]);
+        var error = Error("App/OrderService.cs", 13, "CS0266");
+
+        var result = GroupErrorAttribution.Attribute(_fs, Ws, [error], [getOrder], LanguageVersion.Latest);
+
+        Assert.Equal(error, Assert.Single(result.ByTask["T1"]));
+        Assert.Empty(result.Unattributed);
+    }
 }

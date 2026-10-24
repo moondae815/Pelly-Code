@@ -44,9 +44,11 @@ public static class MemberShapeGuard
     /// <param name="beforeLf">The file before the edit. APPLY passes the run's original text, so helpers added by earlier
     /// attempts count as added (and stay editable) rather than as existing members.</param>
     /// <param name="targetDisplay">The target's display in <paramref name="beforeLf"/> (e.g. <c>Calc.Add(int, int)</c>).</param>
+    /// <param name="editableHelpers">Displays of private helpers in <paramref name="beforeLf"/> that may change or go (a group
+    /// re-run's helpers from earlier runs). Entries that are not private methods of the target's type are ignored.</param>
     /// <exception cref="ShapeTargetNotFoundException">No method, constructor or property with that display in <paramref name="beforeLf"/>.</exception>
     public static ShapeCheck Check(string beforeLf, string afterLf, string targetDisplay, LanguageVersion version,
-        ShapeAllowance allowance = ShapeAllowance.MemberBodyOnly)
+        ShapeAllowance allowance = ShapeAllowance.MemberBodyOnly, IReadOnlyCollection<string>? editableHelpers = null)
     {
         var options = new CSharpParseOptions(version);
         var before = (CompilationUnitSyntax)CSharpSyntaxTree.ParseText(beforeLf, options).GetRoot();
@@ -84,9 +86,15 @@ public static class MemberShapeGuard
                 return Fail($"attributes of {target.Display} changed. Attribute changes are not allowed.");
         }
 
+        // A group re-run may change or replace the private helpers its task's earlier runs added (they are in its original
+        // text now); nothing else is opened by that list.
+        var editable = beforeEntries
+            .Where(e => e != target && editableHelpers?.Contains(e.Display) == true && IsPrivateMethod(e.Node) && e.Scope == target.Scope)
+            .ToHashSet();
+
         // Every other member that existed before must still be there, with the same text (whitespace aside).
         var afterByKey = afterEntries.Where(e => e != newTarget).ToLookup(e => e.Key, StringComparer.Ordinal);
-        foreach (var group in beforeEntries.Where(e => e != target).GroupBy(e => e.Key, StringComparer.Ordinal))
+        foreach (var group in beforeEntries.Where(e => e != target && !editable.Contains(e)).GroupBy(e => e.Key, StringComparer.Ordinal))
         {
             var was = group.Select(e => e.Text).Order(StringComparer.Ordinal);
             var now = afterByKey[group.Key].Select(e => e.Text).Order(StringComparer.Ordinal);

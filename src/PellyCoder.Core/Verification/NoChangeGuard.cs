@@ -25,6 +25,17 @@ public static partial class NoChangeGuard
         return before is not null && after is not null && Same(before, after);
     }
 
+    /// <summary>
+    /// True when the member <paramref name="display"/> reads the same in both texts, or is in neither; false when it was
+    /// added, removed or changed.
+    /// </summary>
+    public static bool CSharpMemberSame(string originalLf, string patchedLf, string display, LanguageVersion version)
+    {
+        var before = MemberText(originalLf, display, version);
+        var after = MemberText(patchedLf, display, version);
+        return before is null ? after is null : after is not null && Same(before, after);
+    }
+
     /// <summary>True when batch <paramref name="targetIndex"/> of the patched file reads the same as in the original script.</summary>
     public static bool SqlUnchanged(SqlScript original, int targetIndex, string patchedLf, int compatLevel)
     {

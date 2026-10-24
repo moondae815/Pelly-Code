@@ -445,6 +445,37 @@ public sealed class MemberShapeGuardTests
         Assert.Equal(["OrderService.Log(long)"], r.AddedPrivateMethods);
     }
 
+    private const string OrdersWithHelper =
+        "namespace Demo;\n\npublic class OrderService\n{\n    public long Cancel(int id)\n    {\n        return Round(id);\n    }\n\n" +
+        "    private long Round(int id)\n    {\n        return id;\n    }\n\n    public int Count() => 0;\n}\n";
+
+    [Fact]
+    public void Group_rerun_may_change_the_helpers_the_task_added()
+    {
+        var after = OrdersWithHelper.Replace("    private long Round(int id)\n    {\n        return id;", "    private long Round(long id)\n    {\n        return id * 2;");
+
+        var allowed = MemberShapeGuard.Check(OrdersWithHelper, after, "OrderService.Cancel(int)", V, ShapeAllowance.TargetSignatureAndName,
+            ["OrderService.Round(int)"]);
+        var notListed = MemberShapeGuard.Check(OrdersWithHelper, after, "OrderService.Cancel(int)", V, ShapeAllowance.TargetSignatureAndName);
+
+        Assert.True(allowed.Ok, allowed.Reason);
+        Assert.Equal(["OrderService.Round(long)"], allowed.AddedPrivateMethods);
+        Assert.False(notListed.Ok);
+        Assert.Equal("member OrderService.Round(int) was removed or changed. Only the target member may change.", notListed.Reason);
+    }
+
+    [Fact]
+    public void Editable_helpers_never_open_a_public_member()
+    {
+        var after = OrdersWithHelper.Replace("public int Count() => 0;", "public int Count() => 1;");
+
+        var r = MemberShapeGuard.Check(OrdersWithHelper, after, "OrderService.Cancel(int)", V, ShapeAllowance.TargetSignatureAndName,
+            ["OrderService.Count()"]);
+
+        Assert.False(r.Ok);
+        Assert.Equal("member OrderService.Count() was removed or changed. Only the target member may change.", r.Reason);
+    }
+
     [Fact]
     public void Group_still_rejects_other_member_change()
     {

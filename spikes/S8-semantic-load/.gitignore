@@ -1,0 +1,4 @@
+bin/
+obj/
+out/
+!S8SemanticLoad.Tests/Fixtures/**/obj/

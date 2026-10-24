@@ -1,6 +1,7 @@
 using System.IO.Abstractions;
 using System.Text;
 using Microsoft.Extensions.Time.Testing;
+using PellyCoder.Core.Abstractions;
 using PellyCoder.Core.Files;
 using PellyCoder.Core.Fsm;
 using PellyCoder.Core.Specs;
@@ -264,6 +265,48 @@ public sealed class SpecRunnerTests : IDisposable
         Assert.DoesNotContain("[x]", spec);
         Assert.Contains("-- T1", Read("db/a.sql")); // the applied task stays
         Assert.Contains(_ui.Warnings, w => w.Contains("명세 파일이 실행 중에 바뀌었습니다"));
+        Assert.Contains(_ui.Warnings, w => w.Contains("작업 T1은 적용됐지만 체크 표시를 남기지 못했습니다"));
+    }
+
+    [Fact]
+    public async Task Review_at_end_reject_with_spec_changed_keeps_files_and_marks()
+    {
+        Spec("- [ ] T1 sql db/a.sql 첫째\n- [ ] T2 sql db/b.sql 둘째\n");
+        _ui.ConfirmAnswers.Enqueue(false);
+        var ui = new ConfirmHookUi(_ui, () => File.AppendAllText(SpecPath, "\n사람이 적은 메모\n"));
+        var code = await new SpecRunner(_fs, _guard, _exec, ui, _time, 160)
+            .RunAsync(SpecPath, Opts(reviewAtEnd: true, yes: false), TestContext.Current.CancellationToken);
+
+        Assert.Equal(4, code);
+        // Nothing is rolled back: the marks could not be cleared, so files and marks stay consistent.
+        Assert.Contains("-- T1", Read("db/a.sql"));
+        Assert.Contains("-- T2", Read("db/b.sql"));
+        var spec = Read("changes/x.md");
+        Assert.Contains("사람이 적은 메모", spec);
+        Assert.Contains("- [x] T1", spec);
+        Assert.Contains("- [x] T2", spec);
+        Assert.Contains(_ui.Warnings, w => w.Contains("거부를 반영하지 못했습니다"));
+    }
+
+    [Fact]
+    public async Task Review_at_end_reject_keeps_marks_for_files_changed_outside()
+    {
+        Spec("- [ ] T1 sql db/a.sql 첫째\n- [ ] T2 sql db/b.sql 둘째\n");
+        _exec.During["T2"] = () => File.AppendAllText(P("db/a.sql"), "-- outside\n");
+        _ui.ConfirmAnswers.Enqueue(false);
+        var code = await Run(Opts(reviewAtEnd: true, yes: false));
+
+        Assert.Equal(4, code);
+        Assert.Equal(Proc, Read("db/b.sql"));
+        Assert.Equal(Proc + "-- T1\n-- outside\n", Read("db/a.sql"));
+        var spec = Read("changes/x.md");
+        Assert.Contains("- [x] T1 sql db/a.sql 첫째 <!-- run: R-T1 -->", spec);
+        Assert.Contains("- [ ] T2 sql db/b.sql 둘째\n", spec);
+        Assert.Contains("status: in-progress", spec);
+        var warning = Assert.Single(_ui.Warnings, w => w.Contains("되돌리지 못한"));
+        Assert.Contains("a.sql", warning);
+        Assert.Contains("T1", warning);
+        Assert.DoesNotContain("b.sql", warning);
     }
 
     [Fact]
@@ -306,6 +349,26 @@ public sealed class SpecRunnerTests : IDisposable
         Assert.Equal(2, code);
         Assert.Equal(["T1", "T2"], _exec.Calls);
         Assert.Contains("- [x] T1", Read("changes/x.md"));
+    }
+
+    /// <summary>Delegates to the scripted UI and runs <paramref name="onConfirm"/> just before each confirm.</summary>
+    private sealed class ConfirmHookUi(ScriptedUserInteraction inner, Action onConfirm) : IUserInteraction
+    {
+        public bool IsInteractive => inner.IsInteractive;
+
+        public Task<bool> ConfirmAsync(string message, bool defaultValue, CancellationToken ct)
+        {
+            onConfirm();
+            return inner.ConfirmAsync(message, defaultValue, ct);
+        }
+
+        public Task<T> SelectAsync<T>(string title, IReadOnlyList<T> choices, Func<T, string> label, CancellationToken ct) =>
+            inner.SelectAsync(title, choices, label, ct);
+
+        public void ShowDiff(string path, string before, string after) => inner.ShowDiff(path, before, after);
+        public void ShowStatus(RunPhase phase, int attempt, string message) => inner.ShowStatus(phase, attempt, message);
+        public void Warn(string message) => inner.Warn(message);
+        public void ShowRunSummary(PellyCoder.Core.Logging.RunSummary summary, string? runDirectory) => inner.ShowRunSummary(summary, runDirectory);
     }
 
     /// <summary>Appends <c>-- &lt;id&gt;</c> to the task's file through FileGuard and reports a scripted exit code.</summary>

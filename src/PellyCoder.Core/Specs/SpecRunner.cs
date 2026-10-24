@@ -95,6 +95,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
     {
         private readonly List<ApplyTaskResult> _results = [];
         private readonly List<string> _marked = [];
+        private readonly Dictionary<string, (string RunId, string Path)> _done = new(StringComparer.Ordinal);
         private SpecDocument _doc = null!;
         private bool _archived;
 
@@ -150,8 +151,11 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
 
                 if (r.ExitCode == 0)
                 {
-                    if (!await SpecWrittenAsync(_doc.MarkDoneAsync(task.Id, r.RunId, CancellationToken.None))) return Finish(4);
+                    if (!await SpecWrittenAsync(_doc.MarkDoneAsync(task.Id, r.RunId, CancellationToken.None),
+                            $"작업 {task.Id}은 적용됐지만 체크 표시를 남기지 못했습니다 — --resume 전에 직접 [x]로 표시하세요."))
+                        return Finish(4);
                     _marked.Add(task.Id);
+                    _done[task.Id] = (r.RunId, r.Original?.Path ?? FullPath(task));
                     continue;
                 }
 
@@ -201,8 +205,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
         /// </summary>
         private bool TrackBeforeRun(ApplyTransaction tx, SpecTask task)
         {
-            var path = owner.Fs.Path;
-            string full = path.GetFullPath(path.Combine(ws.Root, task.Path.Replace('\\', '/').Replace('/', path.DirectorySeparatorChar)));
+            string full = FullPath(task);
             FileSnapshot original;
             try { original = owner.Guard.Read(full); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
@@ -222,6 +225,13 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             }
         }
 
+        // Built as FsmTaskExecutor builds the request path and the FSM preflight resolves it.
+        private string FullPath(SpecTask task)
+        {
+            var path = owner.Fs.Path;
+            return path.GetFullPath(path.Combine(ws.Root, task.Path.Replace('\\', '/').Replace('/', path.DirectorySeparatorChar)));
+        }
+
         /// <summary>Null when the changes are kept; otherwise the exit code after rolling the apply back.</summary>
         private async Task<int?> ReviewAtEndAsync(ApplyTransaction tx, CancellationToken ct)
         {
@@ -234,15 +244,25 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             catch (OperationCanceledException) { approved = false; } // Ctrl+C at the question means "do not apply"
             if (approved) return null;
 
-            var notRestored = await tx.RollbackAsync(CancellationToken.None);
-            if (_marked.Count > 0 && !await SpecWrittenAsync(_doc.ClearMarksAsync(_marked, CancellationToken.None))) return 4;
-            if (!await SpecWrittenAsync(_doc.SetStatusAsync(SpecStatus.Draft, CancellationToken.None))) return 4;
-            if (notRestored.Count > 0)
-            {
-                owner.Ui.Warn("pelly 밖에서 바뀌어 되돌리지 못한 파일이 있습니다:\n" + string.Join("\n", notRestored.Select(p => "  " + p)));
-                return 4;
-            }
-            return 2;
+            // Spec first: if the marks cannot be cleared, the files must stay too, or a rolled-back task would keep its [x].
+            const string NotApplied = "끝 승인 거부를 반영하지 못했습니다. 파일과 체크 표시를 그대로 둡니다.";
+            if (_marked.Count > 0 && !await SpecWrittenAsync(_doc.ClearMarksAsync(_marked, CancellationToken.None), NotApplied)) return 4;
+            if (!await SpecWrittenAsync(_doc.SetStatusAsync(SpecStatus.Draft, CancellationToken.None), NotApplied)) return 4;
+
+            var notRestored = new HashSet<string>(await tx.RollbackAsync(CancellationToken.None), StringComparer.Ordinal);
+            if (notRestored.Count == 0) return 2;
+
+            // A file changed outside pelly keeps the tasks' edits, so those tasks keep their [x].
+            var kept = _done.Where(d => notRestored.Contains(d.Value.Path)).Select(d => d.Key).ToList();
+            foreach (var id in kept)
+                if (!await SpecWrittenAsync(_doc.MarkDoneAsync(id, _done[id].RunId, CancellationToken.None),
+                        $"작업 {id}의 체크 표시를 되살리지 못했습니다 — --resume 전에 직접 [x]로 표시하세요."))
+                    return 4;
+            if (kept.Count > 0) await SpecWrittenAsync(_doc.SetStatusAsync(SpecStatus.InProgress, CancellationToken.None));
+
+            owner.Ui.Warn("pelly 밖에서 바뀌어 되돌리지 못한 파일이 있습니다:\n" + string.Join("\n", notRestored.Select(p => "  " + p))
+                + (kept.Count > 0 ? $"\n이 파일의 작업은 체크 표시를 유지합니다: {string.Join(", ", kept)}" : ""));
+            return 4;
         }
 
         private void Archive()
@@ -259,13 +279,14 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             }
         }
 
-        private async Task<bool> SpecWrittenAsync(Task<FileWriteResult> write)
+        /// <param name="consequence">What the failed write leaves behind; defaults to "applied tasks stay as they are".</param>
+        private async Task<bool> SpecWrittenAsync(Task<FileWriteResult> write, string consequence = "이미 적용된 작업은 그대로 둡니다.")
         {
             var r = await write;
             if (r.Status == FileWriteStatus.Written) return true;
-            owner.Ui.Warn(r.Status == FileWriteStatus.ExternallyChanged
-                ? "명세 파일이 실행 중에 바뀌었습니다. 이미 적용된 작업은 그대로 둡니다."
-                : $"명세 파일을 쓸 수 없습니다: {r.Detail}");
+            owner.Ui.Warn((r.Status == FileWriteStatus.ExternallyChanged
+                ? "명세 파일이 실행 중에 바뀌었습니다. "
+                : $"명세 파일을 쓸 수 없습니다({r.Detail}). ") + consequence);
             return false;
         }
 

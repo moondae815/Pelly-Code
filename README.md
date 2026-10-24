@@ -57,7 +57,7 @@ pelly cs <파일> ["<요청문>"] [--class <클래스>] [--method <메서드>] [
 
 **실행 후 표시 옵션**
 * `--verbose`: 실행이 끝난 뒤 단계별 시간·토큰·시도 요약과 실행 폴더 경로를 보여줍니다. 프롬프트 원문은 출력하지 않고 `attempt-N/prompt.txt` 경로를 안내합니다(`pelly sql`에서도 같습니다).
-* `--pause-on-exit`: 결과를 보여준 뒤 키 입력을 기다립니다. IDE External Tools 창이 바로 닫히지 않게 할 때 씁니다. 여섯 명령(`cs`·`sql`·`doctor`·`report`·`rules init`·`rules check`) 모두의 옵션입니다. 대기 여부는 `Program`이 `--` 앞의 원시 인자로 판정하므로 인자 오류로 끝나도 기다립니다. 입력이 리디렉션되거나 종료 신호를 받으면 기다리지 않습니다. Ctrl+C로 중단한 실행은 기다립니다. 키 대기는 Windows에서 확인하지 않았습니다.
+* `--pause-on-exit`: 결과를 보여준 뒤 키 입력을 기다립니다. IDE External Tools 창이 바로 닫히지 않게 할 때 씁니다. 아홉 명령(`cs`·`sql`·`doctor`·`report`·`rules init`·`rules check`·`spec new`·`spec check`·`apply`) 모두의 옵션입니다. 대기 여부는 `Program`이 `--` 앞의 원시 인자로 판정하므로 인자 오류로 끝나도 기다립니다. 입력이 리디렉션되거나 종료 신호를 받으면 기다리지 않습니다. Ctrl+C로 중단한 실행은 기다립니다. 키 대기는 Windows에서 확인하지 않았습니다.
 
 예:
 ```bash
@@ -111,6 +111,41 @@ pelly sql Settlement_All.sql "조건 추가" --line 120
 * 허용 목록은 `Data Source`의 `.`, `(local)`, `np:` 형태를 정규화하지 않습니다. 허용 목록과 일치하지 않으면 접속을 거부하므로(fail closed) 호스트 이름을 쓰십시오.
 * 연결 문자열에 서버나 데이터베이스 키가 둘 이상 있거나 `Failover Partner`가 있으면 거부합니다(종료 코드 5).
 * **검증 계정 권한:** DB 수준 **`VIEW DEFINITION`** 하나면 됩니다(`ALTER`·`SHOWPLAN` 불필요). 없으면 객체 존재 검사와 스키마 요약이 동작하지 않으므로 종료 코드 4와 안내 메시지로 멈춥니다. `pelly doctor`가 접속·허용 목록·권한을 점검합니다.
+
+### `pelly spec`·`pelly apply` — 작업 명세 파일과 순차 실행 (V2-1a)
+```bash
+pelly spec new <id> [--pause-on-exit]
+pelly spec check <명세 파일> [--config <경로>] [--pause-on-exit]
+pelly apply <명세 파일> [--continue] [--resume] [--review-at-end] [--yes] [--dry-run] \
+            [--max-retries N] [--verbose] [--config <경로>] [--pause-on-exit]
+```
+여러 파일에 걸친 변경을 `changes/<id>.md` 명세 파일에 작업 줄로 적고, 위에서부터 하나씩 `pelly cs`·`pelly sql`과 같은 검증 절차로 적용합니다.
+
+```markdown
+---
+id: add-refund
+status: draft
+---
+# 환불 추가
+
+## 수용 기준
+- AC1: 배송 완료 주문은 취소할 수 없다
+
+## 작업
+- [ ] T1 cs  src/Orders/OrderService.cs#OrderService.Cancel  배송 완료면 예외 던지기 (AC1)
+- [ ] T2 sql db/sp/usp_CancelOrder.sql#dbo.usp_CancelOrder   배송 완료 제외 조건 추가
+```
+
+* **작업 줄:** `- [ ] <ID> <cs|sql> <파일>[#심볼] <요청> [(AC 참조)]`. 필드 사이는 공백 하나 이상입니다. 작업은 최대 20개입니다.
+* **`cs` 작업은 `#멤버`가 필수입니다.** 클래스가 둘 이상이거나 멤버가 겹치면 `#클래스.멤버`로 씁니다. `sql` 작업의 `#객체`는 선택입니다.
+* **`pelly spec check`:** 문법, 대상 파일·심볼 존재, AC 참조, 작업 수 상한을 검사합니다. 오류가 있으면 종료 코드 4입니다. **작업 그룹(`[G1]`)은 V2-1a에서 지원하지 않아** `GroupUnsupported` 오류로 거절됩니다(V2-1b).
+* **`pelly apply`:** 작업마다 성공하면 줄을 `- [x] … <!-- run: <run-id> -->`로, 실패하면 `<!-- failed: <run-id> <종류> -->`로 표시하고 멈춥니다. `--continue`는 실패한 작업을 건너뛰고 나머지를 이어 가며(종료 코드는 1), `--resume`은 완료 표시가 된 작업을 건너뛰고 첫 미완료 작업부터 이어 갑니다. `[x]`가 있는 명세를 `--resume` 없이 실행하면 종료 코드 4입니다.
+* **검토:** 기본은 작업마다 diff 승인을 묻습니다. `--review-at-end`는 전부 끝난 뒤 한 번만 묻고, 거부하면 이번 apply가 바꾼 파일을 모두 되돌립니다(종료 코드 2).
+* **비대화형 실행에는 `--yes`가 필요합니다.** 없으면 파일을 건드리기 전에 종료 코드 4입니다.
+* **전체 작업이 성공하면** 명세를 `status: done`으로 바꿔 `changes/archive/<yyyy-MM-dd>-<id>.md`로 옮깁니다(같은 이름이 있으면 `-2`, `-3`). 하나라도 실패하면 보관하지 않고 `status: in-progress`로 둡니다.
+* **기록:** 백업은 `.pelly/backup/<apply-id>/`, 요약은 `.pelly/runs/<apply-id>/apply.json`입니다. 작업별 실행 기록은 기존 `.pelly/runs/<run-id>/`입니다. apply 한 번이 작업 공간 잠금을 끝까지 잡습니다.
+* **종료 코드:** 0 전부 성공, 1 검증 실패, 2 사용자 거부, 3 대상 찾기 실패, 4 환경·입력 오류(명세 오류, 실행 중 명세 파일을 바깥에서 고친 경우 포함), 5 안전 거부. `--continue`에서 전역적 오류(4)가 나면 거기서 멈춥니다.
+* 명세 파일이 실행 중에 사람의 손으로 바뀌면 덮어쓰지 않고 종료 코드 4로 멈춥니다. 아직 지원하지 않는 것: 작업 그룹과 영향 탐색(V2-1b·c).
 
 ### `pelly rules` — 프로젝트 규칙 (AGENTS.md)
 ```bash

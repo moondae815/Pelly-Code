@@ -22,6 +22,7 @@
 | v1.11 | 2026-10-19 | M4 준비 반영(상세는 설계 문서 §10.6, §11): §8.1 벤치마크 스위트(`suite.json` 루트 목록, 작업 `file` = `<루트 이름>/<경로>`, 내장 스위트 `eval/benchmark/suite.json`, `--suite`·`--keep-work`)와 사전 검사 `validate`(정적, `--deep`은 원본에서 판정 시험 실행), 실행 조건에 Ollama 버전·모델 digest 기록(요약 `formatVersion` 2, 1도 읽음, `compare`는 digest·Ollama 버전이 다르면 판정 거부), `record`(버전 기록, `modelGgufSha256` 추가), `export`(비식별 반출), FR-08 doctor SQL 행의 인증 방식(Windows 인증 / SQL 로그인)과 `--sanitize`에서 로그인 이름 제거, §11.1 두 번째 반입 zip `pelly-field-kit-0.9.1-win-x64.zip`(`pelly-eval.exe` 단일 파일 + 현장 절차 문서 + 스위트 템플릿), `pelly`의 값이 필요한 옵션에 값이 없으면 종료 4와 .NET 텔레메트리 끔 환경 변수(0.9.1), §9 M4 현장 키트 절차와 반입 전 사람 결정 다섯 가지, 버전 `0.9.1` (M4 준비 T1~T10) |
 | v1.12 | 2026-10-19 | 반입 전 사람 결정 반영: ① `Microsoft.Data.SqlClient.SNI.runtime` 라이선스 예외를 사람이 승인(잠정 해제, 1.0.0 게이트 통과 조건 충족) ② pelly 자체 `LICENSE`는 Payletter 사내 전용(All rights reserved)으로 두 zip 맨 위에 넣음(반입 zip 14개 파일·현장 키트 14개 파일) ③ S7 Rider 실기 확인은 하지 않고 「실기 미확인」으로 종결(현장 개발 PC는 Visual Studio, VS는 M4 현장 확인표) ④ 폐쇄망 정보 Q9~Q13은 질문지 `docs/m4-field-questionnaire.md`로 담당자에게 받음 |
 | v1.13 | 2026-10-24 | V2-3 프로젝트 규칙 구현: 규칙을 `pelly.rules.md` 대신 작업 공간 루트 `AGENTS.md`의 `## Pelly rules` 절로 두고 `pelly rules init`·`pelly rules check` 추가, 규칙을 사용자 메시지(CONTEXT 뒤)에 넣어 시스템 부분을 고정, `budget.system` 600 → 450·`budget.rules` 150, `forbid`는 모든 규칙을 원본 대비 추가된 줄에서 검사하고 정규식 시간 초과는 종료 코드 4, "규칙 도입 효과(+5%p)" KPI는 미측정 (설계 결정 1–6은 `docs/superpowers/plans/2026-10-24-pelly-v2-3-project-rules.md`) |
+| v1.14 | 2026-10-24 | V2-1a 구현: 명세 파일·spec new/check·순차 apply. 그룹·영향 탐색은 V2-1b·c |
 
 ---
 
@@ -589,6 +590,8 @@ v2는 Superpowers, OpenSpec 같은 개발 하네스의 아이디어를 가져오
 * 각 단계가 끝날 때마다 폐쇄망으로 반입해 검증합니다(§11.3).
 
 ### 12.3 V2-1. 작업 명세 파일과 순차 실행 (`pelly apply`)
+> **구현(V2-1a): 2026-10-24.** 명세 파일, `pelly spec new`·`pelly spec check`, 순차 `pelly apply`(`--continue`·`--resume`·`--review-at-end`)가 구현됐습니다. **작업 그룹(`[G<n>]`)과 영향 탐색은 V2-1b·c이며 아직 없습니다.** `spec check`는 그룹을 `GroupUnsupported` 오류로 거절합니다. 설계는 `docs/superpowers/specs/2026-10-24-v2-1-apply-design.md`, 사용법은 README `pelly apply` 절을 보십시오.
+
 OpenSpec의 "변경 제안 → 작업 목록 → 적용 → 보관" 흐름에서 착안했습니다. v1은 한 번에 메서드 하나만 고칠 수 있습니다. 이 기능은 그 단위를 유지한 채, 여러 파일에 걸친 변경을 사람이 정한 순서대로 처리합니다.
 
 * **명세 파일 형식** (`changes/<id>.md`, 사람이 작성):

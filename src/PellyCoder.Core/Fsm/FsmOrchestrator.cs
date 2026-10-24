@@ -20,11 +20,17 @@ public sealed class FsmOrchestrator(
 
     private readonly Dictionary<RunPhase, IPhase> _phases = phases.ToDictionary(p => p.Phase);
 
-    public async Task<int> RunAsync(RunRequest request, CancellationToken ct)
+    public async Task<int> RunAsync(RunRequest request, CancellationToken ct) =>
+        (await RunDetailedAsync(request, ct)).ExitCode;
+
+    /// <summary>Runs the request and reports how it left the target file (see <see cref="RunResult"/>).</summary>
+    public async Task<RunResult> RunDetailedAsync(RunRequest request, CancellationToken ct)
     {
         var ctx = new RunContext(RunLogger.NewRunId(time), request, options);
         var messages = new MessageSink(ui, ctx);
         var logStarted = false;
+        // Null until the file was read; then the file as this run leaves it (null when unknown after a failed rollback).
+        FileSnapshot? final = null;
         try
         {
             while (!Transitions.IsTerminal(ctx.Phase))
@@ -67,8 +73,15 @@ public sealed class FsmOrchestrator(
             try
             {
                 await StopBaselineAsync(ctx);
-                if (ctx.Phase == RunPhase.Failed) await RollbackAsync(ctx);
-                else ctx.FailureKind = null;
+                if (ctx.Phase == RunPhase.Failed)
+                {
+                    final = await RollbackAsync(ctx);
+                }
+                else
+                {
+                    ctx.FailureKind = null;
+                    final = ctx.Current;
+                }
 
                 messages.Flush(); // before Complete, so a display failure is still recorded in messages.txt
                 if (!logStarted && ctx.Workspace is not null) BestEffort(ctx, () => logger.Start(ctx));
@@ -88,7 +101,8 @@ public sealed class FsmOrchestrator(
                 ctx.Lock?.Dispose();
             }
         }
-        return ctx.ExitCode;
+        return new RunResult(ctx.ExitCode, ctx.RunId, ctx.FilePath.Length == 0 ? null : ctx.FilePath,
+            ctx.Original, final, ctx.FailureKind);
     }
 
     /// <summary>Runs a logging or display call; a failure is noted in the messages and never changes the outcome.</summary>
@@ -170,10 +184,15 @@ public sealed class FsmOrchestrator(
         }
     }
 
-    /// <summary>Restores the original bytes when pelly wrote anything. Never overwrites a change made outside pelly.</summary>
-    private async Task RollbackAsync(RunContext ctx)
+    /// <summary>
+    /// Restores the original bytes when pelly wrote anything. Never overwrites a change made outside pelly.
+    /// Returns the file as left: the restored snapshot, <see cref="RunContext.Current"/> when nothing needed restoring
+    /// (null before Preflight read the file), or null when the file was not restored.
+    /// </summary>
+    private async Task<FileSnapshot?> RollbackAsync(RunContext ctx)
     {
-        if (ctx.BackupPath is null || ctx.Current.Sha256 == ctx.Original.Sha256) return;
+        if (ctx.Original is null) return null;
+        if (ctx.BackupPath is null || ctx.Current.Sha256 == ctx.Original.Sha256) return ctx.Current;
         try
         {
             var result = await fileGuard.RestoreAsync(ctx.BackupPath, ctx.Current, CancellationToken.None);
@@ -182,7 +201,7 @@ public sealed class FsmOrchestrator(
                 case FileWriteStatus.Written:
                     ctx.Current = result.Snapshot!;
                     ctx.Messages.Add($"원래 파일로 되돌렸습니다: {ctx.FilePath}");
-                    break;
+                    return ctx.Current;
                 case FileWriteStatus.ExternallyChanged:
                     ctx.Messages.Add($"파일이 pelly 밖에서 바뀌어 되돌리지 않았습니다. 원본은 {ctx.BackupPath}에 있습니다.");
                     break;
@@ -195,6 +214,7 @@ public sealed class FsmOrchestrator(
         {
             ctx.Messages.Add($"원래 파일로 되돌리지 못했습니다 ({ex.GetType().Name}: {ex.Message}). 원본은 {ctx.BackupPath}에 있습니다.");
         }
+        return null;
     }
 
     /// <summary>Failure label for outcomes the phase itself does not label (patch failures carry their own kind).</summary>

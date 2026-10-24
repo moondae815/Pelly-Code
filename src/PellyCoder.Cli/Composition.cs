@@ -50,13 +50,13 @@ public static class Composition
     private sealed class OrchestratorRunner(
         IFileSystem fs, IUserInteraction ui, TimeProvider time, HttpClientHolder http, IProcessRunner processes) : IRunner
     {
-        public Task<int> RunAsync(RunRequest request, PellyOptions options, CancellationToken ct)
+        public Task<RunResult> RunDetailedAsync(RunRequest request, PellyOptions options, CancellationToken ct)
         {
             var backend = new OllamaBackend(http.Get(options.Llm), options.Llm, time);
             if (request.Kind == EditKind.Sql)
                 return FsmOrchestratorFactory.CreateSql(fs, backend, ui, options, time, new SqlServerExecutor(options.Sql.ConnectionString))
-                    .RunAsync(request, ct);
-            return FsmOrchestratorFactory.Create(fs, backend, ui, options, time, processes).RunAsync(request, ct);
+                    .RunDetailedAsync(request, ct);
+            return FsmOrchestratorFactory.Create(fs, backend, ui, options, time, processes).RunDetailedAsync(request, ct);
         }
     }
 

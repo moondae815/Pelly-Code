@@ -27,12 +27,25 @@ public sealed class PreflightPhase(IFileSystem fs, FileGuard fileGuard, ILlmBack
         if (!fs.File.Exists(path))
             return Env(ctx, $"대상 파일이 없습니다: {path}");
 
-        var ws = WorkspaceLocator.Resolve(fs, path);
-        ctx.Workspace = ws;
-        WorkspaceLocator.EnsurePellyDir(fs, ws);
-        ctx.Lock = WorkspaceLock.TryAcquire(fs, ws);
-        if (ctx.Lock is null)
-            return Env(ctx, $"다른 pelly 실행이 진행 중입니다 (작업 폴더: {ws.Root}). 그 실행이 끝난 뒤 다시 시도하세요.");
+        Workspace ws;
+        if (ctx.Request.Host is { } host)
+        {
+            // The apply holds the lock for all its tasks; ctx.Lock stays null so the orchestrator never releases it.
+            if (!IsUnder(host.Workspace.Root, path))
+                return Env(ctx, $"대상 파일이 apply 작업 공간 밖입니다: {path} (작업 공간: {host.Workspace.Root})");
+            ws = host.Workspace;
+            ctx.Workspace = ws;
+            WorkspaceLocator.EnsurePellyDir(fs, ws);
+        }
+        else
+        {
+            ws = WorkspaceLocator.Resolve(fs, path);
+            ctx.Workspace = ws;
+            WorkspaceLocator.EnsurePellyDir(fs, ws);
+            ctx.Lock = WorkspaceLock.TryAcquire(fs, ws);
+            if (ctx.Lock is null)
+                return Env(ctx, $"다른 pelly 실행이 진행 중입니다 (작업 폴더: {ws.Root}). 그 실행이 끝난 뒤 다시 시도하세요.");
+        }
 
         var loaded = RulesLoader.Load(fs, ws);
         if (loaded.Errors.Count > 0)
@@ -90,6 +103,17 @@ public sealed class PreflightPhase(IFileSystem fs, FileGuard fileGuard, ILlmBack
                 + $"`ollama pull {llm.Model}`로 받거나 llm.model 설정을 확인하세요 (`pelly doctor`).");
 
         return PhaseOutcome.Ok;
+    }
+
+    /// <summary>True when <paramref name="path"/> lies inside <paramref name="root"/> (path-segment aware, platform case rules).</summary>
+    private bool IsUnder(string root, string path)
+    {
+        var relative = fs.Path.GetRelativePath(fs.Path.GetFullPath(root), path);
+        return relative != "."
+            && !fs.Path.IsPathRooted(relative)
+            && relative != ".."
+            && !relative.StartsWith(".." + fs.Path.DirectorySeparatorChar, StringComparison.Ordinal)
+            && !relative.StartsWith(".." + fs.Path.AltDirectorySeparatorChar, StringComparison.Ordinal);
     }
 
     private static PhaseOutcome EnvKind(RunContext ctx, string kind, string message)

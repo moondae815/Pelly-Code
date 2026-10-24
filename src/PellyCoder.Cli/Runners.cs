@@ -4,10 +4,15 @@ using PellyCoder.Core.Fsm;
 
 namespace PellyCoder.Cli;
 
-/// <summary>Runs one <c>pelly cs</c> request. Options are passed per call because CLI flags override them.</summary>
+/// <summary>Runs one <c>pelly cs</c> or <c>pelly sql</c> request. Options are passed per call because CLI flags override them.</summary>
 public interface IRunner
 {
-    Task<int> RunAsync(RunRequest request, PellyOptions options, CancellationToken ct);
+    /// <summary>Runs the request and reports how it left the target file (used by <c>pelly apply</c>).</summary>
+    Task<RunResult> RunDetailedAsync(RunRequest request, PellyOptions options, CancellationToken ct);
+
+    /// <summary>The exit code of <see cref="RunDetailedAsync"/>.</summary>
+    async Task<int> RunAsync(RunRequest request, PellyOptions options, CancellationToken ct) =>
+        (await RunDetailedAsync(request, options, ct)).ExitCode;
 }
 
 /// <summary>Runs the <c>pelly doctor</c> checks for the given options.</summary>

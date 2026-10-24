@@ -20,11 +20,11 @@ public class SqlCommandTests
         public RunRequest? Request;
         public int Calls;
 
-        public Task<int> RunAsync(RunRequest request, PellyOptions options, CancellationToken ct)
+        public Task<RunResult> RunDetailedAsync(RunRequest request, PellyOptions options, CancellationToken ct)
         {
             Calls++;
             Request = request;
-            return Task.FromResult(0);
+            return Task.FromResult(new RunResult(0, "run-fake", request.FilePath, null, null, null));
         }
     }
 

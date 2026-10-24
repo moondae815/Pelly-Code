@@ -21,12 +21,12 @@ public class CsCommandTests
         public PellyOptions? Options;
         public int Calls;
 
-        public Task<int> RunAsync(RunRequest request, PellyOptions options, CancellationToken ct)
+        public Task<RunResult> RunDetailedAsync(RunRequest request, PellyOptions options, CancellationToken ct)
         {
             Calls++;
             Request = request;
             Options = options;
-            return Task.FromResult(exitCode);
+            return Task.FromResult(new RunResult(exitCode, "run-fake", request.FilePath, null, null, null));
         }
     }
 

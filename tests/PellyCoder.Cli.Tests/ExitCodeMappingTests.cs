@@ -18,10 +18,10 @@ public class ExitCodeMappingTests
 
     private sealed class CancellingRunner : IRunner
     {
-        public Task<int> RunAsync(RunRequest request, PellyOptions options, CancellationToken ct)
+        public Task<RunResult> RunDetailedAsync(RunRequest request, PellyOptions options, CancellationToken ct)
         {
             ct.ThrowIfCancellationRequested();
-            return Task.FromResult(0);
+            return Task.FromResult(new RunResult(0, "run-fake", request.FilePath, null, null, null));
         }
     }
 
@@ -36,7 +36,7 @@ public class ExitCodeMappingTests
 
     private sealed class StrayCancelRunner : IRunner
     {
-        public Task<int> RunAsync(RunRequest request, PellyOptions options, CancellationToken ct) =>
+        public Task<RunResult> RunDetailedAsync(RunRequest request, PellyOptions options, CancellationToken ct) =>
             throw new TaskCanceledException("http timeout");
     }
 

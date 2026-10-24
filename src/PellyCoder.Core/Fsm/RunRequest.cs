@@ -15,10 +15,26 @@ namespace PellyCoder.Core.Fsm;
 /// One <c>pelly cs</c> invocation. The target is <paramref name="Line"/> (1-based, not with a class or method name), else
 /// <paramref name="MethodName"/>, else found from the request text (design 8.4). <paramref name="MaxRetries"/> null means
 /// <c>retry.max</c> from the options. <paramref name="RunTests"/> (<c>--test</c>) adds the test step to VERIFY.
+/// <paramref name="Host"/> is set when <c>pelly apply</c> runs this request as one of its tasks.
 /// </summary>
 public sealed record RunRequest(
     string FilePath, string? ClassName, string? MethodName, int? Line, string Request, bool Yes, bool DryRun, int? MaxRetries,
-    string? ObjectName = null, EditKind Kind = EditKind.CSharp, bool Verbose = false, bool RunTests = false);
+    string? ObjectName = null, EditKind Kind = EditKind.CSharp, bool Verbose = false, bool RunTests = false,
+    ApplyHost? Host = null);
+
+/// <summary>
+/// The <c>pelly apply</c> run that hosts this request. Its caller already holds the workspace lock for the whole apply, so
+/// PREFLIGHT neither takes nor releases it, uses <paramref name="Workspace"/> and refuses a target file outside its root.
+/// </summary>
+public sealed record ApplyHost(Workspace Workspace);
+
+/// <summary>
+/// Outcome of one run. <paramref name="Original"/> is the file as first read (null when the run failed before reading it).
+/// <paramref name="Final"/> is the file as the run left it: the last write on success; after a failure, rejection or
+/// cancellation the rolled-back file, or <paramref name="Original"/> when nothing was written; null when it is unknown
+/// (not read, or the rollback found the file changed outside pelly or failed).
+/// </summary>
+public sealed record RunResult(int ExitCode, string RunId, string? FilePath, FileSnapshot? Original, FileSnapshot? Final, string? FailureKind);
 
 /// <summary>State of a <c>pelly sql</c> run (set by SQL LOCATE; null for C# runs).</summary>
 public sealed class SqlRunState(SqlScript originalScript, int targetIndex, SqlObjectName target, SqlObjectKind kind,

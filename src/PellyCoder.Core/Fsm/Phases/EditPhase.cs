@@ -23,7 +23,7 @@ public sealed class EditPhase(PromptBuilder prompts, QwenStreamClient client, Fe
         var used = ctx.Feedback;
         var prompt = ctx.Target!.Kind == EditKind.Sql
             ? prompts.BuildSql(ctx.Target, ctx.Sql!.Kind, ctx.SliceResult.Slice, ctx.Request.Request, used, ctx.Rules)
-            : prompts.BuildCSharp(ctx.Target, ctx.SliceResult.Slice, ctx.Request.Request, used, ctx.Rules);
+            : prompts.BuildCSharp(ctx.Target, ctx.SliceResult.Slice, ctx.Request.Request, used, ctx.Rules, ctx.Request.Group is not null);
         ctx.Prompt = prompt;
         if (prompt.Error != PromptBudgetError.None)
         {

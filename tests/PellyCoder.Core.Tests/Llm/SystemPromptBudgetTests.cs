@@ -21,6 +21,14 @@ public sealed class SystemPromptBudgetTests
     }
 
     [Fact]
+    public void CSharpGroup_SystemAndFewShot_FitDefaultSystemBudget()
+    {
+        var tokens = SystemTokens(Resources.SystemCsGroup, Resources.FewShotCs, "C# 12, .NET 8");
+
+        Assert.True(tokens <= new BudgetOptions().System, $"C# group system prompt is {tokens} tokens; budget.system is {new BudgetOptions().System}");
+    }
+
+    [Fact]
     public void Sql_SystemAndFewShot_FitDefaultSystemBudget()
     {
         var tokens = SystemTokens(Resources.SystemSql, Resources.FewShotSql, "T-SQL, SQL Server compatibility level 160");

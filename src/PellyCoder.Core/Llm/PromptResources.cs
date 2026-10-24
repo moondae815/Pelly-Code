@@ -8,7 +8,7 @@ namespace PellyCoder.Core.Llm;
 /// </summary>
 public sealed record PromptResources(
     string SystemCs, string FewShotCs, string Version, string Locate,
-    string SystemSql = "", string FewShotSql = "", string SqlVersion = "")
+    string SystemSql = "", string FewShotSql = "", string SqlVersion = "", string SystemCsGroup = "")
 {
     private const string Prefix = "PellyCoder.Core.Llm.Resources.";
     private const string VersionPrefix = "# version:";
@@ -20,13 +20,17 @@ public sealed record PromptResources(
         if (systemVersion != fewShotVersion)
             throw new InvalidOperationException(
                 $"Prompt resource versions differ: system.cs.txt={systemVersion}, fewshot.cs.txt={fewShotVersion}.");
+        var (systemGroup, systemGroupVersion) = Load("system.cs.group.txt");
+        if (systemGroupVersion != systemVersion)
+            throw new InvalidOperationException(
+                $"Prompt resource versions differ: system.cs.txt={systemVersion}, system.cs.group.txt={systemGroupVersion}.");
         var (locate, _) = Load("locate.txt");
         var (systemSql, systemSqlVersion) = Load("system.sql.txt");
         var (fewShotSql, fewShotSqlVersion) = Load("fewshot.sql.txt");
         if (systemSqlVersion != fewShotSqlVersion)
             throw new InvalidOperationException(
                 $"Prompt resource versions differ: system.sql.txt={systemSqlVersion}, fewshot.sql.txt={fewShotSqlVersion}.");
-        return new PromptResources(system, fewShot, "cs-v" + systemVersion, locate, systemSql, fewShotSql, "sql-v" + systemSqlVersion);
+        return new PromptResources(system, fewShot, "cs-v" + systemVersion, locate, systemSql, fewShotSql, "sql-v" + systemSqlVersion, systemGroup);
     }
 
     /// <summary>Prompt version recorded in the run summary for the edit kind.</summary>

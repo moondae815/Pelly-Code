@@ -70,6 +70,30 @@ public sealed class PromptBuilderTests
     }
 
     [Fact]
+    public void Group_prompt_differs_only_in_rule_5()
+    {
+        var normal = Resources.SystemCs.Split('\n');
+        var group = Resources.SystemCsGroup.Split('\n');
+        Assert.Equal(normal.Length, group.Length);
+        var differing = normal.Zip(group).Where(p => p.First != p.Second).ToList();
+        var pair = Assert.Single(differing);
+        Assert.StartsWith("5.", pair.First);
+        Assert.StartsWith("5.", pair.Second);
+        Assert.Equal("5. Change this member's signature only as far as the request asks; you may rename it. Do not change any other member. You may add a private helper method right after the target member.", pair.Second);
+    }
+
+    [Fact]
+    public void Group_flag_selects_group_system_prompt()
+    {
+        var b = NewBuilder();
+        var group = b.BuildCSharp(Target(), FullSlice(), "rename it", null, null, group: true).BasePrompt;
+        var normal = b.BuildCSharp(Target(), FullSlice(), "rename it", null).BasePrompt;
+        Assert.Contains("you may rename it", group);
+        Assert.DoesNotContain("you may rename it", normal);
+        Assert.Contains("Do not change the member's signature", normal);
+    }
+
+    [Fact]
     public void SystemPrompt_Rule3_NamesHelperRegion()
     {
         Assert.Contains("3. SEARCH must copy contiguous lines verbatim from [EDITABLE: target], [EDITABLE: usings] or [EDITABLE: helper]. Never copy from [READ-ONLY] sections.",

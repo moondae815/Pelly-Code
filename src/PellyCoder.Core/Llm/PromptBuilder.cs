@@ -35,10 +35,10 @@ public sealed class PromptBuilder(QwenChatTemplate template, PromptResources res
         ("target", "[EDITABLE: target]"),
     };
 
-    public PromptBuildResult BuildCSharp(EditTarget target, Slice slice, string request, Feedback? feedback, IReadOnlyList<ProjectRule>? rules = null)
+    public PromptBuildResult BuildCSharp(EditTarget target, Slice slice, string request, Feedback? feedback, IReadOnlyList<ProjectRule>? rules = null, bool group = false)
     {
         var requestText = request.Trim();
-        var system = resources.SystemCs.Replace(HintPlaceholder, slice.LanguageHint) + "\n\n" + resources.FewShotCs;
+        var system = (group ? resources.SystemCsGroup : resources.SystemCs).Replace(HintPlaceholder, slice.LanguageHint) + "\n\n" + resources.FewShotCs;
 
         var lines = new List<string>
         {

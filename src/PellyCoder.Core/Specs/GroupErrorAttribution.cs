@@ -55,7 +55,7 @@ public static class GroupErrorAttribution
                 continue;
             }
 
-            unattributed.Add((enclosing is null ? $"{error.File}:{error.Line}" : $"{error.File}#{NameOf(enclosing.Display)}", error));
+            unattributed.Add((enclosing is null ? $"{error.File}:{error.Line}" : $"{error.File}#{MemberLocator.NameOf(enclosing.Display)}", error));
         }
 
         return new Attribution(
@@ -75,13 +75,5 @@ public static class GroupErrorAttribution
         {
             return null;
         }
-    }
-
-    /// <summary>The bare member name of a display: text before the parameter list, after the last dot.</summary>
-    private static string NameOf(string display)
-    {
-        var paren = display.IndexOf('(');
-        var head = paren >= 0 ? display[..paren] : display;
-        return head[(head.LastIndexOf('.') + 1)..];
     }
 }

@@ -12,7 +12,27 @@ public static class Program
     public const string JsonStart = "--S8-JSON-START--";
     public const string JsonEnd = "--S8-JSON-END--";
 
-    public static async Task<int> Main(string[] args) => await RunAsync(args);
+    public static async Task<int> Main(string[] args)
+    {
+        ForceEnglishMessages();
+        return await RunAsync(args);
+    }
+
+    /// <summary>
+    /// Roslyn, the build host and MSBuild localize their messages (Korean on field PCs), and the issue
+    /// classifier matches English words. Pin this process and its children to English.
+    /// </summary>
+    public static void ForceEnglishMessages()
+    {
+        System.Globalization.CultureInfo.CurrentUICulture = System.Globalization.CultureInfo.InvariantCulture;
+        System.Globalization.CultureInfo.DefaultThreadCurrentUICulture = System.Globalization.CultureInfo.InvariantCulture;
+        Environment.SetEnvironmentVariable("VSLANG", "1033");
+        Environment.SetEnvironmentVariable("DOTNET_CLI_UI_LANGUAGE", "en");
+    }
+
+    /// <summary>A load that throws because the build host or MSBuild is missing is exit 3, like the diagnostic case.</summary>
+    public static int ExitCodeFor(Exception ex) =>
+        DiagnosticClassifier.Classify(ex.Message) == WorkspaceIssueKind.MsBuildNotFound ? 3 : 1;
 
     private sealed record Args(string Path, int Repeat, string? Out, bool Detail, bool CheckA3, string Form, bool Once);
 
@@ -31,8 +51,10 @@ public static class Program
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            Console.Error.WriteLine(parsed.Detail ? ex.ToString() : $"오류: {ex.GetType().Name}");
-            return 1;
+            var code = ExitCodeFor(ex);
+            Console.Error.WriteLine(parsed.Detail ? ex.ToString()
+                : code == 3 ? $"오류: {LoadReport.KindName(WorkspaceIssueKind.MsBuildNotFound)} (불러오기 중 예외)" : $"오류: {ex.GetType().Name}");
+            return code;
         }
     }
 
@@ -86,7 +108,9 @@ public static class Program
             var end = stdout.IndexOf(JsonEnd, StringComparison.Ordinal);
             if (start < 0 || end < start)
             {
-                Console.Error.WriteLine($"{i + 1}회: 결과 없음 (종료 {code})");
+                Console.Error.WriteLine($"{i + 1}회: 결과 없음 (종료 {code}{(code == 3 ? ", " + LoadReport.KindName(WorkspaceIssueKind.MsBuildNotFound) : "")})");
+                if (a.Out is not null)
+                    await File.WriteAllTextAsync(a.Out, JsonSerializer.Serialize(new { runs = runs.Select(r => r.Sanitized()), failure = new { run = i + 1, exit = code } }, LoadReport.Json));
                 if (a.Detail) Console.Error.WriteLine(stderr);
                 return code == 0 ? 1 : code;
             }

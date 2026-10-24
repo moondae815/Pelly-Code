@@ -14,4 +14,15 @@
   <ItemGroup>
     <ProjectReference Include="../../S6-planning/S6Planning/S6Planning.csproj" />
   </ItemGroup>
+  <!--
+    배포 형태 3: 단일 파일이지만 Roslyn 보조 프로세스(BuildHost-net472, BuildHost-netcore)는 exe 옆 폴더에 둔다.
+    보조 프로세스는 별도 프로세스로 뜨므로 묶음 안에 있으면 찾지 못한다("build host not found").
+  -->
+  <Target Name="S8KeepBuildHostOutside" AfterTargets="ComputeResolvedFilesToPublishList" Condition="'$(S8BuildHostOutside)' == 'true'">
+    <ItemGroup>
+      <_S8BuildHost Include="@(ResolvedFileToPublish)" Condition="$([System.String]::new('%(ResolvedFileToPublish.RelativePath)').StartsWith('BuildHost-'))" />
+      <ResolvedFileToPublish Remove="@(_S8BuildHost)" />
+      <ResolvedFileToPublish Include="@(_S8BuildHost)" ExcludeFromSingleFile="true" />
+    </ItemGroup>
+  </Target>
 </Project>

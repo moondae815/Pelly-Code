@@ -1,0 +1,79 @@
+name: s8-semantic-load
+
+# S8 의미 분석 불러오기 측정 (현장 대리). 매 push마다 돌지 않는다:
+# 수동 실행, 또는 측정 브랜치에서 S8 파일이 바뀐 push일 때만 돈다.
+on:
+  workflow_dispatch:
+  push:
+    branches: [docs/s8-semantic-load]
+    paths:
+      - spikes/S8-semantic-load/**
+      - .github/workflows/s8-semantic-load.yml
+
+env:
+  DOTNET_NOLOGO: "1"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+
+jobs:
+  measure:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore and build the corpora
+        shell: pwsh
+        run: |
+          ./eval/corpus/Legacy/build.ps1
+          dotnet restore eval/corpus/Modern/Modern.sln
+
+      - name: Spike tests (Windows expectations for Legacy)
+        shell: pwsh
+        run: |
+          cd spikes/S8-semantic-load/S8SemanticLoad.Tests
+          dotnet test
+
+      - name: Publish three forms
+        shell: pwsh
+        run: ./spikes/S8-semantic-load/publish.ps1 -Rid win-x64 -Out out
+
+      - name: Visual Studio version (MSBuild guess)
+        shell: pwsh
+        run: |
+          & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationVersion | Tee-Object out/vswhere.txt
+
+      - name: Measure forms x targets
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $targets = @{ Modern = 'eval/corpus/Modern/Modern.sln'; Legacy = 'eval/corpus/Legacy/Legacy.sln' }
+          $codes = @()
+          foreach ($form in 'folder', 'singlefile', 'singlefile-buildhost') {
+            foreach ($name in $targets.Keys) {
+              $extra = @()
+              if ($name -eq 'Legacy') { $extra = @('--check-corpus', 'a3') }
+              & "out/$form/s8.exe" load $targets[$name] --repeat 3 --form $form --out "out/$form-$name.json" @extra
+              $codes += "$form $name exit $LASTEXITCODE"
+            }
+          }
+          $codes | Tee-Object out/exit-codes.txt
+
+      - name: MSBuild missing (MSBUILD_EXE_PATH to a bad path)
+        shell: pwsh
+        continue-on-error: true
+        env:
+          MSBUILD_EXE_PATH: C:\nope\MSBuild.exe
+        run: |
+          & out/folder/s8.exe load eval/corpus/Legacy/Legacy.sln --repeat 1 --form folder-no-msbuild --out out/folder-no-msbuild-Legacy.json
+          "folder-no-msbuild Legacy exit $LASTEXITCODE" | Tee-Object -Append out/exit-codes.txt
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: s8-results
+          path: |
+            out/*.json
+            out/*.txt

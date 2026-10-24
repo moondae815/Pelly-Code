@@ -14,7 +14,7 @@ public static class DiagnosticClassifier
         var m = message.ToLowerInvariant();
         bool Has(params string[] any) => any.Any(m.Contains);
 
-        if (m.Contains("build host not found")
+        if (Has("build host not found", "build host could not be found")
             || (m.Contains("msbuild") && Has("not found", "could not be found", "cannot find", "no msbuild")))
             return WorkspaceIssueKind.MsBuildNotFound;
         if (Has("not supported", "unsupported", "cannot open project", "project file type"))

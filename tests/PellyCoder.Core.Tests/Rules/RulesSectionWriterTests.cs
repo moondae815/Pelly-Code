@@ -32,7 +32,7 @@ public class RulesSectionWriterTests
     public void BuildSection_NoRules_ExplainsAndParsesEmpty()
     {
         var s = RulesSectionWriter.BuildSection([], new DateOnly(2026, 1, 2));
-        Assert.Contains("<!-- 일관된 패턴을 찾지 못했습니다. 예: - [*] 주석은 한국어로 작성한다 -->\n", s);
+        Assert.Contains("<!-- 일관된 패턴을 찾지 못했습니다. 예: - [*] 새 주석은 꼭 필요할 때만 달고, 쓸 때는 한국어로 작성한다 -->\n", s);
         var (rules, errors) = RulesDocument.Parse(s);
         Assert.Empty(rules);
         Assert.Empty(errors);

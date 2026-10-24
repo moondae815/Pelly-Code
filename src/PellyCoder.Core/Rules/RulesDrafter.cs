@@ -72,7 +72,7 @@ public static partial class RulesDrafter
 
         // korean-comments
         if (cs.Comments >= 20 && Ratio(cs.KoreanComments, cs.Comments) >= 0.6m)
-            Emit(true, "- [*] 주석은 한국어로 작성한다", $"주석 {cs.Comments}개 중 {cs.KoreanComments}개가 한국어");
+            Emit(true, "- [*] 새 주석은 꼭 필요할 때만 달고, 쓸 때는 한국어로 작성한다", $"주석 {cs.Comments}개 중 {cs.KoreanComments}개가 한국어");
 
         // exception-language
         if (cs.Throws >= 10)

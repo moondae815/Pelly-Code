@@ -122,7 +122,7 @@ pelly rules check [--config <경로>] [--pause-on-exit]
 
 ```markdown
 ## Pelly rules
-- [*] 주석은 한국어로 작성한다
+- [*] 새 주석은 꼭 필요할 때만 달고, 쓸 때는 한국어로 작성한다
 - [dapper,sql] SQL은 Dapper 파라미터로만 전달한다
 - [async] .Result나 .Wait()로 기다리지 않는다 | forbid: \.Result\b|\.Wait\(\)
 ```

@@ -117,7 +117,9 @@ public class RulesDrafterTests
     public void KoreanComments_TwentyOfTwenty_Emits()
     {
         var r = Run(Fs(), "class C {\n" + Comments(19, 0) + "/* 블록 */ /// <summary>요약</summary>\nint x;\n}\n");
-        var rule = Assert.IsType<DraftRule>(Find(r, "주석은 한국어로"));
+        var rule = Assert.IsType<DraftRule>(Find(r, "한국어로 작성한다"));
+        // 2026-10-24 measurement: "주석은 한국어로 작성한다" made the model add 4x more comments; this wording halves that.
+        Assert.Equal("- [*] 새 주석은 꼭 필요할 때만 달고, 쓸 때는 한국어로 작성한다", rule.Line);
         Assert.StartsWith("- [*] ", rule.Line);
         Assert.Equal("주석 21개 중 21개가 한국어", rule.Evidence);
     }
@@ -125,8 +127,8 @@ public class RulesDrafterTests
     [Fact]
     public void KoreanComments_BelowRatioOrSample_NoRule()
     {
-        Assert.Null(Find(Run(Fs(), "class C {\n" + Comments(19, 0) + "}\n"), "주석은"));
-        Assert.Null(Find(Run(Fs(), "class C {\n" + Comments(11, 9) + "}\n"), "주석은"));
+        Assert.Null(Find(Run(Fs(), "class C {\n" + Comments(19, 0) + "}\n"), "한국어로 작성한다"));
+        Assert.Null(Find(Run(Fs(), "class C {\n" + Comments(11, 9) + "}\n"), "한국어로 작성한다"));
     }
 
     private static string Throws(int korean, int english) =>

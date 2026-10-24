@@ -4,7 +4,7 @@ namespace PellyCoder.Core.Rules;
 
 public sealed record RuleViolation(ProjectRule Rule, string AddedLine);
 
-/// <summary>Checks the lines the model added (REPLACE minus SEARCH) against every rule's <c>forbid</c> regex.</summary>
+/// <summary>Checks the lines the patched file has beyond the original (a multiset comparison of the two files, so earlier attempts' leftovers count) against every rule's <c>forbid</c> regex.</summary>
 public static class ForbiddenPatternChecker
 {
     private static readonly TimeSpan MatchTimeout = TimeSpan.FromMilliseconds(100);

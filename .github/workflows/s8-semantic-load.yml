@@ -21,6 +21,9 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
+        with:
+          # S6 정답 승인 확인이 정답 파일의 마지막 커밋을 git 이력에서 읽는다(얕은 이력이면 거부된다).
+          fetch-depth: 0
       - uses: actions/setup-dotnet@v5
         with:
           global-json-file: global.json

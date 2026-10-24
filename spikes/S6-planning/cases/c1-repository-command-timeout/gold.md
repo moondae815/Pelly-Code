@@ -2,7 +2,7 @@
 id: c1-repository-command-timeout
 category: C
 scope: [Modern]
-status: draft
+status: approved
 request: "API 주문 저장소의 모든 DB 호출에 명령 시간 제한 30초를 걸어줘"
 ---
 - [ ] T1 cs Modern/Shop.Api/Data/OrderRepository.cs#GetByIdAsync Dapper 호출에 commandTimeout: 30을 넘긴다

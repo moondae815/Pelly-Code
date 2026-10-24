@@ -2,7 +2,7 @@
 id: b1-block-cancel-shipped
 category: B
 scope: [Legacy, Sql]
-status: draft
+status: approved
 request: "배송 중인 주문도 취소할 수 없게 해줘. 레거시 웹의 취소 처리와 DB 취소 프로시저 둘 다 막아야 해"
 ---
 - [ ] T1 sql Sql/objects/usp_CancelOrder.sql 배송 중(Status = 2)인 주문이면 RAISERROR로 오류를 내고 끝낸다

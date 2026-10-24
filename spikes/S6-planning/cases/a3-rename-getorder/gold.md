@@ -2,7 +2,7 @@
 id: a3-rename-getorder
 category: A
 scope: [Legacy]
-status: draft
+status: approved
 request: "레거시 주문 DAO의 주문 한 건 조회 메서드 이름을 FindOrder로 바꿔줘. 서비스 쪽 메서드 이름은 그대로 둬"
 ---
 - [ ] T1 cs Legacy/Shop.Data/IOrderDao.cs#GetOrder 메서드 이름을 FindOrder로 바꾼다 [G1]

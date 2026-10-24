@@ -2,7 +2,7 @@
 id: a2-update-status-returns-rows
 category: A
 scope: [Modern]
-status: draft
+status: approved
 request: "주문 상태 변경이 실제로 바뀐 행 수를 돌려주게 하고, 주문을 취소할 때 바뀐 행이 없으면 InvalidOperationException을 던지게 해줘"
 ---
 - [ ] T1 cs Modern/Shop.Api/Data/IOrderRepository.cs#UpdateStatusAsync 반환 형식을 Task<int>로 바꾼다 [G1]

@@ -2,7 +2,7 @@
 id: a1-cancel-returns-refund
 category: A
 scope: [Modern]
-status: draft
+status: approved
 request: "주문 취소가 실제로 환불한 금액을 돌려주게 바꾸고, 취소 API도 204 대신 그 환불액을 담아 200으로 응답하게 해줘"
 ---
 - [ ] T1 cs Modern/Shop.Api/Services/IOrderService.cs#CancelAsync 반환 형식을 Task<decimal>로 바꾼다 [G1]

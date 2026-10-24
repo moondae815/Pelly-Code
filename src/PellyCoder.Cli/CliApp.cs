@@ -22,6 +22,7 @@ public static class CliApp
         config.AddBranch("rules", b =>
         {
             b.SetDescription("AGENTS.md의 Pelly rules 절을 다룹니다.");
+            b.SetDefaultCommand<RulesUsageCommand>();
             b.AddCommand<RulesCheckCommand>("check").WithDescription("AGENTS.md의 Pelly rules 절을 검사합니다.");
             b.AddCommand<RulesInitCommand>("init").WithDescription("코드베이스를 분석해 AGENTS.md에 규칙 초안을 만듭니다.");
         });

@@ -163,4 +163,20 @@ public sealed class BenchmarkSuiteTests : IDisposable
         Assert.All(legacy, r => Assert.StartsWith("cs-legacy-", r.Task.Id, StringComparison.Ordinal));
         Assert.All(resolved.Where(r => r.Task.Kind == "sql"), r => Assert.False(r.Resolved!.IsLegacy));
     }
+
+    [Fact]
+    public void Load_Overlay_ResolvesOrMissingIsError()
+    {
+        var dir = Suite("overlay", """{ "formatVersion": 1, "name": "s", "roots": [ { "name": "App", "path": "src", "overlay": "rules/App" } ] }""", "src");
+        Assert.Contains(BenchmarkSuite.Load(dir).Errors, e => e.Contains("overlay", StringComparison.Ordinal) && e.Contains("폴더가 없습니다", StringComparison.Ordinal));
+
+        Directory.CreateDirectory(Path.Combine(dir, "rules", "App"));
+        var load = BenchmarkSuite.Load(dir);
+        Assert.Empty(load.Errors);
+        Assert.Equal(Path.GetFullPath(Path.Combine(dir, "rules", "App")), Assert.Single(load.Suite!.Roots).Overlay);
+    }
+
+    [Fact]
+    public void Load_NoOverlay_IsNull() =>
+        Assert.Null(Assert.Single(BenchmarkSuite.Load(Suite("plain", """{ "formatVersion": 1, "name": "s", "roots": [ { "name": "App", "path": "src" } ] }""", "src")).Suite!.Roots).Overlay);
 }

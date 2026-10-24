@@ -1,0 +1,714 @@
+{
+  "formatVersion": 2,
+  "runCount": 3,
+  "taskCount": 50,
+  "meanSuccesses": 46.333333333333336,
+  "stdDevSuccesses": 0.5773502691896258,
+  "medianWallSeconds": 1.7901636,
+  "runs": [
+    {
+      "run": 1,
+      "tasks": 50,
+      "ran": 50,
+      "successes": 46,
+      "invariantViolations": 0,
+      "judgeFailures": 4,
+      "judgeTooling": 0,
+      "medianWallSeconds": 1.9918015,
+      "folder": "run-1"
+    },
+    {
+      "run": 2,
+      "tasks": 50,
+      "ran": 50,
+      "successes": 47,
+      "invariantViolations": 0,
+      "judgeFailures": 3,
+      "judgeTooling": 0,
+      "medianWallSeconds": 1.5700418,
+      "folder": "run-2"
+    },
+    {
+      "run": 3,
+      "tasks": 50,
+      "ran": 50,
+      "successes": 46,
+      "invariantViolations": 0,
+      "judgeFailures": 4,
+      "judgeTooling": 0,
+      "medianWallSeconds": 1.829583,
+      "folder": "run-3"
+    }
+  ],
+  "groups": [
+    {
+      "group": "cs-legacy",
+      "tasks": 18,
+      "meanSuccesses": 18,
+      "stdDevSuccesses": 0,
+      "minSuccesses": 18,
+      "maxSuccesses": 18,
+      "successesPerRun": [
+        18,
+        18,
+        18
+      ]
+    },
+    {
+      "group": "cs-modern",
+      "tasks": 12,
+      "meanSuccesses": 8.333333333333334,
+      "stdDevSuccesses": 0.5773502691896257,
+      "minSuccesses": 8,
+      "maxSuccesses": 9,
+      "successesPerRun": [
+        8,
+        9,
+        8
+      ]
+    },
+    {
+      "group": "sql",
+      "tasks": 20,
+      "meanSuccesses": 20,
+      "stdDevSuccesses": 0,
+      "minSuccesses": 20,
+      "maxSuccesses": 20,
+      "successesPerRun": [
+        20,
+        20,
+        20
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "cs-legacy-001",
+      "group": "cs-legacy",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "cs-legacy-002",
+      "group": "cs-legacy",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "cs-legacy-003",
+      "group": "cs-legacy",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "cs-legacy-004",
+      "group": "cs-legacy",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "cs-legacy-005",
+      "group": "cs-legacy",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "cs-legacy-006",
+      "group": "cs-legacy",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "cs-legacy-007",
+      "group": "cs-legacy",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "cs-legacy-008",
+      "group": "cs-legacy",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "cs-legacy-009",
+      "group": "cs-legacy",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "cs-legacy-010",
+      "group": "cs-legacy",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "cs-legacy-011",
+      "group": "cs-legacy",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "cs-legacy-012",
+      "group": "cs-legacy",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "cs-legacy-013",
+      "group": "cs-legacy",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "cs-legacy-014",
+      "group": "cs-legacy",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "cs-legacy-015",
+      "group": "cs-legacy",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "cs-legacy-016",
+      "group": "cs-legacy",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "cs-legacy-017",
+      "group": "cs-legacy",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "cs-legacy-018",
+      "group": "cs-legacy",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "cs-modern-001",
+      "group": "cs-modern",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "cs-modern-002",
+      "group": "cs-modern",
+      "successes": 0,
+      "runs": 3,
+      "outcomes": [
+        "Failed(Judge)",
+        "Failed(Judge)",
+        "Failed(Judge)"
+      ],
+      "ratio": "0/3"
+    },
+    {
+      "id": "cs-modern-003",
+      "group": "cs-modern",
+      "successes": 1,
+      "runs": 3,
+      "outcomes": [
+        "Failed(Judge)",
+        "Passed",
+        "Failed(Judge)"
+      ],
+      "ratio": "1/3"
+    },
+    {
+      "id": "cs-modern-004",
+      "group": "cs-modern",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "cs-modern-005",
+      "group": "cs-modern",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "cs-modern-006",
+      "group": "cs-modern",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "cs-modern-007",
+      "group": "cs-modern",
+      "successes": 0,
+      "runs": 3,
+      "outcomes": [
+        "Failed(Judge)",
+        "Failed(Judge)",
+        "Failed(Judge)"
+      ],
+      "ratio": "0/3"
+    },
+    {
+      "id": "cs-modern-008",
+      "group": "cs-modern",
+      "successes": 0,
+      "runs": 3,
+      "outcomes": [
+        "Failed(Judge)",
+        "Failed(Judge)",
+        "Failed(Judge)"
+      ],
+      "ratio": "0/3"
+    },
+    {
+      "id": "cs-modern-009",
+      "group": "cs-modern",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "cs-modern-010",
+      "group": "cs-modern",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "cs-modern-011",
+      "group": "cs-modern",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "cs-modern-012",
+      "group": "cs-modern",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "sql-001",
+      "group": "sql",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "sql-002",
+      "group": "sql",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "sql-003",
+      "group": "sql",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "sql-004",
+      "group": "sql",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "sql-005",
+      "group": "sql",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "sql-006",
+      "group": "sql",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "sql-007",
+      "group": "sql",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "sql-008",
+      "group": "sql",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "sql-009",
+      "group": "sql",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "sql-010",
+      "group": "sql",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "sql-011",
+      "group": "sql",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "sql-012",
+      "group": "sql",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "sql-013",
+      "group": "sql",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "sql-014",
+      "group": "sql",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "sql-015",
+      "group": "sql",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "sql-016",
+      "group": "sql",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "sql-017",
+      "group": "sql",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "sql-018",
+      "group": "sql",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "sql-019",
+      "group": "sql",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "sql-020",
+      "group": "sql",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    }
+  ],
+  "conditions": {
+    "model": "qwen3.6:35b",
+    "csPromptVersion": "cs-v2",
+    "sqlPromptVersion": "sql-v1",
+    "thinkMode": "Retry",
+    "budgetThink": 512,
+    "samplingThink": {
+      "temperature": 0.6,
+      "topP": 0.95,
+      "topK": 20,
+      "repeatPenalty": 1,
+      "presencePenalty": 0
+    },
+    "samplingCode": {
+      "temperature": 0.1,
+      "topP": 0.9,
+      "topK": 20,
+      "repeatPenalty": 1.05,
+      "presencePenalty": 0
+    },
+    "pellyVersion": "0.9.1",
+    "tasks": null,
+    "kind": null,
+    "ollamaVersion": "0.40.0",
+    "modelDigest": "a7eb95c53bcf96b4bdd008d0fab4a5dac88047d9c1a7a9ab88ed453423fbd87c",
+    "rulesRemoved": null
+  },
+  "cancelled": false
+}

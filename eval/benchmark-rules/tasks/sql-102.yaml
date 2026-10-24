@@ -1,0 +1,8 @@
+id: sql-102
+kind: sql
+file: Sql/objects/vw_ShippedOrders.sql
+request: "배송 후 지금까지 지난 일수를 DaysSinceShipped 컬럼으로 추가해줘"
+judge:
+  sqlCompile: true
+  mustContain: ["SYSDATETIME()", "DaysSinceShipped"]
+  mustNotAdd: ["GETDATE("]

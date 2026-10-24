@@ -25,21 +25,31 @@ public static class WorkCopy
         Copy(from, to, skip);
     }
 
-    private static void Copy(string from, string to, HashSet<string> skip)
+    private static void Copy(string from, string to, HashSet<string> skip, bool overwrite = false)
     {
         Directory.CreateDirectory(to);
         foreach (var file in Directory.GetFiles(from))
         {
             var name = Path.GetFileName(file);
             if (string.Equals(name, GitMarker, StringComparison.OrdinalIgnoreCase)) continue;
-            File.Copy(file, Path.Combine(to, name));
+            File.Copy(file, Path.Combine(to, name), overwrite);
         }
         foreach (var dir in Directory.GetDirectories(from))
         {
             var name = Path.GetFileName(dir);
             if (skip.Contains(name)) continue;
-            Copy(dir, Path.Combine(to, name), skip);
+            Copy(dir, Path.Combine(to, name), skip, overwrite);
         }
+    }
+
+    /// <summary>Project rules file name (pelly reads it at the workspace root); <c>--no-rules</c> removes it everywhere in the copy.</summary>
+    public const string RulesFileName = "AGENTS.md";
+
+    private static void RemoveRules(string workRoot)
+    {
+        foreach (var file in Directory.GetFiles(workRoot, "*", SearchOption.AllDirectories))
+            if (string.Equals(Path.GetFileName(file), RulesFileName, StringComparison.OrdinalIgnoreCase))
+                File.Delete(file);
     }
 
     /// <summary>
@@ -49,13 +59,18 @@ public static class WorkCopy
     /// root as a workspace, so a run on a folder without a solution (Sql) keeps its <c>.pelly</c> here instead of walking up
     /// to the repository's <c>.git</c>.
     /// </summary>
+    /// <param name="removeRules"><c>--no-rules</c>: delete every <c>AGENTS.md</c> (any case, any depth) from the copy, so the same suite runs without project rules.</param>
     /// <returns>The copied target file.</returns>
-    public static string Prepare(BenchmarkSuite suite, SuiteTask task, string workRoot)
+    public static string Prepare(BenchmarkSuite suite, SuiteTask task, string workRoot, bool removeRules = false)
     {
         Directory.CreateDirectory(workRoot);
         foreach (var support in suite.SupportFiles)
             File.Copy(support, Path.Combine(workRoot, Path.GetFileName(support)));
-        CopyDirectory(task.Root.Path, Path.Combine(workRoot, task.Root.Name), task.Root.Exclude);
+        var rootCopy = Path.Combine(workRoot, task.Root.Name);
+        CopyDirectory(task.Root.Path, rootCopy, task.Root.Exclude);
+        if (task.Root.Overlay is { } overlay)
+            Copy(overlay, rootCopy, new HashSet<string>(Excluded, StringComparer.OrdinalIgnoreCase), overwrite: true);
+        if (removeRules) RemoveRules(workRoot);
         Directory.CreateDirectory(Path.Combine(workRoot, ".svn"));
         return Path.Combine([workRoot, task.Root.Name, .. task.RelativeFile.Split('/')]);
     }

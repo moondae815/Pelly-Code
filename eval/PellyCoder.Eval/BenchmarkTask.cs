@@ -84,4 +84,7 @@ public sealed class BenchmarkJudge
     public List<string>? MustContain { get; set; }
     public List<string>? MustAdd { get; set; }
     public List<string>? MustNotContain { get; set; }
+
+    /// <summary>Strings that must not appear more often in the edited target than in the original (e.g. a function a project rule forbids).</summary>
+    public List<string>? MustNotAdd { get; set; }
 }

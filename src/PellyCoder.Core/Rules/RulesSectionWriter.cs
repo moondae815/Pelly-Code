@@ -15,7 +15,7 @@ public static class RulesSectionWriter
         sb.Append(CultureInfo.InvariantCulture,
             $"<!-- pelly rules init 초안 ({today:yyyy-MM-dd}). 검토해서 고치거나 지우세요. 형식: - [태그,...] 규칙(100자 이내) [| forbid: 정규식] -->\n");
         if (rules.Count == 0)
-            sb.Append("<!-- 일관된 패턴을 찾지 못했습니다. 예: - [*] 주석은 한국어로 작성한다 -->\n");
+            sb.Append("<!-- 일관된 패턴을 찾지 못했습니다. 예: - [*] 새 주석은 꼭 필요할 때만 달고, 쓸 때는 한국어로 작성한다 -->\n");
         foreach (var rule in rules)
         {
             sb.Append(rule.Line).Append('\n');

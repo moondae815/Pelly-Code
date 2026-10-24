@@ -1,0 +1,9 @@
+id: cs-modern-102
+kind: cs
+file: Modern/Shop.Api/Data/OrderRepository.cs
+method: GetByIdAsync
+request: "취소된 지 1년이 지난 주문은 조회되지 않게 SQL 조건을 추가해줘"
+judge:
+  build: true
+  mustContain: ["SYSDATETIME()"]
+  mustNotAdd: ["GETDATE("]

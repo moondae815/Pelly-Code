@@ -69,6 +69,9 @@ public sealed class RulesInitCommand(IFileSystem fs, IAnsiConsole console, IUser
         if (existing is not null && RulesDocument.FindSection(existing.Text) is not null)
         {
             var current = RulesLoader.Load(fs, ws);
+            // An empty draft would leave only comments: never let it wipe hand-written rules, even with --yes.
+            if (draft.Rules.Count == 0 && current.Rules.Count > 0)
+                return Fail($"초안 규칙이 0개라 기존 규칙 {current.Rules.Count.ToString(CultureInfo.InvariantCulture)}개를 지우지 않습니다. 기존 절을 직접 고치세요");
             Print(current.Errors.Count > 0
                 ? "기존 절(오류 있음)을 새 초안으로 바꿉니다"
                 : $"기존 절의 규칙 {current.Rules.Count.ToString(CultureInfo.InvariantCulture)}개를 새 초안으로 바꿉니다");
@@ -87,7 +90,16 @@ public sealed class RulesInitCommand(IFileSystem fs, IAnsiConsole console, IUser
         var newText = RulesSectionWriter.Apply(existing?.Text, section);
         if (existing is null)
         {
-            fs.File.WriteAllBytes(path, new UTF8Encoding(false).GetBytes(newText));
+            // CreateNew: a file that appeared after the check above is not overwritten.
+            try
+            {
+                using var stream = fs.FileStream.New(path, FileMode.CreateNew, FileAccess.Write);
+                stream.Write(new UTF8Encoding(false).GetBytes(newText));
+            }
+            catch (IOException ex)
+            {
+                return Fail($"{RulesLoader.FileName}을(를) 쓰지 못했습니다: {ex.Message}");
+            }
         }
         else
         {

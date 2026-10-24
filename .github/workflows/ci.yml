@@ -17,8 +17,8 @@ jobs:
         os: [macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
         with:
           global-json-file: global.json
       - name: Build
@@ -33,8 +33,8 @@ jobs:
   windows-integration:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
         with:
           global-json-file: global.json
       - name: Build
@@ -51,8 +51,8 @@ jobs:
     # 반입본(PRD §11.1)이 SQL·Ollama 없이 자기 점검을 통과하는지 확인한다 (spike S6)
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
         with:
           global-json-file: global.json
       - name: Publish win-x64 single file
@@ -90,7 +90,7 @@ jobs:
           # 마지막 네이티브 명령이 의도대로 4로 끝났으므로, 그 값이 스텝 종료 코드가 되지 않게 끝낸다
           exit 0
       - name: Upload published exe for the package job
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: pelly-publish-win-x64
           path: artifacts/publish/win-x64/pelly.exe
@@ -131,7 +131,7 @@ jobs:
           if (-not $out.Contains('오류 0건')) { throw 'validate output lacks the totals line' }
           exit 0
       - name: Upload published pelly-eval.exe for the package job
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: pelly-eval-publish-win-x64
           path: artifacts/publish-eval/win-x64/pelly-eval.exe
@@ -143,15 +143,15 @@ jobs:
     needs: publish-check
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
         with:
           global-json-file: global.json
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: pelly-publish-win-x64
           path: artifacts/publish/win-x64
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: pelly-eval-publish-win-x64
           path: artifacts/publish-eval/win-x64
@@ -262,25 +262,25 @@ jobs:
           Get-ChildItem artifacts/package-tests -Filter *.trx | ForEach-Object {
             ([xml](Get-Content -Raw $_.FullName)).TestRun.Results.UnitTestResult | ForEach-Object { "$($_.outcome)  $($_.testName)" }
           }
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: pelly-package
           path: ${{ env.PELLY_TEST_PACKAGE }}
           if-no-files-found: error
           retention-days: 14
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: pelly-package-sha256
           path: ${{ env.PELLY_PACKAGE_SHA256_FILE }}
           if-no-files-found: error
           retention-days: 14
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: pelly-field-kit
           path: ${{ env.PELLY_TEST_FIELD_KIT }}
           if-no-files-found: error
           retention-days: 14
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: pelly-field-kit-sha256
           path: ${{ env.PELLY_FIELD_KIT_SHA256_FILE }}
@@ -305,8 +305,8 @@ jobs:
     env:
       PELLY_TEST_SQL: "Server=localhost,1433;Database=PellyCorpus;User Id=sa;Password=Pelly_Test_2026!;TrustServerCertificate=True"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
         with:
           global-json-file: global.json
       - name: Build

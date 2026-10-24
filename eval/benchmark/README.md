@@ -28,6 +28,7 @@
 | `roots[].name` | 문자열 | 형식 `\A[A-Za-z0-9_-]+\z`, 서로 달라야 함(대소문자 무시). `judges`는 쓸 수 없음 |
 | `roots[].path` | 문자열 | 존재하는 폴더. 두 루트가 같은 폴더이거나 한쪽이 다른 쪽 안에 있으면 오류 |
 | `roots[].exclude` | 문자열 목록 (선택) | 복사에서 뺄 폴더 **이름**(경로 아님, 어느 깊이에서든, 대소문자 무시). `bin`·`obj`·`.pelly`·`TestResults`·`.git`·`.vs`·`.svn`·`.hg`·`$tf`는 항상 뺍니다 |
+| `roots[].overlay` | 문자열 (선택) | 루트 복사본 위에 덧씌울 폴더. 같은 이름 파일은 overlay가 이깁니다. 코퍼스를 바꾸지 않고 이 스위트에서만 `AGENTS.md` 같은 파일을 넣을 때 씁니다. 존재하는 폴더여야 함 |
 | `supportFiles` | 문자열 목록 (선택) | 작업 폴더 맨 위(`work/<id>/`)에 파일 이름 그대로 복사할 파일. 존재해야 하고 파일 이름이 서로 달라야 함 |
 | `resultsDir` | 문자열 (선택) | 기본 출력 폴더의 부모. 기본 `results` |
 
@@ -56,6 +57,7 @@
 | `judge.mustContain` | 문자열 목록 (선택) | 수정된 대상에 있어야 하는 문자열. **원본 대상에는 없어야 함** |
 | `judge.mustAdd` | 문자열 목록 (선택) | 수정된 대상에서 원본보다 **더 많이** 나와야 하는 문자열 (원본에 이미 있는 문자열을 새로 추가했는지 확인) |
 | `judge.mustNotContain` | 문자열 목록 (선택) | 수정된 대상에 없어야 하는 문자열. **원본 대상에는 있어야 함** |
+| `judge.mustNotAdd` | 문자열 목록 (선택) | 수정된 대상에서 원본보다 **더 많이** 나오면 실패하는 문자열(프로젝트 규칙이 금지한 함수를 새로 쓰지 않았는지 확인). 혼자서는 내용 판정으로 치지 않습니다 |
 
 ## 공통 판정 규칙
 * **대상(멤버 또는 SQL 객체 배치)이 원본과 같으면 실패**입니다. 아무것도 고치지 않은 패치가 성공으로 집계되지 않게 하기 위함입니다.
@@ -95,6 +97,7 @@ dotnet run --project eval/PellyCoder.Eval -- --config <pelly.json>            # 
 dotnet run --project eval/PellyCoder.Eval -- --tasks sql --config <pelly.json> # 일부 (id 접두사·글롭, --kind cs|sql)
 dotnet run --project eval/PellyCoder.Eval -- --suite <스위트 폴더> --config <pelly.json> --keep-work failed   # 현장 스위트
 ```
+* `--no-rules`: 작업 복사본에서 `AGENTS.md`(대소문자 무시, 모든 깊이)를 지우고 실행합니다. 같은 스위트를 프로젝트 규칙 없이 재는 대조 실행이며, 요약의 실행 조건에 `rulesRemoved: true`로 남습니다.
 * `--keep-work <all|failed|none>`: 작업 복사본(`work/<id>/`) 보존 범위. 기본 `all`, 현장 실제 코드는 `failed`를 권장합니다. `results.json` 행은 그대로입니다.
 * 결과 폴더: `<스위트 resultsDir>/<yyyyMMdd-HHmmss>/`, 내장 스위트는 `eval/results/…`(`--out`으로 변경, git 추적 제외). 비어 있지 않은 `--out`은 거절합니다(종료 4). 이전 결과에 이어 쓰면 남은 작업 폴더의 작업이 「생략」으로 집계되기 때문입니다
   * `report.md`(KPI 표·실패 유형·작업별 결과), `results.json`, `work/<id>/`(작업별 스위트 루트 복사본과 `.pelly/runs` 로그)

@@ -1,0 +1,8 @@
+id: sql-101
+kind: sql
+file: Sql/objects/usp_SearchOrders.sql
+request: "@From을 주지 않으면 최근 90일 안의 주문만 검색하게 해줘"
+judge:
+  sqlCompile: true
+  mustContain: ["SYSDATETIME()"]
+  mustNotAdd: ["GETDATE("]

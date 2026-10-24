@@ -157,4 +157,16 @@ public class TaskJudgeTests
 
         Assert.Equal(VerificationResult.NotRequired, TaskJudge.Judge(task, Original, Fixed, 0, VerificationResult.Pass).BuildCheck);
     }
+
+    [Fact]
+    public void Judge_MustNotAdd_FailsOnlyWhenTheCountGrows()
+    {
+        var task = Cs(judge: new BenchmarkJudge { Build = true, MustNotAdd = ["GETDATE("] });
+        const string original = "x = GETDATE();";
+
+        Assert.True(TaskJudge.Judge(task, original, original + " y = 1;", 0, VerificationResult.Pass).Passed);
+        var grown = TaskJudge.Judge(task, original, original + " y = GETDATE();", 0, VerificationResult.Pass);
+        Assert.False(grown.Passed);
+        Assert.Contains("mustNotAdd 'GETDATE('이(가) 늘어남 (1 → 2)", grown.Reasons);
+    }
 }

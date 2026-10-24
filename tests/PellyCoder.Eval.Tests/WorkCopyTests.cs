@@ -112,4 +112,61 @@ public sealed class WorkCopyTests : IDisposable
         Assert.True(File.Exists(Path.Combine(work, "judges", "Modern", "Shop.Api.JudgeTests", "Shop.Api.JudgeTests.csproj")));
         Assert.Null(WorkCopy.CopyJudges(suite, suite.Roots.Single(r => r.Name == "Sql"), work));
     }
+
+    private (BenchmarkSuite Suite, SuiteTask Task) OverlaySuite(string rootJsonExtra = "", string support = "")
+    {
+        var suiteDir = Path.Combine(_root, "suite");
+        foreach (var (f, text) in new[] { ("src-root/src/A.cs", "class A {}"), ("src-root/sub/agents.md", "old"), ("rules/App/AGENTS.md", "## Pelly rules\n"),
+                     ("rules/App/src/A.cs", "class A { int x; }"), ("rules/top/AGENTS.md", "top") })
+        {
+            var path = Path.Combine(suiteDir, f.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, text);
+        }
+        File.WriteAllText(Path.Combine(suiteDir, BenchmarkSuite.FileName),
+            $$"""{ "formatVersion": 1, "name": "s", "roots": [ { "name": "App", "path": "src-root"{{rootJsonExtra}} } ]{{support}} }""");
+        var load = BenchmarkSuite.Load(suiteDir);
+        Assert.Empty(load.Errors);
+        var task = load.Suite!.Resolve(new BenchmarkTask { Id = "cs-001", Kind = "cs", File = "App/src/A.cs" }, new System.IO.Abstractions.FileSystem(), out var error);
+        Assert.Null(error);
+        return (load.Suite, task!);
+    }
+
+    [Fact]
+    public void Prepare_Overlay_CopiedOverTheRoot()
+    {
+        var (suite, task) = OverlaySuite(""", "overlay": "rules/App" """);
+        var work = Path.Combine(_root, "work");
+
+        var file = WorkCopy.Prepare(suite, task, work);
+
+        Assert.Equal("## Pelly rules\n", File.ReadAllText(Path.Combine(work, "App", "AGENTS.md")));
+        Assert.Equal("class A { int x; }", File.ReadAllText(file)); // the overlay wins
+        Assert.Equal("class A {}", File.ReadAllText(Path.Combine(_root, "suite", "src-root", "src", "A.cs"))); // original untouched
+    }
+
+    [Fact]
+    public void Prepare_RemoveRules_DeletesEveryAgentsMd()
+    {
+        var (suite, task) = OverlaySuite(""", "overlay": "rules/App" """, """, "supportFiles": ["rules/top/AGENTS.md"]""");
+        var work = Path.Combine(_root, "work");
+
+        WorkCopy.Prepare(suite, task, work, removeRules: true);
+
+        Assert.DoesNotContain(Directory.GetFiles(work, "*", SearchOption.AllDirectories),
+            f => string.Equals(Path.GetFileName(f), "AGENTS.md", StringComparison.OrdinalIgnoreCase));
+        Assert.True(File.Exists(Path.Combine(work, "App", "src", "A.cs")));
+    }
+
+    [Fact]
+    public void Prepare_WithoutRemoveRules_KeepsAgentsMd()
+    {
+        var (suite, task) = OverlaySuite("", """, "supportFiles": ["rules/top/AGENTS.md"]""");
+        var work = Path.Combine(_root, "work");
+
+        WorkCopy.Prepare(suite, task, work);
+
+        Assert.True(File.Exists(Path.Combine(work, "AGENTS.md")));
+        Assert.True(File.Exists(Path.Combine(work, "App", "sub", "agents.md")));
+    }
 }

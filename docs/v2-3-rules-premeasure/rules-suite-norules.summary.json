@@ -1,0 +1,173 @@
+{
+  "formatVersion": 2,
+  "runCount": 3,
+  "taskCount": 6,
+  "meanSuccesses": 0,
+  "stdDevSuccesses": 0,
+  "medianWallSeconds": 1.4958319,
+  "runs": [
+    {
+      "run": 1,
+      "tasks": 6,
+      "ran": 6,
+      "successes": 0,
+      "invariantViolations": 0,
+      "judgeFailures": 6,
+      "judgeTooling": 0,
+      "medianWallSeconds": 1.4632695,
+      "folder": "run-1"
+    },
+    {
+      "run": 2,
+      "tasks": 6,
+      "ran": 6,
+      "successes": 0,
+      "invariantViolations": 0,
+      "judgeFailures": 6,
+      "judgeTooling": 0,
+      "medianWallSeconds": 1.1648838,
+      "folder": "run-2"
+    },
+    {
+      "run": 3,
+      "tasks": 6,
+      "ran": 6,
+      "successes": 0,
+      "invariantViolations": 0,
+      "judgeFailures": 6,
+      "judgeTooling": 0,
+      "medianWallSeconds": 1.4958319,
+      "folder": "run-3"
+    }
+  ],
+  "groups": [
+    {
+      "group": "cs-modern",
+      "tasks": 2,
+      "meanSuccesses": 0,
+      "stdDevSuccesses": 0,
+      "minSuccesses": 0,
+      "maxSuccesses": 0,
+      "successesPerRun": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "group": "sql",
+      "tasks": 4,
+      "meanSuccesses": 0,
+      "stdDevSuccesses": 0,
+      "minSuccesses": 0,
+      "maxSuccesses": 0,
+      "successesPerRun": [
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "cs-modern-101",
+      "group": "cs-modern",
+      "successes": 0,
+      "runs": 3,
+      "outcomes": [
+        "Failed(Judge)",
+        "Failed(Judge)",
+        "Failed(Judge)"
+      ],
+      "ratio": "0/3"
+    },
+    {
+      "id": "cs-modern-102",
+      "group": "cs-modern",
+      "successes": 0,
+      "runs": 3,
+      "outcomes": [
+        "Failed(Judge)",
+        "Failed(Judge)",
+        "Failed(Judge)"
+      ],
+      "ratio": "0/3"
+    },
+    {
+      "id": "sql-101",
+      "group": "sql",
+      "successes": 0,
+      "runs": 3,
+      "outcomes": [
+        "Failed(Judge)",
+        "Failed(Judge)",
+        "Failed(Judge)"
+      ],
+      "ratio": "0/3"
+    },
+    {
+      "id": "sql-102",
+      "group": "sql",
+      "successes": 0,
+      "runs": 3,
+      "outcomes": [
+        "Failed(Judge)",
+        "Failed(Judge)",
+        "Failed(Judge)"
+      ],
+      "ratio": "0/3"
+    },
+    {
+      "id": "sql-103",
+      "group": "sql",
+      "successes": 0,
+      "runs": 3,
+      "outcomes": [
+        "Failed(Judge)",
+        "Failed(Judge)",
+        "Failed(Judge)"
+      ],
+      "ratio": "0/3"
+    },
+    {
+      "id": "sql-104",
+      "group": "sql",
+      "successes": 0,
+      "runs": 3,
+      "outcomes": [
+        "Failed(Judge)",
+        "Failed(Judge)",
+        "Failed(Judge)"
+      ],
+      "ratio": "0/3"
+    }
+  ],
+  "conditions": {
+    "model": "qwen3.6:35b",
+    "csPromptVersion": "cs-v2",
+    "sqlPromptVersion": "sql-v1",
+    "thinkMode": "Retry",
+    "budgetThink": 512,
+    "samplingThink": {
+      "temperature": 0.6,
+      "topP": 0.95,
+      "topK": 20,
+      "repeatPenalty": 1,
+      "presencePenalty": 0
+    },
+    "samplingCode": {
+      "temperature": 0.1,
+      "topP": 0.9,
+      "topK": 20,
+      "repeatPenalty": 1.05,
+      "presencePenalty": 0
+    },
+    "pellyVersion": "0.9.1",
+    "tasks": null,
+    "kind": null,
+    "ollamaVersion": "0.40.0",
+    "modelDigest": "a7eb95c53bcf96b4bdd008d0fab4a5dac88047d9c1a7a9ab88ed453423fbd87c",
+    "rulesRemoved": true
+  },
+  "cancelled": false
+}

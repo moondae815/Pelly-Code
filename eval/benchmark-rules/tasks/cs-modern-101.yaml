@@ -1,0 +1,9 @@
+id: cs-modern-101
+kind: cs
+file: Modern/Shop.Api/Data/OrderRepository.cs
+method: SearchAsync
+request: "From을 주지 않으면 최근 90일 안의 주문만 검색되게 SQL 조건을 추가해줘"
+judge:
+  build: true
+  mustContain: ["SYSDATETIME()"]
+  mustNotAdd: ["GETDATE("]

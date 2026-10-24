@@ -34,6 +34,9 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
     /// <summary>Hidden <c>--offline-selftest</c> (run only, not in <see cref="Usage"/>): the packaged exe's bundled-component check.</summary>
     public bool OfflineSelfTest { get; init; }
 
+    /// <summary><c>run --no-rules</c>: delete every <c>AGENTS.md</c> from the work copies (the project rules' control run).</summary>
+    public bool NoRules { get; init; }
+
     public const string Usage = """
         사용법: dotnet run --project eval/PellyCoder.Eval -- [옵션]
 
@@ -44,6 +47,7 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
           --config <파일>   pelly.json (사용자 설정과 환경 변수 위에 적용; SQL 허용 목록은 여기서 지정)
           --repeat <N>      같은 작업 집합을 N회 실행 (기본 1). N>1이면 회차별 결과는 run-<k>/, 상위에 summary.md·summary.json
           --keep-work <all|failed|none>  작업 복사본 보존 (기본 all; 현장 실제 코드에서는 failed 권장)
+          --no-rules                     작업 복사본에서 AGENTS.md를 모두 지움 (규칙 없이 재는 대조 실행)
           --help            이 도움말
 
         검사: dotnet run --project eval/PellyCoder.Eval -- validate [--suite <폴더>] [--config <pelly.json>]
@@ -74,14 +78,14 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
     /// <summary>Options each subcommand accepts (<c>--help</c> is accepted everywhere); <see cref="Flags"/> take no value.</summary>
     private static readonly Dictionary<string, string[]> Options = new(StringComparer.Ordinal)
     {
-        [Run] = ["--suite", "--tasks", "--kind", "--out", "--config", "--repeat", "--keep-work", "--offline-selftest"],
+        [Run] = ["--suite", "--tasks", "--kind", "--out", "--config", "--repeat", "--keep-work", "--offline-selftest", "--no-rules"],
         [Validate] = ["--suite", "--config", "--deep"],
         [Compare] = [],
         [Record] = ["--out", "--gguf-sha256", "--config"],
         [Export] = ["--out"],
     };
 
-    private static readonly string[] Flags = ["--deep", "--offline-selftest"];
+    private static readonly string[] Flags = ["--deep", "--offline-selftest", "--no-rules"];
 
     /// <summary>Positional arguments each subcommand requires.</summary>
     private static readonly Dictionary<string, int> PositionalCount = new(StringComparer.Ordinal)
@@ -101,6 +105,7 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
         string? tasks = null, kind = null, outDir = null, config = null, suite = null, gguf = null;
         var deep = false;
         var selfTest = false;
+        var noRules = false;
         var repeat = 1;
         var keepWork = KeepWork.All;
         var positional = new List<string>();
@@ -121,6 +126,7 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
             if (Flags.Contains(a, StringComparer.Ordinal))
             {
                 if (a == "--deep") deep = true;
+                else if (a == "--no-rules") noRules = true;
                 else selfTest = true;
                 continue;
             }
@@ -161,6 +167,6 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
                 ? "compare에는 <기준선 summary.json> <후보 summary.json> 두 개가 필요합니다"
                 : command == Export ? "export에는 <결과 폴더> 하나가 필요합니다"
                 : $"{command}: 인자 {PositionalCount[command]}개가 필요합니다");
-        return new(tasks, kind, outDir, config, false, null, repeat) { Command = command, Suite = suite, Deep = deep, OfflineSelfTest = selfTest, GgufSha256 = gguf, KeepWork = keepWork, Positional = positional };
+        return new(tasks, kind, outDir, config, false, null, repeat) { Command = command, Suite = suite, Deep = deep, OfflineSelfTest = selfTest, NoRules = noRules, GgufSha256 = gguf, KeepWork = keepWork, Positional = positional };
     }
 }

@@ -576,4 +576,20 @@ public sealed class SuiteValidatorTests : IDisposable
         Assert.Empty(procs.Calls);
         Assert.Contains("깊은 검사", output.ToString());
     }
+
+    [Fact]
+    public void RulesSuite_ValidatesWithoutErrors_AndEveryTaskJudgesTheRule()
+    {
+        // eval/benchmark-rules: the project-rules measurement suite (overlay AGENTS.md on the shared corpus).
+        var dir = Path.Combine(Path.GetDirectoryName(TestPaths.Suite.Dir)!, "benchmark-rules");
+        var load = BenchmarkSuite.Load(dir);
+        Assert.True(load.Suite is not null, string.Join("; ", load.Errors));
+        Assert.NotNull(load.Suite.Roots.Single(r => r.Name == "Modern").Overlay);
+        var (tasks, errors) = BenchmarkTask.TryLoadAll(load.Suite.TasksDir);
+        var issues = SuiteValidator.Validate(load.Suite, tasks, errors, new FileSystem(), 160);
+
+        Assert.DoesNotContain(issues, i => i.Level == IssueLevel.Error);
+        Assert.NotEmpty(tasks);
+        Assert.All(tasks, t => Assert.Contains("GETDATE(", t.Judge!.MustNotAdd ?? []));
+    }
 }

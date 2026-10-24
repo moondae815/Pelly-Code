@@ -10,7 +10,8 @@ namespace PellyCoder.Eval;
 /// <summary>One source folder of a suite, copied to <c>&lt;work&gt;/&lt;Name&gt;/</c>; a task's <c>file</c> starts with its name.</summary>
 /// <param name="Path">Absolute.</param>
 /// <param name="Exclude">Folder names (not paths) left out of the work copy at any depth, besides the built-in ones.</param>
-public sealed record SuiteRoot(string Name, string Path, IReadOnlyList<string> Exclude);
+/// <param name="Overlay">Folder copied over the root's work copy (files replace same-named ones), e.g. an <c>AGENTS.md</c> only this suite uses.</param>
+public sealed record SuiteRoot(string Name, string Path, IReadOnlyList<string> Exclude, string? Overlay = null);
 
 /// <summary>A task whose <c>file</c> was resolved against a suite's roots.</summary>
 /// <param name="SourceFile">The original target file (absolute).</param>
@@ -133,8 +134,10 @@ public sealed partial class BenchmarkSuite
                 var badExclude = exclude.Where(e => string.IsNullOrWhiteSpace(e) || e.Contains('/') || e.Contains('\\')).ToList();
                 if (badExclude.Count > 0)
                     errors.Add($"{label}: exclude는 폴더 이름 목록입니다(경로 불가): {string.Join(", ", badExclude)}");
+                else if (r.Overlay is not null && (FullPath(full, r.Overlay) is not { } overlay || !Directory.Exists(overlay)))
+                    errors.Add($"{label}: overlay 폴더가 없습니다: {(string.IsNullOrWhiteSpace(r.Overlay) ? "(빈 값)" : FullPath(full, r.Overlay) ?? r.Overlay)}");
                 else
-                    roots.Add(new SuiteRoot(r.Name!, TrimEnd(path), exclude));
+                    roots.Add(new SuiteRoot(r.Name!, TrimEnd(path), exclude, r.Overlay is null ? null : TrimEnd(FullPath(full, r.Overlay)!)));
             }
         }
 
@@ -234,5 +237,6 @@ public sealed partial class BenchmarkSuite
         public string? Name { get; set; }
         public string? Path { get; set; }
         public List<string>? Exclude { get; set; }
+        public string? Overlay { get; set; }
     }
 }

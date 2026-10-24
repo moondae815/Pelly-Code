@@ -14,7 +14,7 @@ namespace PellyCoder.Eval;
 public sealed record RunConditions(
     string Model, string CsPromptVersion, string SqlPromptVersion, string ThinkMode, int BudgetThink,
     SamplingOptions SamplingThink, SamplingOptions SamplingCode, string? PellyVersion, string? Tasks, string? Kind,
-    string? OllamaVersion = null, string? ModelDigest = null);
+    string? OllamaVersion = null, string? ModelDigest = null, bool? RulesRemoved = null);
 
 /// <summary>One task across the runs.</summary>
 /// <param name="Group">Id prefix group (<c>cs-legacy</c>, <c>cs-modern</c>, <c>sql</c>): the R4 category.</param>

@@ -75,4 +75,13 @@ public class EvalArgumentsTests
         foreach (var row in PellyCoder.Core.Doctor.OfflineSelfTest.Run())
             Assert.Contains($"| {row.Name} | Ok |", text, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void NoRules_IsARunFlag()
+    {
+        Assert.True(EvalArguments.Parse(["--no-rules"]).NoRules);
+        Assert.True(EvalArguments.Parse(["run", "--suite", "s", "--no-rules", "--repeat", "3"]).NoRules);
+        Assert.False(EvalArguments.Parse([]).NoRules);
+        Assert.Equal("알 수 없는 인자: --no-rules", EvalArguments.Parse(["validate", "--no-rules"]).Error);
+    }
 }

@@ -35,6 +35,8 @@ Get-FileHash .\<zip 이름>.zip -Algorithm SHA256
 
 pelly zip을 푼 폴더의 `docs\install.md` 1~4절대로 설치하고 설정 파일을 만듭니다. 이 문서에서 설정 파일 경로를 `<pelly.json>`이라고 부릅니다.
 
+**예전 설정 파일을 다시 쓰는 경우:** `budget.system`이 600으로 적혀 있으면 450으로 낮춥니다. 규칙 예산 `budget.rules`(150 토큰)가 시스템 예산에서 나뉘어, 600이면 예산 합계가 `budget.inputTotal`(4096)을 넘어 모든 명령이 종료 코드 4로 멈춥니다. `budget` 블록이 없으면 그대로 둡니다.
+
 SQL 작업을 측정하려면 `doctor` 전에 환경 변수 `PELLY_SQL_CONNECTION`을 설정합니다. 설정하지 않으면 `SQL 연결` 행이 Warn이고 계정이 보이지 않습니다.
 레거시 프로젝트가 있으면 `--project`로 그 csproj를 줍니다(타겟팅 팩 행은 이 옵션이 있어야 나옵니다).
 
@@ -127,6 +129,7 @@ pelly-eval --suite <폴더> --config <pelly.json> --repeat 3 --keep-work failed 
 ## 8. 설정 튜닝
 
 바꿔 볼 것은 `pelly.json`의 값뿐입니다(샘플링 값, 예산 등). 코드는 바꾸지 않습니다.
+예산을 바꿀 때는 `budget.system + budget.rules + budget.request + budget.context + budget.feedback`이 `budget.inputTotal` 이하여야 합니다(기본 450 + 150 + 200 + 3000 + 296 = 4096).
 후보 설정 파일을 따로 만들고, 같은 스위트에 같은 명령으로 측정합니다.
 
 ```cmd
@@ -142,6 +145,23 @@ pelly-eval compare D:\pelly-field\baseline\summary.json D:\pelly-field\candidate
 종료 코드: 0 채택 · 3 거절 · 4 판정 불가. **종료 0만 채택합니다.** 거절된 후보는 기본값을 유지하고 결과만 양식에 적습니다.
 채택 규칙(R4): 평균 +1.0건 이상, 범주별 −0.5건 넘는 감소 없음, 위반 0건, 시간 중위값 1.5배 이하.
 후보마다 `candidate-2`, `candidate-3`…으로 폴더를 나눕니다.
+
+### 8.1 프로젝트 규칙(AGENTS.md) 효과 측정 (PRD §12.6)
+
+규칙 효과는 **대상 코드에 보이지 않는 팀 관례**가 걸리는 작업에서만 나타납니다(외부 사전 측정: 내장 50건 +1.3%p, 관례 작업 6건 0/6 → 6/6, `docs/v2-3-rules-premeasure.md`).
+
+1. 실제 코드 루트에서 `pelly rules init --dry-run`으로 초안을 보고, 팀 관례 중 코드에 잘 드러나지 않는 것을 한 줄씩 더해 `AGENTS.md`를 만듭니다(예: 현재 시각 함수, 공통 예외 타입, 금지 API). 코드에 보이는 관례(주석 언어 등)는 모델이 이미 따라 하므로 효과가 작습니다.
+2. 그 관례가 걸리는 작업을 스위트에 넣고 `mustContain`(써야 하는 것)·`mustNotAdd`(새로 쓰면 안 되는 것)로 판정합니다. 관례가 걸리는 작업 비율은 실제 요청 이력에 가깝게 잡습니다.
+3. `AGENTS.md`는 작업 공간 루트에 있어야 합니다. 코드 쪽에 두지 않으려면 루트의 `overlay` 폴더나 `supportFiles`로 넣습니다(`eval/benchmark-rules/README.md`).
+4. 같은 스위트를 규칙 없이, 그리고 규칙과 함께 한 번씩 돌려 비교합니다.
+
+```cmd
+pelly-eval --suite <폴더> --config <pelly.json> --repeat 3 --no-rules --keep-work failed --out D:\pelly-field\rules-off
+pelly-eval --suite <폴더> --config <pelly.json> --repeat 3 --keep-work failed --out D:\pelly-field\rules-on
+pelly-eval compare D:\pelly-field\rules-off\summary.json D:\pelly-field\rules-on\summary.json
+```
+
+`--no-rules`는 작업 복사본의 `AGENTS.md`를 모두 지우고 돌립니다(요약의 조건에 `rulesRemoved: true`). 결과는 `field-results.md` 8.1에 적습니다.
 
 ## 9. 반출
 

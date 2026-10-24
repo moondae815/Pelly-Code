@@ -1,0 +1,10 @@
+{
+  "formatVersion": 1,
+  "name": "rules",
+  "roots": [
+    { "name": "Modern", "path": "../corpus/Modern", "overlay": "rules/Modern" },
+    { "name": "Sql", "path": "../corpus/Sql" }
+  ],
+  "supportFiles": ["../corpus/Directory.Build.props", "../corpus/Directory.Packages.props", "../../global.json", "rules/Sql/AGENTS.md"],
+  "resultsDir": "../results"
+}

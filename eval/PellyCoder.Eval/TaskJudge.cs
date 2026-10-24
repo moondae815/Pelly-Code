@@ -26,6 +26,13 @@ public static partial class TaskJudge
                 reasons.Add($"mustAdd '{s}'이(가) 늘지 않음 ({before} → {after})");
         }
 
+        foreach (var s in judge.MustNotAdd ?? [])
+        {
+            int before = Count(originalTarget, s), after = Count(finalTarget, s);
+            if (after > before)
+                reasons.Add($"mustNotAdd '{s}'이(가) 늘어남 ({before} → {after})");
+        }
+
         foreach (var s in judge.MustNotContain ?? [])
             if (finalTarget.Contains(s, StringComparison.Ordinal))
                 reasons.Add($"mustNotContain '{s}'이(가) 남아 있음");

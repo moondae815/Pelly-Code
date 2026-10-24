@@ -149,6 +149,7 @@ public static partial class RulesDrafter
                         }
                         break;
                     case MemberAccessExpressionSyntax { Name.Identifier.ValueText: "Result" }:
+                    case MemberBindingExpressionSyntax { Name.Identifier.ValueText: "Result" }:
                         Blocking++;
                         break;
                     case InvocationExpressionSyntax inv:
@@ -193,10 +194,14 @@ public static partial class RulesDrafter
 
         private void CountInvocation(InvocationExpressionSyntax inv)
         {
-            if (inv.Expression is not MemberAccessExpressionSyntax ma) return;
-            var name = ma.Name.Identifier.ValueText;
+            var (name, target) = inv.Expression switch
+            {
+                MemberAccessExpressionSyntax ma => (ma.Name.Identifier.ValueText, ma.Expression),
+                MemberBindingExpressionSyntax mb => (mb.Name.Identifier.ValueText, null),
+                _ => ("", null),
+            };
             if (name == "Wait" && inv.ArgumentList.Arguments.Count == 0) Blocking++;
-            else if (name == "GetResult" && ma.Expression is InvocationExpressionSyntax { Expression: MemberAccessExpressionSyntax { Name.Identifier.ValueText: "GetAwaiter" } })
+            else if (name == "GetResult" && target is InvocationExpressionSyntax { Expression: MemberAccessExpressionSyntax { Name.Identifier.ValueText: "GetAwaiter" } })
                 Blocking++;
         }
 

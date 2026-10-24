@@ -60,6 +60,8 @@ public class RulesDrafterTests
     [InlineData("var x = Task.FromResult(1).Result;")]
     [InlineData("Task.Delay(1).Wait();")]
     [InlineData("Task.Delay(1).GetAwaiter().GetResult();")]
+    [InlineData("Task<int>? t = null; var x = t?.Result;")]
+    [InlineData("Task? t = null; t?.Wait();")]
     public void NoBlocking_OneUse_NoRule(string statement) =>
         Assert.Null(Find(Run(Fs(), Wrap(Methods(10, i => $"M{i}Async") + $"void Sync() {{ {statement} }}\n")), "forbid:"));
 
@@ -202,6 +204,13 @@ public class RulesDrafterTests
     {
         // NOCOUNT in a later procedure (or after GO) must not be credited to the earlier one.
         var sql = "CREATE PROC dbo.A AS SELECT 1\nCREATE PROC dbo.B AS SET NOCOUNT ON\nGO\nSET NOCOUNT ON\nCREATE PROC dbo.C AS SELECT 1\n";
+        Assert.Null(Find(Run(Fs(), sql: sql), "[procedure]"));
+    }
+
+    [Fact]
+    public void SqlNocount_GoEndsBody_NocountAfterGoNotCounted()
+    {
+        var sql = string.Concat(Enumerable.Repeat("CREATE PROC A AS SELECT 1\nGO\nSET NOCOUNT ON\n", 3));
         Assert.Null(Find(Run(Fs(), sql: sql), "[procedure]"));
     }
 

@@ -1,0 +1,8 @@
+id: sql-104
+kind: sql
+file: Sql/objects/usp_GetOrderDetail.sql
+request: "첫 번째 결과 집합에 주문 후 지금까지 지난 시간을 시간 단위로 OrderAgeHours 컬럼에 넣어줘"
+judge:
+  sqlCompile: true
+  mustContain: ["SYSDATETIME()", "OrderAgeHours"]
+  mustNotAdd: ["GETDATE("]

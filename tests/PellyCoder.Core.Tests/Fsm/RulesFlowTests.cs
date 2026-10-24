@@ -232,4 +232,67 @@ public sealed class RulesFlowTests : IDisposable
         Assert.Contains(_ui.Warnings, m => m.Contains("AGENTS.md 줄 4"));
         Assert.Equal(CalcSource, File.ReadAllText(CalcPath));
     }
+
+    private const string NolockRule = "- [*] NOLOCK 금지 | forbid: \\bNOLOCK\\b";
+    private const string NolockLine = "    SELECT Id FROM dbo.T WITH (NOLOCK) WHERE Id = @Id;";
+
+    private (FakeSqlExecutor Sql, string Path) PrepareSql()
+    {
+        var sql = new FakeSqlExecutor();
+        sql.Schemas.Add(new SqlTableSchema(SqlObjectName.Parse("dbo.T"), "TABLE", [new("Id", "int", false, true)], []));
+        var path = Path.Combine(_root, "a.sql");
+        File.WriteAllText(path, SqlScript, new UTF8Encoding(false));
+        WriteAgents(NolockRule);
+        return (sql, path);
+    }
+
+    private Task<int> RunSql(FakeSqlExecutor sql, string path)
+    {
+        var options = new PellyOptions
+        {
+            Sql = new SqlOptions
+            {
+                AllowedHosts = ["sql1"], AllowedDatabases = ["Shop"],
+                ConnectionString = "Server=sql1;Database=Shop;User Id=u;Password=Secret123;",
+            },
+        };
+        return FsmOrchestratorFactory.CreateSql(new FileSystem(), _backend, _ui, options, TimeProvider.System, sql)
+            .RunAsync(new RunRequest(path, null, null, null, "add a filter", true, false, null, null, EditKind.Sql), TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Sql_Forbid_Violation_RetriesAndNeverCompilesIt()
+    {
+        var (sql, path) = PrepareSql();
+        _backend.Enqueue(Search + "\n=======\n" + NolockLine + "\n>>>>>>> REPLACE\n");
+        _backend.Enqueue("Avoid NOLOCK.</think>", evalCount: 10);
+        _backend.Enqueue(NolockLine + "\n=======\n" + Good + "\n>>>>>>> REPLACE\n");
+
+        var exit = await RunSql(sql, path);
+
+        Assert.Equal(0, exit);
+        Assert.Equal(3, _backend.Requests.Count); // first edit, think, second edit
+        Assert.Contains("RULE VIOLATION:", _backend.Requests[1].RawPrompt);
+        Assert.DoesNotContain(sql.Compiled, b => b.Contains("NOLOCK"));
+        Assert.Equal(SqlScript.Replace(Search, Good), File.ReadAllText(path));
+    }
+
+    [Fact]
+    public async Task Sql_Forbid_ViolationEveryAttempt_Exit1_FileRestored()
+    {
+        var (sql, path) = PrepareSql();
+        _backend.Enqueue(Search + "\n=======\n" + NolockLine + "\n>>>>>>> REPLACE\n");
+        for (var i = 1; i < 4; i++)
+        {
+            _backend.Enqueue("Avoid NOLOCK.</think>", evalCount: 10);
+            var current = i == 1 ? NolockLine : NolockLine + " -- " + (i - 1);
+            _backend.Enqueue(current + "\n=======\n" + NolockLine + " -- " + i + "\n>>>>>>> REPLACE\n");
+        }
+
+        var exit = await RunSql(sql, path);
+
+        Assert.Equal(1, exit);
+        Assert.Equal("RulesErrors", FailureKindOnDisk());
+        Assert.Equal(SqlScript, File.ReadAllText(path));
+    }
 }

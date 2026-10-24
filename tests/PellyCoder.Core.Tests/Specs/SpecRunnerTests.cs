@@ -84,7 +84,9 @@ public sealed class SpecRunnerTests : IDisposable
         Assert.Contains("\"archived\": true", json);
         Assert.Contains("\"R-T2\"", json);
         Assert.False(File.Exists(Path.Combine(dir, "summary.json")));
-        Assert.NotNull(WorkspaceLock.TryAcquire(_fs, new Workspace(_root, P(".pelly")))); // released
+        // Released: we can take it again. Dispose ours, or Windows cannot delete the temp folder in Dispose().
+        using var again = WorkspaceLock.TryAcquire(_fs, new Workspace(_root, P(".pelly")));
+        Assert.NotNull(again);
     }
 
     [Fact]

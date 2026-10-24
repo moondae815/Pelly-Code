@@ -35,11 +35,13 @@ public sealed class SpecCheckerTests
     [Fact]
     public void Clean_spec_has_no_issues()
     {
-        var r = Check(Fs("- [ ] T1 cs src/App/OrderService.cs#OrderService.Cancel InvalidOperationException을 던지게 한다 (AC1)\n" +
-                         "- [ ] T2 sql db/one.sql 한 줄 추가\n"));
+        var fs = Fs("- [ ] T1 cs src/App/OrderService.cs#OrderService.Cancel InvalidOperationException을 던지게 한다 (AC1)\n" +
+                    "- [ ] T2 sql db/one.sql 한 줄 추가\n");
+        var r = Check(fs);
         Assert.Empty(r.Issues);
         Assert.False(r.HasErrors);
-        Assert.Equal("/ws", r.Workspace.Root);
+        // MockFileSystem roots "/ws" at the current drive on Windows (C:\ws).
+        Assert.Equal(fs.Path.GetFullPath("/ws"), r.Workspace.Root);
     }
 
     [Fact]

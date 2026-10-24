@@ -29,6 +29,8 @@ jobs:
         shell: pwsh
         run: |
           ./eval/corpus/Legacy/build.ps1
+          # build.ps1이 실행 위치를 바꾸므로 저장소 루트로 돌아온다.
+          Set-Location $env:GITHUB_WORKSPACE
           dotnet restore eval/corpus/Modern/Modern.sln
 
       # 테스트가 실패해도 측정은 돈다(결과 파일에 종료 코드를 남긴다).

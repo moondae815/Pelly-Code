@@ -58,14 +58,16 @@ public static class MemberShapeGuard
         var target = beforeEntries.FirstOrDefault(e => e.Display == targetDisplay && IsLocatorKind(e.Node))
             ?? throw new ShapeTargetNotFoundException(targetDisplay);
 
-        // The edited target: same key, else a member that did not exist before with the same kind and type and either the
-        // same name (body only) or the same position among its type's members (group: the name may change too).
+        // The edited target: same key, else a member that did not exist before with the same kind, type and name. A group
+        // run, failing those, also accepts the one such member at the target's position among its type's members (a
+        // rename), so it never rejects an edit the body-only rule would pair.
         var beforeKeys = beforeEntries.Select(e => e.Key).ToHashSet(StringComparer.Ordinal);
-        var candidates = afterEntries.Where(e => !beforeKeys.Contains(e.Key) && e.Kind == target.Kind && e.Scope == target.Scope);
+        var candidates = afterEntries.Where(e => !beforeKeys.Contains(e.Key) && e.Kind == target.Kind && e.Scope == target.Scope).ToList();
+        var sameName = candidates.Where(e => NameOf(e.Node) == NameOf(target.Node)).ToList();
         var newTarget = afterEntries.FirstOrDefault(e => e.Key == target.Key)
             ?? (allowance == ShapeAllowance.TargetSignatureAndName
-                ? SingleOrNull(candidates.Where(e => PositionOf(e.Node) == PositionOf(target.Node)).ToList())
-                : candidates.FirstOrDefault(e => NameOf(e.Node) == NameOf(target.Node)));
+                ? SingleOrNull(sameName) ?? SingleOrNull(candidates.Where(e => PositionOf(e.Node) == PositionOf(target.Node)).ToList())
+                : sameName.FirstOrDefault());
 
         if (newTarget is null)
             return Fail($"member {target.Display} was removed or changed. Only the target member may change.");

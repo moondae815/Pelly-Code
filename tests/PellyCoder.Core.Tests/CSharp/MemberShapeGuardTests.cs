@@ -435,6 +435,17 @@ public sealed class MemberShapeGuardTests
     }
 
     [Fact]
+    public void Group_allows_parameter_change_with_helper_added_above()
+    {
+        var r = Group(OrdersReplace("    public Task Cancel(int id)\n",
+            "    private static void Log(long id) { }\n\n    public Task Cancel(long id)\n"), "OrderService.Cancel(int)");
+
+        Assert.True(r.Ok, r.Reason);
+        Assert.Equal("OrderService.Cancel(long)", r.NewTargetDisplay);
+        Assert.Equal(["OrderService.Log(long)"], r.AddedPrivateMethods);
+    }
+
+    [Fact]
     public void Group_still_rejects_other_member_change()
     {
         var r = Group(OrdersReplace("OrderDto GetOrder(int id);", "OrderDto FindOrder(int id);")

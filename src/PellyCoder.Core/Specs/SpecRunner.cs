@@ -311,6 +311,12 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                 int code = await CancelledAsync(tx);
                 return new GroupEnd(undone.ExitCode == 4 ? 4 : code, true);
             }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // Unexpected failure: the group's edits were never verified or approved, so they must not stay.
+                await UndoGroupAsync(tx, g, null, 4);
+                throw;
+            }
         }
 
         private async Task<GroupEnd> RunGroupTasksAsync(ApplyTransaction tx, GroupState g, IReadOnlyList<string> scope, GroupBuild baseline,
@@ -350,11 +356,15 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                     return await UndoGroupAsync(tx, g, "GroupBuildFailed", 1);
                 }
 
-                foreach (var task in g.Tasks.Where(t => attribution.ByTask.ContainsKey(t.Id)))
+                // Every feedback quotes the files as this build saw them: a re-run rewrites its file, and a later task on
+                // the same file would otherwise quote shifted lines under the build's line numbers.
+                var attributed = g.Tasks.Where(t => attribution.ByTask.ContainsKey(t.Id)).ToList();
+                var feedbacks = BuildFeedbacks(attributed, attribution);
+                foreach (var task in attributed)
                 {
                     // The member may have been renamed: name it as the last successful run left it, never from the spec.
                     var display = g.Succeeded[task.Id].Display;
-                    var feedback = BuildFeedback(task, attribution.ByTask[task.Id]);
+                    var feedback = feedbacks[task.Id];
                     var member = display is null ? null : MemberLocator.NameOf(display);
                     if (await RunGroupTaskAsync(tx, g, task, new GroupRun(feedback), member, ct) is not { } r) return await GroupAbortedAsync(tx, g);
                     if (r.ExitCode != 0) return await UndoGroupAsync(tx, g, r.FailureKind ?? $"exit-{r.ExitCode}", r.ExitCode);
@@ -412,17 +422,30 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             return r;
         }
 
-        /// <summary>The build errors of one task as the FSM's own build feedback, against the task's file as it is now.</summary>
-        private Feedback BuildFeedback(SpecTask task, IReadOnlyList<Diagnostic> errors)
+        /// <summary>
+        /// Each attributed task's build errors as the FSM's own build feedback, all built before any re-run against the
+        /// files as they are now (one read per file).
+        /// </summary>
+        private Dictionary<string, Feedback> BuildFeedbacks(IReadOnlyList<SpecTask> tasks, Attribution attribution)
         {
-            string full = FullPath(task);
-            string text;
-            try { text = owner.Guard.Read(full).Text; }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
+            var texts = new Dictionary<string, string>(SpecTaskPaths.Comparer);
+            var feedbacks = new Dictionary<string, Feedback>(StringComparer.Ordinal);
+            foreach (var task in tasks)
             {
-                text = ""; // the errors still list; the re-run reports the unreadable file itself
+                string full = FullPath(task);
+                if (!texts.TryGetValue(full, out var text))
+                {
+                    try { text = owner.Guard.Read(full).Text; }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
+                    {
+                        text = ""; // the errors still list; the re-run reports the unreadable file itself
+                    }
+                    texts[full] = text;
+                }
+                var relative = owner.Fs.Path.GetRelativePath(ws.Root, full).Replace('\\', '/');
+                feedbacks[task.Id] = owner.GroupFeedback.ForBuild(attribution.ByTask[task.Id], relative, text);
             }
-            return owner.GroupFeedback.ForBuild(errors, owner.Fs.Path.GetRelativePath(ws.Root, full).Replace('\\', '/'), text);
+            return feedbacks;
         }
 
         /// <summary>Nothing changed yet: every group task is marked <c>GroupUnverifiable</c> under the apply ID, exit 4.</summary>

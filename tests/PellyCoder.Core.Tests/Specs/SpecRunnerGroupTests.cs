@@ -424,6 +424,37 @@ public sealed class SpecRunnerGroupTests : IDisposable
     }
 
     [Fact]
+    public async Task Unexpected_exception_inside_a_group_rolls_the_group_back_and_propagates()
+    {
+        Spec(Group);
+        _exec.Throw["T2"] = new InvalidOperationException("boom");
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => Run(Opts()));
+
+        Assert.Equal("boom", ex.Message);
+        AssertGroupFilesUntouched();
+    }
+
+    [Fact]
+    public async Task Rerun_feedback_quotes_the_file_as_the_verification_build_saw_it()
+    {
+        Spec("- [ ] T1 cs src/App/OrderService.cs#OrderService.GetOrder 반환 형식을 바꾼다 [G1]\n" +
+             "- [ ] T2 cs src/App/OrderService.cs#OrderService.Cancel 매개변수를 더한다 [G1]\n");
+        _exec.Display["T2"] = "OrderService.Cancel()";
+        // T1's re-run shifts every line down by two before T2's re-run.
+        _exec.Edit["T1"] = text => _exec.Calls.Count(c => c == "T1") > 1 ? "// a\n// b\n" + text : text;
+        _builds.Results.Enqueue(Built());
+        _builds.Results.Enqueue(Built(Error("src/App/OrderService.cs", 7), Error("src/App/OrderService.cs", 11)));
+        var code = await Run(Opts());
+
+        Assert.Equal(0, code);
+        Assert.Equal(["T1", "T2", "T1", "T2"], _exec.Calls);
+        var t2 = _exec.Options[3].Group!.InitialFeedback!.Text;
+        Assert.Contains("src/App/OrderService.cs(11): CS0029", t2);
+        Assert.Contains("> 11 |     {", t2);
+    }
+
+    [Fact]
     public async Task Group_without_verifier_exits_4_before_any_edit()
     {
         Spec(Group);

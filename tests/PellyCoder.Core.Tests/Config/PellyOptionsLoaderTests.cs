@@ -23,7 +23,8 @@ public class PellyOptionsLoaderTests
         Assert.Empty(r.Errors);
         var o = r.Options!;
         Assert.Equal(4096, o.Budget.InputTotal);
-        Assert.Equal(600, o.Budget.System);
+        Assert.Equal(450, o.Budget.System);
+        Assert.Equal(150, o.Budget.Rules);
         Assert.Equal(200, o.Budget.Request);
         Assert.Equal(3000, o.Budget.Context);
         Assert.Equal(296, o.Budget.Feedback);
@@ -157,6 +158,15 @@ public class PellyOptionsLoaderTests
         var r = Load(new MockFileSystem(), cli: cli);
         Assert.Null(r.Options);
         Assert.Contains(r.Errors, e => e.Contains("budget"));
+    }
+
+    [Fact]
+    public void InputParts_RulesPushPastInputTotal_ErrorMentionsRules()
+    {
+        var cli = new Dictionary<string, string?> { ["budget:rules"] = "400" };
+        var r = Load(new MockFileSystem(), cli: cli);
+        Assert.Null(r.Options);
+        Assert.Contains(r.Errors, e => e.Contains("budget") && e.Contains("rules"));
     }
 
     [Fact]

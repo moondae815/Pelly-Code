@@ -198,9 +198,9 @@ public static class PellyOptionsLoader
             errors.Add($"sql:compatLevel 값은 90, 100, …, 170 중 하나여야 합니다: {o.Sql.CompatLevel}");
 
         var b = o.Budget;
-        var parts = (long)b.System + b.Request + b.Context + b.Feedback;
+        var parts = (long)b.System + b.Rules + b.Request + b.Context + b.Feedback;
         if (parts > b.InputTotal)
-            errors.Add($"budget: system+request+context+feedback ({parts}) exceeds budget:inputTotal ({b.InputTotal})");
+            errors.Add($"budget: system+rules+request+context+feedback ({parts}) exceeds budget:inputTotal ({b.InputTotal})");
         var total = (long)b.InputTotal + b.Think + b.CodeOutput;
         if (total > o.Llm.NumCtx)
             errors.Add($"budget: inputTotal+think+codeOutput ({total}) exceeds llm:numCtx ({o.Llm.NumCtx})");

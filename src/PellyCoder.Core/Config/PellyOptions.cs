@@ -36,7 +36,8 @@ public sealed class LlmOptions
 public sealed class BudgetOptions
 {
     public int InputTotal { get; set; } = 4096;
-    public int System { get; set; } = 600;
+    public int System { get; set; } = 450;
+    public int Rules { get; set; } = 150;
     public int Request { get; set; } = 200;
     public int Context { get; set; } = 3000;
     public int Feedback { get; set; } = 296;

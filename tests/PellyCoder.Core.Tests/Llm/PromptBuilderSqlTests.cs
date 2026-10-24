@@ -1,6 +1,7 @@
 using PellyCoder.Core.Config;
 using PellyCoder.Core.Llm;
 using PellyCoder.Core.Models;
+using PellyCoder.Core.Rules;
 using PellyCoder.Core.Sql;
 
 namespace PellyCoder.Core.Tests.Llm;
@@ -123,5 +124,14 @@ public sealed class PromptBuilderSqlTests
         var ex = Record.Exception(() => typeof(PromptResources).GetMethod("Load", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
             .Invoke(null, ["missing.txt"]));
         Assert.NotNull(ex);
+    }
+
+    [Fact]
+    public void BuildSql_InsertsRules()
+    {
+        var rules = new[] { new ProjectRule(2, ["orders"], "SET NOCOUNT ON을 쓴다", null) };
+        var result = NewBuilder().BuildSql(Target(), SqlObjectKind.Procedure, FullSlice(), "req", null, rules);
+        Assert.Contains("### RULES\n- SET NOCOUNT ON을 쓴다\n### REQUEST", User(result.BasePrompt));
+        Assert.Single(result.Rules!.Included);
     }
 }

@@ -72,4 +72,12 @@ public class RulesLoaderTests
         Assert.Empty(r.Rules);
         Assert.Empty(r.Errors);
     }
+
+    [Fact]
+    public void Load_ParseError_NoRulesAndErrorLine()
+    {
+        var r = RulesLoader.Load(WithFile("/w/AGENTS.md", "## Pelly rules\n- [a] ok\n- broken\n"u8.ToArray()), Ws);
+        Assert.Empty(r.Rules);
+        Assert.Equal(3, Assert.Single(r.Errors).Line);
+    }
 }

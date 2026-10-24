@@ -76,6 +76,12 @@ public static partial class RulesDocument
             }
 
             var text = m.Groups["text"].Value.Trim();
+            if (text.Length == 0 || text.StartsWith('|'))
+            {
+                errors.Add(new RulesError(no, "규칙 텍스트가 비어 있습니다."));
+                continue;
+            }
+
             if (text.Length > MaxTextLength)
             {
                 errors.Add(new RulesError(no, $"규칙 텍스트는 {MaxTextLength}자 이내여야 합니다 (현재 {text.Length}자)."));
@@ -85,6 +91,11 @@ public static partial class RulesDocument
             string? forbid = m.Groups["forbid"].Success ? m.Groups["forbid"].Value : null;
             if (forbid is not null)
             {
+                if (forbid.Trim().Length == 0)
+                {
+                    errors.Add(new RulesError(no, "forbid 정규식이 비어 있습니다."));
+                    continue;
+                }
                 try { _ = new Regex(forbid, RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100)); }
                 catch (ArgumentException ex)
                 {

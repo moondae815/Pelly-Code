@@ -147,4 +147,28 @@ public class RulesDocumentTests
         var after = RulesDocument.ReplaceSection("# A\n## Pelly rules\n- [a] old\n", "## Pelly rules\n- [b] new\n");
         Assert.Equal("# A\n## Pelly rules\n- [b] new\n", after);
     }
+
+    [Fact]
+    public void Parse_ErrorOnEmptyText()
+    {
+        var (rules, errors) = RulesDocument.Parse("## Pelly rules\n- [a]  \n");
+        Assert.Empty(rules);
+        Assert.Equal(2, Assert.Single(errors).Line);
+    }
+
+    [Fact]
+    public void Parse_ErrorOnMissingTextBeforeForbid()
+    {
+        var (rules, errors) = RulesDocument.Parse("## Pelly rules\n- [a] | forbid: x\n");
+        Assert.Empty(rules);
+        Assert.Equal(2, Assert.Single(errors).Line);
+    }
+
+    [Fact]
+    public void Parse_ErrorOnBlankForbid()
+    {
+        var (rules, errors) = RulesDocument.Parse("## Pelly rules\n- [a] x | forbid:   \n");
+        Assert.Empty(rules);
+        Assert.Equal(2, Assert.Single(errors).Line);
+    }
 }

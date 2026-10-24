@@ -35,6 +35,8 @@ Get-FileHash .\<zip 이름>.zip -Algorithm SHA256
 
 pelly zip을 푼 폴더의 `docs\install.md` 1~4절대로 설치하고 설정 파일을 만듭니다. 이 문서에서 설정 파일 경로를 `<pelly.json>`이라고 부릅니다.
 
+**예전 설정 파일을 다시 쓰는 경우:** `budget.system`이 600으로 적혀 있으면 450으로 낮춥니다. 규칙 예산 `budget.rules`(150 토큰)가 시스템 예산에서 나뉘어, 600이면 예산 합계가 `budget.inputTotal`(4096)을 넘어 모든 명령이 종료 코드 4로 멈춥니다. `budget` 블록이 없으면 그대로 둡니다.
+
 SQL 작업을 측정하려면 `doctor` 전에 환경 변수 `PELLY_SQL_CONNECTION`을 설정합니다. 설정하지 않으면 `SQL 연결` 행이 Warn이고 계정이 보이지 않습니다.
 레거시 프로젝트가 있으면 `--project`로 그 csproj를 줍니다(타겟팅 팩 행은 이 옵션이 있어야 나옵니다).
 
@@ -127,6 +129,7 @@ pelly-eval --suite <폴더> --config <pelly.json> --repeat 3 --keep-work failed 
 ## 8. 설정 튜닝
 
 바꿔 볼 것은 `pelly.json`의 값뿐입니다(샘플링 값, 예산 등). 코드는 바꾸지 않습니다.
+예산을 바꿀 때는 `budget.system + budget.rules + budget.request + budget.context + budget.feedback`이 `budget.inputTotal` 이하여야 합니다(기본 450 + 150 + 200 + 3000 + 296 = 4096).
 후보 설정 파일을 따로 만들고, 같은 스위트에 같은 명령으로 측정합니다.
 
 ```cmd

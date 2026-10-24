@@ -210,7 +210,7 @@ public class ExitCodeMappingTests
             var help = Build(CancellationToken.None).Run(command, "--help");
             Assert.Equal(0, help.ExitCode);
         }
-        Assert.Equal(["cs", "doctor", "report", "rules check", "sql"], CliApp.CommandSettings.Keys.Order().ToArray());
+        Assert.Equal(["cs", "doctor", "report", "rules check", "rules init", "sql"], CliApp.CommandSettings.Keys.Order().ToArray());
     }
 
     /// <summary>Command lines from README and deploy/*.md still parse under strict parsing (cancelled token: no real work runs).</summary>

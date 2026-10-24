@@ -23,6 +23,7 @@ public static class CliApp
         {
             b.SetDescription("AGENTS.md의 Pelly rules 절을 다룹니다.");
             b.AddCommand<RulesCheckCommand>("check").WithDescription("AGENTS.md의 Pelly rules 절을 검사합니다.");
+            b.AddCommand<RulesInitCommand>("init").WithDescription("코드베이스를 분석해 AGENTS.md에 규칙 초안을 만듭니다.");
         });
 
         // Without a handler Spectre returns -1 (process exit 255) for parse errors; PRD FR-00 allows only 0–5.
@@ -43,6 +44,7 @@ public static class CliApp
         ["doctor"] = typeof(DoctorSettings),
         ["report"] = typeof(ReportSettings),
         ["rules check"] = typeof(RulesCheckSettings),
+        ["rules init"] = typeof(RulesInitSettings),
     };
 
     /// <summary>

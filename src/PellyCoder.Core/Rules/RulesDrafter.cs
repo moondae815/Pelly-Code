@@ -30,9 +30,10 @@ public static partial class RulesDrafter
     {
         var cs = new CsStats();
         var csFiles = 0;
-        foreach (var path in BoundedWalker.Files(fs, root, "*.cs", MaxDirectories, ct).Take(MaxCsFiles))
+        foreach (var path in BoundedWalker.Files(fs, root, "*.cs", MaxDirectories, ct))
         {
             ct.ThrowIfCancellationRequested();
+            if (csFiles >= MaxCsFiles) break; // the cap counts analysed files, not skipped ones
             if (!TryRead(fs, path, out var text)) continue;
             csFiles++;
             cs.Add(CSharpSyntaxTree.ParseText(text, ParseOptions, cancellationToken: ct).GetRoot(ct));
@@ -40,9 +41,10 @@ public static partial class RulesDrafter
 
         var sql = new SqlStats();
         var sqlFiles = 0;
-        foreach (var path in BoundedWalker.Files(fs, root, "*.sql", MaxDirectories, ct).Take(MaxSqlFiles))
+        foreach (var path in BoundedWalker.Files(fs, root, "*.sql", MaxDirectories, ct))
         {
             ct.ThrowIfCancellationRequested();
+            if (sqlFiles >= MaxSqlFiles) break;
             if (!TryRead(fs, path, out var text)) continue;
             sqlFiles++;
             sql.Add(text);
@@ -173,7 +175,7 @@ public static partial class RulesDrafter
                     case ThrowExpressionSyntax tx:
                         CountThrow(tx.Expression);
                         break;
-                    case LocalDeclarationStatementSyntax ld:
+                    case LocalDeclarationStatementSyntax ld when !ld.IsConst && ld.Declaration.Type is not RefTypeSyntax:
                         Locals++;
                         if (ld.Declaration.Type.IsVar) VarLocals++;
                         break;
@@ -201,7 +203,8 @@ public static partial class RulesDrafter
                 _ => ("", null),
             };
             if (name == "Wait" && inv.ArgumentList.Arguments.Count == 0) Blocking++;
-            else if (name == "GetResult" && target is InvocationExpressionSyntax { Expression: MemberAccessExpressionSyntax { Name.Identifier.ValueText: "GetAwaiter" } })
+            else if (name == "GetResult" && target is InvocationExpressionSyntax { Expression: var getAwaiter }
+                && getAwaiter is MemberAccessExpressionSyntax { Name.Identifier.ValueText: "GetAwaiter" } or MemberBindingExpressionSyntax { Name.Identifier.ValueText: "GetAwaiter" })
                 Blocking++;
         }
 
@@ -227,7 +230,8 @@ public static partial class RulesDrafter
 
         public void Add(string raw)
         {
-            var text = BlockComment().Replace(LineComment().Replace(raw, ""), "");
+            // Comments and string literals blanked by the ScriptDom lexer; the regex strip only when the text does not lex.
+            var text = CodeMask.Sql(raw, compatLevel: 160, quotedIdentifier: true) ?? BlockComment().Replace(LineComment().Replace(raw, ""), "");
 
             var defs = Definition().Matches(text);
             var goLines = GoLine().Matches(text);

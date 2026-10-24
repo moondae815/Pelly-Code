@@ -62,6 +62,7 @@ public class RulesDrafterTests
     [InlineData("Task.Delay(1).GetAwaiter().GetResult();")]
     [InlineData("Task<int>? t = null; var x = t?.Result;")]
     [InlineData("Task? t = null; t?.Wait();")]
+    [InlineData("Task? t = null; t?.GetAwaiter().GetResult();")]
     public void NoBlocking_OneUse_NoRule(string statement) =>
         Assert.Null(Find(Run(Fs(), Wrap(Methods(10, i => $"M{i}Async") + $"void Sync() {{ {statement} }}\n")), "forbid:"));
 
@@ -93,6 +94,17 @@ public class RulesDrafterTests
     {
         var r = Run(Fs(), Wrap("", "using Dapper;\n"));
         Assert.Equal("using Dapper; 파일 1개", Assert.IsType<DraftRule>(Find(r, "[dapper]")).Evidence);
+    }
+
+    [Fact]
+    public void Dapper_GlobalUsing_Emits() =>
+        Assert.NotNull(Find(Run(Fs(), Wrap("", "global using Dapper;\n")), "[dapper]"));
+
+    [Fact]
+    public void Dapper_AliasOrStaticUsing_NoRule()
+    {
+        Assert.Null(Find(Run(Fs(), Wrap("", "using D = Dapper;\n")), "[dapper]"));
+        Assert.Null(Find(Run(Fs(), Wrap("", "using static Dapper;\n")), "[dapper]"));
     }
 
     [Fact]
@@ -168,6 +180,15 @@ public class RulesDrafterTests
     }
 
     [Fact]
+    public void VarStyle_ConstAndRefLocalsNotCounted()
+    {
+        // const and ref locals cannot use var, so they say nothing about the style.
+        var extra = string.Concat(Enumerable.Range(0, 20).Select(i => $"const int k{i} = 1;\n")) + "var z = 0; ref int r = ref z;\n";
+        var r = Run(Fs(), Locals(40, 10).Replace("foreach", extra + "foreach"));
+        Assert.Equal("지역 변수 선언 51개 중 41개가 var", Assert.IsType<DraftRule>(Find(r, "var로 선언한다")).Evidence);
+    }
+
+    [Fact]
     public void VarStyle_Rarely_EmitsExplicitRule()
     {
         var r = Run(Fs(), Locals(10, 40));
@@ -218,6 +239,20 @@ public class RulesDrafterTests
     public void SqlNocount_CommentedOut_NotCounted() =>
         Assert.Null(Find(Run(Fs(), sql: Proc("A", false).Replace("SELECT 1", "-- SET NOCOUNT ON\nSELECT 1") + Proc("B", false) + Proc("C", false)), "[procedure]"));
 
+    [Fact]
+    public void SqlNocount_BlockCommentWithDashes_StillCounted()
+    {
+        // The old regex strip removed "-- 메모 */ SET NOCOUNT ON" as one line comment.
+        var body = "CREATE PROC dbo.{0} AS\nBEGIN\n  /* 주석 -- 메모 */ SET NOCOUNT ON;\n  SELECT 1;\nEND\nGO\n";
+        var sql = string.Concat(new[] { "A", "B", "C" }.Select(n => string.Format(body, n)));
+        Assert.NotNull(Find(Run(Fs(), sql: sql), "[procedure]"));
+    }
+
+    [Fact]
+    public void SqlNocount_InStringLiteral_NotCounted() =>
+        Assert.Null(Find(Run(Fs(), sql: string.Concat(new[] { "A", "B", "C" }.Select(n =>
+            Proc(n, false).Replace("SELECT 1", "SELECT 'SET NOCOUNT ON'")))), "[procedure]"));
+
     private static string Selects(int qualified, int bare) =>
         "SELECT * FROM dbo.T0\n" + string.Concat(Enumerable.Range(1, qualified - 1).Select(i => $"JOIN [dbo].[T{i}] ON 1=1\n")) +
         string.Concat(Enumerable.Range(0, bare).Select(i => $"SELECT * FROM U{i}\n")) +
@@ -227,6 +262,13 @@ public class RulesDrafterTests
     public void SqlSchema_Qualified_Emits()
     {
         var r = Run(Fs(), sql: Selects(18, 2));
+        Assert.Equal("FROM/JOIN 객체 20개 중 18개에 스키마 이름", Assert.IsType<DraftRule>(Find(r, "스키마 이름")).Evidence);
+    }
+
+    [Fact]
+    public void SqlSchema_FromInsideStringLiteral_NotCounted()
+    {
+        var r = Run(Fs(), sql: Selects(18, 2) + string.Concat(Enumerable.Range(0, 5).Select(i => $"SELECT 'a FROM V{i} b'\n")));
         Assert.Equal("FROM/JOIN 객체 20개 중 18개에 스키마 이름", Assert.IsType<DraftRule>(Find(r, "스키마 이름")).Evidence);
     }
 
@@ -248,6 +290,15 @@ public class RulesDrafterTests
         Assert.Empty(r.Rules);
         Assert.Equal(0, r.CsFiles);
         Assert.Equal(0, r.SqlFiles);
+    }
+
+    [Fact]
+    public void Draft_FileCapCountsAnalyzedFilesOnly()
+    {
+        var fs = Fs();
+        fs.AddFile("/w/A0.cs", new MockFileData(new string(' ', 512 * 1024 + 1))); // skipped: too large
+        for (var i = 1; i <= 500; i++) fs.AddFile($"/w/B{i:D3}.cs", new MockFileData("class C { }\n"));
+        Assert.Equal(500, RulesDrafter.Draft(fs, "/w", TestContext.Current.CancellationToken).CsFiles);
     }
 
     [Fact]

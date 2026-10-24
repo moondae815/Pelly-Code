@@ -25,7 +25,13 @@ public sealed class ApplyTransaction(FileGuard guard, Workspace ws, string apply
         public bool ChangedOutside { get; set; } = backupPath is null;
     }
 
+    /// <summary>A file as the open group first saw it: the content pelly knew then, and its group backup.</summary>
+    private sealed record GroupStart(Entry Entry, FileSnapshot Start, string? BackupPath);
+
     private readonly Dictionary<string, Entry> _files = new(pathComparer ?? SpecTaskPaths.Comparer);
+    private readonly Dictionary<string, GroupStart> _group = new(pathComparer ?? SpecTaskPaths.Comparer);
+    private readonly HashSet<string> _usedGroupIds = new(StringComparer.Ordinal);
+    private string? _groupId;
 
     /// <summary>
     /// Before a task runs: backs the file up the first time it is seen (throws when the backup fails). For a file
@@ -36,10 +42,18 @@ public sealed class ApplyTransaction(FileGuard guard, Workspace ws, string apply
         if (_files.TryGetValue(original.Path, out var entry))
         {
             Observe(entry, original);
+            if (_groupId is not null && !_group.ContainsKey(original.Path))
+            {
+                // A file changed outside pelly is never restored, so its bytes are not worth a group backup.
+                string? groupBackup = entry.ChangedOutside ? null : guard.Backup(ws, GroupRunId, original);
+                _group[original.Path] = new GroupStart(entry, entry.LastKnown, groupBackup);
+            }
             return;
         }
         string backup = guard.Backup(ws, applyId, original);
-        _files[original.Path] = new Entry(original, backup);
+        entry = new Entry(original, backup);
+        _files[original.Path] = entry;
+        if (_groupId is not null) _group[original.Path] = new GroupStart(entry, original, guard.Backup(ws, GroupRunId, original));
     }
 
     /// <summary>
@@ -55,18 +69,28 @@ public sealed class ApplyTransaction(FileGuard guard, Workspace ws, string apply
         }
         else
         {
-            string? backup;
-            try { backup = guard.Backup(ws, applyId, original); }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
-            {
-                backup = null;
-            }
-            entry = new Entry(original, backup);
+            entry = new Entry(original, TryBackup(applyId, original));
             _files[original.Path] = entry;
+        }
+        if (_groupId is not null && !_group.ContainsKey(original.Path))
+        {
+            string? groupBackup = entry.ChangedOutside ? null : TryBackup(GroupRunId, original);
+            _group[original.Path] = new GroupStart(entry, entry.LastKnown, groupBackup);
         }
         // The entry keeps one spelling of the path, so a task path differing only in case restores the same file.
         if (final is not null) entry.LastKnown = final with { Path = entry.Original.Path };
     }
+
+    private string? TryBackup(string runId, FileSnapshot original)
+    {
+        try { return guard.Backup(ws, runId, original); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    private string GroupRunId => $"{applyId}/{_groupId}";
 
     private static void Observe(Entry entry, FileSnapshot read)
     {
@@ -101,6 +125,64 @@ public sealed class ApplyTransaction(FileGuard guard, Workspace ws, string apply
         }
         return failed;
     }
+
+    /// <summary>
+    /// Opens a checkpoint: from now on each file is backed up, the first time the group sees it, to
+    /// <c>.pelly/backup/&lt;apply-id&gt;/&lt;groupId&gt;/</c> as it was then (which may include earlier tasks' edits).
+    /// A still-open group is closed. A group id is used once per apply: a second group under the same id would find
+    /// the first one's backups (first backup wins) and restore the wrong bytes.
+    /// </summary>
+    public void BeginGroup(string groupId)
+    {
+        if (groupId.Length == 0 || groupId is "." or ".." || groupId.IndexOfAny(['/', '\\']) >= 0)
+            throw new ArgumentException($"Group id must be one path segment: '{groupId}'", nameof(groupId));
+        if (!_usedGroupIds.Add(groupId))
+            throw new InvalidOperationException($"Group id already used in this apply: {groupId}");
+        _group.Clear();
+        _groupId = groupId;
+    }
+
+    /// <summary>Closes the open group; its changes stay part of the apply.</summary>
+    public void EndGroup()
+    {
+        _group.Clear();
+        _groupId = null;
+    }
+
+    /// <summary>
+    /// Restores every file the open group changed to its content at group start; returns the paths that could not
+    /// be restored (same rules as <see cref="RollbackAsync"/>). A restored file's last known content becomes its
+    /// group-start content, so a later <see cref="RollbackAsync"/> still restores the apply original.
+    /// </summary>
+    public async Task<IReadOnlyList<string>> RollbackGroupAsync(CancellationToken ct)
+    {
+        var failed = new List<string>();
+        foreach (var (path, (entry, start, backupPath)) in _group)
+        {
+            if (entry.LastKnown.Sha256 == start.Sha256) continue;
+            if (entry.ChangedOutside || backupPath is null)
+            {
+                failed.Add(path);
+                continue;
+            }
+            try
+            {
+                var result = await guard.RestoreAsync(backupPath, entry.LastKnown, ct);
+                if (result.Status != FileWriteStatus.Written) failed.Add(path);
+                else entry.LastKnown = start;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+            {
+                failed.Add(path);
+            }
+        }
+        return failed;
+    }
+
+    /// <summary>Files the open group changed: content at group start → last known content.</summary>
+    public IReadOnlyList<(string Path, string Before, string After)> GroupChanges() =>
+        _group.Values.Where(g => g.Entry.LastKnown.Sha256 != g.Start.Sha256)
+            .Select(g => (g.Entry.Original.Path, g.Start.Text, g.Entry.LastKnown.Text)).ToList();
 
     /// <summary>Files whose last known content differs from the original.</summary>
     public IReadOnlyList<(string Path, string Before, string After)> Changes() =>

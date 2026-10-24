@@ -168,6 +168,143 @@ public sealed class ApplyTransactionTests : IDisposable
     }
 
     [Fact]
+    public async Task Group_rollback_restores_group_start_not_apply_start()
+    {
+        string p = Make("a.txt", "one\n");
+        string q = Make("b.txt", "bee\n");
+        var tx = new ApplyTransaction(_guard, _ws, "apply-g1");
+        var a0 = _guard.Read(p);
+        tx.Track(a0);
+        var a1 = await Write(a0, "two\n"); // T1, outside any group
+        tx.Record(a0, a1);
+
+        tx.BeginGroup("G1");
+        tx.Track(a1);
+        var a2 = await Write(a1, "three\n");
+        tx.Record(a1, a2);
+        var b0 = _guard.Read(q);
+        tx.Track(b0);
+        tx.Record(b0, await Write(b0, "bee2\n"));
+
+        Assert.Empty(await tx.RollbackGroupAsync(CancellationToken.None));
+        Assert.Equal("two\n", File.ReadAllText(p));
+        Assert.Equal("bee\n", File.ReadAllText(q));
+        Assert.True(File.Exists(Path.Combine(_ws.PellyDir, "backup", "apply-g1", "G1", "a.txt")));
+        Assert.True(File.Exists(Path.Combine(_ws.PellyDir, "backup", "apply-g1", "G1", "b.txt")));
+    }
+
+    [Fact]
+    public async Task Group_rollback_skips_file_changed_outside()
+    {
+        string p = Make("a.txt", "one\n");
+        string q = Make("b.txt", "bee\n");
+        var tx = new ApplyTransaction(_guard, _ws, "apply-g2");
+        tx.BeginGroup("G1");
+        var a0 = _guard.Read(p);
+        tx.Track(a0);
+        var a1 = await Write(a0, "two\n");
+        tx.Record(a0, a1);
+        var b0 = _guard.Read(q);
+        tx.Track(b0);
+        tx.Record(b0, await Write(b0, "bee2\n"));
+        File.WriteAllText(p, "two-outside\n"); // saved outside pelly before a re-run reads the file
+        var read = _guard.Read(p);
+        tx.Track(read);
+        tx.Record(read, await Write(read, "three\n"));
+
+        Assert.Equal([p], await tx.RollbackGroupAsync(CancellationToken.None));
+        Assert.Equal("three\n", File.ReadAllText(p));
+        Assert.Equal("bee\n", File.ReadAllText(q));
+        Assert.Equal([p], await tx.RollbackAsync(CancellationToken.None)); // the full rollback skips it too
+        Assert.Equal("three\n", File.ReadAllText(p));
+    }
+
+    [Fact]
+    public async Task Full_rollback_after_group_rollback_returns_apply_originals()
+    {
+        string p = Make("a.txt", "one\n");
+        string q = Make("b.txt", "bee\n");
+        var tx = new ApplyTransaction(_guard, _ws, "apply-g3");
+        var a0 = _guard.Read(p);
+        tx.Track(a0);
+        var a1 = await Write(a0, "two\n");
+        tx.Record(a0, a1);
+
+        tx.BeginGroup("G1");
+        tx.Track(a1);
+        tx.Record(a1, await Write(a1, "three\n"));
+        var b0 = _guard.Read(q);
+        tx.Track(b0);
+        tx.Record(b0, await Write(b0, "bee2\n"));
+        Assert.Empty(await tx.RollbackGroupAsync(CancellationToken.None));
+        tx.EndGroup();
+
+        Assert.Equal([(p, "one\n", "two\n")], tx.Changes());
+        Assert.Empty(await tx.RollbackAsync(CancellationToken.None));
+        Assert.Equal("one\n", File.ReadAllText(p));
+        Assert.Equal("bee\n", File.ReadAllText(q));
+    }
+
+    [Fact]
+    public async Task Group_changes_compare_against_group_start()
+    {
+        string p = Make("a.txt", "one\n");
+        string q = Make("b.txt", "bee\n");
+        string r = Make("c.txt", "sea\n");
+        var tx = new ApplyTransaction(_guard, _ws, "apply-g4");
+        var a0 = _guard.Read(p);
+        tx.Track(a0);
+        var a1 = await Write(a0, "two\n");
+        tx.Record(a0, a1);
+        var c0 = _guard.Read(r);
+        tx.Track(c0);
+        tx.Record(c0, await Write(c0, "sea2\n")); // changed before the group, untouched inside it
+
+        tx.BeginGroup("G1");
+        Assert.Empty(tx.GroupChanges());
+        tx.Track(a1);
+        tx.Record(a1, await Write(a1, "three\n"));
+        var b0 = _guard.Read(q);
+        tx.Track(b0);
+        tx.Record(b0, b0); // read but left unchanged
+
+        Assert.Equal([(p, "two\n", "three\n")], tx.GroupChanges());
+        tx.EndGroup();
+        Assert.Empty(tx.GroupChanges());
+    }
+
+    [Fact]
+    public async Task Group_rollback_reports_a_file_whose_group_backup_is_missing()
+    {
+        string p = Make("a.txt", "one\n");
+        var tx = new ApplyTransaction(_guard, _ws, "apply-g5");
+        var a0 = _guard.Read(p);
+        tx.Track(a0);
+        var a1 = await Write(a0, "two\n");
+        tx.Record(a0, a1);
+        tx.BeginGroup("G1");
+        tx.Track(a1);
+        tx.Record(a1, await Write(a1, "three\n"));
+        File.Delete(Path.Combine(_ws.PellyDir, "backup", "apply-g5", "G1", "a.txt"));
+
+        Assert.Equal([p], await tx.RollbackGroupAsync(CancellationToken.None));
+        Assert.Equal("three\n", File.ReadAllText(p));
+    }
+
+    [Fact]
+    public void Group_id_must_be_one_unused_path_segment()
+    {
+        var tx = new ApplyTransaction(_guard, _ws, "apply-g6");
+        Assert.Throws<ArgumentException>(() => tx.BeginGroup("../G1"));
+        Assert.Throws<ArgumentException>(() => tx.BeginGroup(@"a\b"));
+        Assert.Throws<ArgumentException>(() => tx.BeginGroup(".."));
+        Assert.Throws<ArgumentException>(() => tx.BeginGroup(""));
+        tx.BeginGroup("G1");
+        tx.EndGroup();
+        Assert.Throws<InvalidOperationException>(() => tx.BeginGroup("G1"));
+    }
+
+    [Fact]
     public void Path_comparer_ignores_case_on_windows_and_macos_only()
     {
         bool ignoresCase = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS();

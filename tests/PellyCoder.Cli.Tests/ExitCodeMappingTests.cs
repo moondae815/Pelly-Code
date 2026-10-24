@@ -214,12 +214,12 @@ public class ExitCodeMappingTests
     [Fact]
     public void ValueOptionCheck_KnowsEveryCommand()
     {
-        foreach (var command in new[] { new[] { "cs" }, ["sql"], ["doctor"], ["report"], ["rules", "init"], ["rules", "check"] })
+        foreach (var command in new[] { new[] { "cs" }, ["sql"], ["doctor"], ["report"], ["rules", "init"], ["rules", "check"], ["apply"], ["spec", "new"], ["spec", "check"] })
         {
             var help = Build(CancellationToken.None).Run([.. command, "--help"]);
             Assert.Equal(0, help.ExitCode);
         }
-        Assert.Equal(["cs", "doctor", "report", "rules check", "rules init", "sql"], CliApp.CommandSettings.Keys.Order().ToArray());
+        Assert.Equal(["apply", "cs", "doctor", "report", "rules check", "rules init", "spec check", "spec new", "sql"], CliApp.CommandSettings.Keys.Order().ToArray());
     }
 
     /// <summary>Command lines from README and deploy/*.md still parse under strict parsing (cancelled token: no real work runs).</summary>

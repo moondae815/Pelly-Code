@@ -18,6 +18,7 @@ public static class CliApp
         config.AddCommand<CsCommand>("cs").WithDescription("C# 메서드 하나를 요청대로 수정합니다.");
         config.AddCommand<SqlCommand>("sql").WithDescription("SQL 저장 프로시저·함수·뷰 하나를 요청대로 수정합니다.");
         config.AddCommand<DoctorCommand>("doctor").WithDescription("Ollama 서버·모델·토크나이저 환경을 점검합니다.");
+        config.AddCommand<ApplyCommand>("apply").WithDescription("명세 파일(changes/<id>.md)의 작업을 순서대로 실행합니다.");
         config.AddCommand<ReportCommand>("report").WithDescription("실행 기록에서 KPI와 실패 유형을 집계합니다.");
         config.AddBranch("rules", b =>
         {
@@ -25,6 +26,14 @@ public static class CliApp
             b.SetDefaultCommand<RulesUsageCommand>();
             b.AddCommand<RulesCheckCommand>("check").WithDescription("AGENTS.md의 Pelly rules 절을 검사합니다.");
             b.AddCommand<RulesInitCommand>("init").WithDescription("코드베이스를 분석해 AGENTS.md에 규칙 초안을 만듭니다.");
+        });
+
+        config.AddBranch("spec", b =>
+        {
+            b.SetDescription("작업 명세 파일을 다룹니다.");
+            b.SetDefaultCommand<SpecUsageCommand>();
+            b.AddCommand<SpecNewCommand>("new").WithDescription("빈 명세 파일 changes/<id>.md를 만듭니다.");
+            b.AddCommand<SpecCheckCommand>("check").WithDescription("명세 파일의 문법·대상·이름을 검사합니다.");
         });
 
         // Without a handler Spectre returns -1 (process exit 255) for parse errors; PRD FR-00 allows only 0–5.
@@ -44,6 +53,9 @@ public static class CliApp
         ["sql"] = typeof(SqlSettings),
         ["doctor"] = typeof(DoctorSettings),
         ["report"] = typeof(ReportSettings),
+        ["apply"] = typeof(ApplySettings),
+        ["spec new"] = typeof(SpecNewSettings),
+        ["spec check"] = typeof(SpecCheckSettings),
         ["rules check"] = typeof(RulesCheckSettings),
         ["rules init"] = typeof(RulesInitSettings),
     };
@@ -60,9 +72,10 @@ public static class CliApp
     public static string? FindOptionWithoutValue(IReadOnlyList<string> args)
     {
         if (args.Count == 0) return null;
-        // "rules" is a branch: the command is "rules <sub>" and its options start at index 2.
-        var first = args[0] == "rules" ? 2 : 1;
-        var key = args[0] == "rules" ? (args.Count >= 2 ? args[0] + " " + args[1] : null) : args[0];
+        // "rules" and "spec" are branches: the command is "<branch> <sub>" and its options start at index 2.
+        var isBranch = args[0] is "rules" or "spec";
+        var first = isBranch ? 2 : 1;
+        var key = isBranch ? (args.Count >= 2 ? args[0] + " " + args[1] : null) : args[0];
         if (key is null || !CommandSettings.TryGetValue(key, out var settingsType)) return null;
         var valueOptions = settingsType.GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .Select(p => p.GetCustomAttribute<CommandOptionAttribute>())

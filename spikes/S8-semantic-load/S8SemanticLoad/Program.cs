@@ -38,6 +38,8 @@ public static class Program
 
     public static async Task<int> RunAsync(string[] args)
     {
+        if (args.Length > 0 && args[0] == "arm-c")
+            return await ArmCAsync(args);
         var parsed = Parse(args, out var error);
         if (parsed is null)
         {
@@ -145,6 +147,39 @@ public static class Program
         var errTask = p.StandardError.ReadToEndAsync();
         await p.WaitForExitAsync();
         return (p.ExitCode, await outTask, await errTask);
+    }
+
+    /// <summary>s8 arm-c [--repo dir] [--out file]: S6 category A by name vs by symbol. Exit 3 when a scope could not be analysed semantically.</summary>
+    private static async Task<int> ArmCAsync(string[] a)
+    {
+        string? repo = null, outFile = null;
+        for (var i = 1; i < a.Length; i++)
+        {
+            switch (a[i])
+            {
+                case "--repo" when i + 1 < a.Length: repo = a[++i]; break;
+                case "--out" when i + 1 < a.Length: outFile = a[++i]; break;
+                default:
+                    Console.Error.WriteLine($"알 수 없는 옵션: {a[i]}");
+                    Console.Error.WriteLine("사용법: s8 arm-c [--repo 저장소] [--out 파일]");
+                    return 2;
+            }
+        }
+        repo ??= FindRepoRoot(Path.Combine(Directory.GetCurrentDirectory(), "x"));
+        if (repo is null) { Console.Error.WriteLine("저장소(global.json)를 찾을 수 없습니다."); return 2; }
+        try
+        {
+            var rows = await ArmC.RunAsync(Path.GetFullPath(repo), CancellationToken.None);
+            Console.Write(ArmC.Summary(rows));
+            if (outFile is not null)
+                await File.WriteAllTextAsync(outFile, JsonSerializer.Serialize(rows, LoadReport.Json));
+            return rows.All(r => r.Measured) ? 0 : 3;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Console.Error.WriteLine(ex.Message);
+            return ExitCodeFor(ex);
+        }
     }
 
     private static string? FindRepoRoot(string from)

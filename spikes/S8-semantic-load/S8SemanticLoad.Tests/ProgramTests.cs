@@ -32,3 +32,17 @@ public class ProgramExitTests
         finally { System.Globalization.CultureInfo.CurrentUICulture = before; }
     }
 }
+
+public class ArmCCommandTests
+{
+    [Fact] public async Task Arm_c_writes_rows_to_out_file()
+    {
+        var file = Path.Combine(Path.GetTempPath(), "s8-armc-" + Guid.NewGuid().ToString("N") + ".json");
+        var code = await Program.RunAsync(["arm-c", "--repo", TestPaths.RepoRoot, "--out", file]);
+        Assert.Equal(OperatingSystem.IsWindows() ? 0 : 3, code);
+        Assert.Contains("a3-rename-getorder", File.ReadAllText(file));
+        File.Delete(file);
+    }
+
+    [Fact] public async Task Arm_c_unknown_option_exits_2() => Assert.Equal(2, await Program.RunAsync(["arm-c", "--bogus"]));
+}

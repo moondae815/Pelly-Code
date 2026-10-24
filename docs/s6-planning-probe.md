@@ -5,7 +5,7 @@
 
 ## 1. 결론
 
-**판정: 부분(Partial).** 나은 arm은 B(think 켬)이고, 60반복 중 45반복(75%)이 「초안으로 쓸 만함」이었다. 설계 §7에 따라 PRD는 그대로 두고, 잘 된 범주만 초안 후보로 기록한다.
+**판정: 부분(Partial).** 나은 arm은 B(think 켬)이고, 60반복 중 45반복(75%)이 「초안으로 쓸 만함」이었다. 설계 §7에 따라 PRD는 그대로 두고, 잘 된 범주만 초안 후보로 기록한다. 다만 지시 문구까지 보면 B의 쓸 만함 표본 10개 중 8개만 v1에서 그대로 실행 가능했다(7절).
 
 | 범주 | 내용 | arm B | 초안 후보 |
 | :--- | :--- | ---: | :--- |
@@ -142,36 +142,65 @@ c1(arm B)에서는 5회 중 3회가 메서드 6곳 대신 생성자 한 곳을 �
 
 ## 7. 사람 확인 표본 (§6.3)
 
-arm A와 B의 「쓸 만함」 반복에서 각각 10개를 시드 20261021의 난수로 뽑았다.
+### 7.1 진행 방식
 
-판단 기준은 각 작업 줄의 요청 문구가 v1 단일 작업으로 실행 가능한가이다. 원문은 `spikes/S6-planning/raw/<arm>/<사례>/<반복>.json`에 있다(gitignore 대상이라 로컬에만 있음).
+- **원문:** 1차 측정의 원문(`raw/`)은 작업 폴더를 정리할 때 지워졌다(gitignore 대상). 그래서 같은 조건(같은 모델 digest, 정답 커밋 `c2344a6`, 같은 프롬프트·샘플링)으로 다시 돌렸다(2026-10-24 18:31~18:58 KST).
+- **재측정 결과:** 쓸 만함은 A 29/60, B 45/60이다(1차 33/60, 45/60).
+  - 범주별 B: A 7/15, B 15/15, C 8/15, D 15/15.
+  - 범주별 A: A 0/15, B 12/15, C 9/15, D 8/15.
+  - 이 결과는 1~6절 수치를 바꾸지 않고 표본 추출에만 썼다. 판정(부분)도 같다.
+- **표본:** 재측정의 「쓸 만함」 반복에서 arm별 10개를 시드 20261021의 난수로 뽑았다. 작업 줄은 모두 58개다.
+- **질문:** 각 작업 줄 하나만 v1(한 번에 한 메서드 수정)에 그대로 넘겼을 때 올바르게 고칠 수 있는 지시인가. 기준은 셋이다.
+  1. 사실과 맞는가: 코드에 없는 API·컬럼을 쓰라고 하지 않는다.
+  2. 구체적인가: 할 일이 하나로 정해진다.
+  3. 그 메서드 안에서 끝나는가: 다른 줄의 맥락 없이 실행된다.
+  - 줄이 모두 「예」이면 표본이 「예」다.
+- **판단자:** Claude가 58줄을 코퍼스 코드와 대조해 판단했다. 사람(사용자)은 이 판단을 그대로 채택했고, 줄마다 독립적으로 확인하지는 않았다. 따라서 이 절은 「사람이 승인한 Claude 판단」이고, §6.3이 뜻한 독립된 사람 확인보다 약하다.
 
-| arm | 사례 | 반복 | 실행 가능(예/아니오) | 메모 |
-| :--- | :--- | ---: | :---: | :--- |
-| A | a1-cancel-returns-refund | 3 | | |
-| A | b2-search-keyword-product | 2 | | |
-| A | b2-search-keyword-product | 5 | | |
-| A | b3-search-exclude-cancelled | 2 | | |
-| A | b3-search-exclude-cancelled | 5 | | |
-| A | c1-repository-command-timeout | 5 | | |
-| A | d2-legacy-pending-history | 1 | | |
-| A | d2-legacy-pending-history | 5 | | |
-| A | d3-sql-order-detail-cancel-columns | 2 | | |
-| A | d3-sql-order-detail-cancel-columns | 3 | | |
-| B | a1-cancel-returns-refund | 1 | | |
-| B | a1-cancel-returns-refund | 2 | | |
-| B | a1-cancel-returns-refund | 4 | | |
-| B | b1-block-cancel-shipped | 3 | | |
-| B | b2-search-keyword-product | 5 | | |
-| B | c3-dao-guard-write-methods | 1 | | |
-| B | c3-dao-guard-write-methods | 5 | | |
-| B | d2-legacy-pending-history | 3 | | |
-| B | d2-legacy-pending-history | 5 | | |
-| B | d3-sql-order-detail-cancel-columns | 1 | | |
+### 7.2 결과
+
+| arm | 표본 「예」 | 애매한 줄을 「아니오」로 셀 때 |
+| :--- | ---: | ---: |
+| A (생각 끔) | 7/10 | 7/10 |
+| B (생각 켬) | 8/10 | 5/10 |
+
+기계가 「쓸 만함」으로 판정한 반복 가운데 B는 2~5개, A는 3개가 지시 문구 때문에 v1에서 그대로 실행되지 않는다. 기계 판정을 뒤집지 않고 함께 보고한다(§6.3).
+
+### 7.3 「아니오」 표본
+
+| 표본 (arm/사례/반복) | 범주 | 문제 줄 | 이유 |
+| :--- | :---: | :--- | :--- |
+| B / d3-sql-order-detail-cancel-columns / 4 | D | `usp_GetOrderDetail.sql` add **CancelTime** and CancelReason columns | 그런 컬럼이 없다. 실제 이름은 `CancelledAt`이다(기준 1) |
+| B / b2-search-keyword-product / 3 | B | T2 `OrderDao.cs#SearchOrders` pass the keyword … include it in the WHERE clause | 키워드 검색(`c.Name LIKE @Keyword`)은 이미 있다. 할 일인 상품명 검색이 지시에 없다(기준 2) |
+| A / c1-repository-command-timeout / 1 | C | T1~T6 `IOrderRepository.cs#…` add CommandTimeout 30 | 인터페이스 메서드에는 본문이 없어 시간 제한을 걸 자리가 없다(기준 2) |
+| A / b3-search-exclude-cancelled / 1 | B | T1·T2·T4~T7 add `OrderStatus? excludeCancelled` parameter | 「취소 제외」 여부인데 타입이 상태값이다. 같은 표본의 SQL 줄은 `bit`라 줄끼리 맞지 않는다(기준 2·3) |
+| A / b3-search-exclude-cancelled / 4 | B | 위와 같음 | 위와 같음 |
+
+### 7.4 애매한 줄 (「예」로 셈)
+
+| 표본 | 줄 | 걸리는 점 |
+| :--- | :--- | :--- |
+| B / a1-cancel-returns-refund / 1 | T2 call CalculateRefundAsync and AddRefundAsync | `CancelAsync`는 이미 둘을 부른다. 글자 그대로면 환불 요청이 두 번 기록될 수 있다 |
+| B / a1-cancel-returns-refund / 2 | T2 calculate refund via CalculateRefundAsync, pass it to AddRefundAsync | 위와 같음. 같은 표본 T4(테스트를 await하도록)는 이미 await하고 있어 바꿀 것이 없다 |
+| B / a1-cancel-returns-refund / 4 | T2 return the result of CalculateRefundAsync | 지금 코드는 결제 전 주문의 환불액을 0으로 둔다. 이 지시대로면 그 규칙을 건너뛸 수 있다 |
+
+### 7.5 「예」 표본
+
+- **A:** b1/1, c2/2, c2/3, c2/5, d2/3, d3/1, d3/4
+- **B:** b1/1, c3/1, d1/1, d2/3, d2/4 (a1/1, a1/2, a1/4는 7.4)
+
+### 7.6 읽는 법
+
+- 「초안 후보」로 적은 범주에서도 지시 문구 실패가 나왔다. 범주 B(b2: 할 일 누락)와 범주 D(d3: 없는 컬럼)다.
+- 기계가 잡지 못한 실패는 두 종류다.
+  - **없는 이름:** 대상 파일은 맞고 문구 안의 이름이 틀린 경우(`CancelTime`)다. 문구 안의 식별자를 색인과 대조하면 기계로도 잡을 수 있다.
+  - **이미 있는 것을 다시 하라는 지시:** 코드를 읽어야 보인다. 사람 검토 없이는 안 잡힌다.
+- 따라서 초안 후보는 「모델 초안 + 문구 안 식별자 대조 + 사람 승인」을 전제로 한다.
 
 ## 8. 다음 행동
 
 - **PRD:** 그대로 둔다. 「모델이 작업을 분해하지 않는다」는 v2 비목표는 범주 A(전파 변경)에서 측정으로 뒷받침되고, 범주 B·D에서는 뒷받침되지 않는다.
 - **초안 후보로 기록:** C#+SQL 동시 변경(B)과 한 곳 변경(D)은 think를 켠 모델 초안이 15/15였다.
 - **호출부·구현체 전파:** 모델이 아니라 의미 기반 코드 탐색(`pelly spec check` 확장)으로 한다. 구문 탐색은 이름이 같은 메서드를 혼동한다(a3).
-- **사람 확인:** 위 표본 20개의 예/아니오를 채운다. 기계 판정을 뒤집지 않고 함께 보고한다.
+- **사람 확인(7절):** 기계가 쓸 만하다고 본 반복도 지시 문구 기준으로는 B 8/10(애매한 줄까지 빼면 5/10), A 7/10만 그대로 실행 가능했다. 초안 후보 범주에도 문구 실패가 있었으므로, 초안은 문구 안 식별자 대조와 사람 승인을 거쳐야 한다.
+- **측정 도구:** 문구 안의 식별자(컬럼·메서드 이름)를 색인과 대조하는 검사를 채점기에 더하면 7.3의 첫 줄 같은 실패를 기계로 셀 수 있다. 이번 판정에는 소급 적용하지 않는다.

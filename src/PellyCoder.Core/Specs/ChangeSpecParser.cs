@@ -15,6 +15,11 @@ public static class ChangeSpecParser
         @"^\s*(?:[-*+]|\d+[.)])\s*\[.?\]|\bT\d+\s+(?:cs|sql)\s",
         RegexOptions.CultureInvariant);
 
+    // A checkbox list item that starts with a task ID and kind: a task line wherever it stands.
+    private static readonly Regex TaskCheckbox = new(
+        @"^\s*(?:[-*+]|\d+[.)])\s*\[.?\]\s*T\d+\s+(?:cs|sql)\b",
+        RegexOptions.CultureInvariant);
+
     private static readonly Regex CriterionLine = new(@"^- (AC\d+):\s*(.+?)\s*$", RegexOptions.CultureInvariant);
     private static readonly Regex TestLine = new(@"^\s+test:\s*(.+?)\s*$", RegexOptions.CultureInvariant);
 
@@ -71,6 +76,11 @@ public static class ChangeSpecParser
                     issues.Add(Error(lineNo, "InvalidTaskLine",
                         "작업 줄이 문법에 맞지 않습니다: - [ ] <ID> <cs|sql> <파일>[#심볼] <요청> [(AC 참조)] [[G<n>]]"));
             }
+            else if (TaskCheckbox.IsMatch(line))
+            {
+                // Never silently skipped: apply would finish and archive the spec without running it.
+                issues.Add(Error(lineNo, "InvalidTaskLine", "작업 줄이 '## 작업' 절 밖에 있습니다. 작업은 '## 작업' 제목 아래에만 둘 수 있습니다."));
+            }
         }
 
         Validate(criteria, tasks, issues, tasksHeadingLine);
@@ -126,12 +136,24 @@ public static class ChangeSpecParser
 
     private static (string Key, string Value) SplitKeyValue(string line)
     {
+        var (key, value) = FrontMatterField(line);
+        return (key, line[value]);
+    }
+
+    /// <summary>
+    /// The one key/value rule for a front-matter line: the key is the trimmed text before the first colon, the value
+    /// the trimmed text after it up to a <c>#</c> comment. Returns the value's range so a writer can replace it in place.
+    /// </summary>
+    public static (string Key, Range Value) FrontMatterField(string line)
+    {
         var colon = line.IndexOf(':');
-        if (colon < 0) return ("", "");
-        var value = line[(colon + 1)..];
-        var hash = value.IndexOf('#');
-        if (hash >= 0) value = value[..hash];
-        return (line[..colon].Trim(), value.Trim());
+        if (colon < 0) return ("", 0..0);
+        var end = line.IndexOf('#', colon + 1);
+        if (end < 0) end = line.Length;
+        var start = colon + 1;
+        while (start < end && char.IsWhiteSpace(line[start])) start++;
+        while (end > start && char.IsWhiteSpace(line[end - 1])) end--;
+        return (line[..colon].Trim(), start..end);
     }
 
     private static SpecTask ToTask(Match m, int lineNo)

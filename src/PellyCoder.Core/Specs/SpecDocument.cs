@@ -10,7 +10,6 @@ namespace PellyCoder.Core.Specs;
 public sealed class SpecDocument
 {
     private static readonly Regex RunComment = new(@"\s*<!--\s*(?:run|failed):[^>]*?-->\s*$", RegexOptions.CultureInvariant);
-    private static readonly Regex StatusLine = new(@"^(status:\s*)([^#\s]*)(.*)$", RegexOptions.CultureInvariant);
 
     private readonly FileGuard _guard;
 
@@ -48,9 +47,11 @@ public sealed class SpecDocument
         int end = FrontMatterEnd(lines);
         for (int i = 1; i < end; i++)
         {
-            var m = StatusLine.Match(lines[i]);
-            if (!m.Success) continue;
-            lines[i] = m.Groups[1].Value + value + m.Groups[3].Value;
+            // The parser's own rule, so every status line it reads can be rewritten.
+            var (key, range) = ChangeSpecParser.FrontMatterField(lines[i]);
+            if (key != "status") continue;
+            var (offset, length) = range.GetOffsetAndLength(lines[i].Length);
+            lines[i] = string.Concat(lines[i].AsSpan(0, offset), value, lines[i].AsSpan(offset + length));
             return WriteAsync(lines, ct);
         }
         throw new InvalidOperationException("The spec has no status line in its front matter.");

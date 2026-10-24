@@ -105,4 +105,22 @@ public sealed class SpecDocumentTests
             Assert.Contains("- [x] T1 cs A.cs#M 요청 (AC1) <!-- run: R1 -->", snap.Text);
         }
     }
+
+    [Theory]
+    [InlineData(" status: draft")]
+    [InlineData("status : draft")]
+    [InlineData("status:draft # keep")]
+    public async Task Set_status_accepts_every_status_line_the_parser_accepts(string statusLine)
+    {
+        string text = Text.Replace("status: draft   # keep", statusLine);
+        Assert.Equal(SpecStatus.Draft, ChangeSpecParser.Parse(text).Status);
+        Assert.DoesNotContain(ChangeSpecParser.Parse(text).Issues, i => i.Code == "FrontMatter");
+        var (fs, doc) = Open(text);
+
+        var r = await doc.SetStatusAsync(SpecStatus.InProgress, CancellationToken.None);
+
+        Assert.Equal(FileWriteStatus.Written, r.Status);
+        Assert.Equal(text.Replace(statusLine, statusLine.Replace("draft", "in-progress")), Disk(fs));
+        Assert.Equal(SpecStatus.InProgress, doc.Spec.Status);
+    }
 }

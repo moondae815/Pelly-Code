@@ -66,6 +66,10 @@ public static class ChangeSpecParser
                     }
                     criteria.Add(new AcceptanceCriterion(m.Groups[1].Value, m.Groups[2].Value, test));
                 }
+                else if (TaskCheckbox.IsMatch(line))
+                {
+                    issues.Add(Error(lineNo, "InvalidTaskLine", OutsideTasksMessage));
+                }
             }
             else if (section == Section.Tasks)
             {
@@ -79,13 +83,16 @@ public static class ChangeSpecParser
             else if (TaskCheckbox.IsMatch(line))
             {
                 // Never silently skipped: apply would finish and archive the spec without running it.
-                issues.Add(Error(lineNo, "InvalidTaskLine", "작업 줄이 '## 작업' 절 밖에 있습니다. 작업은 '## 작업' 제목 아래에만 둘 수 있습니다."));
+                issues.Add(Error(lineNo, "InvalidTaskLine", OutsideTasksMessage));
             }
         }
 
         Validate(criteria, tasks, issues, tasksHeadingLine);
         return new ChangeSpec(id, status, title, criteria, tasks, issues);
     }
+
+    private const string OutsideTasksMessage =
+        "작업 줄이 '## 작업' 절 밖에 있습니다. 작업은 '## 작업' 제목 아래에만 둘 수 있습니다.";
 
     private enum Section { None, Criteria, Tasks, Other }
 

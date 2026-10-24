@@ -178,6 +178,7 @@ public sealed class ChangeSpecParserTests
     [Theory]
     [InlineData("## 작업 (2차)")]
     [InlineData("## 메모")]
+    [InlineData("## 수용 기준")]
     public void Task_line_outside_the_tasks_section_is_an_error(string heading)
     {
         var spec = ChangeSpecParser.Parse(Spec("- [ ] T1 sql db/a.sql 첫째\n\n" + heading + "\n- [ ] T2 sql db/b.sql 둘째\n"));
@@ -186,6 +187,19 @@ public sealed class ChangeSpecParserTests
         var issue = Assert.Single(spec.Issues, i => i.Code == "InvalidTaskLine");
         Assert.Equal(SpecIssueSeverity.Error, issue.Severity);
         Assert.Contains("## 작업", issue.Message);
+        Assert.Contains("밖", issue.Message);
+    }
+
+    [Fact]
+    public void Task_line_under_the_first_criteria_section_is_an_error()
+    {
+        var spec = ChangeSpecParser.Parse(Spec("- [ ] T1 sql db/a.sql 첫째\n",
+            "- AC1: 하나\n  test: Foo\n- [ ] T2 sql db/b.sql 둘째\n- AC2: 둘\n"));
+
+        Assert.Single(spec.Tasks);
+        Assert.Equal(2, spec.Criteria.Count);
+        Assert.Equal("Foo", spec.Criteria[0].Test);
+        var issue = Assert.Single(spec.Issues, i => i.Code == "InvalidTaskLine");
         Assert.Contains("밖", issue.Message);
     }
 

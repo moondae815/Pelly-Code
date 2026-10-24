@@ -390,4 +390,91 @@ public sealed class MemberShapeGuardTests
         Assert.False(conversion.Ok);
         Assert.StartsWith("signature of Money.operator decimal(Money) changed from ", conversion.Reason);
     }
+
+    private const string Orders =
+        "using System.Threading.Tasks;\n\nnamespace Demo;\n\n" +
+        "public interface IOrders\n{\n    OrderDto GetOrder(int id);\n\n    void Close(int id);\n}\n\n" +
+        "public class OrderService\n{\n    public Task Cancel(int id)\n    {\n        return Task.CompletedTask;\n    }\n\n" +
+        "    public int Count() => 0;\n}\n";
+
+    private static ShapeCheck Group(string after, string target) =>
+        MemberShapeGuard.Check(Orders, after, target, V, ShapeAllowance.TargetSignatureAndName);
+
+    private static string OrdersReplace(string oldText, string newText)
+    {
+        Assert.Contains(oldText, Orders);
+        return Orders.Replace(oldText, newText);
+    }
+
+    [Fact]
+    public void Group_allows_return_type_change_and_reports_new_display()
+    {
+        var r = Group(OrdersReplace("    public Task Cancel(int id)\n    {\n        return Task.CompletedTask;",
+            "    public Task<decimal> Cancel(int id)\n    {\n        return Task.FromResult(0m);"), "OrderService.Cancel(int)");
+
+        Assert.True(r.Ok, r.Reason);
+        Assert.Equal("OrderService.Cancel(int)", r.NewTargetDisplay);
+    }
+
+    [Fact]
+    public void Group_allows_rename_in_place()
+    {
+        var r = Group(OrdersReplace("OrderDto GetOrder(int id);", "OrderDto FindOrder(int id);"), "IOrders.GetOrder(int)");
+
+        Assert.True(r.Ok, r.Reason);
+        Assert.Equal("IOrders.FindOrder(int)", r.NewTargetDisplay);
+    }
+
+    [Fact]
+    public void Group_allows_rename_with_parameter_change()
+    {
+        var r = Group(OrdersReplace("OrderDto GetOrder(int id);", "OrderDto FindOrder(long id, bool deep);"), "IOrders.GetOrder(int)");
+
+        Assert.True(r.Ok, r.Reason);
+        Assert.Equal("IOrders.FindOrder(long, bool)", r.NewTargetDisplay);
+    }
+
+    [Fact]
+    public void Group_still_rejects_other_member_change()
+    {
+        var r = Group(OrdersReplace("OrderDto GetOrder(int id);", "OrderDto FindOrder(int id);")
+            .Replace("void Close(int id);", "void Close(long id);"), "IOrders.GetOrder(int)");
+
+        Assert.False(r.Ok);
+        Assert.Equal("member IOrders.Close(int) was removed or changed. Only the target member may change.", r.Reason);
+        Assert.Null(r.NewTargetDisplay);
+    }
+
+    [Fact]
+    public void Group_rejects_rename_plus_moved_member()
+    {
+        var r = Group(OrdersReplace("    OrderDto GetOrder(int id);\n\n    void Close(int id);",
+            "    void Close(int id);\n\n    OrderDto FindOrder(int id);"), "IOrders.GetOrder(int)");
+
+        Assert.False(r.Ok);
+        Assert.Equal("member IOrders.GetOrder(int) was removed or changed. Only the target member may change.", r.Reason);
+    }
+
+    [Fact]
+    public void Group_still_rejects_public_addition()
+    {
+        var r = Group(OrdersReplace("    public int Count() => 0;\n", "    public int Count() => 0;\n\n    public void Extra() { }\n"),
+            "OrderService.Cancel(int)");
+
+        Assert.False(r.Ok);
+        Assert.Equal("added method OrderService.Extra(). Only private helper methods may be added.", r.Reason);
+    }
+
+    [Fact]
+    public void Default_allowance_still_rejects_signature_change()
+    {
+        var after = Replace(AddHeader, "    public long Add(int a, int b)\n");
+
+        var r = MemberShapeGuard.Check(Before, after, TargetDisplay, V, ShapeAllowance.MemberBodyOnly);
+
+        Assert.Equal("signature of Calc.Add(int, int) changed from `public int Add(int a, int b)` to `public long Add(int a, int b)`. Signature changes are not allowed.",
+            r.Reason);
+        Assert.Null(r.NewTargetDisplay);
+        Assert.Equal(TargetDisplay, Check(Replace(AddBody, "        return b + a;\n")).NewTargetDisplay);
+    }
 }

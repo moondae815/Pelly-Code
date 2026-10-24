@@ -7,7 +7,19 @@ namespace PellyCoder.Core.CSharp;
 
 /// <summary>Result of <see cref="MemberShapeGuard.Check"/>.</summary>
 /// <param name="AddedPrivateMethods">Displays (MemberLocator format) of private methods present after but not before.</param>
-public sealed record ShapeCheck(bool Ok, string? Reason, IReadOnlyList<string> AddedPrivateMethods);
+/// <param name="NewTargetDisplay">On success, the target's display after the edit (differs from the input display when a
+/// group edit changed its signature or name).</param>
+public sealed record ShapeCheck(bool Ok, string? Reason, IReadOnlyList<string> AddedPrivateMethods, string? NewTargetDisplay = null);
+
+/// <summary>What <see cref="MemberShapeGuard.Check"/> lets the target itself change.</summary>
+public enum ShapeAllowance
+{
+    /// <summary>Body only: signature, attributes and name stay (v1, single-member runs).</summary>
+    MemberBodyOnly,
+
+    /// <summary>Signature, attributes and name may change in place (task group runs, verified by one build at the end).</summary>
+    TargetSignatureAndName,
+}
 
 /// <summary>The target display passed to <see cref="MemberShapeGuard.Check"/> is not a member of the original text.</summary>
 public sealed class ShapeTargetNotFoundException(string targetDisplay)
@@ -19,7 +31,8 @@ public sealed class ShapeTargetNotFoundException(string targetDisplay)
 /// <summary>
 /// Rejects edits that change the target's signature or attributes, change or remove any other member, add anything but
 /// private methods to the target's type, or remove usings (design §8.7.1, D14). The build checks only the target project,
-/// so this is what keeps an edit from breaking callers elsewhere.
+/// so this is what keeps an edit from breaking callers elsewhere. A task group run (<see cref="ShapeAllowance.TargetSignatureAndName"/>)
+/// lets the target's signature, attributes and name change in place, since the group's end build covers the affected projects.
 /// </summary>
 public static class MemberShapeGuard
 {
@@ -32,7 +45,8 @@ public static class MemberShapeGuard
     /// attempts count as added (and stay editable) rather than as existing members.</param>
     /// <param name="targetDisplay">The target's display in <paramref name="beforeLf"/> (e.g. <c>Calc.Add(int, int)</c>).</param>
     /// <exception cref="ShapeTargetNotFoundException">No method, constructor or property with that display in <paramref name="beforeLf"/>.</exception>
-    public static ShapeCheck Check(string beforeLf, string afterLf, string targetDisplay, LanguageVersion version)
+    public static ShapeCheck Check(string beforeLf, string afterLf, string targetDisplay, LanguageVersion version,
+        ShapeAllowance allowance = ShapeAllowance.MemberBodyOnly)
     {
         var options = new CSharpParseOptions(version);
         var before = (CompilationUnitSyntax)CSharpSyntaxTree.ParseText(beforeLf, options).GetRoot();
@@ -44,23 +58,29 @@ public static class MemberShapeGuard
         var target = beforeEntries.FirstOrDefault(e => e.Display == targetDisplay && IsLocatorKind(e.Node))
             ?? throw new ShapeTargetNotFoundException(targetDisplay);
 
-        // The edited target: same key, else a member that did not exist before with the same name, kind and type.
+        // The edited target: same key, else a member that did not exist before with the same kind and type and either the
+        // same name (body only) or the same position among its type's members (group: the name may change too).
         var beforeKeys = beforeEntries.Select(e => e.Key).ToHashSet(StringComparer.Ordinal);
+        var candidates = afterEntries.Where(e => !beforeKeys.Contains(e.Key) && e.Kind == target.Kind && e.Scope == target.Scope);
         var newTarget = afterEntries.FirstOrDefault(e => e.Key == target.Key)
-            ?? afterEntries.FirstOrDefault(e => !beforeKeys.Contains(e.Key) && e.Kind == target.Kind
-                && e.Scope == target.Scope && NameOf(e.Node) == NameOf(target.Node));
+            ?? (allowance == ShapeAllowance.TargetSignatureAndName
+                ? SingleOrNull(candidates.Where(e => PositionOf(e.Node) == PositionOf(target.Node)).ToList())
+                : candidates.FirstOrDefault(e => NameOf(e.Node) == NameOf(target.Node)));
 
         if (newTarget is null)
             return Fail($"member {target.Display} was removed or changed. Only the target member may change.");
-        if (SignatureOf(target.Node) != SignatureOf(newTarget.Node))
+        if (allowance == ShapeAllowance.MemberBodyOnly)
         {
-            // Same display (return type, modifiers, defaults, ref/out, constraints): name what changed.
-            return Fail(target.Display == newTarget.Display
-                ? $"signature of {target.Display} changed from `{HeaderOf(target.Node)}` to `{HeaderOf(newTarget.Node)}`. Signature changes are not allowed."
-                : $"signature of {target.Display} changed to {newTarget.Display}. Signature changes are not allowed.");
+            if (SignatureOf(target.Node) != SignatureOf(newTarget.Node))
+            {
+                // Same display (return type, modifiers, defaults, ref/out, constraints): name what changed.
+                return Fail(target.Display == newTarget.Display
+                    ? $"signature of {target.Display} changed from `{HeaderOf(target.Node)}` to `{HeaderOf(newTarget.Node)}`. Signature changes are not allowed."
+                    : $"signature of {target.Display} changed to {newTarget.Display}. Signature changes are not allowed.");
+            }
+            if (AttributesOf(target.Node) != AttributesOf(newTarget.Node))
+                return Fail($"attributes of {target.Display} changed. Attribute changes are not allowed.");
         }
-        if (AttributesOf(target.Node) != AttributesOf(newTarget.Node))
-            return Fail($"attributes of {target.Display} changed. Attribute changes are not allowed.");
 
         // Every other member that existed before must still be there, with the same text (whitespace aside).
         var afterByKey = afterEntries.Where(e => e != newTarget).ToLookup(e => e.Key, StringComparer.Ordinal);
@@ -87,10 +107,16 @@ public static class MemberShapeGuard
                 return Fail($"using {name} was removed. Usings may only be added.");
         }
 
-        return new ShapeCheck(true, null, added);
+        return new ShapeCheck(true, null, added, newTarget.Display);
     }
 
     private static ShapeCheck Fail(string reason) => new(false, reason, []);
+
+    private static Entry? SingleOrNull(List<Entry> entries) => entries.Count == 1 ? entries[0] : null;
+
+    /// <summary>Declaration-order index among the members of the member's parent (type, namespace or compilation unit).</summary>
+    private static int PositionOf(MemberDeclarationSyntax member) =>
+        member.Parent?.ChildNodes().OfType<MemberDeclarationSyntax>().ToList().IndexOf(member) ?? -1;
 
     /// <summary>The kinds <see cref="MemberLocator"/> can target (operators only through <c>--line</c>).</summary>
     private static bool IsLocatorKind(MemberDeclarationSyntax m) =>

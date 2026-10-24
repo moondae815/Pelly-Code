@@ -111,6 +111,24 @@ public class RulesInitCommandTests
     }
 
     [Fact]
+    public void Init_Force_SaysHowManyExistingRulesAreReplaced()
+    {
+        var (app, _, _) = Build(Utf8("# A\n\n## Pelly rules\n- [*] one\n- [*] two\n- [*] three\n"));
+        var r = app.Run("rules", "init", "--force", "--yes");
+        Assert.Equal(0, r.ExitCode);
+        Assert.Contains("기존 절의 규칙 3개를 새 초안으로 바꿉니다", r.Output);
+    }
+
+    [Fact]
+    public void Init_Force_ExistingSectionWithErrors_SaysSo()
+    {
+        var (app, _, _) = Build(Utf8("# A\n\n## Pelly rules\n- no tags here\n"));
+        var r = app.Run("rules", "init", "--force", "--yes");
+        Assert.Equal(0, r.ExitCode);
+        Assert.Contains("기존 절(오류 있음)을 새 초안으로 바꿉니다", r.Output);
+    }
+
+    [Fact]
     public void Init_Force_ReplacesSection_KeepsEncodingAndRest()
     {
         var bom = new byte[] { 0xEF, 0xBB, 0xBF };

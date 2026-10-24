@@ -66,6 +66,14 @@ public sealed class RulesInitCommand(IFileSystem fs, IAnsiConsole console, IUser
 
         if (settings.DryRun) return ExitCodes.Success;
 
+        if (existing is not null && RulesDocument.FindSection(existing.Text) is not null)
+        {
+            var current = RulesLoader.Load(fs, ws);
+            Print(current.Errors.Count > 0
+                ? "기존 절(오류 있음)을 새 초안으로 바꿉니다"
+                : $"기존 절의 규칙 {current.Rules.Count.ToString(CultureInfo.InvariantCulture)}개를 새 초안으로 바꿉니다");
+        }
+
         if (!settings.Yes)
         {
             if (!ui.IsInteractive) return Fail("비대화형 실행에서는 --yes가 필요합니다.");

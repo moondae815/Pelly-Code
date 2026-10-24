@@ -59,6 +59,27 @@ pelly sql Settlement_All.sql "월 정산에 수수료 컬럼 추가" --object db
 pelly sql Settlement_All.sql "조건 추가" --line 120
 ```
 
+## `pelly rules` — 프로젝트 규칙 (AGENTS.md)
+
+```
+pelly rules init  [--dry-run] [--force] [--yes] [--pause-on-exit]
+pelly rules check [--config <경로>] [--pause-on-exit]
+```
+
+작업 공간 루트의 `AGENTS.md`에 `## Pelly rules` 절을 두면 pelly가 규칙을 프롬프트에 넣고 `forbid` 규칙은 코드로 검사합니다. 하위 폴더의 `AGENTS.md`는 읽지 않습니다.
+
+```
+## Pelly rules
+- [*] 주석은 한국어로 작성한다
+- [async] .Result나 .Wait()로 기다리지 않는다 | forbid: \.Result\b|\.Wait\(\)
+```
+
+* 형식: `- [태그,...] 규칙(100자 이내) [| forbid: 정규식]`. `[*]`는 항상, 나머지는 태그가 이번 작업 코드에 나올 때만 들어갑니다. 규칙 예산(`budget.rules`)은 150 토큰이고, 넘으면 아래쪽 규칙부터 빠집니다.
+* `forbid` 규칙은 새로 추가된 줄에서 검사합니다. 어기면 고쳐 쓰게 재시도하고, 끝내 못 고치면 종료 코드 1입니다. 정규식 검사가 시간 안에 끝나지 않으면 종료 코드 4입니다.
+* 규칙 형식 오류는 종료 코드 4입니다. `pelly rules check`로 원인을 봅니다.
+* `pelly rules init`은 모델 없이 `.cs`·`.sql`을 분석해 초안을 보여 주고 승인을 받아 씁니다. 초안은 반드시 검토하십시오. 이미 절이 있으면 `--force` 없이는 종료 코드 4입니다. 거부하면 종료 코드 2, `--yes` 없는 비대화형 실행은 종료 코드 4입니다.
+* `--verbose`는 포함·제외된 규칙을 보여 줍니다.
+
 ## 자주 쓰는 옵션
 
 | 옵션 | 동작 |
@@ -74,7 +95,7 @@ pelly sql Settlement_All.sql "조건 추가" --line 120
 | `--config <경로>` | 작업 공간 설정 파일 지정 |
 | `--model`, `--endpoint`, `--think` | 설정을 이번 실행만 덮어쓰기 |
 
-`--pause-on-exit`는 `pelly doctor`와 `pelly report`에서도 똑같이 동작합니다.
+`--pause-on-exit`는 `pelly doctor`, `pelly report`, `pelly rules init`, `pelly rules check`에서도 똑같이 동작합니다.
 모르는 옵션(예: `--dry-rum` 같은 오타)은 무시하지 않고 `Unknown option` 메시지와 함께 종료 코드 4로 멈춥니다. 아무것도 쓰지 않습니다. 값이 필요한 옵션을 값 없이 쓴 경우(예: `--out`을 줄 끝에 쓰거나 바로 뒤에 다른 옵션을 쓴 경우)도 `--out 옵션에 값이 없습니다`와 함께 종료 코드 4로 멈춥니다.
 입력이 리디렉션되어 있으면 기다리지 않습니다. 키 대기는 Windows 미확인입니다.
 SQL 안의 `#임시테이블` 컬럼, 동적 SQL 안의 문장, 다른 DB·연결된 서버 객체는 검증하지 못하고 알림만 보여 줍니다.

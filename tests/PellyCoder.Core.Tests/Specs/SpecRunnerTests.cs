@@ -215,6 +215,20 @@ public sealed class SpecRunnerTests : IDisposable
     }
 
     [Fact]
+    public async Task Dry_run_in_a_non_interactive_run_does_not_need_yes()
+    {
+        Spec(ThreeTasks);
+        _ui.IsInteractive = false;
+        var before = Read("changes/x.md");
+        var code = await Run(Opts(yes: false, dryRun: true));
+
+        Assert.Equal(0, code);
+        Assert.Equal(["T1"], _exec.Calls);
+        Assert.Equal(Proc, Read("db/a.sql"));
+        Assert.Equal(before, Read("changes/x.md"));
+    }
+
+    [Fact]
     public async Task Review_at_end_approve_keeps_changes()
     {
         Spec(ThreeTasks);
@@ -349,6 +363,121 @@ public sealed class SpecRunnerTests : IDisposable
         Assert.Equal(2, code);
         Assert.Equal(["T1", "T2"], _exec.Calls);
         Assert.Contains("- [x] T1", Read("changes/x.md"));
+    }
+
+    [Fact]
+    public async Task Review_at_end_reject_keeps_a_file_edited_between_two_tasks_on_it()
+    {
+        Spec("- [ ] T1 sql db/a.sql 첫째\n- [ ] T2 sql db/a.sql 둘째\n");
+        _exec.During["T2"] = () => File.AppendAllText(P("db/a.sql"), "-- outside\n");
+        _ui.ConfirmAnswers.Enqueue(false);
+        var code = await Run(Opts(reviewAtEnd: true, yes: false));
+
+        Assert.Equal(4, code);
+        Assert.Equal(Proc + "-- T1\n-- outside\n-- T2\n", Read("db/a.sql"));
+        var spec = Read("changes/x.md");
+        Assert.Contains("- [x] T1 sql db/a.sql 첫째 <!-- run: R-T1 -->", spec);
+        Assert.Contains("- [x] T2 sql db/a.sql 둘째 <!-- run: R-T2 -->", spec);
+        Assert.Contains("status: in-progress", spec);
+        var warning = Assert.Single(_ui.Warnings, w => w.Contains("되돌리지 못한"));
+        Assert.Contains("a.sql", warning);
+    }
+
+    [Fact]
+    public async Task Review_at_end_reject_keeps_a_file_edited_before_the_first_task_read_it()
+    {
+        Spec("- [ ] T1 sql db/a.sql 첫째\n- [ ] T2 sql db/b.sql 둘째\n");
+        _exec.During["T1"] = () => File.AppendAllText(P("db/a.sql"), "-- outside\n");
+        _ui.ConfirmAnswers.Enqueue(false);
+        var code = await Run(Opts(reviewAtEnd: true, yes: false));
+
+        Assert.Equal(4, code);
+        Assert.Equal(Proc + "-- outside\n-- T1\n", Read("db/a.sql"));
+        Assert.Equal(Proc, Read("db/b.sql"));
+        var spec = Read("changes/x.md");
+        Assert.Contains("- [x] T1 sql db/a.sql 첫째 <!-- run: R-T1 -->", spec);
+        Assert.Contains("- [ ] T2 sql db/b.sql 둘째\n", spec);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Review_at_end_in_a_non_interactive_run_is_refused_up_front(bool yes)
+    {
+        Spec(ThreeTasks);
+        _ui.IsInteractive = false;
+        var before = Read("changes/x.md");
+        var code = await Run(Opts(reviewAtEnd: true, yes: yes));
+
+        Assert.Equal(4, code);
+        Assert.Empty(_exec.Calls);
+        Assert.Equal(before, Read("changes/x.md"));
+        Assert.False(Directory.Exists(P(".pelly")));
+        Assert.Contains(_ui.Warnings, w => w.Contains("--review-at-end는 대화형 실행에서만 쓸 수 있습니다"));
+    }
+
+    [Fact]
+    public async Task Cancellation_under_review_at_end_rolls_back_the_whole_apply()
+    {
+        Spec(ThreeTasks);
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        _exec.During["T2"] = () => cts.Cancel();
+        _exec.Exit["T2"] = 2;
+        var code = await Runner().RunAsync(SpecPath, Opts(reviewAtEnd: true, yes: false), cts.Token);
+
+        Assert.Equal(2, code);
+        Assert.Equal(["T1", "T2"], _exec.Calls);
+        Assert.Equal(Proc, Read("db/a.sql"));
+        var spec = Read("changes/x.md");
+        Assert.Contains("status: draft", spec);
+        Assert.DoesNotContain("[x]", spec);
+        Assert.DoesNotContain("<!--", spec);
+        Assert.Empty(_ui.ConfirmMessages);
+    }
+
+    [Fact]
+    public async Task Executor_cancellation_exception_under_review_at_end_rolls_back_the_whole_apply()
+    {
+        Spec(ThreeTasks);
+        _exec.Throw["T3"] = new OperationCanceledException();
+        var code = await Run(Opts(reviewAtEnd: true, yes: false));
+
+        Assert.Equal(2, code);
+        Assert.Equal(Proc, Read("db/a.sql"));
+        Assert.Equal(Proc, Read("db/b.sql"));
+        Assert.DoesNotContain("[x]", Read("changes/x.md"));
+    }
+
+    [Fact]
+    public async Task Spec_write_failure_under_review_at_end_lists_the_unreviewed_files()
+    {
+        Spec(ThreeTasks);
+        _exec.During["T2"] = () => File.AppendAllText(SpecPath, "\n사람이 적은 메모\n");
+        var code = await Run(Opts(reviewAtEnd: true, yes: false));
+
+        Assert.Equal(4, code);
+        Assert.Empty(_ui.ConfirmMessages);
+        Assert.Contains("-- T1", Read("db/a.sql"));
+        Assert.Contains("-- T2", Read("db/b.sql"));
+        var warning = Assert.Single(_ui.Warnings, w => w.Contains("검토하지 않은"));
+        Assert.Contains("a.sql", warning);
+        Assert.Contains("b.sql", warning);
+        Assert.DoesNotContain("c.sql", warning);
+    }
+
+    [Fact]
+    public async Task Review_at_end_reject_after_resume_keeps_in_progress_for_earlier_marks()
+    {
+        Spec("- [x] T1 sql db/a.sql 첫째 <!-- run: R-OLD -->\n- [ ] T2 sql db/b.sql 둘째\n");
+        _ui.ConfirmAnswers.Enqueue(false);
+        var code = await Run(Opts(resume: true, reviewAtEnd: true, yes: false));
+
+        Assert.Equal(2, code);
+        Assert.Equal(Proc, Read("db/b.sql"));
+        var spec = Read("changes/x.md");
+        Assert.Contains("- [x] T1 sql db/a.sql 첫째 <!-- run: R-OLD -->", spec);
+        Assert.Contains("- [ ] T2 sql db/b.sql 둘째\n", spec);
+        Assert.Contains("status: in-progress", spec);
     }
 
     /// <summary>Delegates to the scripted UI and runs <paramref name="onConfirm"/> just before each confirm.</summary>

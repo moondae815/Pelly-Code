@@ -66,18 +66,18 @@ public class ApplyCommandTests
         return fs;
     }
 
-    private static Harness Build(int exitCode = 0)
+    private static Harness Build(int exitCode = 0, bool interactive = false)
     {
         var fs = NewFs();
         var runner = new FakeRunner(exitCode);
         var console = new TestConsole().Width(200);
-        return new Harness(Wire(fs, runner, console, CancellationToken.None), runner, fs, console);
+        return new Harness(Wire(fs, runner, console, CancellationToken.None, interactive), runner, fs, console);
     }
 
     [Fact]
     public void Apply_passes_options_to_runner()
     {
-        var h = Build();
+        var h = Build(interactive: true); // --review-at-end needs a console
 
         var result = h.App.Run("apply", Spec, "--continue", "--review-at-end", "--yes", "--max-retries", "2", "--verbose");
 
@@ -89,6 +89,18 @@ public class ApplyCommandTests
         Assert.True(request.Verbose);
         Assert.NotNull(request.Host);
         Assert.EndsWith("a.sql", request.FilePath);
+    }
+
+    [Fact]
+    public void Review_at_end_without_a_console_exits_4_even_with_yes()
+    {
+        var h = Build();
+
+        var result = h.App.Run("apply", Spec, "--review-at-end", "--yes");
+
+        Assert.Equal(4, result.ExitCode);
+        Assert.Empty(h.Runner.Requests);
+        Assert.Contains("status: draft", h.Fs.File.ReadAllText(Spec));
     }
 
     [Fact]

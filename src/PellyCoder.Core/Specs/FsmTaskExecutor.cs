@@ -1,3 +1,4 @@
+using System.IO.Abstractions;
 using PellyCoder.Core.Fsm;
 using PellyCoder.Core.Models;
 using PellyCoder.Core.Workspaces;
@@ -7,10 +8,11 @@ namespace PellyCoder.Core.Specs;
 /// <summary>Turns a spec task into a <see cref="RunRequest"/> and runs it through the FSM as a host run.</summary>
 public sealed class FsmTaskExecutor(Func<RunRequest, CancellationToken, Task<RunResult>> run) : ITaskExecutor
 {
+    private static readonly IPath LocalPath = new FileSystem().Path;
+
     public Task<RunResult> ExecuteAsync(SpecTask task, Workspace ws, TaskRunOptions o, CancellationToken ct)
     {
-        string rel = task.Path.Replace('\\', '/').Replace('/', Path.DirectorySeparatorChar);
-        string file = Path.Combine(ws.Root, rel);
+        string file = SpecTaskPaths.FullPath(LocalPath, ws.Root, task.Path);
         var host = new ApplyHost(ws);
 
         RunRequest request;

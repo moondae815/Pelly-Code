@@ -1,5 +1,4 @@
 using System.IO.Abstractions;
-using System.Text.RegularExpressions;
 using PellyCoder.Core.Builds;
 using PellyCoder.Core.Config;
 using PellyCoder.Core.Files;
@@ -10,11 +9,8 @@ namespace PellyCoder.Core.Testing;
 /// Finds the test projects that exercise a target project (design D18): the solution's projects (or, without a
 /// solution, every csproj under the workspace, R6) whose name contains "Test" and that reference the target.
 /// </summary>
-public static partial class TestProjectLocator
+public static class TestProjectLocator
 {
-    [GeneratedRegex(@"^Project\(""\{[^}]+\}""\)\s*=\s*""[^""]*""\s*,\s*""(?<path>[^""]+\.csproj)""", RegexOptions.IgnoreCase | RegexOptions.Multiline)]
-    private static partial Regex SlnProject();
-
     public static IReadOnlyList<string> Find(IFileSystem fs, string workspaceRoot, string targetCsproj, TestOptions options)
     {
         if (options.Projects.Count > 0)
@@ -57,9 +53,8 @@ public static partial class TestProjectLocator
 
         foreach (var sln in slns)
         {
-            foreach (Match m in SlnProject().Matches(fs.File.ReadAllText(sln)))
+            foreach (var full in SolutionProjects.Read(fs, sln))
             {
-                var full = fs.Path.GetFullPath(fs.Path.Combine(fs.Path.GetDirectoryName(sln) ?? root, Slashes(m.Groups["path"].Value, fs)));
                 if (fs.File.Exists(full)) yield return full;
             }
         }

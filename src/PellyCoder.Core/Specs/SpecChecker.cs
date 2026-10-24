@@ -69,6 +69,8 @@ public static partial class SpecChecker
         if (task.Kind == TaskKind.CSharp)
         {
             if (task.Symbol is null) { Error("SymbolRequired", $"작업 {task.Id}: cs 작업은 #심볼로 대상 멤버를 지정해야 합니다."); return; }
+            // A done task is never run again, and its target may be gone by design (a group renamed it): --resume must not trip on it.
+            if (task.Done) return;
             var csproj = ProjectFileLocator.FindNearestCsproj(fs, full);
             LanguageTarget language;
             try { language = LanguageVersionDetector.Detect(fs, csproj); }
@@ -86,6 +88,7 @@ public static partial class SpecChecker
         }
         else
         {
+            if (task.Done) return;
             var batches = SqlBatchSplitter.Split(snapshot.Text, compat).ObjectBatches;
             if (task.Symbol is not null)
             {

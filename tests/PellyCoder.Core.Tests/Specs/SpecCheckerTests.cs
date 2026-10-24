@@ -45,6 +45,17 @@ public sealed class SpecCheckerTests
     }
 
     [Fact]
+    public void Done_task_symbols_and_names_are_not_checked()
+    {
+        // T1 renamed CancelOld to Cancel in an earlier session; its symbol and request now name what is gone.
+        var r = Check(Fs("- [x] T1 cs src/App/OrderService.cs#OrderService.CancelOld CancelLegacy를 부른다 [G1] <!-- run: R-1 -->\n" +
+                         "- [x] T2 sql db/one.sql#dbo.usp_Gone 요청 <!-- run: R-2 -->\n" +
+                         "- [ ] T3 sql db/one.sql 한 줄 추가\n"));
+
+        Assert.Empty(r.Issues);
+    }
+
+    [Fact]
     public void Missing_file_symbol_ambiguous_symbol_and_sql_object_are_errors()
     {
         var r = Check(Fs(

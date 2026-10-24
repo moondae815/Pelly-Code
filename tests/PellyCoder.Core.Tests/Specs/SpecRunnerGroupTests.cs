@@ -211,6 +211,23 @@ public sealed class SpecRunnerGroupTests : IDisposable
     }
 
     [Fact]
+    public async Task Unknown_project_scope_is_unverifiable_before_any_edit()
+    {
+        // MSBuild properties in a ProjectReference: whether Tools depends on App cannot be read without evaluating MSBuild.
+        Make("src/Tools/Tools.csproj",
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><ItemGroup><ProjectReference Include=\"$(SolutionDir)src\\App\\App.csproj\" /></ItemGroup></Project>");
+        Spec(Group);
+        var code = await Run(Opts());
+
+        Assert.Equal(4, code);
+        Assert.Empty(_exec.Calls);
+        Assert.Empty(_builds.Calls);
+        AssertGroupFilesUntouched();
+        Assert.Contains(_ui.Warnings, w => w.Contains("그룹 빌드 검증 불가") && w.Contains("src/Tools/Tools.csproj") && w.Contains("$(SolutionDir)"));
+        Assert.Contains("GroupUnverifiable -->", Read("changes/x.md"));
+    }
+
+    [Fact]
     public async Task Unverifiable_group_build_after_edits_rolls_back_exit_4()
     {
         Spec(Group);
@@ -351,6 +368,21 @@ public sealed class SpecRunnerGroupTests : IDisposable
         Assert.Contains("<!-- run: R-OLD -->", archived);
         Assert.Contains("[G1] <!-- run: R-T1 -->", archived);
         Assert.Contains("[G1] <!-- run: R-T2 -->", archived);
+    }
+
+    [Fact]
+    public async Task Resume_after_a_renaming_group_runs_the_remaining_tasks()
+    {
+        // G1 renamed Repo.Find to Repo.Lookup and kept its [x]: the spec still names the old symbol.
+        Make("src/App/Repo.cs", Repo.Replace("Find(", "Lookup("));
+        Spec("- [x] T1 cs src/App/OrderService.cs#OrderService.GetOrder 반환 형식을 바꾼다 [G1] <!-- run: R-A -->\n" +
+             "- [x] T2 cs src/App/Repo.cs#Repo.Find 이름을 Lookup으로 바꾼다 [G1] <!-- run: R-B -->\n" +
+             "- [ ] T3 sql db/a.sql 셋째\n");
+        var code = await Run(Opts(resume: true));
+
+        Assert.Equal(0, code);
+        Assert.Equal(["T3"], _exec.Calls);
+        Assert.Contains("- [x] T3 sql db/a.sql 셋째 <!-- run: R-T3 -->", File.ReadAllText(ArchivePath));
     }
 
     [Fact]

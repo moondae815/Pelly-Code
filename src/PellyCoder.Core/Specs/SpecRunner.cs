@@ -288,6 +288,11 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
 
             IReadOnlyList<string> scope;
             try { scope = ProjectReferenceGraph.AffectedProjects(owner.Fs, ws.Root, changed); }
+            catch (ProjectScopeException ex)
+            {
+                // A dependent the scope might miss would never be built: the group would pass with the solution broken.
+                return await UnverifiableBeforeEditAsync(tx, g, $"그룹 빌드 검증 불가: {ex.Message}");
+            }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 return await UnverifiableBeforeEditAsync(tx, g, $"그룹 빌드 검증 불가: 프로젝트 참조를 읽을 수 없습니다 ({ex.Message})");

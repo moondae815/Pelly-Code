@@ -198,6 +198,28 @@ public sealed class RulesFlowTests : IDisposable
     }
 
     [Fact]
+    public async Task Forbid_EarlierAttemptViolationNotFixed_DoesNotPass()
+    {
+        WriteAgents(ForbidRule);
+        _backend.Enqueue(ResultEdit);
+        // Later attempts only touch the signature line and leave `.Result` in place.
+        const string Sig = "    public int Divide(int a, int b)";
+        for (var i = 1; i < 4; i++)
+        {
+            _backend.Enqueue("Fix it.</think>", evalCount: 10);
+            var current = i == 1 ? Sig : Sig + " // " + (i - 1);
+            _backend.Enqueue(current + "\n=======\n" + Sig + " // " + i + "\n>>>>>>> REPLACE\n");
+        }
+
+        var exit = await RunCs();
+
+        Assert.Equal(1, exit);
+        Assert.Equal("RulesErrors", FailureKindOnDisk());
+        Assert.DoesNotContain(".Result", File.ReadAllText(CalcPath));
+        Assert.Equal(CalcSource, File.ReadAllText(CalcPath));
+    }
+
+    [Fact]
     public async Task Forbid_Timeout_Exit4()
     {
         WriteAgents("- [*] 느린 규칙 | forbid: (a+)+$");

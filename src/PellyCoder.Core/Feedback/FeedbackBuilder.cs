@@ -174,12 +174,18 @@ public sealed class FeedbackBuilder(ITokenCounter tokens, int budget)
     {
         var entries = violations.Select(v => $"RULE VIOLATION: {v.Rule.Text}\n  added: {v.AddedLine.Trim()}").Distinct().ToList();
         if (entries.Count == 0) return Done("RULE VIOLATION");
+        violations = violations.DistinctBy(v => (v.Rule.Text, v.AddedLine.Trim())).ToList();
         for (var count = entries.Count; count > 1; count--)
         {
             var text = string.Join("\n", entries.Take(count));
             if (Fits(text)) return Done(text);
         }
-        return Done(entries[0]);
+        var only = violations[0];
+        const string Prefix = "RULE VIOLATION: ";
+        var ruleText = only.Rule.Text;
+        var line = only.AddedLine.Trim();
+        string Compose(string l) => $"{Prefix}{ruleText}\n  added: {l}";
+        return Done(Compose(Truncate(line, Compose)));
     }
 
     /// <summary>

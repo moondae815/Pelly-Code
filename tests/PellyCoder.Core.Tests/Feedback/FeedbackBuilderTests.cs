@@ -206,4 +206,36 @@ public sealed class FeedbackBuilderTests
     [Fact]
     public void ForTestExitCode_Format() =>
         Assert.Equal("TESTS FAILED (exit 3)\n" + KeepRequest, new FeedbackBuilder(Counter, 296).ForTestExitCode(3).Text);
+
+    private static PellyCoder.Core.Rules.RuleViolation V(string text, string line) =>
+        new(new PellyCoder.Core.Rules.ProjectRule(1, ["*"], text, "x"), line);
+
+    [Fact]
+    public void ForRuleViolations_FormatsAndTrimsAndDedupes()
+    {
+        var fb = new FeedbackBuilder(Counter, 500).ForRuleViolations([V("no result", "   t.Result;  "), V("no result", "t.Result;"), V("other", "z")]);
+
+        Assert.Equal("RULE VIOLATION: no result\n  added: t.Result;\nRULE VIOLATION: other\n  added: z", fb.Text);
+    }
+
+    [Fact]
+    public void ForRuleViolations_TinyBudget_DropsFromTheBack()
+    {
+        var first = "RULE VIOLATION: a\n  added: x";
+        var budget = Counter.Count(first) + 1;
+        var fb = new FeedbackBuilder(Counter, budget).ForRuleViolations([V("a", "x"), V("b", "y"), V("c", "z")]);
+
+        Assert.Equal(first, fb.Text);
+        Assert.True(fb.Tokens <= budget);
+    }
+
+    [Fact]
+    public void ForRuleViolations_SingleOverlongEntry_IsTruncatedWithinBudget()
+    {
+        var fb = new FeedbackBuilder(Counter, 30).ForRuleViolations([V("no result", new string('q', 600))]);
+
+        Assert.StartsWith("RULE VIOLATION: no result\n  added: q", fb.Text);
+        Assert.EndsWith("…", fb.Text);
+        Assert.True(fb.Tokens <= 30);
+    }
 }

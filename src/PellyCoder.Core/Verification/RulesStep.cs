@@ -17,7 +17,7 @@ public sealed class RulesStep(FeedbackBuilder feedback) : IVerifierStep
         if (!ctx.Rules.Any(r => r.Forbid is not null)) return Task.FromResult(StepResult.Pass);
 
         IReadOnlyList<RuleViolation> violations;
-        try { violations = ForbiddenPatternChecker.Check(ctx.Rules, ForbiddenPatternChecker.AddedLines(ctx.Blocks)); }
+        try { violations = ForbiddenPatternChecker.Check(ctx.Rules, ForbiddenPatternChecker.AddedLines(ctx.Original.Text, ctx.Current.Text)); }
         catch (RegexMatchTimeoutException e)
         {
             var line = ctx.Rules.FirstOrDefault(r => r.Forbid is not null && r.Forbid == e.Pattern)?.Line ?? 0;

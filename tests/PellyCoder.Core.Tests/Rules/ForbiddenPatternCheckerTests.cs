@@ -1,5 +1,4 @@
 using System.Text.RegularExpressions;
-using PellyCoder.Core.Models;
 using PellyCoder.Core.Rules;
 
 namespace PellyCoder.Core.Tests.Rules;
@@ -9,28 +8,20 @@ public sealed class ForbiddenPatternCheckerTests
     private static ProjectRule Rule(string? forbid, string text = "rule", int line = 5) => new(line, ["*"], text, forbid);
 
     [Fact]
-    public void AddedLines_ExcludesLinesAlreadyInSearch()
-    {
-        var blocks = new[] { new PatchBlock("    var x = task.Result;\n    a();", "    var x = task.Result;\n    b();") };
-
-        Assert.Equal(["    b();"], ForbiddenPatternChecker.AddedLines(blocks));
-    }
+    public void AddedLines_ExcludesLinesAlreadyInOriginal() =>
+        Assert.Equal(["    b();"], ForbiddenPatternChecker.AddedLines("    var x = task.Result;\n    a();\n", "    var x = task.Result;\n    b();\n"));
 
     [Fact]
-    public void AddedLines_CountsDuplicates()
-    {
-        var blocks = new[] { new PatchBlock("    x();", "    x();\n    x();") };
-
-        Assert.Equal(["    x();"], ForbiddenPatternChecker.AddedLines(blocks));
-    }
+    public void AddedLines_CountsDuplicates() =>
+        Assert.Equal(["    x();"], ForbiddenPatternChecker.AddedLines("    x();\n", "    x();\n    x();\n"));
 
     [Fact]
-    public void AddedLines_NormalizesCrLfAndIgnoresTrailingNewline()
-    {
-        var blocks = new[] { new PatchBlock("a();\r\n", "a();\r\nb();\r\n") };
+    public void AddedLines_NormalizesCrLfAndIgnoresTrailingNewline() =>
+        Assert.Equal(["b();"], ForbiddenPatternChecker.AddedLines("a();\r\n", "a();\nb();\r\n"));
 
-        Assert.Equal(["b();"], ForbiddenPatternChecker.AddedLines(blocks));
-    }
+    [Fact]
+    public void Check_RepeatedIdenticalLine_OneViolationPerRule() =>
+        Assert.Single(ForbiddenPatternChecker.Check([Rule("x")], ["x", "x"]));
 
     [Fact]
     public void Check_AllForbidRules_NotOnlySelected()

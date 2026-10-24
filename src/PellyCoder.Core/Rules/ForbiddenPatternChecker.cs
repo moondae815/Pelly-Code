@@ -1,5 +1,4 @@
 using System.Text.RegularExpressions;
-using PellyCoder.Core.Models;
 
 namespace PellyCoder.Core.Rules;
 
@@ -10,20 +9,17 @@ public static class ForbiddenPatternChecker
 {
     private static readonly TimeSpan MatchTimeout = TimeSpan.FromMilliseconds(100);
 
-    /// <summary>Per block, the REPLACE lines left after removing the SEARCH lines as a multiset (order kept, ordinal, untrimmed).</summary>
-    public static IReadOnlyList<string> AddedLines(IReadOnlyList<PatchBlock> blocks)
+    /// <summary>Lines of the patched text left after removing the original's lines as a multiset (patched order kept, ordinal, untrimmed).</summary>
+    public static IReadOnlyList<string> AddedLines(string originalText, string patchedText)
     {
+        var remaining = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var line in Split(originalText))
+            remaining[line] = remaining.GetValueOrDefault(line) + 1;
         var added = new List<string>();
-        foreach (var block in blocks)
+        foreach (var line in Split(patchedText))
         {
-            var remaining = new Dictionary<string, int>(StringComparer.Ordinal);
-            foreach (var line in Split(block.Search))
-                remaining[line] = remaining.GetValueOrDefault(line) + 1;
-            foreach (var line in Split(block.Replace))
-            {
-                if (remaining.TryGetValue(line, out var n) && n > 0) remaining[line] = n - 1;
-                else added.Add(line);
-            }
+            if (remaining.TryGetValue(line, out var n) && n > 0) remaining[line] = n - 1;
+            else added.Add(line);
         }
         return added;
     }
@@ -36,7 +32,7 @@ public static class ForbiddenPatternChecker
         {
             if (rule.Forbid is null) continue;
             var regex = new Regex(rule.Forbid, RegexOptions.CultureInvariant, MatchTimeout);
-            foreach (var line in addedLines)
+            foreach (var line in addedLines.Distinct(StringComparer.Ordinal))
                 if (regex.IsMatch(line)) violations.Add(new RuleViolation(rule, line));
         }
         return violations;

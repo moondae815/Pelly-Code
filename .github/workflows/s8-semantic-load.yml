@@ -88,3 +88,10 @@ jobs:
           path: |
             out/*.json
             out/*.txt
+
+      # 현장에 들고 갈 묶음: 러너에서 시험한 그 배포 형태(단일 파일 + 보조 프로세스 폴더)
+      - name: Upload field bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: s8-win-x64-singlefile-buildhost
+          path: out/singlefile-buildhost/

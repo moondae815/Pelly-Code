@@ -596,6 +596,41 @@ public sealed class MemberShapeGuardTests
         Assert.Equal("member Worker.Compute(int) was removed or changed. Only the target member may change.", r.Reason);
     }
 
+    private const string Shapes =
+        "namespace Demo.Deep;\n\npublic class Outer\n{\n    public class Inner<T>\n    {\n        public Inner(int size) { }\n\n" +
+        "        public int Size { get; set; }\n\n        public string Label => \"x\";\n\n" +
+        "        public T Get(int index, string[] names, ref T value) => value;\n    }\n}\n";
+
+    [Fact]
+    public void Group_target_display_uses_the_member_locator_format()
+    {
+        // ApplyPhase follows NewTargetDisplay with MemberLocator, so both must spell every kind the same way.
+        var located = MemberLocator.AllMembers(Shapes, V).Select(c => c.Display).ToList();
+        Assert.Equal(["Outer.Inner.Inner(int)", "Outer.Inner.Size", "Outer.Inner.Label", "Outer.Inner.Get(int, string[], T)"], located);
+        foreach (var display in located)
+        {
+            var r = MemberShapeGuard.Check(Shapes, Shapes, display, V, ShapeAllowance.TargetSignatureAndName);
+            Assert.True(r.Ok, r.Reason);
+            Assert.Equal(display, r.NewTargetDisplay);
+        }
+
+        var changes = new (string Old, string New, string Target)[]
+        {
+            ("public Inner(int size)", "public Inner(long size, bool deep)", "Outer.Inner.Inner(int)"),
+            ("public int Size { get; set; }", "public long Count { get; }", "Outer.Inner.Size"),
+            ("public string Label => \"x\";", "public string Name { get; } = \"x\";", "Outer.Inner.Label"),
+            ("public T Get(int index, string[] names, ref T value)", "public T Fetch(long index, ref T value)", "Outer.Inner.Get(int, string[], T)"),
+        };
+        foreach (var (old, @new, target) in changes)
+        {
+            var after = Shapes.Replace(old, @new);
+            var r = MemberShapeGuard.Check(Shapes, after, target, V, ShapeAllowance.TargetSignatureAndName);
+            Assert.True(r.Ok, r.Reason);
+            Assert.Contains(r.NewTargetDisplay, MemberLocator.AllMembers(after, V).Select(c => c.Display));
+            Assert.DoesNotContain(target, MemberLocator.AllMembers(after, V).Select(c => c.Display));
+        }
+    }
+
     [Fact]
     public void Default_allowance_still_rejects_signature_change()
     {

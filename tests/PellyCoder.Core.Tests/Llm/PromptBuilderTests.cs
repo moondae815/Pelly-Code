@@ -94,6 +94,25 @@ public sealed class PromptBuilderTests
     }
 
     [Fact]
+    public void Group_flag_changes_only_the_system_part()
+    {
+        // The group prompt is its own cache prefix; everything after the system part must be what a v1 run sends.
+        var b = NewBuilder();
+        var rules = new[] { new ProjectRule(3, ["*"], "주석은 한국어로 작성한다", null) };
+        var feedback = new Feedback("BUILD FAILED (1 new errors)\nsrc/Calc.cs(4): CS0029: Cannot convert", 12);
+        var group = b.BuildCSharp(Target(), FullSlice(), "rename it", feedback, rules, group: true);
+        var normal = b.BuildCSharp(Target(), FullSlice(), "rename it", feedback, rules);
+
+        const string marker = "<|im_end|>\n<|im_start|>user\n";
+        var groupUser = group.BasePrompt[group.BasePrompt.IndexOf(marker, StringComparison.Ordinal)..];
+        var normalUser = normal.BasePrompt[normal.BasePrompt.IndexOf(marker, StringComparison.Ordinal)..];
+        Assert.Equal(normalUser, groupUser);
+        Assert.Equal(User(normal.BasePrompt), User(group.BasePrompt));
+        Assert.Contains("주석은 한국어로 작성한다", User(group.BasePrompt));
+        Assert.NotEqual(normal.BasePrompt, group.BasePrompt);
+    }
+
+    [Fact]
     public void SystemPrompt_Rule3_NamesHelperRegion()
     {
         Assert.Contains("3. SEARCH must copy contiguous lines verbatim from [EDITABLE: target], [EDITABLE: usings] or [EDITABLE: helper]. Never copy from [READ-ONLY] sections.",

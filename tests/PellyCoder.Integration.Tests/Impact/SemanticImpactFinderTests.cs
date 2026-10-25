@@ -8,9 +8,11 @@ public sealed class SemanticImpactFinderTests(RestoredSameNameFixture fx) : ICla
 {
     private static readonly FileSystem Fs = new();
 
-    private async Task<ImpactResult> FindAsync(ImpactSeed seed)
+    private Task<ImpactResult> FindAsync(ImpactSeed seed) => FindAsync(fx.Root, seed);
+
+    private static async Task<ImpactResult> FindAsync(string root, ImpactSeed seed)
     {
-        var ws = new Workspace(fx.Root, Path.Combine(fx.Root, ".pelly"));
+        var ws = new Workspace(root, Path.Combine(root, ".pelly"));
         return await ImpactFinders.Default(Fs).FindAsync(ws, [seed], TestContext.Current.CancellationToken);
     }
 
@@ -26,6 +28,7 @@ public sealed class SemanticImpactFinderTests(RestoredSameNameFixture fx) : ICla
         Assert.Equal(
         [
             new ImpactTarget("T1", "Data/OrderDao.cs", "GetOrder", "구현"),
+            // Explicit implementation: named by its identifier like MemberLocator, not "SameName.Data.IOrderDao.GetOrder".
             new ImpactTarget("T1", "Web.Tests/FakeOrderDao.cs", "GetOrder", "구현"),
             new ImpactTarget("T1", "Web/OrderService.cs", "GetOrder", "호출"),
             new ImpactTarget("T1", "Web/OrderService.cs", "Cancel", "호출"),
@@ -65,6 +68,48 @@ public sealed class SemanticImpactFinderTests(RestoredSameNameFixture fx) : ICla
 
         Assert.Equal(ImpactMode.Semantic, result.Mode);
         Assert.Equal(["T4"], result.UnsupportedSeeds);
+        Assert.Empty(result.Targets);
+    }
+
+    [Fact]
+    public async Task Explicit_implementation_seed_resolves_and_goes_up()
+    {
+        var result = await FindAsync(new ImpactSeed("T5", 7, "Web.Tests/FakeOrderDao.cs", "FakeOrderDao", "GetOrder"));
+
+        Assert.Empty(result.UnsupportedSeeds);
+        Assert.Contains(new ImpactTarget("T5", "Data/IOrderDao.cs", "GetOrder", "기반 멤버"), result.Targets);
+        Assert.Contains(new ImpactTarget("T5", "Data/OrderDao.cs", "GetOrder", "구현"), result.Targets);
+    }
+
+    [Fact]
+    public async Task Partial_method_reports_the_other_part()
+    {
+        var fromDefinition = await FindAsync(new ImpactSeed("T6", 7, "Data/OrderDao.cs", "OrderDao", "Count"));
+        var fromImplementation = await FindAsync(new ImpactSeed("T7", 7, "Data/OrderDao.Part2.cs", "OrderDao", "Count"));
+
+        Assert.Equal([new ImpactTarget("T6", "Data/OrderDao.Part2.cs", "Count", "구현")], fromDefinition.Targets);
+        Assert.Equal([new ImpactTarget("T7", "Data/OrderDao.cs", "Count", "구현")], fromImplementation.Targets);
+    }
+
+    [Fact]
+    public async Task Virtual_seed_reports_its_override_and_the_override_goes_up()
+    {
+        var down = await FindAsync(new ImpactSeed("T8", 5, "Data/Exporters.cs", "BaseExporter", "Export"));
+        var up = await FindAsync(new ImpactSeed("T9", 5, "Data/CsvExporter.cs", "CsvExporter", "Export"));
+
+        Assert.Equal(ImpactMode.Semantic, down.Mode);
+        Assert.Equal([new ImpactTarget("T8", "Data/CsvExporter.cs", "Export", "재정의")], down.Targets);
+        Assert.Equal([new ImpactTarget("T9", "Data/Exporters.cs", "Export", "기반 멤버")], up.Targets);
+    }
+
+    [Fact]
+    public async Task Places_outside_the_workspace_root_are_not_targets()
+    {
+        // Workspace = Web.Tests only: Data and Web are loaded as references but lie outside the root.
+        var result = await FindAsync(Path.Combine(fx.Root, "Web.Tests"), new ImpactSeed("T10", 7, "FakeOrderDao.cs", "FakeOrderDao", "GetOrder"));
+
+        Assert.Equal(ImpactMode.Semantic, result.Mode);
+        Assert.Empty(result.UnsupportedSeeds);
         Assert.Empty(result.Targets);
     }
 }

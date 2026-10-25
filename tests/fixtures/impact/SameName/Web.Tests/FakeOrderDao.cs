@@ -4,5 +4,5 @@ namespace SameName.Web.Tests;
 
 public class FakeOrderDao : IOrderDao
 {
-    public Order GetOrder(int id) => new Order { Id = id };
+    Order IOrderDao.GetOrder(int id) => new Order { Id = id };
 }

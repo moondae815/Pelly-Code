@@ -381,6 +381,27 @@ public sealed class ApplyTransactionTests : IDisposable
         Assert.Equal("bee\n", File.ReadAllText(q)); // restored after a.txt's restore threw
     }
 
+    [Fact]
+    public async Task Rollback_restores_the_rest_when_one_restore_throws_unexpectedly()
+    {
+        string p = Make("a.txt", "one\n");
+        string q = Make("b.txt", "bee\n");
+        string backup = Path.Combine(_ws.PellyDir, "backup", "apply-r10", "a.txt");
+        var guard = new FileGuard(ThrowingReadFileSystem.Over(new FileSystem(), backup), TimeProvider.System);
+        var tx = new ApplyTransaction(guard, _ws, "apply-r10");
+        var a0 = guard.Read(p);
+        tx.Track(a0);
+        tx.Record(a0, await Write(a0, "two\n"));
+        var b0 = guard.Read(q);
+        tx.Track(b0);
+        tx.Record(b0, await Write(b0, "bee2\n"));
+
+        Assert.Equal([p], await tx.RollbackAsync(CancellationToken.None));
+
+        Assert.Equal("two\n", File.ReadAllText(p));
+        Assert.Equal("bee\n", File.ReadAllText(q)); // restored after a.txt's restore threw
+    }
+
     /// <summary>A real file system whose <c>File.ReadAllBytes</c> of one path throws <see cref="NotSupportedException"/>.</summary>
     public class ThrowingReadFileSystem : System.Reflection.DispatchProxy
     {

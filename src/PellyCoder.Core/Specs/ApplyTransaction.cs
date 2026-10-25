@@ -122,8 +122,9 @@ public sealed class ApplyTransaction(FileGuard guard, Workspace ws, string apply
                 if (result.Status != FileWriteStatus.Written) failed.Add(path);
                 else entry.LastKnown = entry.Original;
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
+                // Any failure leaves this file edited and reported; the rest are still restored.
                 failed.Add(path);
             }
         }

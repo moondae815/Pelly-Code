@@ -156,12 +156,12 @@ AppLocker나 WDAC가 `%TEMP%`에서 DLL을 불러오는 것을 막으면 SQL 기
 
 ## 업데이트
 
-새 zip을 같은 방법으로 반입하고 `pelly.exe`를 바꿉니다. 설정 파일은 그대로 둡니다.
+새 zip을 같은 방법으로 반입하고 `pelly.exe`와 `BuildHost-net472`, `BuildHost-netcore` 폴더를 함께 바꿉니다. 설정 파일은 그대로 둡니다.
 `version-record.json`으로 버전을 확인하십시오. 샘플링·예산 같은 값은 설정 파일로 바꿀 수 있어서 재반입이 필요 없습니다.
 
 ## 현장 키트
 
-기준선 측정과 튜닝, 결과 반출에는 둘째 반입물 「현장 키트 zip」을 씁니다. `pelly-eval.exe`와 절차 문서가 들어 있고, 이 zip과 다른 폴더에 풀어도 됩니다.
+기준선 측정과 튜닝, 결과 반출에는 둘째 반입물 「현장 키트 zip」을 씁니다. `pelly-eval.exe`와 그 옆 BuildHost 폴더 둘(함께 두십시오), 절차 문서가 들어 있고, 이 zip과 다른 폴더에 풀어도 됩니다.
 순서는 현장 키트 zip을 푼 폴더의 `docs\field-guide.md`에서 시작하십시오. 스위트 작성은 같은 폴더의 `docs\field-benchmark.md`, 결과 기록은 `docs\field-results.md`입니다.
 (현장 키트 zip의 구성은 Windows 미확인입니다.)
 

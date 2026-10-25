@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.IO.Abstractions;
 using PellyCoder.Core.Fsm;
+using PellyCoder.Core.Impact;
 using PellyCoder.Core.Specs;
 using Spectre.Console;
 using Spectre.Console.Cli;
@@ -17,15 +18,24 @@ public sealed class SpecCheckSettings : CommandSettings
     [Description("작업 공간 설정 파일 경로 (기본: <루트>/pelly.json)")]
     public string? Config { get; init; }
 
+    [CommandOption("--impact")]
+    [Description("모든 cs 작업의 빠진 영향 대상을 찾음")]
+    public bool Impact { get; init; }
+
     [CommandOption("--pause-on-exit")]
     [Description("끝난 뒤 키 입력을 기다림 (IDE 외부 도구 창용)")]
     public bool PauseOnExit { get; init; }
 }
 
-/// <summary><c>pelly spec check</c>: static checks of a spec; exit 4 on any error, 0 with warnings only.</summary>
-public sealed class SpecCheckCommand(IFileSystem fs, OptionsResolver resolver, IAnsiConsole console) : Command<SpecCheckSettings>
+/// <summary>
+/// <c>pelly spec check</c>: static checks of a spec, plus the impact search of its grouped cs tasks (every cs task with
+/// <c>--impact</c>); exit 4 on any error, 0 with warnings only.
+/// </summary>
+/// <param name="impact">The impact search; null (not registered) uses <see cref="ImpactFinders.Default"/>.</param>
+public sealed class SpecCheckCommand(IFileSystem fs, OptionsResolver resolver, IAnsiConsole console, CancellationToken cancellation, IImpactFinder? impact = null)
+    : AsyncCommand<SpecCheckSettings>
 {
-    public override int Execute(CommandContext context, SpecCheckSettings settings, CancellationToken cancellation)
+    public override async Task<int> ExecuteAsync(CommandContext context, SpecCheckSettings settings, CancellationToken _)
     {
         var spec = fs.Path.GetFullPath(settings.Spec);
         if (!fs.File.Exists(spec)) return Fail($"명세 파일을 찾을 수 없습니다: {spec}");
@@ -37,7 +47,7 @@ public sealed class SpecCheckCommand(IFileSystem fs, OptionsResolver resolver, I
             return ExitCodes.EnvError;
         }
 
-        var result = SpecChecker.Check(fs, spec, options.Sql.CompatLevel);
+        var result = await SpecChecker.CheckAsync(fs, spec, options.Sql.CompatLevel, impact ?? ImpactFinders.Default(fs), settings.Impact, cancellation);
         foreach (var issue in result.Issues)
         {
             var where = issue.Line > 0 ? $"줄 {issue.Line}: " : "";

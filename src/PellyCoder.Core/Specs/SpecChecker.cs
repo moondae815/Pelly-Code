@@ -6,13 +6,15 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using PellyCoder.Core.CSharp;
 using PellyCoder.Core.Files;
+using PellyCoder.Core.Impact;
 using PellyCoder.Core.Sql;
 using PellyCoder.Core.Workspaces;
 using Workspace = PellyCoder.Core.Workspaces.Workspace;
 
 namespace PellyCoder.Core.Specs;
 
-public sealed record SpecCheckResult(ChangeSpec Spec, Workspace Workspace, IReadOnlyList<SpecIssue> Issues)
+/// <param name="Impact">The impact search result; null when no search ran or it threw.</param>
+public sealed record SpecCheckResult(ChangeSpec Spec, Workspace Workspace, IReadOnlyList<SpecIssue> Issues, ImpactResult? Impact = null)
 {
     public bool HasErrors => Issues.Any(i => i.Severity == SpecIssueSeverity.Error);
 }
@@ -41,6 +43,34 @@ public static partial class SpecChecker
         }
 
         return new SpecCheckResult(spec, ws, issues);
+    }
+
+    /// <summary>
+    /// <see cref="Check"/>, then — when it found no error and the spec has seeds — the impact search, whose findings are
+    /// added as warnings. A search that throws (anything but a cancellation) becomes the warning <c>ImpactFailed</c>:
+    /// the warning feature never blocks a spec.
+    /// </summary>
+    /// <param name="impactAllCsTasks">Seed every not-done cs task (<c>spec check --impact</c>), not just the grouped ones.</param>
+    public static async Task<SpecCheckResult> CheckAsync(
+        IFileSystem fs, string specPath, int sqlCompatLevel, IImpactFinder? impact, bool impactAllCsTasks, CancellationToken ct)
+    {
+        var check = Check(fs, specPath, sqlCompatLevel);
+        if (impact is null || check.HasErrors) return check;
+        var seeds = ImpactCheck.Seeds(check.Spec, impactAllCsTasks);
+        if (seeds.Count == 0) return check;
+
+        ImpactResult result;
+        try
+        {
+            result = await impact.FindAsync(check.Workspace, seeds, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            var failed = new SpecIssue(0, SpecIssueSeverity.Warning, "ImpactFailed", $"영향 탐색을 할 수 없습니다: {ex.Message}");
+            return check with { Issues = [.. check.Issues, failed] };
+        }
+
+        return check with { Issues = [.. check.Issues, .. ImpactCheck.Issues(check.Spec, seeds, result)], Impact = result };
     }
 
     private static void CheckTask(IFileSystem fs, Workspace ws, SpecTask task, int compat, Scans scans, List<SpecIssue> issues)

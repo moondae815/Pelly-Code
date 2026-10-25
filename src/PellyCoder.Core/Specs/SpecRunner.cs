@@ -9,6 +9,7 @@ using PellyCoder.Core.CSharp;
 using PellyCoder.Core.Feedbacks;
 using PellyCoder.Core.Files;
 using PellyCoder.Core.Fsm;
+using PellyCoder.Core.Impact;
 using PellyCoder.Core.Llm;
 using PellyCoder.Core.Logging;
 using PellyCoder.Core.Models;
@@ -26,8 +27,10 @@ namespace PellyCoder.Core.Specs;
 /// <param name="groups">Builds a group's affected projects; a spec with groups exits 4 without it.</param>
 /// <param name="groupFeedback">Writes a group re-run's build feedback; defaults to the default feedback budget.</param>
 /// <param name="groupRetryMax">Group re-runs when the apply has no <c>--max-retries</c> (<c>retry.max</c>); defaults to its default.</param>
+/// <param name="impact">Searches the grouped cs tasks' impact at the start (warnings only); no search without it.</param>
 public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor executor, IUserInteraction ui, TimeProvider time, int sqlCompatLevel,
-    Action<Workspace, string>? pruneRuns = null, IGroupVerifier? groups = null, FeedbackBuilder? groupFeedback = null, int? groupRetryMax = null)
+    Action<Workspace, string>? pruneRuns = null, IGroupVerifier? groups = null, FeedbackBuilder? groupFeedback = null, int? groupRetryMax = null,
+    IImpactFinder? impact = null)
 {
     private static readonly JsonSerializerOptions SummaryJson = new()
     {
@@ -50,7 +53,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
 
     public async Task<int> RunAsync(string specPath, ApplyOptions o, CancellationToken ct)
     {
-        var check = SpecChecker.Check(fs, specPath, sqlCompatLevel);
+        var check = await SpecChecker.CheckAsync(fs, specPath, sqlCompatLevel, impact, false, ct);
         if (check.HasErrors)
         {
             foreach (var issue in check.Issues) ui.Warn(Format(issue));
@@ -87,7 +90,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             return 4;
         }
 
-        var run = new ApplyRun(this, ws, specPath, o, warnings);
+        var run = new ApplyRun(this, ws, specPath, o, warnings, check.Impact);
         try
         {
             return await run.ExecuteAsync(ct);
@@ -116,7 +119,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
     }
 
     /// <summary>State of one apply after the lock is held.</summary>
-    private sealed class ApplyRun(SpecRunner owner, Workspace ws, string specPath, ApplyOptions o, IReadOnlyList<SpecIssue> warnings)
+    private sealed class ApplyRun(SpecRunner owner, Workspace ws, string specPath, ApplyOptions o, IReadOnlyList<SpecIssue> warnings, ImpactResult? impact)
     {
         private readonly List<ApplyTaskResult> _results = [];
         private readonly List<string> _marked = [];
@@ -679,7 +682,8 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             {
                 var dir = owner.Fs.Path.Combine(ws.PellyDir, "runs", ApplyId!);
                 owner.Fs.Directory.CreateDirectory(dir);
-                var summary = new ApplySummary(ApplyId!, SpecId, _results, exitCode, warnings, _archived);
+                var summary = new ApplySummary(ApplyId!, SpecId, _results, exitCode, warnings, _archived,
+                    impact is null ? null : impact.Mode == ImpactMode.Semantic ? "semantic" : "name", impact?.Fallback?.Kind.ToString());
                 owner.Fs.File.WriteAllText(owner.Fs.Path.Combine(dir, "apply.json"), JsonSerializer.Serialize(summary, SummaryJson));
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

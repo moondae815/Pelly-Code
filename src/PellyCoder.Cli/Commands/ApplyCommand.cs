@@ -1,12 +1,8 @@
 using System.ComponentModel;
 using System.IO.Abstractions;
 using PellyCoder.Core.Abstractions;
-using PellyCoder.Core.Builds;
-using PellyCoder.Core.Feedbacks;
-using PellyCoder.Core.Files;
 using PellyCoder.Core.Fsm;
-using PellyCoder.Core.Llm;
-using PellyCoder.Core.Logging;
+using PellyCoder.Core.Impact;
 using PellyCoder.Core.Specs;
 using Spectre.Console;
 using Spectre.Console.Cli;
@@ -33,9 +29,10 @@ public sealed class ApplySettings : RunSettings
 }
 
 /// <summary><c>pelly apply</c>: runs the tasks of a change spec in order through <see cref="SpecRunner"/>.</summary>
+/// <param name="impact">The impact search at the start of the apply; null (not registered) uses <see cref="ImpactFinders.Default"/>.</param>
 public sealed class ApplyCommand(
     IFileSystem fs, OptionsResolver resolver, IRunner runner, IAnsiConsole console, IUserInteraction ui, TimeProvider time,
-    IProcessRunner processes, CancellationToken cancellation)
+    IProcessRunner processes, CancellationToken cancellation, IImpactFinder? impact = null)
     : AsyncCommand<ApplySettings>
 {
     public override async Task<int> ExecuteAsync(CommandContext context, ApplySettings settings, CancellationToken _)
@@ -53,13 +50,8 @@ public sealed class ApplyCommand(
             return ExitCodes.EnvError;
         }
 
-        var executor = new FsmTaskExecutor((request, ct) => runner.RunDetailedAsync(request, options, ct));
-        var groups = new GroupVerifier(
-            fs, new BuildVerifier(processes, options.Build), new BuildToolResolver(fs, processes, options.Build), OperatingSystem.IsWindows);
-        var specRunner = new SpecRunner(
-            fs, new FileGuard(fs, time), executor, ui, time, options.Sql.CompatLevel,
-            (ws, id) => new RunLogger(fs, time).Prune(ws, options.Log.RetentionDays, id),
-            groups, new FeedbackBuilder(QwenTokenCounter.Shared, options.Budget.Feedback), options.Retry.Max);
+        var specRunner = SpecRunnerFactory.Create(
+            fs, options, ui, time, processes, (request, ct) => runner.RunDetailedAsync(request, options, ct), impact ?? ImpactFinders.Default(fs));
         var apply = new ApplyOptions(
             settings.Continue, settings.Resume, settings.ReviewAtEnd, settings.Yes, settings.DryRun, settings.MaxRetries, settings.Verbose);
         try

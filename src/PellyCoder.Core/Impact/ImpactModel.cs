@@ -1,4 +1,5 @@
 using System.Globalization;
+using PellyCoder.Core.Specs;
 using PellyCoder.Core.Workspaces;
 
 namespace PellyCoder.Core.Impact;
@@ -25,7 +26,8 @@ public sealed record SemanticFailure(SemanticFailureKind Kind, double? Rate = nu
 }
 
 /// <summary>A spec task the search starts from. <paramref name="Path"/> is workspace-relative with '/'.</summary>
-public sealed record ImpactSeed(string TaskId, int Line, string Path, string? ClassName, string Member);
+/// <param name="Kind">The task's kind; V2-1c only searches from cs tasks, the field keeps room for sql seeds.</param>
+public sealed record ImpactSeed(string TaskId, int Line, string Path, string? ClassName, string Member, TaskKind Kind = TaskKind.CSharp);
 
 /// <summary>A place a change to a seed can break. <paramref name="Reason"/>: 구현|재정의|기반 멤버|호출|멤버 밖.</summary>
 public sealed record ImpactTarget(string SeedTaskId, string Path, string Member, string Reason);

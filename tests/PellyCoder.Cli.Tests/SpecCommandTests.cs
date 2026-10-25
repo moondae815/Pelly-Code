@@ -2,7 +2,9 @@ using System.IO.Abstractions;
 using System.IO.Abstractions.TestingHelpers;
 using Microsoft.Extensions.DependencyInjection;
 using PellyCoder.Core.Config;
+using PellyCoder.Core.Impact;
 using PellyCoder.Core.Specs;
+using PellyCoder.Core.Workspaces;
 using Spectre.Console;
 using Spectre.Console.Cli;
 using Spectre.Console.Cli.Testing;
@@ -17,6 +19,8 @@ public class SpecCommandTests
     {
         public MockFileSystem Fs { get; } = fs;
 
+        public FakeFinder Finder { get; } = new();
+
         public CommandAppResult Run(params string[] args) => Create().Run(args);
 
         private CommandAppTester Create()
@@ -27,6 +31,7 @@ public class SpecCommandTests
             services.AddSingleton<OptionsResolver>();
             services.AddSingleton(new ConfigSources(null, new Dictionary<string, string?>()));
             services.AddSingleton(typeof(CancellationToken), CancellationToken.None);
+            services.AddSingleton<IImpactFinder>(Finder);
             var app = new CommandAppTester(new DiTypeRegistrar(services));
             app.Configure(CliApp.Configure);
             return app;
@@ -104,6 +109,25 @@ public class SpecCommandTests
     }
 
     [Fact]
+    public void Check_impact_searches_every_cs_task_and_only_warns()
+    {
+        var h = Build();
+        h.Fs.AddFile("/w/src/Order.cs", new MockFileData("namespace App;\npublic class Order\n{\n    public void Cancel() { }\n    public void Ship() { }\n}\n"));
+        h.Fs.AddFile("/w/changes/c.md", new MockFileData(Spec(
+            "- [ ] T1 cs src/Order.cs#Order.Cancel 바꾼다\n- [ ] T2 cs src/Order.cs#Order.Ship 바꾼다\n- [ ] T3 sql src/A.sql 바꾼다\n")));
+        h.Finder.Result = new ImpactResult(ImpactMode.Semantic, null, [new ImpactTarget("T1", "src/Web.cs", "Detail", "호출")], []);
+
+        var plain = h.Run("spec", "check", "changes/c.md");
+        Assert.Equal(0, plain.ExitCode);
+        Assert.Empty(h.Finder.Calls); // no group, no --impact
+
+        var result = h.Run("spec", "check", "changes/c.md", "--impact");
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(["T1", "T2"], Assert.Single(h.Finder.Calls).Select(s => s.TaskId));
+        Assert.Contains("[ImpactMissing] 작업 T1의 영향 대상이 명세에 없습니다: src/Web.cs#Detail (호출)", result.Output);
+    }
+
+    [Fact]
     public void Check_missing_file_exits_4()
     {
         Assert.Equal(4, Build().Run("spec", "check", "changes/none.md").ExitCode);
@@ -121,5 +145,17 @@ public class SpecCommandTests
     public void Bare_spec_is_a_usage_error_4()
     {
         Assert.Equal(4, Build().Run("spec").ExitCode);
+    }
+
+    private sealed class FakeFinder : IImpactFinder
+    {
+        public List<IReadOnlyList<ImpactSeed>> Calls { get; } = [];
+        public ImpactResult Result { get; set; } = new(ImpactMode.Semantic, null, [], []);
+
+        public Task<ImpactResult> FindAsync(Workspace ws, IReadOnlyList<ImpactSeed> seeds, CancellationToken ct)
+        {
+            Calls.Add(seeds);
+            return Task.FromResult(Result);
+        }
     }
 }

@@ -1,0 +1,15 @@
+<Project>
+  <!--
+    V2-1c design §3 (spike S8, docs/s8-semantic-load.md): the single-file exe keeps the Roslyn build hosts
+    (BuildHost-net472, BuildHost-netcore from Microsoft.CodeAnalysis.Workspaces.MSBuild) in folders beside it.
+    MSBuildWorkspace starts them as separate processes, so inside the bundle they are not found ("build host not found").
+    Their .pdb files are dropped: no pdb is shipped (PackageTests.Pdb_NotShipped).
+  -->
+  <Target Name="PellyKeepBuildHostOutside" AfterTargets="ComputeResolvedFilesToPublishList" Condition="'$(PublishSingleFile)' == 'true'">
+    <ItemGroup>
+      <_PellyBuildHost Include="@(ResolvedFileToPublish)" Condition="$([System.String]::new('%(ResolvedFileToPublish.RelativePath)').StartsWith('BuildHost-'))" />
+      <ResolvedFileToPublish Remove="@(_PellyBuildHost)" />
+      <ResolvedFileToPublish Include="@(_PellyBuildHost)" Condition="'%(Extension)' != '.pdb'" ExcludeFromSingleFile="true" />
+    </ItemGroup>
+  </Target>
+</Project>

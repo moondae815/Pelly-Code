@@ -10,6 +10,7 @@
 | 파일 | 용도 |
 | :--- | :--- |
 | `pelly.exe` | 실행 파일 (단일 파일) |
+| `BuildHost-net472/`, `BuildHost-netcore/` | 영향 탐색의 의미 분석이 띄우는 보조 프로세스(Roslyn 빌드 호스트). **`pelly.exe`와 같은 폴더에 그대로 두십시오.** 없으면 `pelly doctor --offline-selftest`의 「의미 분석 보조 프로세스」 행이 Fail입니다 |
 | `pelly.json.template` | 설정 템플릿 |
 | `SHA256SUMS.txt` | 파일별 SHA-256 체크섬 |
 | `sbom.cdx.json` | SBOM (CycloneDX), 보안 심사용 |
@@ -28,7 +29,7 @@
 
 ## 1. zip 풀기
 
-원하는 폴더에 풉니다. 예: `C:\Tools\pelly`.
+원하는 폴더에 풉니다. 예: `C:\Tools\pelly`. `pelly.exe`만 따로 옮기지 말고 `BuildHost-net472`, `BuildHost-netcore` 폴더와 함께 두십시오.
 
 ## 2. 체크섬 확인
 

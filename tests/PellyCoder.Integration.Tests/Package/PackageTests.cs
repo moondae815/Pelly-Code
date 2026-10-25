@@ -9,13 +9,21 @@ using PellyCoder.Integration.Tests.Infrastructure;
 
 namespace PellyCoder.Integration.Tests.Package;
 
-/// <summary>One built zip: the variable that names it, its allow-list and the files the brief fixes for it.</summary>
-public sealed record PackageKind(string Name, string ZipVariable, string ListFile, string Exe, string[] ExpectedFiles)
+/// <summary>
+/// One built zip: the variable that names it, its allow-list, the files the brief fixes for it and the publish folder the CI
+/// <c>package</c> job built it from (repository-relative). An <c>X/**</c> entry is every file under that publish folder.
+/// </summary>
+public sealed record PackageKind(string Name, string ZipVariable, string ListFile, string Exe, string PublishDir, string[] ExpectedFiles)
 {
+    /// <summary>Roslyn build-host folders shipped beside the exe (V2-1c Task 5); both zips carry them whole.</summary>
+    public static readonly string[] BuildHostFolders = ["BuildHost-net472", "BuildHost-netcore"];
+
     // The brief's allow-list (Task 9). deploy/package-files.txt must say the same; the zip must contain exactly this.
-    public static readonly PackageKind Pelly = new("pelly", "PELLY_TEST_PACKAGE", "deploy/package-files.txt", "pelly.exe",
+    public static readonly PackageKind Pelly = new("pelly", "PELLY_TEST_PACKAGE", "deploy/package-files.txt", "pelly.exe", "artifacts/publish/win-x64",
     [
         "pelly.exe",
+        "BuildHost-net472/**",
+        "BuildHost-netcore/**",
         "LICENSE",
         "pelly.json.template",
         "docs/install.md",
@@ -32,9 +40,11 @@ public sealed record PackageKind(string Name, string ZipVariable, string ListFil
     ]);
 
     // M4 Task 9: the field kit (pelly-eval.exe, its guides and suite templates). deploy/field-kit-files.txt must say the same.
-    public static readonly PackageKind FieldKit = new("field-kit", "PELLY_TEST_FIELD_KIT", "deploy/field-kit-files.txt", "pelly-eval.exe",
+    public static readonly PackageKind FieldKit = new("field-kit", "PELLY_TEST_FIELD_KIT", "deploy/field-kit-files.txt", "pelly-eval.exe", "artifacts/publish-eval/win-x64",
     [
         "pelly-eval.exe",
+        "BuildHost-net472/**",
+        "BuildHost-netcore/**",
         "LICENSE",
         "docs/field-guide.md",
         "docs/field-benchmark.md",
@@ -49,6 +59,22 @@ public sealed record PackageKind(string Name, string ZipVariable, string ListFil
         "licenses/Microsoft.Data.SqlClient.SNI.runtime.LICENSE.txt",
         "SHA256SUMS.txt",
     ]);
+
+    /// <summary><see cref="ExpectedFiles"/> with each <c>X/**</c> entry replaced by the files under the publish folder X.</summary>
+    public IReadOnlyList<string> ExpandedFiles()
+    {
+        var result = new List<string>();
+        foreach (var entry in ExpectedFiles)
+        {
+            if (!PackageFileList.IsFolder(entry, out var folder)) { result.Add(entry); continue; }
+            var dir = Path.Combine(PackageFileList.RepoFile(PublishDir), folder);
+            if (!Directory.Exists(dir)) throw new DirectoryNotFoundException($"{Name}: publish folder {dir} not found");
+            var files = Directory.GetFiles(dir, "*", SearchOption.AllDirectories);
+            if (files.Length == 0) throw new InvalidOperationException($"{Name}: publish folder {dir} is empty");
+            result.AddRange(files.Select(f => folder + "/" + Path.GetRelativePath(dir, f).Replace('\\', '/')));
+        }
+        return result;
+    }
 
     public static PackageKind ByName(string name) => name switch
     {
@@ -88,8 +114,21 @@ public sealed class PackageTests
             .Select(f => Path.GetRelativePath(root, f).Replace('\\', '/'))
             .Order(StringComparer.Ordinal).ToArray();
 
-        Assert.Equal(kind.ExpectedFiles.Order(StringComparer.Ordinal), actual);
+        Assert.Equal(kind.ExpandedFiles().Order(StringComparer.Ordinal), actual);
         Assert.Equal(kind.ExpectedFiles.Order(StringComparer.Ordinal), PackageFileList.ZipPaths(kind.ListFile).Order(StringComparer.Ordinal));
+    }
+
+    [WindowsTheory]
+    [MemberData(nameof(Packages))]
+    public void Package_HasBuildHostFolders(string package)
+    {
+        // Semantic impact search starts Roslyn's build host as a separate process from these folders beside the exe (S8).
+        var kind = PackageKind.ByName(package);
+        using var zip = ZipFile.OpenRead(ZipPath(kind));
+        foreach (var folder in PackageKind.BuildHostFolders)
+            Assert.True(zip.Entries.Any(e => e.FullName.StartsWith(folder + "/", StringComparison.Ordinal)
+                    && (e.FullName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) || e.FullName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))),
+                $"{kind.Name}: no .exe or .dll under {folder}/ in the zip");
     }
 
     [WindowsTheory]
@@ -107,7 +146,7 @@ public sealed class PackageTests
             Assert.True(listed.TryAdd(m.Groups[2].Value, m.Groups[1].Value), $"duplicate entry: {m.Groups[2].Value}");
         }
 
-        var files = kind.ExpectedFiles.Where(f => f != "SHA256SUMS.txt").Order(StringComparer.Ordinal).ToArray();
+        var files = kind.ExpandedFiles().Where(f => f != "SHA256SUMS.txt").Order(StringComparer.Ordinal).ToArray();
         Assert.Equal(files, listed.Keys.Order(StringComparer.Ordinal));
         foreach (var file in files)
         {
@@ -131,7 +170,8 @@ public sealed class PackageTests
         var kind = PackageKind.ByName(package);
         var root = Extracted[package].Value;
         var problems = new List<string>();
-        foreach (var file in kind.ExpectedFiles.Where(f => f != kind.Exe))
+        // Our own text files only: the build-host folders are the NuGet package's binaries and runtime configs.
+        foreach (var file in kind.ExpectedFiles.Where(f => f != kind.Exe && !PackageFileList.IsFolder(f, out _)))
         {
             var text = File.ReadAllText(Path.Combine(root, file));
             // localhost is not checked here: the docs name it as the built-in default (no-network.md).
@@ -162,7 +202,7 @@ public sealed class PackageTests
         var result = await Run(kind, args);
 
         Assert.True(result.ExitCode == 0, $"exit {result.ExitCode}\n{result.StdOut}\n{result.StdErr}");
-        foreach (var row in new[] { "토크나이저", "Roslyn", "ScriptDom", "인코딩", "리소스", "SqlClient" })
+        foreach (var row in new[] { "토크나이저", "Roslyn", "ScriptDom", "인코딩", "리소스", "SqlClient", "의미 분석 보조 프로세스" })
             Assert.Contains(row, result.StdOut, StringComparison.Ordinal);
     }
 
@@ -311,6 +351,14 @@ internal static class PackageFileList
     }
 
     public static IEnumerable<string> ZipPaths(string listFile = "deploy/package-files.txt") => Read(listFile).Select(e => e.ZipPath);
+
+    /// <summary>An allow-list entry <c>X/**</c>: every file under the folder X.</summary>
+    public static bool IsFolder(string zipPath, out string folder)
+    {
+        var ok = zipPath.EndsWith("/**", StringComparison.Ordinal);
+        folder = ok ? zipPath[..^3] : "";
+        return ok;
+    }
 
     public static string RepoFile(string relative)
     {

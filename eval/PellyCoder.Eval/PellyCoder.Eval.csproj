@@ -29,4 +29,7 @@
     <PackageReference Include="YamlDotNet" />
   </ItemGroup>
 
+  <!-- Roslyn build hosts beside the single-file exe (V2-1c Task 5). -->
+  <Import Project="$(MSBuildThisFileDirectory)../../build/BuildHostOutside.targets" />
+
 </Project>

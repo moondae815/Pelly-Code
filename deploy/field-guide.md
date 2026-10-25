@@ -9,7 +9,7 @@
 | zip | 내용 |
 | :--- | :--- |
 | `pelly-<버전>-win-x64.zip` | `pelly.exe`와 설치 문서. 이 문서에서 「pelly zip을 푼 폴더의 `docs\install.md`」처럼 부릅니다 |
-| 현장 키트 zip | `pelly-eval.exe`, 이 문서들(`docs\field-*.md`), `templates\` |
+| 현장 키트 zip | `pelly-eval.exe`와 그 옆 `BuildHost-net472\`·`BuildHost-netcore\` 폴더(함께 두십시오), 이 문서들(`docs\field-*.md`), `templates\` |
 
 이 문서에서 실행기를 `pelly-eval`이라고 부릅니다. 파일 이름은 `pelly-eval.exe`입니다.
 `pelly-eval --help`가 옵션과 종료 코드를 보여 줍니다.

@@ -13,7 +13,8 @@
      BSD-3-Clause fails the script (R7). A component without a license id is resolved from its nuspec in the
      local NuGet cache; anything still unresolved fails. deploy/license-exceptions.json may allow a package by
      exact id, version and license file SHA-256, only with a human approver recorded.
-  3. Only the files in the allow-list (deploy/package-files.txt or deploy/field-kit-files.txt) are staged.
+  3. Only the files in the allow-list (deploy/package-files.txt or deploy/field-kit-files.txt) are staged. A line
+     "<dir>/** <- publish:<dir>/**" stages every file under that publish folder (missing or empty folder fails).
      deploy/version-record.json must match the Version (pelly only; the field kit records on site).
   4. SHA256SUMS.txt: "<sha256 hex>  <relative path>" for every other file.
   5. The zip.
@@ -308,6 +309,20 @@ $entries = @()
 foreach ($raw in Get-Content (Join-Path $PSScriptRoot $ListFile)) {
     $line = $raw.Trim()
     if ($line.Length -eq 0 -or $line.StartsWith('#')) { continue }
+    if ($line -match '\A(\S+)/\*\* <- publish:(\S+)/\*\*\z') {
+        # A whole publish folder (the Roslyn build hosts beside the exe): every file under it, same relative path.
+        $zipDir = $Matches[1]
+        $srcRel = $Matches[2]
+        $srcDir = Join-Path $PublishDir $srcRel
+        if (-not (Test-Path -PathType Container $srcDir)) { throw "${zipDir}/**: source folder $srcDir not found" }
+        $dirFiles = @(Get-ChildItem -Recurse -File $srcDir)
+        if ($dirFiles.Count -eq 0) { throw "${zipDir}/**: source folder $srcDir is empty" }
+        foreach ($f in $dirFiles) {
+            $rel = [System.IO.Path]::GetRelativePath($srcDir, $f.FullName).Replace('\', '/')
+            $entries += [pscustomobject]@{ ZipPath = "$zipDir/$rel"; Source = "publish:$srcRel/$rel" }
+        }
+        continue
+    }
     if ($line -notmatch '\A(\S+) <- (\S+)\z') { throw "${ListFile}: bad line '$raw'" }
     $entries += [pscustomobject]@{ ZipPath = $Matches[1]; Source = $Matches[2] }
 }

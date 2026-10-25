@@ -9,7 +9,8 @@ namespace PellyCoder.Core.Doctor;
 /// <summary>
 /// Hidden <c>pelly doctor --offline-selftest</c>: exercises the bundled components without network, config files or
 /// <c>HttpClient</c>, so a packaged single-file build can prove its embedded dependencies work. The SqlClient row only
-/// opens a local named pipe that does not exist (Windows) or constructs a connection (elsewhere).
+/// opens a local named pipe that does not exist (Windows) or constructs a connection (elsewhere). The build-host row only
+/// checks that the Roslyn build-host folders sit beside the exe.
 /// </summary>
 public static class OfflineSelfTest
 {
@@ -21,9 +22,31 @@ public static class OfflineSelfTest
         Row("인코딩", Cp949RoundTrip),
         Row("리소스", Resources),
         Row("SqlClient", SqlServerExecutor.SelfTestNativeLayer),
+        BuildHostRow(AppContext.BaseDirectory),
     ];
 
-    private static DoctorCheck Row(string name, Func<string> check)
+    /// <summary>Folders MSBuildWorkspace starts its build host from; they sit beside the single-file exe (build/BuildHostOutside.targets).</summary>
+    private static readonly string[] BuildHostFolders = ["BuildHost-net472", "BuildHost-netcore"];
+
+    internal static DoctorCheck BuildHostRow(string baseDir) =>
+        Row("의미 분석 보조 프로세스", () => CheckBuildHost(baseDir),
+            "반입 zip을 다시 풀어 pelly.exe 옆에 BuildHost-net472, BuildHost-netcore 폴더를 두세요");
+
+    /// <summary>
+    /// Semantic impact search (V2-1c) runs Roslyn's build host as a separate process; inside the single-file bundle it is not
+    /// found. Ok when both folders exist beside the exe and each holds at least one file.
+    /// </summary>
+    internal static string CheckBuildHost(string baseDir)
+    {
+        var missing = BuildHostFolders
+            .Where(f => !Directory.Exists(Path.Combine(baseDir, f)) || !Directory.EnumerateFiles(Path.Combine(baseDir, f), "*", SearchOption.AllDirectories).Any())
+            .ToList();
+        return missing.Count == 0
+            ? "보조 프로세스 폴더 2개 있음"
+            : throw new DirectoryNotFoundException($"없거나 빈 폴더: {string.Join(", ", missing)}");
+    }
+
+    private static DoctorCheck Row(string name, Func<string> check, string action = "배포본이 손상되었을 수 있습니다. 다시 받아 설치하세요.")
     {
         try
         {
@@ -31,7 +54,7 @@ public static class OfflineSelfTest
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            return new DoctorCheck(name, DoctorStatus.Fail, $"{ex.GetType().Name}: {ex.Message}", "배포본이 손상되었을 수 있습니다. 다시 받아 설치하세요.");
+            return new DoctorCheck(name, DoctorStatus.Fail, $"{ex.GetType().Name}: {ex.Message}", action);
         }
     }
 

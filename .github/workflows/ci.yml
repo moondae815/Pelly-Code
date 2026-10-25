@@ -89,11 +89,41 @@ jobs:
           if (-not $out.Contains('OLLAMA_KV_CACHE_TYPE')) { Write-Host $out; throw 'server checklist resource missing' }
           # 마지막 네이티브 명령이 의도대로 4로 끝났으므로, 그 값이 스텝 종료 코드가 되지 않게 끝낸다
           exit 0
+      - name: Check build-host folders beside pelly.exe
+        # 의미 분석(V2-1c)은 Roslyn 보조 프로세스를 exe 옆 폴더에서 띄운다(S8). 폴더가 있으면 자기 점검 행이 Ok, 지운 사본에서는 종료 4
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $publish = 'artifacts/publish/win-x64'
+          foreach ($dir in 'BuildHost-net472', 'BuildHost-netcore') {
+            $files = @(Get-ChildItem -Recurse -File (Join-Path $publish $dir) -Include *.exe, *.dll)
+            if ($files.Count -eq 0) { throw "$dir has no .exe or .dll beside pelly.exe" }
+            Write-Host "${dir}: $($files.Count) .exe/.dll"
+          }
+          $env:DOTNET_BUNDLE_EXTRACT_BASE_DIR = Join-Path $env:RUNNER_TEMP 'pelly-extract'
+          # 표는 콘솔 폭에 맞춰 칸 안에서 줄을 바꾸므로 행 문구가 아니라 종료 코드로 본다(모든 행 Ok일 때만 0)
+          $out = (& (Resolve-Path "$publish/pelly.exe") doctor --offline-selftest | Out-String)
+          if ($LASTEXITCODE -ne 0) { Write-Host $out; throw "doctor --offline-selftest exit $LASTEXITCODE" }
+
+          # 폴더 없이 exe만 둔 사본: 새 행이 Fail이고 종료 4여야 한다 (다른 행은 위에서 같은 exe로 Ok였다)
+          $bare = New-Item -ItemType Directory -Force (Join-Path $env:RUNNER_TEMP 'pelly-no-buildhost')
+          Copy-Item "$publish/pelly.exe" $bare
+          $out = (& (Join-Path $bare 'pelly.exe') doctor --offline-selftest | Out-String)
+          $code = $LASTEXITCODE
+          Write-Host $out
+          if ($code -ne 4) { throw "offline-selftest without build-host folders exit $code, expected 4" }
+          if (-not $out.Contains('Fail')) { throw 'offline-selftest without build-host folders shows no Fail row' }
+          Write-Host "without build-host folders: exit $code as expected"
+          exit 0
       - name: Upload published exe for the package job
         uses: actions/upload-artifact@v6
         with:
           name: pelly-publish-win-x64
-          path: artifacts/publish/win-x64/pelly.exe
+          # exe와 Roslyn 보조 프로세스 폴더 둘 (V2-1c Task 5). 공통 상위 폴더 기준이라 상대 경로가 그대로 남는다
+          path: |
+            artifacts/publish/win-x64/pelly.exe
+            artifacts/publish/win-x64/BuildHost-net472/
+            artifacts/publish/win-x64/BuildHost-netcore/
           if-no-files-found: error
           retention-days: 1
       - name: Publish pelly-eval win-x64 single file
@@ -122,6 +152,10 @@ jobs:
           $selftest = (& $exe --offline-selftest | Out-String)
           if ($LASTEXITCODE -ne 0) { throw "pelly-eval --offline-selftest exit $LASTEXITCODE" }
           if (-not $selftest.Contains('| SqlClient | Ok |')) { Write-Host $selftest; throw 'offline-selftest output lacks the SqlClient Ok row' }
+          if (-not $selftest.Contains('| 의미 분석 보조 프로세스 | Ok |')) { Write-Host $selftest; throw 'offline-selftest output lacks the build-host Ok row' }
+          foreach ($dir in 'BuildHost-net472', 'BuildHost-netcore') {
+            if (-not (Get-ChildItem -Recurse -File (Join-Path artifacts/publish-eval/win-x64 $dir) -Include *.exe, *.dll)) { throw "$dir has no .exe or .dll beside pelly-eval.exe" }
+          }
 
           # 내장 스위트가 Windows에서 Legacy 루트를 바르게 판정하는지 본다 (정적 검사, 서버 없음)
           $out = (& $exe validate --suite eval/benchmark | Out-String)
@@ -134,12 +168,15 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: pelly-eval-publish-win-x64
-          path: artifacts/publish-eval/win-x64/pelly-eval.exe
+          path: |
+            artifacts/publish-eval/win-x64/pelly-eval.exe
+            artifacts/publish-eval/win-x64/BuildHost-net472/
+            artifacts/publish-eval/win-x64/BuildHost-netcore/
           if-no-files-found: error
           retention-days: 1
 
   package:
-    # 반입 zip (Task 9). publish-check가 만든 exe를 그대로 쓴다 (publish는 한 번만 한다)
+    # 반입 zip (Task 9). publish-check가 만든 exe와 BuildHost 폴더 둘을 그대로 쓴다 (publish는 한 번만 한다)
     needs: publish-check
     runs-on: windows-latest
     steps:
@@ -231,9 +268,13 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          foreach ($case in @(@{ zip = $env:PELLY_TEST_PACKAGE; count = 13 }, @{ zip = $env:PELLY_TEST_FIELD_KIT; count = 13 })) {
+          # 13: 고정 파일(SHA256SUMS 제외). BuildHost 폴더 둘의 파일 수는 패키지 버전에 따르므로 zip 안 실제 파일 수로 더한다
+          foreach ($case in @(@{ zip = $env:PELLY_TEST_PACKAGE; fixed = 13 }, @{ zip = $env:PELLY_TEST_FIELD_KIT; fixed = 13 })) {
             $dir = Join-Path $env:RUNNER_TEMP ('unzip-' + [System.IO.Path]::GetFileNameWithoutExtension($case.zip))
             Expand-Archive $case.zip $dir
+            $buildHostFiles = @(Get-ChildItem -Recurse -File (Join-Path $dir 'BuildHost-net472'), (Join-Path $dir 'BuildHost-netcore')).Count
+            if ($buildHostFiles -eq 0) { throw "no build-host files in $($case.zip)" }
+            $count = $case.fixed + $buildHostFiles
             Push-Location $dir
             try {
               # install.md 2절의 명령 그대로
@@ -247,13 +288,13 @@ jobs:
             Write-Host "== $([System.IO.Path]::GetFileName($case.zip))"
             $result | Out-Host
             if ($result -notmatch '\AOK  ') { throw "checksum mismatch in $($case.zip)" }
-            if (@($result).Count -ne $case.count) { throw "expected $($case.count) checked files in $($case.zip), got $(@($result).Count)" }
+            if (@($result).Count -ne $count) { throw "expected $count checked files in $($case.zip), got $(@($result).Count)" }
           }
       - name: Build tests
         run: dotnet build tests/PellyCoder.Integration.Tests -warnaserror
       - name: Package tests
         # zip이 없거나 Skip되거나 필터 오타로 수가 모자라면 실패해야 한다
-        run: dotnet test tests/PellyCoder.Integration.Tests --no-build -- --filter-class "PellyCoder.Integration.Tests.Package.PackageTests" --fail-skips on --minimum-expected-tests 12 --report-xunit-trx --results-directory artifacts/package-tests
+        run: dotnet test tests/PellyCoder.Integration.Tests --no-build -- --filter-class "PellyCoder.Integration.Tests.Package.PackageTests" --fail-skips on --minimum-expected-tests 14 --report-xunit-trx --results-directory artifacts/package-tests
       - name: List package test results
         if: always()
         shell: pwsh

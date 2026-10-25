@@ -115,6 +115,33 @@ jobs:
           if (-not $out.Contains('Fail')) { throw 'offline-selftest without build-host folders shows no Fail row' }
           Write-Host "without build-host folders: exit $code as expected"
           exit 0
+      - name: Published pelly.exe loads a project through the build host
+        # 폴더가 있는 것만이 아니라 단일 파일 exe가 보조 프로세스를 실제로 띄워 프로젝트를 불러오는지 본다 (S8 형태 3, V2-1c)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $fixture = 'tests/fixtures/impact/SameName'
+          # .sln 복원은 macOS에서 Data.csproj를 두 경로로 두 번 복원해 경합했다. 시험 픽스처와 같게 나머지 둘을 참조하는 Web.Tests로 복원한다
+          dotnet restore (Join-Path $fixture 'Web.Tests/Web.Tests.csproj') --nologo
+          if ($LASTEXITCODE -ne 0) { throw "restore of the SameName fixture exit $LASTEXITCODE" }
+          $env:DOTNET_BUNDLE_EXTRACT_BASE_DIR = Join-Path $env:RUNNER_TEMP 'pelly-extract'
+          $san = Join-Path $env:RUNNER_TEMP 'pelly-doctor-semantic'
+          # 닫힌 루프백 포트만 쓴다: Ollama 행이 Fail이라 종료 4가 정상이다
+          $out = (& (Resolve-Path 'artifacts/publish/win-x64/pelly.exe') doctor --endpoint http://127.0.0.1:1 --model none --project (Join-Path $fixture 'Web/Web.csproj') --sanitize --out $san | Out-String)
+          $code = $LASTEXITCODE
+          if ($code -ne 4) { Write-Host $out; throw "doctor --project (no server) exit $code, expected 4" }
+          # 표는 콘솔 폭에 맞춰 칸 안에서 줄을 바꾸므로 표 문구가 아니라 --sanitize JSON의 행(이름·상태·사실 값)을 읽는다
+          $json = @(Get-ChildItem $san -Filter 'pelly-doctor-*.json')
+          if ($json.Count -ne 1) { Write-Host $out; throw "expected one sanitized json, found $($json.Count)" }
+          $text = Get-Content -Raw $json[0].FullName
+          $row = @(($text | ConvertFrom-Json).checks | Where-Object { $_.Name -eq '의미 분석' })
+          if ($row.Count -ne 1 -or $row[0].Status -ne 'Ok' -or $row[0].Facts.semantic -ne 'ok') {
+            Write-Host $out; Write-Host $text
+            throw 'semantic analysis row is not Ok with semantic=ok'
+          }
+          Write-Host "의미 분석: $($row[0].Status) buildHost=$($row[0].Facts.buildHost) semantic=$($row[0].Facts.semantic)"
+          # 마지막 네이티브 명령이 의도대로 4로 끝났으므로, 그 값이 스텝 종료 코드가 되지 않게 끝낸다
+          exit 0
       - name: Upload published exe for the package job
         uses: actions/upload-artifact@v6
         with:

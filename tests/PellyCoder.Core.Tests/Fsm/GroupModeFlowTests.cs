@@ -87,14 +87,45 @@ public sealed class GroupModeFlowTests : IDisposable
     [Fact]
     public async Task Group_run_accepts_signature_change()
     {
-        _backend.Enqueue(Block(Header, "    public long Divide(int a, int b)"));
+        // A parameter type change changes the display: the result names the member as written.
+        _backend.Enqueue(Block(Header, "    public long Divide(long a, int b)"));
 
         var result = await Run(Req(CalcPath, new GroupRun(null)));
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(_processes.Calls);
-        Assert.Equal(CalcSource.Replace("public int Divide", "public long Divide"), File.ReadAllText(CalcPath));
+        Assert.Equal(CalcSource.Replace("public int Divide(int a", "public long Divide(long a"), File.ReadAllText(CalcPath));
+        Assert.Equal("Calc.Divide(long, int)", result.TargetDisplay);
+    }
+
+    [Fact]
+    public async Task Rolled_back_rename_reports_the_original_target_display()
+    {
+        _backend.Enqueue(Block(Header + "\n    {\n" + Original, "    public int Quotient(long a, int b)\n    {\n" + Broken));
+
+        var result = await Run(Req(CalcPath, new GroupRun(null), maxRetries: 0));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Equal(CalcSource, File.ReadAllText(CalcPath));
+        Assert.Equal(CalcSource, result.Final!.Text);
         Assert.Equal("Calc.Divide(int, int)", result.TargetDisplay);
+    }
+
+    [Fact]
+    public async Task Added_helpers_lists_only_helpers_in_the_final_text()
+    {
+        // The first attempt adds a helper but leaves the target as it was (no change, nothing written); the second edits the
+        // target without it. The discarded attempt's helper is not in the file, so it is not reported.
+        _backend.Enqueue(Block(Header + "\n    {\n" + Original + "\n    }",
+            Header + "\n    {\n" + Original + "\n    }\n\n    private int Unused(int x)\n    {\n        return x;\n    }"));
+        _backend.Enqueue("Change the body.</think>", evalCount: 10);
+        _backend.Enqueue(Block(Original, Guarded));
+
+        var result = await Run(Req(CalcPath, new GroupRun(null), maxRetries: 1));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(CalcSource.Replace(Original, Guarded), File.ReadAllText(CalcPath));
+        Assert.Empty(result.AddedHelpers!);
     }
 
     [Fact]

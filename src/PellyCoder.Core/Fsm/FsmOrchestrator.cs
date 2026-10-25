@@ -1,6 +1,7 @@
 using System.IO.Abstractions;
 using PellyCoder.Core.Abstractions;
 using PellyCoder.Core.Config;
+using PellyCoder.Core.CSharp;
 using PellyCoder.Core.Files;
 using PellyCoder.Core.Logging;
 using PellyCoder.Core.Models;
@@ -106,7 +107,28 @@ public sealed class FsmOrchestrator(
             }
         }
         return new RunResult(ctx.ExitCode, ctx.RunId, ctx.FilePath.Length == 0 ? null : ctx.FilePath,
-            ctx.Original, final, ctx.FailureKind, ctx.Candidate?.Display, ctx.AddedHelpers.ToList());
+            ctx.Original, final, ctx.FailureKind, TargetDisplayIn(ctx, final), HelpersIn(ctx, final));
+    }
+
+    /// <summary>
+    /// The target's display in the file as the run left it: the original display when that file is the original (a rolled-back
+    /// group rename or re-signing must not survive the rollback), otherwise the member as last followed.
+    /// </summary>
+    private static string? TargetDisplayIn(RunContext ctx, FileSnapshot? final) =>
+        final is not null && ctx.Original is { } original && final.Sha256 == original.Sha256
+            ? ctx.OriginalTargetDisplay ?? ctx.Candidate?.Display
+            : ctx.Candidate?.Display;
+
+    /// <summary>
+    /// The helpers the run added that are in the file as it left it: an attempt that was discarded (no change, rejected,
+    /// undone by a later attempt or by the rollback) may have added helpers that are not there. All of them when the
+    /// final file is unknown.
+    /// </summary>
+    private static List<string> HelpersIn(RunContext ctx, FileSnapshot? final)
+    {
+        if (final is null || ctx.Language is null || ctx.AddedHelpers.Count == 0) return ctx.AddedHelpers.ToList();
+        var present = MemberLocator.Locatable(final.Text, ctx.Language.Version).Select(c => c.Display).ToHashSet(StringComparer.Ordinal);
+        return ctx.AddedHelpers.Where(present.Contains).ToList();
     }
 
     /// <summary>Runs a logging or display call; a failure is noted in the messages and never changes the outcome.</summary>

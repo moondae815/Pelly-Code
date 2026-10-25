@@ -43,9 +43,11 @@ public sealed record ApplyHost(Workspace Workspace);
 /// <paramref name="Final"/> is the file as the run left it: the last write on success; after a failure, rejection or
 /// cancellation the rolled-back file, or <paramref name="Original"/> when nothing was written; null when it is unknown
 /// (not read, or the rollback found the file changed outside pelly or failed). <paramref name="TargetDisplay"/> is the
-/// target member's display as the run last saw it (a group run's rename or signature change shows here); null without a C# target.
+/// target member's display in <paramref name="Final"/>: a group run's rename or signature change shows here, and after a
+/// rollback to <paramref name="Original"/> it is the original display again; null without a C# target.
 /// <paramref name="AddedHelpers"/> are the displays of the private helpers the run's patches added (and, in a group re-run, the
-/// editable helpers it was given); null when the orchestrator did not report them.
+/// editable helpers it was given) that are in <paramref name="Final"/> (all of them when it is null); null when the orchestrator
+/// did not report them.
 /// </summary>
 public sealed record RunResult(int ExitCode, string RunId, string? FilePath, FileSnapshot? Original, FileSnapshot? Final, string? FailureKind,
     string? TargetDisplay = null, IReadOnlyList<string>? AddedHelpers = null);

@@ -629,13 +629,14 @@ OpenSpec의 "변경 제안 → 작업 목록 → 적용 → 보관" 흐름에서
 * **작업 그룹 (시그니처 변경용):**
   * v1에서는 메서드 시그니처를 바꾸면 호출하는 쪽에서 빌드 에러가 나서 검증을 통과할 수 없었습니다.
   * 작업에 `[G1]`처럼 그룹을 붙이면(연속, `cs`만), 그룹 안의 작업은 빌드 없이 실행하고 **그룹의 마지막 작업 뒤에 한 번에 빌드 검증**합니다. 허용 변경은 대상 멤버의 시그니처·이름뿐이며 다른 멤버 변경과 public 추가는 거절합니다.
-  * 빌드는 그룹 파일의 프로젝트와 그것을 (간접 포함) 참조하는 프로젝트(작업 공간 폴더와 `.sln`·`.slnx`에서 찾음)를 대상으로 하고, 그룹 시작 전 기준 빌드와 끝난 뒤 검증 빌드의 차이(새 오류)만 봅니다. 검증할 수 없으면 편집 전에 종료 코드 4입니다 — `.csproj` 없음, 영향 범위를 확정할 수 없음(폴더 2000개 초과, 읽을 수 없는 폴더·솔루션·프로젝트 파일, `$(…)` 속성으로 만든 `ProjectReference`), 참조되는 범위 안 프로젝트에 기준 빌드부터 있는 컴파일 오류(참조하는 프로젝트가 컴파일되지 않음) 등. 편집 뒤 검증 빌드가 검증할 수 없게 되면 그룹을 롤백하고 종료 코드 4입니다.
+  * 빌드는 그룹 파일의 프로젝트와 그것을 (간접 포함) 참조하는 프로젝트(작업 공간 폴더와 `.sln`·`.slnx`에서 찾음)를 대상으로 하고, 그룹 시작 전 기준 빌드와 끝난 뒤 검증 빌드의 차이(새 오류)만 봅니다. 검증할 수 없으면 편집 전에 종료 코드 4입니다 — `.csproj` 없음, 영향 범위를 확정할 수 없음(폴더 2000개 초과, 목록이나 속성을 읽을 수 없는 폴더, 읽을 수 없는 솔루션·프로젝트 파일, 작업 공간 밖을 가리키거나 대상을 알 수 없는 링크·정션 폴더, `$(…)` 속성으로 만든 `ProjectReference`, 범위 안 프로젝트의 `ProjectReference`가 없는 `.csproj`를 가리킴), 레거시 프로젝트를 Windows 밖에서 빌드, 빌드 도구 없음, 기준 빌드의 비컴파일러 오류·시간 초과, 참조되는 범위 안 프로젝트에 기준 빌드부터 있는 컴파일 오류(참조하는 프로젝트가 컴파일되지 않음) 등. 편집 뒤 검증 빌드가 검증할 수 없게 되면 그룹을 롤백하고 종료 코드 4입니다.
   * 새 오류가 그룹 작업의 대상 멤버나 그 작업이 더한 private 도우미 안, 또는 그 대상이 속한 형식의 선언 줄·기본 형식 목록이면 그 작업에 빌드 피드백을 주고 다시 실행합니다(`retry.max` 안에서; 재실행을 다 쓰면 롤백, 종료 코드 1). 명세에 없는 곳의 오류는 `<파일>#<멤버>`(멤버 밖이면 `<파일>:<줄>`)를 알리고 그룹 전체를 롤백합니다(종료 코드 1). 승인은 빌드 통과 뒤 그룹 단위로 한 번 받고, 거부하면 롤백합니다(종료 코드 2).
-  * `--resume`은 `[x]`가 아닌 그룹 작업만 다시 실행합니다(롤백 중 복원하지 못한 파일의 작업은 `[x]`를 유지하므로 다시 실행되지 않습니다). `--dry-run`은 그룹의 첫 작업만 그룹 모드로, 빌드 없이 보여 줍니다.
+  * `--resume`은 `[x]`가 아닌 그룹 작업만 다시 실행합니다(롤백 중 복원하지 못한 파일의 작업은 `[x]`를 유지하므로 다시 실행되지 않습니다). `--dry-run`은 그룹의 첫 작업만 그룹 모드로, 영향 범위 탐색과 빌드 없이 보여 주므로 종료 코드 4 사유는 검사하지 않습니다.
   * 이로써 v1 Non-goal이던 "DTO/인터페이스 시그니처 변경"을 지원합니다.
 * **REVIEW:** 기본은 작업마다 diff를 승인받고, `--review-at-end`이면 전체 변경을 마지막에 한 번 승인받습니다(거부하면 전체 롤백).
 * **기대 효과:** 변경 이력이 리포지토리에 문서로 남아, 폐쇄망 환경의 감사 추적과 코드 리뷰 자료로 쓸 수 있습니다.
-* **추가 구성 요소:** `Specs/ChangeSpecParser.cs`, `Specs/SpecRunner.cs`, `Specs/SpecArchiver.cs`, `Commands/ApplyCommand.cs`, `Commands/SpecCommand.cs`
+* **추가 구성 요소:** `Specs/ChangeSpecParser.cs`, `Specs/SpecChecker.cs`, `Specs/SpecDocument.cs`, `Specs/SpecRunner.cs`, `Specs/SpecArchiver.cs`, `Specs/FsmTaskExecutor.cs`, `Commands/ApplyCommand.cs`, `Commands/SpecNewCommand.cs`, `Commands/SpecCheckCommand.cs`
+  * 작업 그룹(V2-1b): `Specs/ApplyTransaction.cs`(apply·그룹 백업과 되돌리기), `Specs/GroupVerifier.cs`(영향 범위 기준·검증 빌드), `Specs/GroupErrorAttribution.cs`(새 오류의 작업 귀속), `Builds/ProjectReferenceGraph.cs`(영향 범위 탐색), `Files/BoundedWalker.cs`(작업 공간 폴더 탐색), `CSharp/MemberShapeGuard.cs`의 그룹 허용(`ShapeAllowance.TargetSignatureAndName`)
 
 ### 12.4 V2-2. 테스트 우선 검증 (Test-First Verification)
 Superpowers의 TDD(Red → Green) 원칙에서 착안했습니다. v1 검증은 "컴파일이 되는가"까지만 확인합니다. 이 기능은 "요청한 동작을 하는가"까지 결정론적으로 확인합니다.

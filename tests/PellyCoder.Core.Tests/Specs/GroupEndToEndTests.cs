@@ -154,5 +154,7 @@ public sealed class GroupEndToEndTests : IDisposable
         var spec = File.ReadAllText(SpecPath);
         Assert.Matches(@"T1 .* \[G1\] <!-- failed: \S+ GroupMissingTarget -->", spec);
         Assert.Matches(@"T2 .* \[G1\] <!-- failed: \S+ GroupMissingTarget -->", spec);
+        Assert.Contains("status: in-progress", spec);
+        Assert.False(Directory.Exists(Path.Combine(_root, "changes", "archive")));
     }
 }

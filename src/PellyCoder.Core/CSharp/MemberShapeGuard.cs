@@ -60,16 +60,14 @@ public static class MemberShapeGuard
         var target = beforeEntries.FirstOrDefault(e => e.Display == targetDisplay && IsLocatorKind(e.Node))
             ?? throw new ShapeTargetNotFoundException(targetDisplay);
 
-        // The edited target: same key, else a member that did not exist before with the same kind, type and name. A group
-        // run, failing those, also accepts the one such member at the target's position among its type's members (a
-        // rename), so it never rejects an edit the body-only rule would pair.
+        // The edited target: same key, else a member that did not exist before with the same kind, type and name (body only),
+        // or, in a group run, the re-signed or renamed member GroupTarget pairs.
         var beforeKeys = beforeEntries.Select(e => e.Key).ToHashSet(StringComparer.Ordinal);
         var candidates = afterEntries.Where(e => !beforeKeys.Contains(e.Key) && e.Kind == target.Kind && e.Scope == target.Scope).ToList();
-        var sameName = candidates.Where(e => NameOf(e.Node) == NameOf(target.Node)).ToList();
         var newTarget = afterEntries.FirstOrDefault(e => e.Key == target.Key)
             ?? (allowance == ShapeAllowance.TargetSignatureAndName
-                ? SingleOrNull(sameName) ?? SingleOrNull(candidates.Where(e => PositionOf(e.Node) == PositionOf(target.Node)).ToList())
-                : sameName.FirstOrDefault());
+                ? GroupTarget(target, candidates, beforeEntries, afterEntries)
+                : candidates.FirstOrDefault(e => NameOf(e.Node) == NameOf(target.Node)));
 
         if (newTarget is null)
             return Fail($"member {target.Display} was removed or changed. Only the target member may change.");
@@ -124,9 +122,60 @@ public static class MemberShapeGuard
 
     private static Entry? SingleOrNull(List<Entry> entries) => entries.Count == 1 ? entries[0] : null;
 
-    /// <summary>Declaration-order index among the members of the member's parent (type, namespace or compilation unit).</summary>
-    private static int PositionOf(MemberDeclarationSyntax member) =>
-        member.Parent?.ChildNodes().OfType<MemberDeclarationSyntax>().ToList().IndexOf(member) ?? -1;
+    /// <summary>
+    /// A group run's target after a rename or re-signing, among the new members of its kind and type. Candidates with the
+    /// target's accessibility come first: a private helper added next to a public target is never the target. Among them the
+    /// one with the target's name, else the one at the target's position. A position counts only members that are in both
+    /// texts, so inserted helpers shift nothing. When several stay (a private target with a helper beside it), the one whose
+    /// signature is unchanged (a pure rename); otherwise null, since pairing the wrong one names a helper as the target.
+    /// </summary>
+    private static Entry? GroupTarget(Entry target, List<Entry> candidates, List<Entry> beforeEntries, List<Entry> afterEntries)
+    {
+        var access = AccessOf(target.Node);
+        var pool = candidates.Where(e => AccessOf(e.Node) == access).ToList();
+        if (pool.Count == 0)
+        {
+            // The target's accessibility changed too: anything but a helper when the target was not one.
+            pool = IsPrivateMethod(target.Node) ? candidates : candidates.Where(e => !IsPrivateMethod(e.Node)).ToList();
+        }
+
+        if (SingleOrNull(pool.Where(e => NameOf(e.Node) == NameOf(target.Node)).ToList()) is { } named) return named;
+
+        // Keys and the target's position are computed once, not per candidate.
+        var beforeKeyOf = beforeEntries.ToDictionary(e => e.Node, e => e.Key);
+        var afterKeyOf = afterEntries.ToDictionary(e => e.Node, e => e.Key);
+        var beforeKeys = beforeKeyOf.Values.ToHashSet(StringComparer.Ordinal);
+        var afterKeys = afterKeyOf.Values.ToHashSet(StringComparer.Ordinal);
+        int position = AnchorsBefore(target.Node, beforeKeyOf, afterKeys);
+        var placed = pool.Where(e => AnchorsBefore(e.Node, afterKeyOf, beforeKeys) == position).ToList();
+        if (placed.Count <= 1) return SingleOrNull(placed);
+        var signature = SignatureOf(target.Node);
+        return SingleOrNull(placed.Where(e => SignatureOf(e.Node) == signature).ToList());
+    }
+
+    /// <summary>
+    /// The member's position among its parent's members (type, namespace or compilation unit), counting only the members
+    /// whose key is in <paramref name="otherKeys"/>, i.e. those present before and after the edit.
+    /// </summary>
+    private static int AnchorsBefore(MemberDeclarationSyntax member, Dictionary<MemberDeclarationSyntax, string> keyOf, HashSet<string> otherKeys)
+    {
+        if (member.Parent is null) return -1;
+        return member.Parent.ChildNodes().OfType<MemberDeclarationSyntax>()
+            .TakeWhile(m => m != member)
+            .Count(m => keyOf.TryGetValue(m, out var key) && otherKeys.Contains(key));
+    }
+
+    /// <summary>
+    /// The member's declared access (sorted keywords), or its default: public in an interface, private elsewhere.
+    /// </summary>
+    private static string AccessOf(MemberDeclarationSyntax m)
+    {
+        var access = m.Modifiers.Where(t => t.Kind() is SyntaxKind.PublicKeyword or SyntaxKind.PrivateKeyword
+                or SyntaxKind.ProtectedKeyword or SyntaxKind.InternalKeyword or SyntaxKind.FileKeyword)
+            .Select(t => t.Text).Order(StringComparer.Ordinal).ToList();
+        if (access.Count > 0) return string.Join(' ', access);
+        return m.Parent is InterfaceDeclarationSyntax ? "public" : "private";
+    }
 
     /// <summary>The kinds <see cref="MemberLocator"/> can target (operators only through <c>--line</c>).</summary>
     private static bool IsLocatorKind(MemberDeclarationSyntax m) =>

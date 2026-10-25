@@ -507,6 +507,95 @@ public sealed class MemberShapeGuardTests
         Assert.Equal("added method OrderService.Extra(). Only private helper methods may be added.", r.Reason);
     }
 
+    private const string Worker =
+        "namespace Demo;\n\npublic class Worker\n{\n    public int Run(int x)\n    {\n        return Compute(x);\n    }\n\n" +
+        "    private int Compute(int x)\n    {\n        return x;\n    }\n\n    public int Count() => 0;\n}\n";
+
+    private static ShapeCheck GroupWorker(string oldText, string newText, string target)
+    {
+        Assert.Contains(oldText, Worker);
+        return MemberShapeGuard.Check(Worker, Worker.Replace(oldText, newText), target, V, ShapeAllowance.TargetSignatureAndName);
+    }
+
+    [Fact]
+    public void Group_pairs_a_renamed_private_target_not_a_helper_inserted_above_it()
+    {
+        // Same kind, scope and access, and both sit right after Run: only the unchanged signature tells the rename apart.
+        var r = GroupWorker("    private int Compute(int x)\n    {\n        return x;",
+            "    private long Twice(int y)\n    {\n        return y * 2L;\n    }\n\n    private int Calculate(int x)\n    {\n        return (int)Twice(x);",
+            "Worker.Compute(int)");
+
+        Assert.True(r.Ok, r.Reason);
+        Assert.Equal("Worker.Calculate(int)", r.NewTargetDisplay);
+        Assert.Equal(["Worker.Twice(int)"], r.AddedPrivateMethods);
+    }
+
+    [Fact]
+    public void Group_rejects_a_renamed_and_resigned_private_target_it_cannot_tell_from_a_new_helper()
+    {
+        // Nothing tells Calculate(long) from Twice(int) apart: pairing either could name the wrong member as the target.
+        var r = GroupWorker("    private int Compute(int x)\n    {\n        return x;",
+            "    private long Twice(int y)\n    {\n        return y * 2L;\n    }\n\n    private int Calculate(long x)\n    {\n        return (int)Twice((int)x);",
+            "Worker.Compute(int)");
+
+        Assert.False(r.Ok);
+        Assert.Equal("member Worker.Compute(int) was removed or changed. Only the target member may change.", r.Reason);
+    }
+
+    [Fact]
+    public void Group_pairs_a_renamed_public_target_not_a_private_helper_inserted_above_it()
+    {
+        var r = Group(OrdersReplace("    public Task Cancel(int id)\n",
+            "    private static void Log(long id) { }\n\n    public Task Abort(long id)\n"), "OrderService.Cancel(int)");
+
+        Assert.True(r.Ok, r.Reason);
+        Assert.Equal("OrderService.Abort(long)", r.NewTargetDisplay);
+        Assert.Equal(["OrderService.Log(long)"], r.AddedPrivateMethods);
+    }
+
+    [Fact]
+    public void Group_pairs_a_public_target_not_a_same_name_private_overload_inserted_above_it()
+    {
+        var r = Group(OrdersReplace("    public Task Cancel(int id)\n",
+            "    private Task Cancel(string id) => Task.CompletedTask;\n\n    public Task Cancel(long id)\n"), "OrderService.Cancel(int)");
+
+        Assert.True(r.Ok, r.Reason);
+        Assert.Equal("OrderService.Cancel(long)", r.NewTargetDisplay);
+        Assert.Equal(["OrderService.Cancel(string)"], r.AddedPrivateMethods);
+    }
+
+    [Fact]
+    public void Group_pairs_by_position_when_two_new_members_share_the_target_name()
+    {
+        // Compute(long) and the new overload Compute(string) are both private and named Compute, so the name rule cannot choose.
+        var r = GroupWorker("        return x;\n    }\n\n    public int Count() => 0;\n",
+            "        return x;\n    }\n\n    public int Count() => 0;\n\n    private int Compute(string s) => s.Length;\n",
+            "Worker.Compute(int)");
+        var resigned = MemberShapeGuard.Check(Worker, Worker.Replace("private int Compute(int x)", "private int Compute(long x)")
+                .Replace("    public int Count() => 0;\n", "    public int Count() => 0;\n\n    private int Compute(string s) => s.Length;\n"),
+            "Worker.Compute(int)", V, ShapeAllowance.TargetSignatureAndName);
+
+        Assert.True(r.Ok, r.Reason); // the key rule: Compute(int) is still there
+        Assert.True(resigned.Ok, resigned.Reason);
+        Assert.Equal("Worker.Compute(long)", resigned.NewTargetDisplay);
+        Assert.Equal(["Worker.Compute(string)"], resigned.AddedPrivateMethods);
+    }
+
+    [Fact]
+    public void Group_position_rule_rejects_same_name_candidates_that_moved()
+    {
+        // Two same-name candidates fall through to the position rule; neither sits where Compute(int) was (before Count).
+        var after = Worker.Replace("    private int Compute(int x)\n    {\n        return x;\n    }\n\n    public int Count() => 0;\n",
+            "    public int Count() => 0;\n\n    private int Compute(long x)\n    {\n        return (int)x;\n    }\n\n" +
+            "    private int Compute(string s) => s.Length;\n");
+        Assert.NotEqual(Worker, after);
+
+        var r = MemberShapeGuard.Check(Worker, after, "Worker.Compute(int)", V, ShapeAllowance.TargetSignatureAndName);
+
+        Assert.False(r.Ok);
+        Assert.Equal("member Worker.Compute(int) was removed or changed. Only the target member may change.", r.Reason);
+    }
+
     [Fact]
     public void Default_allowance_still_rejects_signature_change()
     {

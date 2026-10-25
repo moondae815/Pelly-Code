@@ -108,7 +108,7 @@ public static class NameImpactFinder
     }
 
     /// <summary>The member that holds a reference, named like <c>MemberLocator</c>; fields, indexers and the like give the enclosing type.</summary>
-    private static (string? Member, string Reason) Enclosing(SyntaxNode node)
+    internal static (string? Member, string Reason) Enclosing(SyntaxNode node)
     {
         foreach (var ancestor in node.Ancestors())
         {

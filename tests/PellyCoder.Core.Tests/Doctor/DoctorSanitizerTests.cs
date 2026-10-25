@@ -116,4 +116,29 @@ public class DoctorSanitizerTests
     [InlineData(DoctorFacts.Pelly, DoctorFacts.TokenizerHash, "SECRETHOST/x", "invalid")]
     public void TypedFacts_AreCheckedPerKey(string row, string key, string value, string expected) =>
         Assert.Equal(expected, FactOf(row, key, value));
+
+    [Fact]
+    public void Semantic_row_keeps_only_whitelisted_facts()
+    {
+        var json = DoctorSanitizer.ToJson([new DoctorCheck(DoctorFacts.SemanticAnalysis, DoctorStatus.Warn,
+            @"이름 기준으로 대신합니다: C:\Users\kim\App.csproj SECRETHOST", @"C:\Users\kim",
+            new Dictionary<string, string>
+            {
+                [DoctorFacts.BuildHost] = "present", [DoctorFacts.Semantic] = "fallback",
+                [DoctorFacts.Failure] = "CompileErrors", ["path"] = @"C:\Users\kim",
+            })]);
+
+        Assert.Contains("\"의미 분석\"", json);
+        Assert.Contains("CompileErrors", json);
+        Assert.Contains("fallback", json);
+        Assert.DoesNotContain("kim", json);
+        Assert.DoesNotContain("SECRETHOST", json);
+        Assert.DoesNotContain("path", json);
+
+        var bad = DoctorSanitizer.ToJson([new DoctorCheck(DoctorFacts.SemanticAnalysis, DoctorStatus.Warn, "d", null,
+            new Dictionary<string, string> { [DoctorFacts.Failure] = @"C:\Users\kim", [DoctorFacts.Semantic] = "SECRETHOST" })]);
+        Assert.DoesNotContain("kim", bad);
+        Assert.DoesNotContain("SECRETHOST", bad);
+        Assert.Contains("invalid", bad);
+    }
 }

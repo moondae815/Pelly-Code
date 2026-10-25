@@ -168,6 +168,15 @@ SQL 안의 `#임시테이블` 컬럼, 동적 SQL 안의 문장, 다른 DB·연�
 수정 전 원본은 `.pelly/backup/<runId>/`에 있습니다. `.pelly/`는 자동으로 버전 관리에서 제외됩니다.
 오래된 기록은 `log.retentionDays`(기본 30일) 뒤에 지워집니다.
 
+## 환경 점검: `pelly doctor`
+
+```
+pelly doctor [--project <csproj>]
+```
+
+* 서버, 모델, .NET SDK, SQL 연결과 함께 **의미 분석** 행을 보여 줍니다. pelly.exe 옆에 `BuildHost-net472`, `BuildHost-netcore` 폴더가 없으면 Fail(종료 코드 4)이니 반입 zip을 다시 풀어 두십시오.
+* `--project`를 주면 그 프로젝트를 불러와 봅니다. 불러오지 못하면 Warn이고 종료 코드는 그대로이며, 영향 탐색은 이름 기준으로 대신합니다.
+
 ## 반출 자료 만들기: `pelly report --sanitize`
 
 폐쇄망 밖으로 결과를 보내야 할 때 씁니다.

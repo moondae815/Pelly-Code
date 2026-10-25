@@ -26,6 +26,7 @@ public static partial class DoctorSanitizer
         [DoctorFacts.MsBuild] = [DoctorFacts.Found],
         [DoctorFacts.TargetingPack] = [DoctorFacts.FrameworkVersion, DoctorFacts.Installed],
         [DoctorFacts.ServerSettings] = [],
+        [DoctorFacts.SemanticAnalysis] = [DoctorFacts.BuildHost, DoctorFacts.Semantic, DoctorFacts.Failure],
         [DoctorFacts.Sql] = [DoctorFacts.CanViewDefinition, DoctorFacts.ServerMajor, DoctorFacts.AuthMode],
     };
 
@@ -44,6 +45,9 @@ public static partial class DoctorSanitizer
         if (BooleanKeys.Contains(key)) return value is "true" or "false" ? value : "invalid";
         if (IntegerKeys.Contains(key)) return IntegerPattern.IsMatch(value) ? value : "invalid";
         if (key == DoctorFacts.AuthMode) return value is "windows" or "sql" ? value : "invalid";
+        if (key == DoctorFacts.BuildHost) return value is "present" or "missing" ? value : "invalid";
+        if (key == DoctorFacts.Semantic) return value is "ok" or "fallback" or "notChecked" ? value : "invalid";
+        if (key == DoctorFacts.Failure) return Enum.TryParse<Impact.SemanticFailureKind>(value, out var kind) && Enum.IsDefined(kind) && kind.ToString() == value ? value : "invalid";
         if (key == DoctorFacts.TokenizerHash) return HashPattern.IsMatch(value) ? value : "invalid";
         return "invalid"; // a whitelisted key without a rule never passes free text
     }

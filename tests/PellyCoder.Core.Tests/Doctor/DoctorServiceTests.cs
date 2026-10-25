@@ -596,4 +596,26 @@ public sealed class DoctorServiceTests
         Assert.DoesNotContain(DoctorFacts.OllamaVersion, Get(checks, DoctorFacts.OllamaServer).Facts!.Keys);
         Assert.DoesNotContain(DoctorFacts.ServerMajor, Get(checks, DoctorFacts.Sql).Facts!.Keys);
     }
+
+    private sealed class OkLoader : PellyCoder.Core.Impact.ISemanticLoader
+    {
+        public Task<PellyCoder.Core.Impact.SemanticLoad> LoadAsync(IReadOnlyList<string> projects, CancellationToken ct) =>
+            Task.FromResult(new PellyCoder.Core.Impact.SemanticLoad(null, null, null));
+    }
+
+    [Fact]
+    public async Task SemanticRow_IsAddedOnlyWhenALoaderIsGiven()
+    {
+        EnqueueProbes();
+        var without = await Create().RunAsync(TestContext.Current.CancellationToken);
+        Assert.DoesNotContain(without, c => c.Name == SemanticCheck.Name);
+
+        _processes.Enqueue(Proc(0, "10.0.100\n"));
+        _dotnetQueued = true;
+        EnqueueProbes();
+        var with = await new DoctorService(_backend, _diag, _template, new FixedCounter(12), _options, _time, _fs, _processes,
+            () => _windows, _sql, new DoctorContext(null, "pelly.json", BaseDirectory: Path.GetTempPath()), new OkLoader())
+            .RunAsync(TestContext.Current.CancellationToken);
+        Assert.Single(with, c => c.Name == SemanticCheck.Name);
+    }
 }

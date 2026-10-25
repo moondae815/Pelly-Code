@@ -2,6 +2,7 @@ using System.IO.Abstractions;
 using PellyCoder.Core.Abstractions;
 using PellyCoder.Core.Builds;
 using PellyCoder.Core.Config;
+using PellyCoder.Core.Impact;
 using PellyCoder.Core.Llm;
 using PellyCoder.Core.Sql;
 using System.Security.Cryptography;
@@ -14,7 +15,7 @@ public sealed record DoctorCheck(string Name, DoctorStatus Status, string Detail
     IReadOnlyDictionary<string, string>? Facts = null);
 
 /// <summary>Facts the CLI passes in so Core never reads the environment: config file locations, <c>%ProgramFiles(x86)%</c>, optional <c>--project</c>.</summary>
-public sealed record DoctorContext(string? UserConfigPath, string WorkspaceConfigPath, string? ProgramFilesX86 = null, string? ProjectPath = null);
+public sealed record DoctorContext(string? UserConfigPath, string WorkspaceConfigPath, string? ProgramFilesX86 = null, string? ProjectPath = null, string? BaseDirectory = null);
 
 /// <summary>Runs the environment checks behind <c>pelly doctor</c> (design §8.13, M1 scope).</summary>
 public sealed class DoctorService(
@@ -28,7 +29,8 @@ public sealed class DoctorService(
     IProcessRunner processes,
     Func<bool>? isWindows = null,
     ISqlExecutor? sql = null,
-    DoctorContext? context = null)
+    DoctorContext? context = null,
+    ISemanticLoader? semantic = null)
 {
     private static readonly TimeSpan DotnetTimeout = TimeSpan.FromSeconds(10);
     private readonly Func<bool> _isWindows = isWindows ?? OperatingSystem.IsWindows;
@@ -96,6 +98,9 @@ public sealed class DoctorService(
 
         if (context?.ProjectPath is { } project)
             checks.Add(TargetingPackCheck.Run(fs, _isWindows, context.ProgramFilesX86, project));
+
+        if (semantic is not null)
+            checks.Add(await SemanticCheck.RunAsync(fs, semantic, context?.BaseDirectory ?? AppContext.BaseDirectory, context?.ProjectPath, ct));
 
         checks.Add(new(DoctorFacts.ServerSettings, DoctorStatus.Warn,
             "서버에서 직접 확인할 수 없음: OLLAMA_FLASH_ATTENTION, OLLAMA_KV_CACHE_TYPE, OLLAMA_NUM_PARALLEL, OLLAMA_KEEP_ALIVE. 아래 체크리스트를 서버 관리자와 확인하세요",

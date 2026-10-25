@@ -16,6 +16,7 @@ public static class DoctorFacts
     public const string TargetingPack = "타겟팅 팩";
     public const string ServerSettings = "서버 설정 확인 필요";
     public const string Sql = "SQL 연결";
+    public const string SemanticAnalysis = SemanticCheck.Name;
 
     public const string OllamaVersion = "ollamaVersion";
     public const string LatencyMs = "latencyMs";
@@ -31,4 +32,7 @@ public static class DoctorFacts
     public const string AuthMode = "authMode";
     public const string FrameworkVersion = "frameworkVersion";
     public const string Installed = "installed";
+    public const string BuildHost = "buildHost";
+    public const string Semantic = "semantic";
+    public const string Failure = "failure";
 }

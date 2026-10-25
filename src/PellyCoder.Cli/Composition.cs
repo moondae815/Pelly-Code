@@ -4,6 +4,7 @@ using PellyCoder.Core.Abstractions;
 using PellyCoder.Core.Config;
 using PellyCoder.Core.Doctor;
 using PellyCoder.Core.Fsm;
+using PellyCoder.Core.Impact;
 using PellyCoder.Core.Llm;
 using PellyCoder.Core.Models;
 using PellyCoder.Core.Processes;
@@ -69,7 +70,8 @@ public static class Composition
             ISqlExecutor? sql = string.IsNullOrWhiteSpace(options.Sql.ConnectionString)
                 ? null
                 : new SqlServerExecutor(options.Sql.ConnectionString);
-            return new DoctorService(backend, backend, template, QwenTokenCounter.Shared, options, time, fs, processes, sql: sql, context: context).RunAsync(ct);
+            return new DoctorService(backend, backend, template, QwenTokenCounter.Shared, options, time, fs, processes, sql: sql, context: context with { BaseDirectory = AppContext.BaseDirectory },
+                semantic: new MsBuildSemanticLoader(fs)).RunAsync(ct);
         }
     }
 }

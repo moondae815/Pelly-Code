@@ -515,8 +515,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
         /// </summary>
         private async Task<GroupEnd> UndoGroupAsync(ApplyTransaction tx, GroupState g, string? failureKind, int exitCode)
         {
-            var notRestored = await tx.RollbackGroupAsync(CancellationToken.None);
-            tx.EndGroup();
+            var notRestored = await tx.RollbackGroupAsync(CancellationToken.None); // also closes the group
 
             var unrestored = new HashSet<string>(notRestored, SpecTaskPaths.Comparer);
             var kept = g.Tasks.Where(t => g.Succeeded.TryGetValue(t.Id, out var s) && unrestored.Contains(s.Path)).Select(t => t.Id).ToList();

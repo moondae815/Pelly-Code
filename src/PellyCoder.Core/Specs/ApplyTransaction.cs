@@ -36,6 +36,8 @@ public sealed class ApplyTransaction(FileGuard guard, Workspace ws, string apply
     /// <summary>
     /// Before a task runs: backs the file up the first time it is seen (throws when the backup fails). For a file
     /// already tracked, an <paramref name="original"/> other than the last known content marks it changed outside pelly.
+    /// In an open group the file's group start is recorded only once its group backup exists: when that backup throws,
+    /// the group has not seen the file, so a later Track takes the backup again instead of leaving it unrestorable.
     /// </summary>
     public void Track(FileSnapshot original)
     {
@@ -152,31 +154,39 @@ public sealed class ApplyTransaction(FileGuard guard, Workspace ws, string apply
     }
 
     /// <summary>
-    /// Restores every file the open group changed to its content at group start; returns the paths that could not
-    /// be restored (same rules as <see cref="RollbackAsync"/>). A restored file's last known content becomes its
-    /// group-start content, so a later <see cref="RollbackAsync"/> still restores the apply original.
+    /// Restores every file the open group changed to its content at group start, then closes the group (a rolled-back
+    /// group has nothing left to approve or roll back); returns the paths that could not be restored (same rules as
+    /// <see cref="RollbackAsync"/>). A restored file's last known content becomes its group-start content, so a later
+    /// <see cref="RollbackAsync"/> still restores the apply original. The group closes even when a restore throws.
     /// </summary>
     public async Task<IReadOnlyList<string>> RollbackGroupAsync(CancellationToken ct)
     {
         var failed = new List<string>();
-        foreach (var (path, (entry, start, backupPath)) in _group)
+        try
         {
-            if (entry.LastKnown.Sha256 == start.Sha256) continue;
-            if (entry.ChangedOutside || backupPath is null)
+            foreach (var (path, (entry, start, backupPath)) in _group)
             {
-                failed.Add(path);
-                continue;
+                if (entry.LastKnown.Sha256 == start.Sha256) continue;
+                if (entry.ChangedOutside || backupPath is null)
+                {
+                    failed.Add(path);
+                    continue;
+                }
+                try
+                {
+                    var result = await guard.RestoreAsync(backupPath, entry.LastKnown, ct);
+                    if (result.Status != FileWriteStatus.Written) failed.Add(path);
+                    else entry.LastKnown = start;
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+                {
+                    failed.Add(path);
+                }
             }
-            try
-            {
-                var result = await guard.RestoreAsync(backupPath, entry.LastKnown, ct);
-                if (result.Status != FileWriteStatus.Written) failed.Add(path);
-                else entry.LastKnown = start;
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
-            {
-                failed.Add(path);
-            }
+        }
+        finally
+        {
+            EndGroup();
         }
         return failed;
     }

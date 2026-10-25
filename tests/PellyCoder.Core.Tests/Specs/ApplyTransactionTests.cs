@@ -281,7 +281,6 @@ public sealed class ApplyTransactionTests : IDisposable
         tx.Track(b0);
         tx.Record(b0, await Write(b0, "bee2\n"));
         Assert.Empty(await tx.RollbackGroupAsync(CancellationToken.None));
-        tx.EndGroup();
 
         Assert.Equal([(p, "one\n", "two\n")], tx.Changes());
         Assert.Empty(await tx.RollbackAsync(CancellationToken.None));
@@ -333,6 +332,55 @@ public sealed class ApplyTransactionTests : IDisposable
 
         Assert.Equal([p], await tx.RollbackGroupAsync(CancellationToken.None));
         Assert.Equal("three\n", File.ReadAllText(p));
+    }
+
+    [Fact]
+    public async Task Group_rollback_closes_the_group()
+    {
+        string p = Make("a.txt", "one\n");
+        string q = Make("b.txt", "bee\n");
+        var tx = new ApplyTransaction(_guard, _ws, "apply-g8");
+        tx.BeginGroup("G1");
+        var a0 = _guard.Read(p);
+        tx.Track(a0);
+        tx.Record(a0, await Write(a0, "two\n"));
+
+        Assert.Empty(await tx.RollbackGroupAsync(CancellationToken.None));
+
+        // Closed: a later file gets no group backup, and nothing is left for a second group rollback or the group diff.
+        var b0 = _guard.Read(q);
+        tx.Track(b0);
+        tx.Record(b0, await Write(b0, "bee2\n"));
+        Assert.False(File.Exists(Path.Combine(_ws.PellyDir, "backup", "apply-g8.G1", "b.txt")));
+        Assert.Empty(tx.GroupChanges());
+        Assert.Empty(await tx.RollbackGroupAsync(CancellationToken.None));
+        Assert.Equal("bee2\n", File.ReadAllText(q));
+        tx.BeginGroup("G2"); // a new group opens normally
+    }
+
+    [Fact]
+    public async Task Failed_group_backup_in_track_leaves_the_file_untracked_by_the_group()
+    {
+        string p = Make("a.txt", "one\n");
+        var tx = new ApplyTransaction(_guard, _ws, "apply-g9");
+        tx.BeginGroup("G1");
+        // A file where the group backup folder should be: the group backup throws, the apply backup does not.
+        Directory.CreateDirectory(Path.Combine(_ws.PellyDir, "backup"));
+        string blocker = Path.Combine(_ws.PellyDir, "backup", "apply-g9.G1");
+        File.WriteAllText(blocker, "");
+        var a0 = _guard.Read(p);
+
+        Assert.ThrowsAny<IOException>(() => tx.Track(a0));
+        Assert.Empty(tx.GroupChanges());
+        Assert.Empty(tx.Changes());
+
+        // Tracking again once the backup can be taken records the group start as it was, so the group rollback restores it.
+        File.Delete(blocker);
+        tx.Track(a0);
+        tx.Record(a0, await Write(a0, "two\n"));
+        Assert.Equal([(p, "one\n", "two\n")], tx.GroupChanges());
+        Assert.Empty(await tx.RollbackGroupAsync(CancellationToken.None));
+        Assert.Equal("one\n", File.ReadAllText(p));
     }
 
     [Fact]

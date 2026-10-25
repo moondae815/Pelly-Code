@@ -517,17 +517,37 @@ public sealed class MemberShapeGuardTests
         return MemberShapeGuard.Check(Worker, Worker.Replace(oldText, newText), target, V, ShapeAllowance.TargetSignatureAndName);
     }
 
+    private const string TieReason =
+        "cannot tell which new method is the target Worker.Compute(int): Worker.Twice(int), Worker.Calculate({0}) all sit where it was. " +
+        "Add new helpers away from the target (not directly above or below it), so only the target stays in its place.";
+
     [Fact]
-    public void Group_pairs_a_renamed_private_target_not_a_helper_inserted_above_it()
+    public void Group_rejects_a_renamed_private_target_beside_a_new_helper_even_when_its_signature_is_unchanged()
     {
-        // Same kind, scope and access, and both sit right after Run: only the unchanged signature tells the rename apart.
+        // Same kind, scope, access and position: the unchanged signature does not tell a pure rename from a re-signed
+        // target with a helper that has the old signature (next test), so the guard does not guess.
         var r = GroupWorker("    private int Compute(int x)\n    {\n        return x;",
             "    private long Twice(int y)\n    {\n        return y * 2L;\n    }\n\n    private int Calculate(int x)\n    {\n        return (int)Twice(x);",
             "Worker.Compute(int)");
 
-        Assert.True(r.Ok, r.Reason);
-        Assert.Equal("Worker.Calculate(int)", r.NewTargetDisplay);
-        Assert.Equal(["Worker.Twice(int)"], r.AddedPrivateMethods);
+        Assert.False(r.Ok);
+        Assert.Equal(string.Format(TieReason, "int"), r.Reason);
+        Assert.Null(r.NewTargetDisplay);
+    }
+
+    [Fact]
+    public void Group_never_pairs_a_new_helper_with_the_targets_old_signature_as_the_target()
+    {
+        // Compute(int) renamed and re-signed to Calculate(long), with a new Clamp(int) right below it: Clamp has the
+        // target's old signature, and pairing it would name the helper as the target.
+        var r = GroupWorker("    private int Compute(int x)\n    {\n        return x;\n    }\n",
+            "    private int Calculate(long x)\n    {\n        return Clamp((int)x);\n    }\n\n    private int Clamp(int v)\n    {\n        return v;\n    }\n",
+            "Worker.Compute(int)");
+
+        Assert.False(r.Ok);
+        Assert.Equal("cannot tell which new method is the target Worker.Compute(int): Worker.Calculate(long), Worker.Clamp(int) all sit where it was. " +
+            "Add new helpers away from the target (not directly above or below it), so only the target stays in its place.", r.Reason);
+        Assert.Null(r.NewTargetDisplay);
     }
 
     [Fact]
@@ -539,7 +559,22 @@ public sealed class MemberShapeGuardTests
             "Worker.Compute(int)");
 
         Assert.False(r.Ok);
-        Assert.Equal("member Worker.Compute(int) was removed or changed. Only the target member may change.", r.Reason);
+        Assert.Equal(string.Format(TieReason, "long"), r.Reason);
+    }
+
+    [Fact]
+    public void Group_pairs_a_renamed_private_target_when_its_new_helper_is_away_from_it()
+    {
+        // The advice in the tie message works: the helper moved below Count, so only Calculate sits where Compute was.
+        var after = Worker.Replace("private int Compute(int x)", "private int Calculate(long x)")
+            .Replace("    public int Count() => 0;\n", "    public int Count() => 0;\n\n    private int Clamp(int v) => v;\n");
+        Assert.NotEqual(Worker, after);
+
+        var r = MemberShapeGuard.Check(Worker, after, "Worker.Compute(int)", V, ShapeAllowance.TargetSignatureAndName);
+
+        Assert.True(r.Ok, r.Reason);
+        Assert.Equal("Worker.Calculate(long)", r.NewTargetDisplay);
+        Assert.Equal(["Worker.Clamp(int)"], r.AddedPrivateMethods);
     }
 
     [Fact]

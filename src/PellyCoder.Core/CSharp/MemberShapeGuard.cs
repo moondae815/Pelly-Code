@@ -64,14 +64,18 @@ public static class MemberShapeGuard
         // or, in a group run, the re-signed or renamed member GroupTarget pairs.
         var beforeKeys = beforeEntries.Select(e => e.Key).ToHashSet(StringComparer.Ordinal);
         var candidates = afterEntries.Where(e => !beforeKeys.Contains(e.Key) && e.Kind == target.Kind && e.Scope == target.Scope).ToList();
-        var newTarget = afterEntries.FirstOrDefault(e => e.Key == target.Key)
-            ?? (allowance == ShapeAllowance.TargetSignatureAndName
-                ? GroupTarget(target, candidates, beforeEntries, afterEntries)
-                : candidates.FirstOrDefault(e => NameOf(e.Node) == NameOf(target.Node)));
+        IReadOnlyList<Entry> tied = [];
+        var newTarget = afterEntries.FirstOrDefault(e => e.Key == target.Key);
+        if (newTarget is null && allowance == ShapeAllowance.TargetSignatureAndName)
+            (newTarget, tied) = GroupTarget(target, candidates, beforeEntries, afterEntries);
+        else
+            newTarget ??= candidates.FirstOrDefault(e => NameOf(e.Node) == NameOf(target.Node));
 
-        if (newTarget is null)
+        // Several new members where the target was (tied) are reported after the other members are checked, since a
+        // changed or removed member is the more basic fault.
+        if (newTarget is null && tied.Count == 0)
             return Fail($"member {target.Display} was removed or changed. Only the target member may change.");
-        if (allowance == ShapeAllowance.MemberBodyOnly)
+        if (allowance == ShapeAllowance.MemberBodyOnly && newTarget is not null)
         {
             if (SignatureOf(target.Node) != SignatureOf(newTarget.Node))
             {
@@ -100,6 +104,13 @@ public static class MemberShapeGuard
                 return Fail($"member {group.First().Display} was removed or changed. Only the target member may change.");
         }
 
+        if (newTarget is null)
+        {
+            // Telling them apart by signature or body would be a guess, and a wrong guess names a helper as the target.
+            return Fail($"cannot tell which new method is the target {target.Display}: {string.Join(", ", tied.Select(e => e.Display))} " +
+                "all sit where it was. Add new helpers away from the target (not directly above or below it), so only the target stays in its place.");
+        }
+
         var added = new List<string>();
         foreach (var entry in afterEntries.Where(e => e != newTarget && !beforeKeys.Contains(e.Key)))
         {
@@ -126,10 +137,12 @@ public static class MemberShapeGuard
     /// A group run's target after a rename or re-signing, among the new members of its kind and type. Candidates with the
     /// target's accessibility come first: a private helper added next to a public target is never the target. Among them the
     /// one with the target's name, else the one at the target's position. A position counts only members that are in both
-    /// texts, so inserted helpers shift nothing. When several stay (a private target with a helper beside it), the one whose
-    /// signature is unchanged (a pure rename); otherwise null, since pairing the wrong one names a helper as the target.
+    /// texts, so inserted helpers shift nothing. When several stay (a private target with a helper beside it), none is paired
+    /// and they are returned as tied: an unchanged signature does not tell a pure rename from a re-signed target beside a new
+    /// helper with the old signature, and pairing the wrong one names a helper as the target.
     /// </summary>
-    private static Entry? GroupTarget(Entry target, List<Entry> candidates, List<Entry> beforeEntries, List<Entry> afterEntries)
+    private static (Entry? Target, IReadOnlyList<Entry> Tied) GroupTarget(Entry target, List<Entry> candidates, List<Entry> beforeEntries,
+        List<Entry> afterEntries)
     {
         var access = AccessOf(target.Node);
         var pool = candidates.Where(e => AccessOf(e.Node) == access).ToList();
@@ -139,7 +152,7 @@ public static class MemberShapeGuard
             pool = IsPrivateMethod(target.Node) ? candidates : candidates.Where(e => !IsPrivateMethod(e.Node)).ToList();
         }
 
-        if (SingleOrNull(pool.Where(e => NameOf(e.Node) == NameOf(target.Node)).ToList()) is { } named) return named;
+        if (SingleOrNull(pool.Where(e => NameOf(e.Node) == NameOf(target.Node)).ToList()) is { } named) return (named, []);
 
         // Keys and the target's position are computed once, not per candidate.
         var beforeKeyOf = beforeEntries.ToDictionary(e => e.Node, e => e.Key);
@@ -148,9 +161,7 @@ public static class MemberShapeGuard
         var afterKeys = afterKeyOf.Values.ToHashSet(StringComparer.Ordinal);
         int position = AnchorsBefore(target.Node, beforeKeyOf, afterKeys);
         var placed = pool.Where(e => AnchorsBefore(e.Node, afterKeyOf, beforeKeys) == position).ToList();
-        if (placed.Count <= 1) return SingleOrNull(placed);
-        var signature = SignatureOf(target.Node);
-        return SingleOrNull(placed.Where(e => SignatureOf(e.Node) == signature).ToList());
+        return placed.Count == 1 ? (placed[0], []) : (null, placed);
     }
 
     /// <summary>

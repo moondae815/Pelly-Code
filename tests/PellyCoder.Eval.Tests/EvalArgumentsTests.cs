@@ -84,4 +84,22 @@ public class EvalArgumentsTests
         Assert.False(EvalArguments.Parse([]).NoRules);
         Assert.Equal("알 수 없는 인자: --no-rules", EvalArguments.Parse(["validate", "--no-rules"]).Error);
     }
+
+    [Fact]
+    public void Apply_command_parses_its_options()
+    {
+        var apply = EvalArguments.Parse(["apply", "--cases", "a*,d1", "--repeat", "3", "--out", "o", "--config", "p.json"]);
+        Assert.Null(apply.Error);
+        Assert.Equal(("apply", "a*,d1", 3, "o", "p.json"), (apply.Command, apply.Cases, apply.Repeat, apply.Out, apply.Config));
+
+        var bare = EvalArguments.Parse(["apply"]);
+        Assert.Null(bare.Error);
+        Assert.Equal(("apply", null, 1), (bare.Command, bare.Cases, bare.Repeat));
+
+        Assert.Equal("알 수 없는 인자: --tasks", EvalArguments.Parse(["apply", "--tasks", "x"]).Error);
+        Assert.Equal("알 수 없는 인자: --cases", EvalArguments.Parse(["run", "--cases", "x"]).Error);
+        Assert.Equal("--repeat는 1 이상의 정수: 0", EvalArguments.Parse(["apply", "--repeat", "0"]).Error);
+        Assert.True(EvalArguments.Parse(["apply", "--help"]).Help);
+        Assert.Contains("pelly-eval apply", EvalArguments.Usage, StringComparison.Ordinal);
+    }
 }

@@ -12,9 +12,15 @@ public static class TaskFilter
     {
         if (!string.IsNullOrWhiteSpace(kind) && !string.Equals(task.Kind, kind.Trim(), StringComparison.OrdinalIgnoreCase))
             return false;
+        return MatchesId(task.Id, pattern);
+    }
+
+    /// <summary>The id half of <see cref="Matches"/> (also <c>apply --cases</c>); a blank pattern matches every id.</summary>
+    public static bool MatchesId(string id, string? pattern)
+    {
         if (string.IsNullOrWhiteSpace(pattern))
             return true;
-        return pattern.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Any(p => MatchesOne(task.Id, p));
+        return pattern.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Any(p => MatchesOne(id, p));
     }
 
     private static bool MatchesOne(string id, string item)

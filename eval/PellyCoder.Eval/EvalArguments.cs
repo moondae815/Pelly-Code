@@ -15,8 +15,9 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
     public const string Compare = "compare";
     public const string Record = "record";
     public const string Export = "export";
+    public const string Apply = "apply";
 
-    /// <summary><c>run</c> (default), <c>validate</c>, <c>compare</c>, <c>record</c> or <c>export</c>.</summary>
+    /// <summary><c>run</c> (default), <c>validate</c>, <c>compare</c>, <c>record</c>, <c>export</c> or <c>apply</c>.</summary>
     public string Command { get; init; } = Run;
 
     /// <summary><c>--suite</c>: the suite folder (holding <c>suite.json</c>); null: the repository's built-in suite.</summary>
@@ -27,6 +28,9 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
 
     /// <summary><c>record --gguf-sha256</c>: the model file's SHA-256 (64 hex digits, checked by the command).</summary>
     public string? GgufSha256 { get; init; }
+
+    /// <summary><c>apply --cases</c>: case id prefixes or globs, comma-separated (the <c>--tasks</c> rules); null: every case.</summary>
+    public string? Cases { get; init; }
 
     /// <summary><c>validate --deep</c>: also runs the judge tests on the original sources.</summary>
     public bool Deep { get; init; }
@@ -69,6 +73,14 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
           작업 id가 cs-modern-NNN · cs-legacy-NNN · sql-NNN 형식이 아니면 반출하지 않습니다.
           종료 코드 0 반출함 · 4 입력 없음·--out이 비어 있지 않음·id 형식 오류·인자 오류
 
+        적용 벤치마크(pelly-eval apply): dotnet run --project eval/PellyCoder.Eval -- apply [--cases <패턴>] [--repeat <N>] [--out <폴더>] [--config <pelly.json>]
+          eval/benchmark/apply/*.md(승인된 S6 정답 명세 12건)를 사례·회차마다 eval/corpus 복사본(work/<id>-<n>/corpus/)에서 pelly apply로 끝까지 실행합니다.
+          --cases <패턴>    사례 id 접두사 또는 글롭(*, ?). 쉼표로 여러 개 (예: a1,d*)
+          Legacy 범위 사례는 Windows에서만, Sql 범위 사례는 SQL 연결이 있을 때만 실행하고 아니면 건너뜁니다.
+          종료 0인 사례는 바뀐 C# 파일의 프로젝트와 그 의존자를 다시 빌드합니다(독립 검증).
+          산출물: apply-results.json, apply-summary.md(명세 완료율·작업 3~8개 완료율·그룹 빌드 통과율·건너뛴 사례), work/<id>-<n>/
+          종료 코드: 0 실행 완료 · 1 검증 불변 조건 위반(종료 0인데 독립 빌드에 컴파일러 오류) · 2 중단 · 4 설정 오류 또는 LLM 서버 연결 불가
+
         SQL 연결은 환경 변수 PELLY_SQL_CONNECTION. 없거나 허용 목록에 없으면 sql 작업은 건너뜁니다.
         산출물: results.json, report.md, work/<id>/ (작업별 스위트 루트 복사본과 .pelly/runs 로그); --repeat N>1이면 회차마다 run-<k>/ 아래에
         id 형식이 틀리거나 대상을 해석하지 못한 작업은 실행하지 않고 실패(Definition)로 기록합니다. 작업 YAML을 읽을 수 없으면 종료 4.
@@ -83,6 +95,7 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
         [Compare] = [],
         [Record] = ["--out", "--gguf-sha256", "--config"],
         [Export] = ["--out"],
+        [Apply] = ["--cases", "--repeat", "--out", "--config"],
     };
 
     private static readonly string[] Flags = ["--deep", "--offline-selftest", "--no-rules"];
@@ -95,6 +108,7 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
         [Compare] = 2,
         [Record] = 0,
         [Export] = 1,
+        [Apply] = 0,
     };
 
     public static EvalArguments Parse(IReadOnlyList<string> args)
@@ -102,7 +116,7 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
         var command = args.Count > 0 && Options.ContainsKey(args[0]) ? args[0] : Run;
         var start = args.Count > 0 && args[0] == command ? 1 : 0;
         var allowed = Options[command];
-        string? tasks = null, kind = null, outDir = null, config = null, suite = null, gguf = null;
+        string? tasks = null, kind = null, outDir = null, config = null, suite = null, gguf = null, cases = null;
         var deep = false;
         var selfTest = false;
         var noRules = false;
@@ -137,6 +151,7 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
             {
                 case "--suite": suite = value; break;
                 case "--tasks": tasks = value; break;
+                case "--cases": cases = value; break;
                 case "--kind":
                     if (value is not ("cs" or "sql")) return Error($"--kind는 cs 또는 sql: {value}");
                     kind = value;
@@ -167,6 +182,6 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
                 ? "compare에는 <기준선 summary.json> <후보 summary.json> 두 개가 필요합니다"
                 : command == Export ? "export에는 <결과 폴더> 하나가 필요합니다"
                 : $"{command}: 인자 {PositionalCount[command]}개가 필요합니다");
-        return new(tasks, kind, outDir, config, false, null, repeat) { Command = command, Suite = suite, Deep = deep, OfflineSelfTest = selfTest, NoRules = noRules, GgufSha256 = gguf, KeepWork = keepWork, Positional = positional };
+        return new(tasks, kind, outDir, config, false, null, repeat) { Command = command, Suite = suite, Deep = deep, OfflineSelfTest = selfTest, NoRules = noRules, GgufSha256 = gguf, KeepWork = keepWork, Positional = positional, Cases = cases };
     }
 }

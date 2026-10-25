@@ -5,9 +5,13 @@ using System.Text.Encodings.Web;
 using System.Text.Json;
 using PellyCoder.Core;
 using PellyCoder.Core.Abstractions;
+using PellyCoder.Core.Builds;
 using PellyCoder.Core.Config;
+using PellyCoder.Core.Fsm;
 using PellyCoder.Core.Llm;
+using PellyCoder.Core.Models;
 using PellyCoder.Core.Processes;
+using PellyCoder.Core.Specs;
 using PellyCoder.Core.Sql;
 using PellyCoder.Eval;
 
@@ -29,7 +33,7 @@ if (parsed.Command == EvalArguments.Validate) return ValidateCommand.Run(parsed,
 
 if (parsed.Command == EvalArguments.Export) return ExportCommand.Run(parsed, Console.Out); // sanitized carry-out copy: 0 done, 4 refused
 
-// Shared composition root of `run` and `record`: the only HttpClient / backend construction in this program.
+// Shared composition root of `run`, `record` and `apply`: the only HttpClient / backend construction in this program.
 var fs = new FileSystem();
 if (parsed.Config is not null && !File.Exists(parsed.Config)) return Fail($"설정 파일이 없습니다: {parsed.Config}");
 var environment = Environment.GetEnvironmentVariables().Cast<System.Collections.DictionaryEntry>()
@@ -46,6 +50,7 @@ using var http = new HttpClient(new SocketsHttpHandler { ConnectTimeout = TimeSp
 var backend = new OllamaBackend(http, options.Llm, TimeProvider.System);
 
 if (parsed.Command == EvalArguments.Record) return await RecordCommand.RunAsync(parsed, backend, options, Console.Out, cts.Token);
+if (parsed.Command == EvalArguments.Apply) return await RunApplyAsync(parsed, fs, backend, options, cts.Token); // 0 done, 1 invariant violated, 2 cancelled, 4 setup error
 
 var suiteDir = parsed.Suite ?? EvalPaths.FindSuite();
 if (suiteDir is null) return Fail($"eval/benchmark/{BenchmarkSuite.FileName}을 찾을 수 없습니다 — 저장소 안에서 실행하거나 --suite <폴더>를 지정하세요.");
@@ -68,17 +73,7 @@ var status = await backend.GetStatusAsync(cts.Token);
 if (!status.Reachable || !status.ModelInstalled)
     return Fail($"LLM 서버를 쓸 수 없습니다 ({options.Llm.Endpoint}, 모델 {options.Llm.Model}): {status.Error ?? "모델이 설치되어 있지 않습니다"}");
 
-ISqlExecutor? sql = null;
-string? sqlSkip = null;
-if (tasks.Any(t => t.Task.Kind == "sql" && t.Resolved is not null))
-{
-    if (string.IsNullOrWhiteSpace(options.Sql.ConnectionString))
-        sqlSkip = "SQL 연결이 없습니다 — 환경 변수 PELLY_SQL_CONNECTION(또는 sql.connectionString)을 지정하세요";
-    else if (SqlTargetPolicy.Check(SqlConnectionText.Endpoint(options.Sql.ConnectionString), options.Sql) is { Allowed: false } check)
-        sqlSkip = check.Message + " (--config의 pelly.json에서 허용 목록을 지정하세요)";
-    else
-        sql = new SqlServerExecutor(options.Sql.ConnectionString);
-}
+var (sql, sqlSkip) = tasks.Any(t => t.Task.Kind == "sql" && t.Resolved is not null) ? SqlConnection(options) : (null, null);
 
 try
 {
@@ -152,6 +147,110 @@ if (outcome.Summary is not null)
 
 if (outcome.Cancelled) return 2;
 return outcome.Runs.Any(r => r.Any(t => t.InvariantViolated)) ? 1 : 0;
+
+// The SQL executor of the runs, or why SQL work is skipped (no connection, or the target is not allow-listed).
+static (ISqlExecutor? Sql, string? SkipReason) SqlConnection(PellyOptions options)
+{
+    if (string.IsNullOrWhiteSpace(options.Sql.ConnectionString))
+        return (null, "SQL 연결이 없습니다 — 환경 변수 PELLY_SQL_CONNECTION(또는 sql.connectionString)을 지정하세요");
+    if (SqlTargetPolicy.Check(SqlConnectionText.Endpoint(options.Sql.ConnectionString), options.Sql) is { Allowed: false } check)
+        return (null, check.Message + " (--config의 pelly.json에서 허용 목록을 지정하세요)");
+    return (new SqlServerExecutor(options.Sql.ConnectionString), null);
+}
+
+// `apply`: the S6 gold specs end to end (ApplyBenchmark), with the same suite lookup, --out and LLM checks as `run`.
+static async Task<int> RunApplyAsync(EvalArguments parsed, IFileSystem fs, ILlmBackend backend, PellyOptions options, CancellationToken ct)
+{
+    var suiteDir = EvalPaths.FindSuite();
+    if (suiteDir is null) return Fail($"eval/benchmark/{BenchmarkSuite.FileName}을 찾을 수 없습니다 — 저장소 안에서 실행하세요.");
+    var suiteLoad = BenchmarkSuite.Load(suiteDir);
+    if (suiteLoad.Suite is not { } suite) return Fail("스위트 오류:\n  " + string.Join("\n  ", suiteLoad.Errors));
+    var casesDir = Path.Combine(suite.Dir, "apply");
+    var corpusDir = Path.GetFullPath(Path.Combine(suite.Dir, "..", "corpus"));
+    if (!Directory.Exists(casesDir)) return Fail($"사례 폴더가 없습니다: {casesDir}");
+    if (!Directory.Exists(corpusDir)) return Fail($"코퍼스 폴더가 없습니다: {corpusDir}");
+
+    IReadOnlyList<ApplyCase> cases;
+    try
+    {
+        cases = ApplyBenchmark.LoadCases(casesDir, parsed.Cases);
+    }
+    catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException)
+    {
+        return Fail($"사례 명세를 읽을 수 없어 실행하지 않습니다: {ex.Message}");
+    }
+    if (cases.Count == 0) return Fail($"선택된 사례가 없습니다 (--cases {parsed.Cases ?? "*"}).");
+
+    var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
+    var outDir = Path.GetFullPath(parsed.Out ?? Path.Combine(suite.ResultsDir, "apply-" + stamp));
+    if (RunPlan.OutConflict(outDir) is { } outConflict) return Fail(outConflict);
+
+    var status = await backend.GetStatusAsync(ct);
+    if (!status.Reachable || !status.ModelInstalled)
+        return Fail($"LLM 서버를 쓸 수 없습니다 ({options.Llm.Endpoint}, 모델 {options.Llm.Model}): {status.Error ?? "모델이 설치되어 있지 않습니다"}");
+
+    var (sql, sqlSkip) = cases.Any(c => c.HasSql) ? SqlConnection(options) : (null, null);
+    if (sqlSkip is not null) Console.Error.WriteLine($"Sql 사례는 건너뜁니다: {sqlSkip}");
+
+    try
+    {
+        Directory.CreateDirectory(outDir);
+    }
+    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+    {
+        return Fail($"--out 폴더를 만들 수 없습니다: {outDir}: {ex.Message}");
+    }
+    Console.WriteLine($"적용 벤치마크 · 사례 {cases.Count}건{(parsed.Repeat > 1 ? $" × {parsed.Repeat}회" : "")} → {outDir}");
+
+    var processes = new SystemProcessRunner(TimeProvider.System);
+    Func<bool> isWindows = OperatingSystem.IsWindows;
+    // One task run per request, picked by kind like the CLI's OrchestratorRunner (cs: build-verified FSM, sql: the SQL FSM).
+    Func<PellyOptions, Func<RunRequest, CancellationToken, Task<RunResult>>> runFactory = o => (request, token) =>
+    {
+        var ui = new EvalUserInteraction(Path.GetFileName(request.FilePath), Console.WriteLine);
+        if (request.Kind == EditKind.Sql)
+        {
+            if (sql is null) throw new InvalidOperationException("SQL 연결 없이 sql 작업을 실행할 수 없습니다");
+            return FsmOrchestratorFactory.CreateSql(fs, backend, ui, o, TimeProvider.System, sql).RunDetailedAsync(request, token);
+        }
+        return FsmOrchestratorFactory.Create(fs, backend, ui, o, TimeProvider.System, processes).RunDetailedAsync(request, token);
+    };
+    var verifier = new GroupVerifier(fs, new BuildVerifier(processes, options.Build), new BuildToolResolver(fs, processes, options.Build), isWindows);
+    var setup = new ApplyBenchSetup(fs, options, processes, TimeProvider.System, isWindows, sql is not null, runFactory, verifier,
+        corpusDir, suite.SupportFiles, Console.WriteLine);
+
+    var results = new List<ApplyCaseResult>();
+    var cancelled = false;
+    for (var n = 1; n <= parsed.Repeat && !cancelled; n++)
+    {
+        foreach (var c in cases)
+        {
+            try
+            {
+                results.Add(await ApplyBenchmark.RunCaseAsync(c, n, setup, outDir, ct));
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                cancelled = true;
+                break;
+            }
+            if (ct.IsCancellationRequested)
+            {
+                cancelled = true;
+                break;
+            }
+        }
+    }
+
+    var header = $"* 실행: {stamp} · pelly {PellyInfo.Version} · 모델 `{options.Llm.Model}` ({options.Llm.Endpoint}, Ollama {status.Version}) · "
+        + $"thinkMode {options.Llm.ThinkMode} · {Environment.OSVersion.Platform}\n* 선택: --cases {parsed.Cases ?? "*"}"
+        + (parsed.Repeat > 1 ? $" --repeat {parsed.Repeat}" : "") + (cancelled ? "\n* **중단됨** — 끝난 사례만 집계했습니다" : "");
+    var summary = ApplyBenchmarkReport.Write(fs, outDir, results, header);
+    Console.WriteLine();
+    Console.WriteLine(summary);
+    Console.WriteLine($"결과: {Path.Combine(outDir, ApplyBenchmarkReport.SummaryFile)}");
+    return ApplyBenchmark.ExitCode(results, cancelled);
+}
 
 static int Fail(string message)
 {

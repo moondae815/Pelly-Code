@@ -24,6 +24,7 @@
 | v1.13 | 2026-10-24 | V2-3 프로젝트 규칙 구현: 규칙을 `pelly.rules.md` 대신 작업 공간 루트 `AGENTS.md`의 `## Pelly rules` 절로 두고 `pelly rules init`·`pelly rules check` 추가, 규칙을 사용자 메시지(CONTEXT 뒤)에 넣어 시스템 부분을 고정, `budget.system` 600 → 450·`budget.rules` 150, `forbid`는 모든 규칙을 원본 대비 추가된 줄에서 검사하고 정규식 시간 초과는 종료 코드 4, "규칙 도입 효과(+5%p)" KPI는 미측정 (설계 결정 1–6은 `docs/superpowers/plans/2026-10-24-pelly-v2-3-project-rules.md`) |
 | v1.14 | 2026-10-24 | V2-1a 구현: 명세 파일·spec new/check·순차 apply. 그룹·영향 탐색은 V2-1b·c |
 | v1.15 | 2026-10-25 | V2-1b 구현: 작업 그룹(시그니처·이름 변경, 영향 범위 빌드, 오류 귀속·재실행, 그룹 되돌리기). 영향 탐색·벤치마크는 V2-1c |
+| v1.16 | 2026-10-25 | V2-1c 구현: 영향 탐색(심볼·이름 대체 표시), BuildHost 배포, doctor 의미 분석 행, 명세 완료율 report, apply E2E 벤치마크 |
 
 ---
 
@@ -591,6 +592,8 @@ v2는 Superpowers, OpenSpec 같은 개발 하네스의 아이디어를 가져오
 * 각 단계가 끝날 때마다 폐쇄망으로 반입해 검증합니다(§11.3).
 
 ### 12.3 V2-1. 작업 명세 파일과 순차 실행 (`pelly apply`)
+> **구현(V2-1c): 2026-10-25.** 영향 탐색(심볼 기준, 의미 분석이 안 되면 「이름 기준(부정확)」으로 대체하고 표시), BuildHost 배포, `pelly doctor` 의미 분석 행, `pelly report`의 명세 완료율·그룹 빌드 통과율, E2E 벤치마크 `pelly-eval apply`(승인된 S6 정답 명세 12건, `eval/benchmark/apply/`)가 구현됐습니다. 현장 모델 실측(`--repeat N`)과 레거시 사례의 Windows 실측은 사람이 합니다(`deploy/field-results.md`).
+>
 > **구현(V2-1b): 2026-10-25.** 작업 그룹(`[G<n>]`: 시그니처·이름 변경, 영향 범위 빌드, 오류 귀속·재실행, 그룹 되돌리기)이 구현됐습니다. 영향 탐색과 벤치마크는 V2-1c입니다. 그룹 동작은 README `pelly apply` 절을 보십시오.
 >
 > **구현(V2-1a): 2026-10-24.** 명세 파일, `pelly spec new`·`pelly spec check`, 순차 `pelly apply`(`--continue`·`--resume`·`--review-at-end`)가 구현됐습니다. **영향 탐색은 V2-1c이며 아직 없습니다.** 설계는 `docs/superpowers/specs/2026-10-24-v2-1-apply-design.md`, 사용법은 README `pelly apply` 절을 보십시오.

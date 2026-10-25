@@ -115,6 +115,24 @@ dotnet run --project eval/PellyCoder.Eval -- --suite <스위트 폴더> --config
   * 독립 검증은 pelly의 참조 수집기·실행기를 그대로 재사용하므로 둘의 사각지대(3·4부 이름, 동적 SQL, `#temp`, 별칭과 같은 이름의 테이블)를 공유합니다. 또 절대 기준이라 코퍼스 원본이 오류 없이 컴파일된다고 가정합니다.
 * 첫 측정 기록: `docs/m2b-benchmark.md`
 
+## apply 벤치마크 (`pelly-eval apply`, V2-1c)
+여러 작업 명세를 `pelly apply`로 끝까지 돌려 **명세 완료율**(PRD §12.6)을 잽니다. 사례는 `apply/<id>.md` 12건(승인된 S6 정답, 출처·변환 규칙은 `apply/README.md`)입니다.
+```bash
+dotnet run --project eval/PellyCoder.Eval -- apply --config <pelly.json>                       # 12건 전체
+dotnet run --project eval/PellyCoder.Eval -- apply --cases a1,d* --repeat 3 --out <폴더> --config <pelly.json>
+```
+* 옵션: `--cases <패턴>`(사례 id 접두사·글롭, 쉼표로 여러 개), `--repeat <N>`(사례마다 N회), `--out <폴더>`(기본 `eval/results/apply-<yyyyMMdd-HHmmss>/`, 비어 있지 않으면 거절), `--config <pelly.json>`.
+* 사례·회차마다 다음 순서로 돕니다.
+  1. 건너뛰기: 범위에 `Legacy`가 있는데 Windows가 아니면 `Windows 전용`, `Sql`이 있는데 SQL 연결이 없거나 허용 목록 밖이면 `SQL 연결 없음`.
+  2. 작업 복사본 `work/<id>-<n>/`: 스위트 `supportFiles`(`global.json` 등)를 맨 위에, `eval/corpus`를 `corpus/`에(기본 제외 폴더 빼고) 복사합니다. `corpus/`에 빈 `.git` 폴더를 만들어 루트마다 있는 `.sln`과 상관없이 코퍼스 전체가 작업 공간 하나가 되게 하고, 명세를 `corpus/changes/<id>.md`로 씁니다.
+  3. 범위에 `Modern`이 있으면 `Modern/Modern.sln`을 복원합니다(실패하면 「복원 실패」로 건너뜀). Legacy는 `run`과 같은 전제(Windows, 패키지 폴더 준비)입니다.
+  4. `pelly apply`와 같은 조립(`SpecRunnerFactory`, 시작 영향 탐색 포함)으로 `--yes`, `--continue` 없이 실행합니다.
+  5. 종료 0이면 **독립 검증**: 원본 코퍼스와 바이트가 다른 `.cs` 파일의 프로젝트와 그 의존 프로젝트를 다시 빌드합니다(pelly 기록이 아니라 파일 비교로 찾음). 컴파일러 오류가 있으면 검증 불변 조건 위반, 빌드가 판정할 수 없으면 「독립 검증 불가」, 바뀐 `.cs`가 없으면 「C# 변경 없음」입니다.
+* 산출물: `apply-results.json`(모든 사례 실행), `apply-summary.md`(명세 완료율·작업 3~8개 명세 완료율·그룹 빌드 통과율·독립 빌드 집계·건너뛴 사례·사례별 표), `work/<id>-<n>/corpus/.pelly/runs/`(apply·작업 실행 기록).
+  * 완료율·그룹 빌드 통과율은 각 작업 복사본의 `apply.json`을 `pelly report`와 같은 계산(`ApplyReport.Build`)으로 셉니다. 완료 = 종료 0이고 명세가 보관됨. 기록이 없는 실행(명세 검사 오류로 시작 전에 끝남 등)은 분모에 들지 않고 요약에 따로 적습니다.
+* 종료 코드는 `run`과 같습니다: 0 실행 완료 · 1 검증 불변 조건 위반(종료 0인데 독립 빌드에 컴파일러 오류) · 2 중단 · 4 설정 오류(사례 명세 오류·`--out` 포함) 또는 LLM 서버 연결 불가.
+* 현장 모델 실측(`--repeat N`)과 레거시 사례(a3 등)의 Windows 실측은 사람이 하고, 결과는 `deploy/field-results.md`에 옮깁니다.
+
 ## 현재 구성 (M3b, 50건)
 C# 30건(Legacy 18, Modern 12) + SQL 20건. 시그니처를 바꾸는 요청(async 전환 등)은 넣지 않습니다(MemberShapeGuard가 막는 의도된 동작). SQL 매개변수 추가는 허용합니다.
 모든 작업에 내용 판정(`mustContain`·`mustAdd`·`mustNotContain`) 또는 동작 판정(`tests`·`failingTests`)이 하나 이상 있습니다(`AllTasks_HaveContentCriterion`) — 빌드·컴파일만으로는 의미 없는 수정도 통과하기 때문입니다. `tests`는 원본에서 실패해야 하므로 같은 역할을 합니다.

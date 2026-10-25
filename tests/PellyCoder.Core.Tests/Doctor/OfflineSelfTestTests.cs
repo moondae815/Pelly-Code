@@ -52,7 +52,8 @@ public class OfflineSelfTestTests
 
         Assert.Equal("의미 분석 보조 프로세스", row.Name);
         Assert.Equal(DoctorStatus.Fail, row.Status);
-        Assert.Equal("반입 zip을 다시 풀어 pelly.exe 옆에 BuildHost-net472, BuildHost-netcore 폴더를 두세요", row.Action);
+        Assert.Equal("zip을 다시 풀어 실행 파일 옆에 BuildHost-net472, BuildHost-netcore 폴더를 두세요", row.Action);
+        Assert.DoesNotContain("pelly.exe", row.Action); // pelly-eval (field kit) shows the same row
     }
 
     [Fact]

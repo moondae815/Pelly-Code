@@ -29,7 +29,8 @@ public sealed record ApplySummary(
 /// <summary>The failure kinds a task result carries when its whole group failed (see <c>SpecRunner</c>, <c>ApplyReport</c>).</summary>
 public static class GroupFailureKinds
 {
-    public const string Unverifiable = "GroupUnverifiable";
+    // The one literal lives in GroupVerifier: the KPI (ApplyReport) silently miscounts if the two drift.
+    public const string Unverifiable = GroupVerifier.UnverifiableKind;
     public const string BuildFailed = "GroupBuildFailed";
     public const string MissingTarget = "GroupMissingTarget";
     public const string Rejected = "GroupRejected";

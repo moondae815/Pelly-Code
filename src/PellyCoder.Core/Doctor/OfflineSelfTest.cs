@@ -32,7 +32,8 @@ public static class OfflineSelfTest
         Row("의미 분석 보조 프로세스", () => CheckBuildHost(baseDir),
             BuildHostAction);
 
-    internal const string BuildHostAction = "반입 zip을 다시 풀어 pelly.exe 옆에 BuildHost-net472, BuildHost-netcore 폴더를 두세요";
+    // "실행 파일": the same row runs in pelly.exe and in pelly-eval.exe (field kit), so it names neither.
+    internal const string BuildHostAction = "zip을 다시 풀어 실행 파일 옆에 BuildHost-net472, BuildHost-netcore 폴더를 두세요";
 
     /// <summary>
     /// Semantic impact search (V2-1c) runs Roslyn's build host as a separate process; inside the single-file bundle it is not

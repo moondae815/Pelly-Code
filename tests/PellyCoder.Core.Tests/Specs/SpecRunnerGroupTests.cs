@@ -643,6 +643,116 @@ public sealed class SpecRunnerGroupTests : IDisposable
         Assert.Equal(before, Read("changes/x.md"));
     }
 
+    private const string OneFileGroup =
+        "- [ ] T1 cs src/App/OrderService.cs#OrderService.GetOrder 반환 형식을 바꾼다 [G1]\n" +
+        "- [ ] T2 cs src/App/OrderService.cs#OrderService.Cancel 매개변수를 더한다 [G1]\n";
+
+    [Fact]
+    public async Task Spec_write_failure_after_a_passing_group_keeps_the_edits_exit_4()
+    {
+        Spec(Group);
+        _exec.During["T2"] = () => File.AppendAllText(SpecPath, "\n메모\n"); // edited while the group ran
+        var code = await Run(Opts());
+
+        Assert.Equal(4, code);
+        Assert.Contains("// T1", Read("src/App/OrderService.cs"));
+        Assert.Contains("// T2", Read("src/App/Repo.cs"));
+        Assert.Contains(_ui.Warnings, w => w.Contains("명세 파일이 실행 중에 바뀌었습니다")
+            && w.Contains("그룹 G1은 적용됐지만 체크 표시를 남기지 못했습니다"));
+        Assert.DoesNotContain("[x]", Read("changes/x.md"));
+        Assert.False(File.Exists(ArchivePath));
+    }
+
+    [Fact]
+    public async Task Spec_write_failure_while_marking_an_unverifiable_group_exits_4_before_any_edit()
+    {
+        Spec(Group);
+        _builds.Results.Enqueue(new GroupBuild(false, "그룹 빌드 검증 불가 (src/App/App.csproj): 레거시", GroupVerifier.UnverifiableKind, []));
+        _builds.During = () => File.AppendAllText(SpecPath, "\n메모\n");
+        var code = await Run(Opts(cont: true));
+
+        Assert.Equal(4, code);
+        Assert.Empty(_exec.Calls);
+        AssertGroupFilesUntouched();
+        Assert.Contains(_ui.Warnings, w => w.Contains("명세 파일이 실행 중에 바뀌었습니다"));
+        Assert.DoesNotContain("GroupUnverifiable", Read("changes/x.md"));
+    }
+
+    [Fact]
+    public async Task Cancellation_with_a_file_changed_outside_keeps_it_and_its_mark_exit_4()
+    {
+        Spec(Group);
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        _exec.During["T2"] = () =>
+        {
+            File.AppendAllText(P("src/App/OrderService.cs"), "// outside\n");
+            cts.Cancel();
+        };
+        _exec.Exit["T2"] = 2;
+        var code = await Run(Opts(), cts.Token);
+
+        Assert.Equal(4, code);
+        Assert.Equal(OrderService + "// T1\n// outside\n", Read("src/App/OrderService.cs"));
+        Assert.Equal(Repo, Read("src/App/Repo.cs"));
+        var spec = Read("changes/x.md");
+        Assert.Contains("- [x] T1 cs src/App/OrderService.cs#OrderService.GetOrder 반환 형식을 바꾼다 [G1] <!-- run: R-T1 -->", spec);
+        Assert.Contains("- [ ] T2 cs src/App/Repo.cs#Repo.Find 이름을 바꾼다 [G1]\n", spec);
+        var warning = Assert.Single(_ui.Warnings, w => w.Contains("그룹 일부가 적용된 채 남아 빌드가 깨져 있을 수 있습니다"));
+        Assert.Contains("OrderService.cs", warning);
+    }
+
+    [Fact]
+    public async Task Resume_of_a_partly_done_group_runs_only_its_unchecked_tasks_as_the_group()
+    {
+        // A group rollback kept T1's [x] because its file was changed outside pelly; T2 was rolled back.
+        Make("src/App/OrderService.cs", OrderService + "// T1\n// outside\n");
+        Spec("- [x] T1 cs src/App/OrderService.cs#OrderService.GetOrder 반환 형식을 바꾼다 [G1] <!-- run: R-A -->\n" +
+             "- [ ] T2 cs src/App/Repo.cs#Repo.Find 이름을 바꾼다 [G1] <!-- failed: R-B GroupMissingTarget -->\n");
+        var code = await Run(Opts(resume: true));
+
+        Assert.Equal(0, code);
+        Assert.Equal(["T2"], _exec.Calls);
+        Assert.NotNull(_exec.Options[0].Group);
+        Assert.Equal(2, _builds.Calls.Count); // baseline and verification of the remaining task's scope
+        Assert.Equal(0, _builds.ExecutorCallsAtBaseline);
+        var archived = File.ReadAllText(ArchivePath);
+        Assert.Contains("[G1] <!-- run: R-A -->", archived);
+        Assert.Contains("- [x] T2 cs src/App/Repo.cs#Repo.Find 이름을 바꾼다 [G1] <!-- run: R-T2 -->", archived);
+    }
+
+    [Fact]
+    public async Task Two_tasks_of_a_group_on_one_file_roll_back_to_the_file_before_the_group()
+    {
+        Spec(OneFileGroup);
+        _exec.Display["T2"] = "OrderService.Cancel()";
+        _builds.Results.Enqueue(Built());
+        _builds.Results.Enqueue(Built(Error("src/App/Controller.cs", 7, "CS1501")));
+        var code = await Run(Opts());
+
+        Assert.Equal(1, code);
+        Assert.Equal(["T1", "T2"], _exec.Calls);
+        Assert.Equal(OrderService, Read("src/App/OrderService.cs"));
+        var spec = Read("changes/x.md");
+        Assert.Contains("<!-- failed: R-T1 GroupMissingTarget -->", spec);
+        Assert.Contains("<!-- failed: R-T2 GroupMissingTarget -->", spec);
+    }
+
+    [Fact]
+    public async Task Two_tasks_of_a_group_on_one_file_show_one_diff_with_both_edits()
+    {
+        Spec(OneFileGroup);
+        _exec.Display["T2"] = "OrderService.Cancel()";
+        _ui.ConfirmAnswers.Enqueue(true);
+        var code = await Run(Opts(yes: false));
+
+        Assert.Equal(0, code);
+        var diff = Assert.Single(_ui.Diffs);
+        Assert.Equal(OrderService, diff.Before);
+        Assert.Equal(OrderService + "// T1\n// T2\n", diff.After);
+        Assert.Equal(OrderService + "// T1\n// T2\n", Read("src/App/OrderService.cs"));
+        Assert.Contains("<!-- run: R-T2 -->", File.ReadAllText(ArchivePath));
+    }
+
     /// <summary>Returns scripted builds in order (then <see cref="Fallback"/>) and records each build's projects.</summary>
     private sealed class FakeGroupVerifier : IGroupVerifier
     {
@@ -655,8 +765,12 @@ public sealed class SpecRunnerGroupTests : IDisposable
 
         public Func<int>? ExecutorCalls { get; set; }
 
+        /// <summary>Runs inside every build (e.g. to edit the spec while the build runs).</summary>
+        public Action? During { get; set; }
+
         public Task<GroupBuild> BuildAsync(Workspace ws, IReadOnlyList<string> projects, CancellationToken ct)
         {
+            During?.Invoke();
             if (Calls.Count == 0) ExecutorCallsAtBaseline = ExecutorCalls?.Invoke() ?? -1;
             Calls.Add(projects);
             return Task.FromResult(Results.Count > 0 ? Results.Dequeue() : Fallback);

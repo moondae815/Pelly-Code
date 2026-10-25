@@ -183,26 +183,17 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                     continue;
                 }
 
-                if (!TrackBeforeRun(tx, task)) return Finish(Unreviewed(tx, 4));
-
-                long started = owner.Time.GetTimestamp();
-                RunResult r;
+                RunResult? run;
                 try
                 {
-                    r = await owner.Executor.ExecuteAsync(task, ws, taskOptions, ct);
+                    run = await ExecuteTaskAsync(tx, task, taskOptions, ct);
                 }
                 catch (OperationCanceledException)
                 {
                     // The task rolled itself back; completed tasks keep their marks (or, under review, are rolled back).
-                    _results.Add(new ApplyTaskResult(task.Id, null, 2, null, Seconds(started)));
                     return Finish(await CancelledAsync(tx));
                 }
-
-                _results.Add(new ApplyTaskResult(task.Id, r.RunId, r.ExitCode, r.FailureKind, Seconds(started)));
-                // A null Original means the run failed before reading the file, so it wrote nothing.
-                if (r.Original is not null) tx.Record(r.Original, r.Final);
-
-                if (r.ExitCode == 2 && ct.IsCancellationRequested) return Finish(await CancelledAsync(tx));
+                if (run is not { } r) return Finish(Unreviewed(tx, 4));
 
                 if (r.ExitCode == 0)
                 {
@@ -443,13 +434,29 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             CancellationToken ct)
         {
             ct.ThrowIfCancellationRequested();
+            if (await ExecuteTaskAsync(tx, task, new TaskRunOptions(true, false, o.MaxRetries, o.Verbose, run, member), ct) is not { } r)
+                return null;
+
+            g.LastRun[task.Id] = r.RunId;
+            if (r.ExitCode == 0) g.Succeeded[task.Id] = (r.RunId, r.Original?.Path ?? FullPath(task), r.TargetDisplay, r.AddedHelpers ?? run.EditableHelpers ?? []);
+            return r;
+        }
+
+        /// <summary>
+        /// Runs one task, single or in a group: backs its file up, runs it, adds its result to the summary and records what
+        /// it left in the transaction. Null when the file could not be backed up (the task did not run). Throws
+        /// <see cref="OperationCanceledException"/> when the apply was cancelled: the executor threw it, or the run ended
+        /// cancelled under the apply's token.
+        /// </summary>
+        private async Task<RunResult?> ExecuteTaskAsync(ApplyTransaction tx, SpecTask task, TaskRunOptions options, CancellationToken ct)
+        {
             if (!TrackBeforeRun(tx, task)) return null;
 
             long started = owner.Time.GetTimestamp();
             RunResult r;
             try
             {
-                r = await owner.Executor.ExecuteAsync(task, ws, new TaskRunOptions(true, false, o.MaxRetries, o.Verbose, run, member), ct);
+                r = await owner.Executor.ExecuteAsync(task, ws, options, ct);
             }
             catch (OperationCanceledException)
             {
@@ -458,10 +465,9 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             }
 
             _results.Add(new ApplyTaskResult(task.Id, r.RunId, r.ExitCode, r.FailureKind, Seconds(started)));
+            // A null Original means the run failed before reading the file, so it wrote nothing.
             if (r.Original is not null) tx.Record(r.Original, r.Final);
-            g.LastRun[task.Id] = r.RunId;
             if (r.ExitCode == 2 && ct.IsCancellationRequested) throw new OperationCanceledException(ct);
-            if (r.ExitCode == 0) g.Succeeded[task.Id] = (r.RunId, r.Original?.Path ?? FullPath(task), r.TargetDisplay, r.AddedHelpers ?? run.EditableHelpers ?? []);
             return r;
         }
 

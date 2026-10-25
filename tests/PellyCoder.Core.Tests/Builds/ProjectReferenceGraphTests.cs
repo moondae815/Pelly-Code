@@ -98,10 +98,14 @@ public class ProjectReferenceGraphTests
         Proj(fs, "Lib");
         Proj(fs, "App", "Lib");
         var otherCase = P("lib/LIB.csproj");
+        bool ignoresCase = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS();
+        // On a case-sensitive file system the other spelling is another file; scope discovery reads every changed
+        // project, so it must exist there (missing, it is a scope error, not a second project).
+        if (!ignoresCase) fs.AddFile(otherCase, new MockFileData("<Project Sdk=\"Microsoft.NET.Sdk\" />"));
 
         var affected = ProjectReferenceGraph.AffectedProjects(fs, Root, [P("Lib/Lib.csproj"), otherCase]);
 
-        if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
+        if (ignoresCase)
             // Case-insensitive file systems: the two spellings are one project, and App references it.
             Assert.Equal([P("Lib/Lib.csproj"), P("App/App.csproj")], affected);
         else
@@ -109,7 +113,7 @@ public class ProjectReferenceGraphTests
 
         // A dependent is found through the changed project spelled in another case only where paths ignore case.
         var viaOtherCase = ProjectReferenceGraph.AffectedProjects(fs, Root, [otherCase]);
-        Assert.Equal(OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() ? [otherCase, P("App/App.csproj")] : [otherCase], viaOtherCase);
+        Assert.Equal(ignoresCase ? [otherCase, P("App/App.csproj")] : [otherCase], viaOtherCase);
     }
 }
 
@@ -275,6 +279,24 @@ public class ProjectReferenceGraphScopeTests
         var affected = ProjectReferenceGraph.AffectedProjects(fs, Root, [P("Lib/Lib.csproj")]);
 
         Assert.Equal([P("Lib/Lib.csproj"), P("Web/Web.csproj")], affected);
+    }
+
+    [Fact]
+    public void Link_inside_a_workspace_at_the_drive_root_is_skipped()
+    {
+        // The root keeps its separator (C:\ or /), so the inside check must not look for another one after it.
+        string drive = OperatingSystem.IsWindows() ? @"C:\" : "/";
+        string At(string rel) => Path.Combine(drive, rel.Replace('/', Path.DirectorySeparatorChar));
+        var fs = new MockFileSystem();
+        fs.AddFile(At("Lib/Lib.csproj"), new MockFileData("<Project Sdk=\"Microsoft.NET.Sdk\" />"));
+        fs.AddFile(At("Web/Web.csproj"), new MockFileData(
+            @"<Project Sdk=""Microsoft.NET.Sdk""><ItemGroup><ProjectReference Include=""..\Lib\Lib.csproj"" /></ItemGroup></Project>"));
+        fs.Directory.CreateSymbolicLink(At("alias"), At("Web"));
+        Assert.NotNull(fs.DirectoryInfo.New(At("alias")).LinkTarget);
+
+        var affected = ProjectReferenceGraph.AffectedProjects(fs, drive, [At("Lib/Lib.csproj")]);
+
+        Assert.Equal([At("Lib/Lib.csproj"), At("Web/Web.csproj")], affected);
     }
 
     [Fact]

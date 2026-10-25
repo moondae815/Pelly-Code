@@ -164,8 +164,11 @@ public static class BoundedWalker
         var trimmedRoot = fs.Path.TrimEndingDirectorySeparator(root);
         var trimmed = fs.Path.TrimEndingDirectorySeparator(full);
         var comparison = PathComparers.ForOs == StringComparer.OrdinalIgnoreCase ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        bool IsSeparator(char c) => c == fs.Path.DirectorySeparatorChar || c == fs.Path.AltDirectorySeparatorChar;
+        // A drive or file-system root (C:\ or /) keeps its separator when trimmed, so nothing follows it to check.
+        bool rootEndsWithSeparator = trimmedRoot.Length > 0 && IsSeparator(trimmedRoot[^1]);
         return string.Equals(trimmed, trimmedRoot, comparison)
             || (trimmed.Length > trimmedRoot.Length && trimmed.StartsWith(trimmedRoot, comparison)
-                && (trimmed[trimmedRoot.Length] == fs.Path.DirectorySeparatorChar || trimmed[trimmedRoot.Length] == fs.Path.AltDirectorySeparatorChar));
+                && (rootEndsWithSeparator || IsSeparator(trimmed[trimmedRoot.Length])));
     }
 }

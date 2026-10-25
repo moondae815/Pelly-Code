@@ -8,6 +8,7 @@ using PellyCoder.Core.CSharp;
 using PellyCoder.Core.Files;
 using PellyCoder.Core.Sql;
 using PellyCoder.Core.Workspaces;
+using Workspace = PellyCoder.Core.Workspaces.Workspace;
 
 namespace PellyCoder.Core.Specs;
 

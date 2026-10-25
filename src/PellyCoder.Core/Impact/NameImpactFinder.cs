@@ -4,6 +4,7 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using PellyCoder.Core.Files;
 using PellyCoder.Core.Workspaces;
+using Workspace = PellyCoder.Core.Workspaces.Workspace;
 
 namespace PellyCoder.Core.Impact;
 

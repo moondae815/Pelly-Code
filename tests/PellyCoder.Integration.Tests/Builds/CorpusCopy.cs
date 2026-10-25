@@ -5,7 +5,12 @@ internal static class CorpusCopy
 {
     public static string Create(string corpusRelative, bool includeBuildOutput = false)
     {
-        var source = Corpus.CorpusPaths.Get(corpusRelative);
+        return CreateFrom(Corpus.CorpusPaths.Get(corpusRelative), includeBuildOutput);
+    }
+
+    /// <summary>Copies any folder (e.g. a tests/fixtures solution) the same way as a corpus.</summary>
+    public static string CreateFrom(string source, bool includeBuildOutput = false)
+    {
         var target = Path.Combine(Path.GetTempPath(), "pelly-build-" + Guid.NewGuid().ToString("N")[..8]);
         Copy(new DirectoryInfo(source), new DirectoryInfo(target), includeBuildOutput);
         // Returned as given (macOS: /var/..., a link to /private/var): BuildVerifier also matches the resolved path.

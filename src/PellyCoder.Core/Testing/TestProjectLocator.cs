@@ -25,8 +25,8 @@ public static class TestProjectLocator
             return explicitProjects;
         }
 
-        // Windows paths compare ignoring case; elsewhere exactly.
-        var comparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+        // The same path comparer as the group scope: ignoring case on Windows and macOS, exactly elsewhere.
+        var comparer = PathComparers.ForOs;
         var target = fs.Path.GetFullPath(targetCsproj);
         var found = new List<string>();
         foreach (var candidate in Candidates(fs, workspaceRoot))

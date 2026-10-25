@@ -42,6 +42,18 @@ public class TestProjectLocatorTests
     }
 
     [Fact]
+    public void Locator_ComparesTheTargetWithTheOsPathComparer()
+    {
+        // The same file on Windows and macOS (case-insensitive file systems); a different one elsewhere.
+        var found = TestProjectLocator.Find(Modern(), Root, P("shop.api/SHOP.API.csproj"), new TestOptions());
+
+        if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
+            Assert.Equal([P("Shop.Api.Tests/Shop.Api.Tests.csproj")], found);
+        else
+            Assert.Empty(found);
+    }
+
+    [Fact]
     public void Locator_ModernJobs_FindsNone()
     {
         Assert.Empty(TestProjectLocator.Find(Modern(), Root, P("Shop.Jobs/Shop.Jobs.csproj"), new TestOptions()));

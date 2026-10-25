@@ -76,7 +76,64 @@ public class NameImpactFinderTests
         var result = NameImpactFinder.Find(fs, new Workspace(Root, P(".pelly")), [seed], [], Fallback);
 
         Assert.Equal(["T7"], result.UnsupportedSeeds);
+        Assert.Empty(result.SeedsNotFound);
         Assert.Empty(result.Targets);
+    }
+
+    [Fact]
+    public void Caller_in_top_level_statements_is_reported_outside_a_member()
+    {
+        var fs = new MockFileSystem();
+        fs.AddFile(P("Lib.cs"), new MockFileData("class Lib { public int Run() => 1; }"));
+        fs.AddFile(P("Program.cs"), new MockFileData("var lib = new Lib();\nSystem.Console.WriteLine(lib.Run());\n"));
+        var seed = new ImpactSeed("T1", 1, "Lib.cs", "Lib", "Run");
+
+        var result = NameImpactFinder.Find(fs, new Workspace(Root, P(".pelly")), [seed], [], Fallback);
+
+        Assert.Equal([new ImpactTarget("T1", "Program.cs", "<top-level>", "멤버 밖")], result.Targets);
+    }
+
+    [Fact]
+    public void Partial_part_without_a_base_list_in_another_file_is_a_declaration()
+    {
+        var root = ImpactFixture.SameName();
+        var fs = new FileSystem();
+        var ws = new Workspace(root, Path.Combine(root, ".pelly"));
+        var seed = new ImpactSeed("T3", 5, "Data/OrderDao.cs", "OrderDao", "GetOrder");
+        var projects = ImpactScope.Projects(fs, ws, [Path.Combine(root, "Data", "OrderDao.cs")]);
+
+        var result = NameImpactFinder.Find(fs, ws, [seed], projects, Fallback);
+
+        Assert.Contains(new ImpactTarget("T3", "Data/OrderDao.Part2.cs", "GetOrder", "구현"), result.Targets);
+    }
+
+    [Fact]
+    public void Call_with_explicit_type_arguments_is_reported()
+    {
+        var fs = new MockFileSystem();
+        fs.AddFile(P("Lib.cs"), new MockFileData("class Lib { public T Get<T>() => default!; }"));
+        fs.AddFile(P("Use.cs"), new MockFileData("class Use { int F() => new Lib().Get<int>(); }"));
+        var seed = new ImpactSeed("T1", 1, "Lib.cs", "Lib", "Get");
+
+        var result = NameImpactFinder.Find(fs, new Workspace(Root, P(".pelly")), [seed], [], Fallback);
+
+        Assert.Equal([new ImpactTarget("T1", "Use.cs", "F", "호출")], result.Targets);
+    }
+
+    [Fact]
+    public void Seed_member_that_does_not_exist_is_not_found_rather_than_unsupported()
+    {
+        var fs = new MockFileSystem();
+        fs.AddFile(P("Lib.cs"), new MockFileData("class Lib { public int Run() => 1; }"));
+        var ws = new Workspace(Root, P(".pelly"));
+
+        var missingMember = NameImpactFinder.Find(fs, ws, [new ImpactSeed("T1", 1, "Lib.cs", "Lib", "NoSuch")], [], Fallback);
+        var missingFile = NameImpactFinder.Find(fs, ws, [new ImpactSeed("T2", 1, "Gone.cs", "Gone", "Run")], [], Fallback);
+
+        Assert.Equal(["T1"], missingMember.SeedsNotFound);
+        Assert.Empty(missingMember.UnsupportedSeeds);
+        Assert.Equal(["T2"], missingFile.SeedsNotFound);
+        Assert.Empty(missingFile.UnsupportedSeeds);
     }
 
     [Fact]

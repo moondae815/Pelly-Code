@@ -107,4 +107,36 @@ public class ImpactCheckTests
         var issue = Assert.Single(ImpactCheck.Issues(spec, ImpactCheck.Seeds(spec, false), result));
         Assert.Equal(new SpecIssue(spec.Tasks[1].Line, SpecIssueSeverity.Warning, "ImpactUnsupported", "작업 T2: 영향 탐색은 메서드·속성만 봅니다."), issue);
     }
+
+    [Fact]
+    public void Seed_not_found_has_its_own_warning()
+    {
+        var spec = Parse(Mixed);
+        var result = new ImpactResult(ImpactMode.Semantic, null, [], []) { SeedsNotFound = ["T2"] };
+
+        var issue = Assert.Single(ImpactCheck.Issues(spec, ImpactCheck.Seeds(spec, false), result));
+        Assert.Equal(new SpecIssue(spec.Tasks[1].Line, SpecIssueSeverity.Warning, "ImpactSeedNotFound",
+            "작업 T2: 영향 탐색 시작점을 찾지 못했습니다: src/App/Repo.cs#Repo.Find"), issue);
+    }
+
+    [Fact]
+    public void Place_reached_from_several_seeds_is_warned_once_on_the_first_seed()
+    {
+        var spec = Parse(Mixed);
+        var seeds = ImpactCheck.Seeds(spec, false);
+        var result = Semantic(
+            new ImpactTarget("T1", "src/App/Controller.cs", "Detail", "호출"),
+            new ImpactTarget("T1", "src/App/Other2.cs", "Run", "호출"),
+            new ImpactTarget("T2", "src\\App\\Controller.cs", "Detail", "기반 멤버"));
+
+        var issues = ImpactCheck.Issues(spec, seeds, result);
+
+        Assert.Equal(
+        [
+            new SpecIssue(spec.Tasks[0].Line, SpecIssueSeverity.Warning, "ImpactMissing",
+                "작업 T1, T2의 영향 대상이 명세에 없습니다: src/App/Controller.cs#Detail (호출)"),
+            new SpecIssue(spec.Tasks[0].Line, SpecIssueSeverity.Warning, "ImpactMissing",
+                "작업 T1의 영향 대상이 명세에 없습니다: src/App/Other2.cs#Run (호출)"),
+        ], issues);
+    }
 }

@@ -44,19 +44,20 @@ public sealed class SemanticImpactFinder(IFileSystem fs, ISemanticLoader loader)
 
         var targets = new List<ImpactTarget>();
         var unsupported = new List<string>();
+        var notFound = new List<string>();
         foreach (var seed in seeds)
         {
             var seedSymbols = await FindSeedAsync(load.Solution, ws, seed, ct);
             if (seedSymbols.Count == 0)
             {
-                unsupported.Add(seed.TaskId);
+                (await DeclaresOtherKindAsync(load.Solution, ws, seed, ct) ? unsupported : notFound).Add(seed.TaskId);
                 continue;
             }
 
             targets.AddRange(await FindForAsync(load.Solution, ws, seed, seedSymbols, ct));
         }
 
-        return new ImpactResult(ImpactMode.Semantic, null, targets, unsupported);
+        return new ImpactResult(ImpactMode.Semantic, null, targets, unsupported) { SeedsNotFound = notFound };
     }
 
     private async Task<IEnumerable<ImpactTarget>> FindForAsync(Solution solution, Workspace ws, ImpactSeed seed, IReadOnlyList<ISymbol> seedSymbols, CancellationToken ct)
@@ -121,7 +122,7 @@ public sealed class SemanticImpactFinder(IFileSystem fs, ISemanticLoader loader)
                     if (tree is null) continue;
                     var node = (await tree.GetRootAsync(ct)).FindNode(location.Location.SourceSpan, getInnermostNodeForTie: true);
                     var (member, reason) = NameImpactFinder.Enclosing(node);
-                    if (member is not null) Add(location.Location, member, reason);
+                    Add(location.Location, member, reason);
                 }
 
         return found
@@ -198,6 +199,21 @@ public sealed class SemanticImpactFinder(IFileSystem fs, ISemanticLoader loader)
                 .ToList();
         }
         return [];
+    }
+
+    /// <summary>
+    /// True when the seed names an existing member that is not a method or property (ImpactUnsupported); false when
+    /// the file or member is not there (ImpactSeedNotFound), e.g. a legacy project whose Compile list omits the file.
+    /// The file is read from disk when no loaded project holds it.
+    /// </summary>
+    private async Task<bool> DeclaresOtherKindAsync(Solution solution, Workspace ws, ImpactSeed seed, CancellationToken ct)
+    {
+        var seedPath = Normalize(seed.Path);
+        var document = solution.Projects.SelectMany(p => p.Documents)
+            .FirstOrDefault(d => d.FilePath is not null && PathComparers.ForOs.Equals(Relative(ws, d.FilePath), seedPath));
+        SyntaxNode? root = document is null ? null : await document.GetSyntaxRootAsync(ct);
+        root ??= NameImpactFinder.ReadRoot(fs, ws, seedPath);
+        return root is not null && NameImpactFinder.DeclaresOtherKind(root, seed);
     }
 
     private static bool Declares(MemberDeclarationSyntax m, string name) =>

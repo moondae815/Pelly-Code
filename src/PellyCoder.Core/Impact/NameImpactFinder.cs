@@ -23,6 +23,7 @@ public static class NameImpactFinder
         var (files, incomplete) = Load(fs, ws, projects, maxDirectories);
         var targets = new List<ImpactTarget>();
         var unsupported = new List<string>();
+        var notFound = new List<string>();
 
         foreach (var seed in seeds)
         {
@@ -31,20 +32,39 @@ public static class NameImpactFinder
             var seedTypes = seedFile is null ? [] : SeedTypes(seedFile.Root, seed);
             if (seedTypes.Count == 0)
             {
-                unsupported.Add(seed.TaskId);
+                (seedFile is not null && DeclaresOtherKind(seedFile.Root, seed) ? unsupported : notFound).Add(seed.TaskId);
                 continue;
             }
 
             targets.AddRange(FindFor(files, seed, seedPath, seedTypes));
         }
 
-        return new ImpactResult(ImpactMode.Name, fallback, targets, unsupported, incomplete);
+        return new ImpactResult(ImpactMode.Name, fallback, targets, unsupported, incomplete) { SeedsNotFound = notFound };
     }
 
     private static List<TypeDeclarationSyntax> SeedTypes(SyntaxNode root, ImpactSeed seed) =>
         root.DescendantNodes().OfType<TypeDeclarationSyntax>()
             .Where(t => (seed.ClassName is null || t.Identifier.Text == seed.ClassName) && t.Members.Any(m => IsSeedKind(m, seed.Member)))
             .ToList();
+
+    /// <summary>
+    /// True when the seed's type declares a member of that name that is not a method or property (a field, event,
+    /// constructor, nested type…): the seed exists but the search does not start from it. False means not found.
+    /// </summary>
+    internal static bool DeclaresOtherKind(SyntaxNode root, ImpactSeed seed) =>
+        root.DescendantNodes().OfType<TypeDeclarationSyntax>()
+            .Where(t => seed.ClassName is null || t.Identifier.Text == seed.ClassName)
+            .Any(t => t.Members.Any(m => DeclaredNames(t, m).Contains(seed.Member)));
+
+    private static IEnumerable<string> DeclaredNames(TypeDeclarationSyntax type, MemberDeclarationSyntax m) => m switch
+    {
+        BaseFieldDeclarationSyntax f => f.Declaration.Variables.Select(v => v.Identifier.Text),
+        EventDeclarationSyntax e => [e.Identifier.Text],
+        ConstructorDeclarationSyntax or DestructorDeclarationSyntax => [type.Identifier.Text],
+        BaseTypeDeclarationSyntax nested => [nested.Identifier.Text],
+        DelegateDeclarationSyntax d => [d.Identifier.Text],
+        _ => [],
+    };
 
     private static bool IsSeedKind(MemberDeclarationSyntax m, string name) =>
         (m is MethodDeclarationSyntax method && method.Identifier.Text == name)
@@ -93,13 +113,18 @@ public static class NameImpactFinder
                     Add(file.Path, member.SpanStart, name, "기반 멤버");
                 else if (BaseNames(type).Any(related.Contains))
                     Add(file.Path, member.SpanStart, name, member.Modifiers.Any(SyntaxKind.OverrideKeyword) ? "재정의" : "구현");
+                else if (seedTypeNames.Contains(type.Identifier.Text))
+                    // Another part of a partial seed type (or a same-named type): its base list may sit on the
+                    // seed's part only, so the name of the type is the one link left.
+                    Add(file.Path, member.SpanStart, name, "구현");
             }
 
         foreach (var file in files)
-            foreach (var reference in file.Root.DescendantNodes().OfType<IdentifierNameSyntax>().Where(i => i.Identifier.Text == name))
+            // SimpleNameSyntax: a call with explicit type arguments (Get<Order>()) is a GenericNameSyntax.
+            foreach (var reference in file.Root.DescendantNodes().OfType<SimpleNameSyntax>().Where(i => i.Identifier.Text == name))
             {
                 var (member, reason) = Enclosing(reference);
-                if (member is not null) Add(file.Path, reference.SpanStart, member, reason);
+                Add(file.Path, reference.SpanStart, member, reason);
             }
 
         return found
@@ -107,8 +132,15 @@ public static class NameImpactFinder
             .Select(f => new ImpactTarget(seed.TaskId, f.Path, f.Member, f.Reason));
     }
 
-    /// <summary>The member that holds a reference, named like <c>MemberLocator</c>; fields, indexers and the like give the enclosing type.</summary>
-    internal static (string? Member, string Reason) Enclosing(SyntaxNode node)
+    /// <summary>Member name of a place outside every type: top-level statements, assembly attributes.</summary>
+    public const string TopLevel = "<top-level>";
+
+    /// <summary>
+    /// The member that holds a reference, named like <c>MemberLocator</c>; fields, indexers and the like give the
+    /// enclosing type, and a place outside every type (top-level statements) gives <see cref="TopLevel"/>. Never
+    /// drops a place: no spec task can name <see cref="TopLevel"/>, so it always warns, which beats silence.
+    /// </summary>
+    internal static (string Member, string Reason) Enclosing(SyntaxNode node)
     {
         foreach (var ancestor in node.Ancestors())
         {
@@ -120,10 +152,10 @@ public static class NameImpactFinder
                 case BaseTypeDeclarationSyntax t: return (t.Identifier.Text, "멤버 밖");
                 case BaseFieldDeclarationSyntax or IndexerDeclarationSyntax or OperatorDeclarationSyntax
                     or ConversionOperatorDeclarationSyntax or DestructorDeclarationSyntax:
-                    return (OuterTypeName(ancestor), "멤버 밖");
+                    return (OuterTypeName(ancestor) ?? TopLevel, "멤버 밖");
             }
         }
-        return (null, "");
+        return (TopLevel, "멤버 밖");
     }
 
     private static string? OuterTypeName(SyntaxNode node) => node.Ancestors().OfType<BaseTypeDeclarationSyntax>().FirstOrDefault()?.Identifier.Text;
@@ -161,6 +193,9 @@ public static class NameImpactFinder
         }
         return (result, incomplete);
     }
+
+    /// <summary>The parsed syntax root of a workspace-relative file; null when it is missing or unreadable.</summary>
+    internal static SyntaxNode? ReadRoot(IFileSystem fs, Workspace ws, string relative) => Read(fs, ws, relative)?.Root;
 
     private static Parsed? Read(IFileSystem fs, Workspace ws, string relative)
     {

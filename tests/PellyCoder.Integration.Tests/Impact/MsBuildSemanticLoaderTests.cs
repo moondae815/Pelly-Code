@@ -12,16 +12,21 @@ public sealed class RestoredSameNameFixture : IAsyncLifetime
 {
     public string Root { get; private set; } = "";
 
-    public async ValueTask InitializeAsync()
+    public async ValueTask InitializeAsync() => Root = await CreateRestoredAsync();
+
+    /// <summary>A restored copy of SameName; <paramref name="edit"/> may change the copy before the restore.</summary>
+    internal static async Task<string> CreateRestoredAsync(Action<string>? edit = null)
     {
-        Root = CorpusCopy.CreateFrom(SameNameSource.Path());
+        var root = CorpusCopy.CreateFrom(SameNameSource.Path());
+        edit?.Invoke(root);
         // Restore the one project that references the other two, not SameName.sln: on macOS the temp root is
         // /var/... (a link to /private/var/...), and the solution restore then saw Data.csproj under both spellings
         // and restored it twice in parallel, failing with "Web.csproj.nuget.g.props already exists".
         var restore = await new SystemProcessRunner(TimeProvider.System).RunAsync(
-            new ProcessSpec("dotnet", ["restore", Path.Combine(Root, "Web.Tests", "Web.Tests.csproj"), "--nologo"], Root, TimeSpan.FromMinutes(5)),
+            new ProcessSpec("dotnet", ["restore", Path.Combine(root, "Web.Tests", "Web.Tests.csproj"), "--nologo"], root, TimeSpan.FromMinutes(5)),
             CancellationToken.None);
         Assert.True(restore.ExitCode == 0, "dotnet restore 실패:\n" + restore.StdOut + restore.StdErr);
+        return root;
     }
 
     public ValueTask DisposeAsync()

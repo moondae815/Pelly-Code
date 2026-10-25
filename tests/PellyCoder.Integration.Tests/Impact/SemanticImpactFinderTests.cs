@@ -1,6 +1,7 @@
 using System.IO.Abstractions;
 using PellyCoder.Core.Impact;
 using PellyCoder.Core.Workspaces;
+using PellyCoder.Integration.Tests.Builds;
 
 namespace PellyCoder.Integration.Tests.Impact;
 
@@ -62,12 +63,24 @@ public sealed class SemanticImpactFinderTests(RestoredSameNameFixture fx) : ICla
     }
 
     [Fact]
-    public async Task Seed_not_in_the_solution_is_unsupported()
+    public async Task Seed_not_in_the_solution_is_not_found()
     {
         var result = await FindAsync(new ImpactSeed("T4", 5, "Data/OrderDao.cs", "OrderDao", "NoSuchMember"));
 
         Assert.Equal(ImpactMode.Semantic, result.Mode);
+        Assert.Equal(["T4"], result.SeedsNotFound);
+        Assert.Empty(result.UnsupportedSeeds);
+        Assert.Empty(result.Targets);
+    }
+
+    [Fact]
+    public async Task Field_seed_is_unsupported()
+    {
+        var result = await FindAsync(new ImpactSeed("T4", 5, "Web/OrderService.cs", "OrderService", "_dao"));
+
+        Assert.Equal(ImpactMode.Semantic, result.Mode);
         Assert.Equal(["T4"], result.UnsupportedSeeds);
+        Assert.Empty(result.SeedsNotFound);
         Assert.Empty(result.Targets);
     }
 
@@ -111,5 +124,54 @@ public sealed class SemanticImpactFinderTests(RestoredSameNameFixture fx) : ICla
         Assert.Equal(ImpactMode.Semantic, result.Mode);
         Assert.Empty(result.UnsupportedSeeds);
         Assert.Empty(result.Targets);
+    }
+}
+
+/// <summary>SameName with Web turned into an app whose Program.cs uses top-level statements.</summary>
+public sealed class RestoredTopLevelFixture : IAsyncLifetime
+{
+    public string Root { get; private set; } = "";
+
+    public async ValueTask InitializeAsync() => Root = await RestoredSameNameFixture.CreateRestoredAsync(root =>
+    {
+        var csproj = Path.Combine(root, "Web", "Web.csproj");
+        File.WriteAllText(csproj, File.ReadAllText(csproj).Replace("<TargetFramework>", "<OutputType>Exe</OutputType>\n    <TargetFramework>"));
+        File.WriteAllText(Path.Combine(root, "Web", "Program.cs"),
+            "using SameName.Web;\n\nIOrderService service = new OrderService(null!);\nConsole.WriteLine(service.GetOrder(1).Id);\n");
+    });
+
+    public ValueTask DisposeAsync()
+    {
+        CorpusCopy.Delete(Root);
+        return ValueTask.CompletedTask;
+    }
+}
+
+public sealed class TopLevelImpactTests(RestoredTopLevelFixture fx) : IClassFixture<RestoredTopLevelFixture>
+{
+    private static readonly ImpactSeed Seed = new("T1", 5, "Web/IOrderService.cs", "IOrderService", "GetOrder");
+
+    [Fact]
+    public async Task Semantic_caller_in_top_level_statements_is_reported_outside_a_member()
+    {
+        var ws = new Workspace(fx.Root, Path.Combine(fx.Root, ".pelly"));
+
+        var result = await ImpactFinders.Default(new FileSystem()).FindAsync(ws, [Seed], TestContext.Current.CancellationToken);
+
+        Assert.Equal(ImpactMode.Semantic, result.Mode);
+        Assert.Contains(new ImpactTarget("T1", "Web/Program.cs", "<top-level>", "멤버 밖"), result.Targets);
+        Assert.Contains(new ImpactTarget("T1", "Web/OrderController.cs", "Detail", "호출"), result.Targets);
+    }
+
+    [Fact]
+    public void Name_caller_in_top_level_statements_is_reported_outside_a_member()
+    {
+        var fs = new FileSystem();
+        var ws = new Workspace(fx.Root, Path.Combine(fx.Root, ".pelly"));
+        var projects = ImpactScope.Projects(fs, ws, [Path.Combine(fx.Root, "Web", "IOrderService.cs")]);
+
+        var result = NameImpactFinder.Find(fs, ws, [Seed], projects, new SemanticFailure(SemanticFailureKind.LoadFailed));
+
+        Assert.Contains(new ImpactTarget("T1", "Web/Program.cs", "<top-level>", "멤버 밖"), result.Targets);
     }
 }

@@ -38,10 +38,25 @@ public static class ImpactCheck
         foreach (var id in result.UnsupportedSeeds)
             issues.Add(Warning(LineOf(id), "ImpactUnsupported", $"작업 {id}: 영향 탐색은 메서드·속성만 봅니다."));
 
+        foreach (var id in result.SeedsNotFound)
+        {
+            var seed = seeds.FirstOrDefault(s => s.TaskId == id);
+            var where = seed is null ? "" : $": {seed.Path}#{(seed.ClassName is null ? seed.Member : seed.ClassName + "." + seed.Member)}";
+            issues.Add(Warning(LineOf(id), "ImpactSeedNotFound", $"작업 {id}: 영향 탐색 시작점을 찾지 못했습니다{where}"));
+        }
+
+        // One warning per place, however many seeds reach it: on the first seed's line, naming every seed.
         // Every task counts here, done ones included: a target already handled earlier is not missing.
-        foreach (var target in result.Targets.Where(t => !spec.Tasks.Any(task => Covers(task, t))))
-            issues.Add(Warning(LineOf(target.SeedTaskId), "ImpactMissing",
-                $"작업 {target.SeedTaskId}의 영향 대상이 명세에 없습니다: {target.Path}#{target.Member} ({target.Reason})"));
+        var places = result.Targets
+            .Where(t => !spec.Tasks.Any(task => Covers(task, t)))
+            .GroupBy(t => (Path: Normalize(t.Path), t.Member), PlaceComparer.Instance);
+        foreach (var place in places)
+        {
+            var first = place.First();
+            var ids = string.Join(", ", place.Select(t => t.SeedTaskId).Distinct(StringComparer.Ordinal));
+            issues.Add(Warning(LineOf(first.SeedTaskId), "ImpactMissing",
+                $"작업 {ids}의 영향 대상이 명세에 없습니다: {place.Key.Path}#{place.Key.Member} ({first.Reason})"));
+        }
 
         return issues;
     }
@@ -58,6 +73,18 @@ public static class ImpactCheck
     }
 
     private static string Normalize(string path) => path.Replace('\\', '/');
+
+    /// <summary>Same place: OS path comparison (separators already normalized) and ordinal member name.</summary>
+    private sealed class PlaceComparer : IEqualityComparer<(string Path, string Member)>
+    {
+        public static readonly PlaceComparer Instance = new();
+
+        public bool Equals((string Path, string Member) x, (string Path, string Member) y) =>
+            PathComparers.ForOs.Equals(x.Path, y.Path) && string.Equals(x.Member, y.Member, StringComparison.Ordinal);
+
+        public int GetHashCode((string Path, string Member) obj) =>
+            HashCode.Combine(PathComparers.ForOs.GetHashCode(obj.Path), StringComparer.Ordinal.GetHashCode(obj.Member));
+    }
 
     private static SpecIssue Warning(int line, string code, string message) => new(line, SpecIssueSeverity.Warning, code, message);
 }

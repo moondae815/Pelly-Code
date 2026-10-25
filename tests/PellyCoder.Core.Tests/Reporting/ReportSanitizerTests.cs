@@ -75,6 +75,37 @@ public sealed class ReportSanitizerTests
         Assert.Contains("명세 완료율", report.ToMarkdown());
     }
 
+    private static IReadOnlyList<string> Lines(string md) => md.Replace("\r\n", "\n").Split('\n');
+
+    [Fact]
+    public void Markdown_keeps_a_blank_line_after_the_summary_table_without_apply_data()
+    {
+        var runs = new[] { Rec(Injected()) };
+        var lines = Lines(ReportSanitizer.Sanitize(runs, RunReport.Build(runs)).ToMarkdown());
+
+        var at = lines.ToList().IndexOf("## 종류");
+        Assert.True(at > 1);
+        Assert.Equal("", lines[at - 1]);
+        Assert.StartsWith("| 단일 작업 완료 시간", lines[at - 2]);
+        Assert.DoesNotContain("## 명세", lines);
+    }
+
+    [Fact]
+    public void Markdown_keeps_blank_lines_around_the_apply_section()
+    {
+        var runs = new[] { Rec(Injected()) };
+        var apply = ApplyReport.Build([ApplyReportTests.Apply("apply-20261018-101010-abcd", 0, archived: true)]);
+        var lines = Lines(ReportSanitizer.Sanitize(runs, RunReport.Build(runs), apply).ToMarkdown()).ToList();
+
+        var at = lines.IndexOf("## 명세");
+        Assert.True(at > 1);
+        Assert.Equal("", lines[at - 1]);
+        Assert.StartsWith("| 단일 작업 완료 시간", lines[at - 2]);
+        var next = lines.IndexOf("## 종류");
+        Assert.Equal("", lines[next - 1]);
+        Assert.StartsWith("| 그룹 빌드 통과율", lines[next - 2]);
+    }
+
     [Fact]
     public void Sanitize_UsesInvariantCulture()
     {

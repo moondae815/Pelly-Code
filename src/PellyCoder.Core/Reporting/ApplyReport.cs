@@ -50,10 +50,10 @@ public static class ApplyReport
     private static GroupOutcome Judge(IEnumerable<ApplyTaskResult> tasks)
     {
         var list = tasks.ToList();
-        if (list.Any(t => t.FailureKind is "GroupBuildFailed" or "GroupMissingTarget")) return GroupOutcome.Failed;
-        if (list.Any(t => t.FailureKind == "GroupUnverifiable")) return GroupOutcome.Unverifiable;
+        if (list.Any(t => t.FailureKind is GroupFailureKinds.BuildFailed or GroupFailureKinds.MissingTarget)) return GroupOutcome.Failed;
+        if (list.Any(t => t.FailureKind == GroupFailureKinds.Unverifiable)) return GroupOutcome.Unverifiable;
         // A rejected group, or a task that failed before the group build, never reached a build verdict.
-        if (list.Any(t => t.FailureKind == "GroupRejected" || t.ExitCode != 0)) return GroupOutcome.NotJudged;
+        if (list.Any(t => t.FailureKind == GroupFailureKinds.Rejected || t.ExitCode != 0)) return GroupOutcome.NotJudged;
         return GroupOutcome.Passed;
     }
 }

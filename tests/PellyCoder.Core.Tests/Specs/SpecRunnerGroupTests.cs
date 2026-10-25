@@ -508,6 +508,44 @@ public sealed class SpecRunnerGroupTests : IDisposable
         });
     }
 
+    [Theory]
+    [InlineData("build-failed")]
+    [InlineData("unverifiable-after-edit")]
+    [InlineData("rejected")]
+    public async Task Apply_json_stamps_each_group_failure_kind_on_the_group_tasks(string scenario)
+    {
+        Spec(Group);
+        bool yes = true;
+        string expected;
+        switch (scenario)
+        {
+            case "build-failed":
+                _builds.Results.Enqueue(Built());
+                _builds.Fallback = Built(Error("src/App/Repo.cs", 7));
+                expected = "GroupBuildFailed";
+                break;
+            case "unverifiable-after-edit":
+                _builds.Results.Enqueue(Built());
+                _builds.Results.Enqueue(new GroupBuild(false, "그룹 빌드 검증 불가: 시간 초과", GroupVerifier.UnverifiableKind, []));
+                expected = "GroupUnverifiable";
+                break;
+            default:
+                _ui.ConfirmAnswers.Enqueue(false);
+                yes = false;
+                expected = "GroupRejected";
+                break;
+        }
+        await Run(Opts(yes: yes, maxRetries: 1));
+
+        var tasks = ReadApply().GetProperty("tasks").EnumerateArray().ToList();
+        Assert.NotEmpty(tasks);
+        Assert.All(tasks, t =>
+        {
+            Assert.Equal(expected, t.GetProperty("failureKind").GetString());
+            Assert.Equal("G1", t.GetProperty("group").GetString());
+        });
+    }
+
     [Fact]
     public async Task Resume_after_failed_group_restarts_at_group_start()
     {

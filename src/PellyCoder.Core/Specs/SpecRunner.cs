@@ -386,12 +386,12 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                 {
                     // A re-run cannot fix a member no task may touch: the spec is missing a task.
                     owner.Ui.Warn($"그룹 {g.Id}: 명세에 빠진 영향 대상: {string.Join(", ", attribution.Unattributed.Select(u => u.Location).Distinct())}");
-                    return await UndoGroupAsync(tx, g, "GroupMissingTarget", 1);
+                    return await UndoGroupAsync(tx, g, GroupFailureKinds.MissingTarget, 1);
                 }
                 if (reruns >= max)
                 {
                     owner.Ui.Warn($"그룹 {g.Id}: 재실행 {max}번 뒤에도 그룹 빌드에 새 오류가 있습니다: {string.Join(", ", newErrors.Select(e => e.Code).Distinct())}");
-                    return await UndoGroupAsync(tx, g, "GroupBuildFailed", 1);
+                    return await UndoGroupAsync(tx, g, GroupFailureKinds.BuildFailed, 1);
                 }
 
                 // Every feedback quotes the files as this build saw them: a re-run rewrites its file, and a later task on
@@ -416,7 +416,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             {
                 foreach (var (file, before, after) in tx.GroupChanges()) owner.Ui.ShowDiff(file, before, after);
                 if (!await owner.Ui.ConfirmAsync("이 그룹을 적용할까요?", false, ct))
-                    return await UndoGroupAsync(tx, g, "GroupRejected", 2);
+                    return await UndoGroupAsync(tx, g, GroupFailureKinds.Rejected, 2);
             }
 
             tx.EndGroup();
@@ -541,7 +541,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
         private async Task<GroupEnd> UndoGroupAsync(ApplyTransaction tx, GroupState g, string? failureKind, int exitCode)
         {
             var notRestored = await tx.RollbackGroupAsync(CancellationToken.None); // also closes the group
-            if (failureKind is not null && failureKind.StartsWith("Group", StringComparison.Ordinal)) StampGroupFailure(g, failureKind);
+            if (GroupFailureKinds.IsGroupKind(failureKind)) StampGroupFailure(g, failureKind!);
 
             var unrestored = new HashSet<string>(notRestored, SpecTaskPaths.Comparer);
             var kept = g.Tasks.Where(t => g.Succeeded.TryGetValue(t.Id, out var s) && unrestored.Contains(s.Path)).Select(t => t.Id).ToList();

@@ -60,6 +60,7 @@ public sealed record SanitizedReport(SanitizedAggregate Aggregate, IReadOnlyList
         sb.AppendLine($"| 패치 포맷 파싱 성공률 | {(a.ParseRate is { } r ? Pct(r) : "-")} ({N(a.ParseOk)}/{N(a.ParseTotal)} 시도) |");
         sb.AppendLine($"| 최종 작업 성공률 | {Pct(a.SuccessRate)} ({N(a.SuccessCount)}/{N(a.RunCount)}건) |");
         sb.AppendLine($"| 단일 작업 완료 시간 | {Describe(a.TaskSeconds)} |");
+        sb.AppendLine();
         if (a.Apply is { } ap)
         {
             sb.AppendLine("## 명세").AppendLine();

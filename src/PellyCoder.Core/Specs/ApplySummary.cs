@@ -25,3 +25,14 @@ public sealed record ApplySummary(
     string? ImpactFallback = null,
     int TaskCount = 0,
     bool Resumed = false);
+
+/// <summary>The failure kinds a task result carries when its whole group failed (see <c>SpecRunner</c>, <c>ApplyReport</c>).</summary>
+public static class GroupFailureKinds
+{
+    public const string Unverifiable = "GroupUnverifiable";
+    public const string BuildFailed = "GroupBuildFailed";
+    public const string MissingTarget = "GroupMissingTarget";
+    public const string Rejected = "GroupRejected";
+
+    public static bool IsGroupKind(string? kind) => kind is Unverifiable or BuildFailed or MissingTarget or Rejected;
+}

@@ -128,6 +128,23 @@ public class SpecCommandTests
     }
 
     [Fact]
+    public void Check_without_impact_searches_only_group_cs_tasks()
+    {
+        var h = Build();
+        h.Fs.AddFile("/w/src/Order.cs", new MockFileData("namespace App;\npublic class Order\n{\n    public void Cancel() { }\n    public void Ship() { }\n    public void Pack() { }\n}\n"));
+        h.Fs.AddFile("/w/changes/g.md", new MockFileData(Spec(
+            "- [ ] T1 cs src/Order.cs#Order.Cancel 바꾼다 [G1]\n- [ ] T2 cs src/Order.cs#Order.Ship 바꾼다 [G1]\n" +
+            "- [ ] T3 cs src/Order.cs#Order.Pack 바꾼다\n- [ ] T4 sql src/A.sql 바꾼다\n")));
+        h.Finder.Result = new ImpactResult(ImpactMode.Semantic, null, [new ImpactTarget("T2", "src/Web.cs", "Detail", "호출")], []);
+
+        var result = h.Run("spec", "check", "changes/g.md");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(["T1", "T2"], Assert.Single(h.Finder.Calls).Select(s => s.TaskId));
+        Assert.Contains("[ImpactMissing] 작업 T2의 영향 대상이 명세에 없습니다: src/Web.cs#Detail (호출)", result.Output);
+    }
+
+    [Fact]
     public void Check_missing_file_exits_4()
     {
         Assert.Equal(4, Build().Run("spec", "check", "changes/none.md").ExitCode);

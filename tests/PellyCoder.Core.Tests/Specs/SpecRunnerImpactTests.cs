@@ -62,9 +62,9 @@ public sealed class SpecRunnerImpactTests : IDisposable
 
     private static ApplyOptions Yes => new(false, false, false, true, false, null, false);
 
-    private Task<int> Run() =>
+    private Task<int> Run(ApplyOptions? o = null) =>
         new SpecRunner(_fs, _guard, _exec, _ui, _time, 160, groups: new PassingGroups(), impact: _finder)
-            .RunAsync(SpecPath, Yes, TestContext.Current.CancellationToken);
+            .RunAsync(SpecPath, o ?? Yes, TestContext.Current.CancellationToken);
 
     private JsonElement ApplyJson()
     {
@@ -111,6 +111,39 @@ public sealed class SpecRunnerImpactTests : IDisposable
     }
 
     [Fact]
+    public async Task Refusals_come_before_the_impact_search()
+    {
+        Spec(Group);
+
+        // Non-interactive without --yes.
+        Assert.Equal(4, await Run(new ApplyOptions(false, false, false, false, false, null, false)));
+        // Non-interactive --review-at-end.
+        Assert.Equal(4, await Run(new ApplyOptions(false, false, true, true, false, null, false)));
+        // Another pelly run holds the workspace.
+        using (WorkspaceLock.TryAcquire(_fs, new Workspace(_root, P(".pelly"))))
+            Assert.Equal(4, await Run());
+
+        Assert.Empty(_finder.Calls);
+        Assert.Empty(_exec.Calls);
+    }
+
+    [Fact]
+    public async Task Declined_impact_warning_releases_the_lock()
+    {
+        Spec(Group);
+        _ui.IsInteractive = true;
+        _ui.ConfirmAnswers.Enqueue(false);
+        _finder.Result = new ImpactResult(ImpactMode.Semantic, null, [new ImpactTarget("T1", "src/App/Web.cs", "Detail", "호출")], []);
+
+        Assert.Equal(2, await Run(new ApplyOptions(false, false, false, false, false, null, false)));
+
+        Assert.Single(_finder.Calls);
+        Assert.Empty(_exec.Calls);
+        using var again = WorkspaceLock.TryAcquire(_fs, new Workspace(_root, P(".pelly")));
+        Assert.NotNull(again);
+    }
+
+    [Fact]
     public async Task No_group_no_impact_call()
     {
         Spec("- [ ] T1 cs src/App/OrderService.cs#OrderService.GetOrder 바꾼다\n- [ ] T2 sql db/a.sql 바꾼다\n");
@@ -144,7 +177,7 @@ public sealed class SpecRunnerImpactTests : IDisposable
         Spec(Group);
         _finder.Throw = new OperationCanceledException();
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(Run);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Run());
         Assert.Empty(_exec.Calls);
     }
 

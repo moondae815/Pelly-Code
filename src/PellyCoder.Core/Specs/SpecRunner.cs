@@ -53,7 +53,8 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
 
     public async Task<int> RunAsync(string specPath, ApplyOptions o, CancellationToken ct)
     {
-        var check = await SpecChecker.CheckAsync(fs, specPath, sqlCompatLevel, impact, false, ct);
+        // Static check and the cheap refusals first: the impact search can take up to the semantic load timeout.
+        var check = SpecChecker.Check(fs, specPath, sqlCompatLevel);
         if (check.HasErrors)
         {
             foreach (var issue in check.Issues) ui.Warn(Format(issue));
@@ -74,14 +75,6 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             return 4;
         }
 
-        var warnings = check.Issues.Where(i => i.Severity == SpecIssueSeverity.Warning).ToList();
-        if (warnings.Count > 0)
-        {
-            foreach (var issue in warnings) ui.Warn(Format(issue));
-            if (ui.IsInteractive && !o.Yes && !await ui.ConfirmAsync("경고가 있습니다. 계속할까요?", false, ct))
-                return 2;
-        }
-
         var ws = check.Workspace;
         var held = WorkspaceLock.TryAcquire(fs, ws);
         if (held is null)
@@ -90,16 +83,26 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             return 4;
         }
 
-        var run = new ApplyRun(this, ws, specPath, o, warnings, check.Impact);
+        ApplyRun? run = null;
         try
         {
+            check = await SpecChecker.AddImpactAsync(check, impact, false, ct);
+            var warnings = check.Issues.Where(i => i.Severity == SpecIssueSeverity.Warning).ToList();
+            if (warnings.Count > 0)
+            {
+                foreach (var issue in warnings) ui.Warn(Format(issue));
+                if (ui.IsInteractive && !o.Yes && !await ui.ConfirmAsync("경고가 있습니다. 계속할까요?", false, ct))
+                    return 2;
+            }
+
+            run = new ApplyRun(this, ws, specPath, o, warnings, check.Impact);
             return await run.ExecuteAsync(ct);
         }
         finally
         {
             try
             {
-                if (run.ApplyId is not null) pruneRuns?.Invoke(ws, run.ApplyId);
+                if (run?.ApplyId is not null) pruneRuns?.Invoke(ws, run.ApplyId);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {

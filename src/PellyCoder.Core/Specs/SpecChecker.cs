@@ -51,10 +51,13 @@ public static partial class SpecChecker
     /// the warning feature never blocks a spec.
     /// </summary>
     /// <param name="impactAllCsTasks">Seed every not-done cs task (<c>spec check --impact</c>), not just the grouped ones.</param>
-    public static async Task<SpecCheckResult> CheckAsync(
-        IFileSystem fs, string specPath, int sqlCompatLevel, IImpactFinder? impact, bool impactAllCsTasks, CancellationToken ct)
+    public static Task<SpecCheckResult> CheckAsync(
+        IFileSystem fs, string specPath, int sqlCompatLevel, IImpactFinder? impact, bool impactAllCsTasks, CancellationToken ct) =>
+        AddImpactAsync(Check(fs, specPath, sqlCompatLevel), impact, impactAllCsTasks, ct);
+
+    /// <summary>The impact half of <see cref="CheckAsync"/>, for a caller that refuses cheaply between the static check and the search.</summary>
+    public static async Task<SpecCheckResult> AddImpactAsync(SpecCheckResult check, IImpactFinder? impact, bool impactAllCsTasks, CancellationToken ct)
     {
-        var check = Check(fs, specPath, sqlCompatLevel);
         if (impact is null || check.HasErrors) return check;
         var seeds = ImpactCheck.Seeds(check.Spec, impactAllCsTasks);
         if (seeds.Count == 0) return check;

@@ -32,6 +32,9 @@ public sealed class BuildVerifier(IProcessRunner processes, BuildOptions options
         ["DOTNET_CLI_WORKLOAD_UPDATE_NOTIFY_DISABLE"] = "1",
     };
 
+    /// <summary>The time limit of one build (<c>build.timeoutSeconds</c>), for messages about a build that ran out of it.</summary>
+    public int TimeoutSeconds => options.TimeoutSeconds;
+
     public Task<BuildRun> BuildAsync(BuildTool tool, string csprojPath, string workspaceRoot, CancellationToken ct) =>
         BuildAsync(tool, csprojPath, workspaceRoot, null, ct);
 

@@ -112,12 +112,22 @@ public sealed class GroupErrorAttributionTests
     [Fact]
     public void Group_file_matches_by_full_path_with_os_comparer()
     {
-        if (!OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS()) return; // case-sensitive file systems keep case
         var member = Divide with { FullPath = P("app/calc.cs") };
 
         var result = GroupErrorAttribution.Attribute(_fs, Ws, [Error("App/Calc.cs", 7)], [member], LanguageVersion.Latest);
 
-        Assert.Single(result.ByTask["T1"]);
+        if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
+        {
+            // Case-insensitive file systems: app/calc.cs is the file the error names.
+            Assert.Single(result.ByTask["T1"]);
+            Assert.Empty(result.Unattributed);
+        }
+        else
+        {
+            // Case-sensitive: a different file, so the error has no owner in the group.
+            Assert.Empty(result.ByTask);
+            Assert.Equal("App/Calc.cs#Divide", Assert.Single(result.Unattributed).Location);
+        }
     }
 
     // The base list is on line 4; GetOrder spans 6-9, Helper 11-14.

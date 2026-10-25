@@ -73,6 +73,15 @@ public static class BuildMessages
             ? $"빌드 출력 파일이 잠겨 있어 빌드 검증을 할 수 없습니다: {blocker.Code} {blocker.Message}. 실행 중인 프로그램(디버거 포함)을 닫고 다시 시도하세요"
             : $"빌드 검증을 할 수 없습니다: {blocker.Code} {blocker.Message}. {otherwiseHint}";
 
+    /// <summary>
+    /// The same cause without the "빌드 검증을 할 수 없습니다" lead, for a caller whose own prefix already says the build
+    /// cannot verify (a group's "그룹 빌드 검증 불가 (project): ").
+    /// </summary>
+    public static string BlockerDetail(Diagnostic blocker, string otherwiseHint) =>
+        LockCodes.Contains(blocker.Code)
+            ? $"빌드 출력 파일이 잠겨 있습니다: {blocker.Code} {blocker.Message.TrimEnd('.')}. 실행 중인 프로그램(디버거 포함)을 닫고 다시 시도하세요"
+            : $"{blocker.Code} {blocker.Message.TrimEnd('.')}. {otherwiseHint}";
+
     public static string CannotStart(BuildTool tool, Exception ex) =>
         $"빌드 도구를 실행할 수 없습니다: {tool.Executable} ({ex.InnerException?.Message ?? ex.Message}). pelly doctor로 확인하세요";
 }

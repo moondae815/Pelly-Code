@@ -84,11 +84,11 @@ public sealed class GroupVerifier(IFileSystem fs, BuildVerifier builds, BuildToo
             }
 
             if (run.TimedOut)
-                return Unverifiable(ws, projects[i], "빌드가 제한 시간 안에 끝나지 않았습니다 (build.timeoutSeconds)");
+                return Unverifiable(ws, projects[i], $"빌드가 {builds.TimeoutSeconds}초 안에 끝나지 않았습니다 (build.timeoutSeconds)");
             // NETSDK/MSB/NU or the synthetic BUILD error: the compiler never judged the code.
             if (run.Errors.FirstOrDefault(e => !BuildMessages.IsCompilerError(e)) is { } blocker)
                 return Unverifiable(ws, projects[i],
-                    BuildMessages.Unverifiable(blocker, "프로젝트를 복원(dotnet restore 또는 Visual Studio 복원)하고 빌드되는지 먼저 확인하세요"));
+                    BuildMessages.BlockerDetail(blocker, "프로젝트를 복원(dotnet restore 또는 Visual Studio 복원)하고 빌드되는지 먼저 확인하세요"));
 
             errors.AddRange(run.Errors.Select(e => UnderWorkspace(ws, projects[i], e)).Where(seen.Add));
         }

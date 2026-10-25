@@ -120,8 +120,39 @@ public sealed class GroupVerifierTests
         Assert.False(result.Verifiable);
         Assert.Equal("GroupUnverifiable", result.FailureKind);
         Assert.Empty(result.Errors);
-        Assert.Contains("그룹 빌드 검증 불가", result.Reason);
-        Assert.Contains("NETSDK1004", result.Reason);
+        Assert.Contains("그룹 빌드 검증 불가 (Lib/Lib.csproj): NETSDK1004 Assets file not found.", result.Reason);
+        Assert.DoesNotContain("검증을 할 수 없습니다", result.Reason); // "검증 불가" already says it
+        Assert.Contains("dotnet restore", result.Reason);
+    }
+
+    [Fact]
+    public async Task Locked_output_baseline_error_keeps_its_hint()
+    {
+        Script(1, new()
+        {
+            [App] = Build(1, false, $"/usr/share/dotnet/sdk/Microsoft.Common.CurrentVersion.targets(4,5): error MSB3027: Could not copy App.dll. [{App}]"),
+        });
+
+        var result = await Verifier().BuildAsync(Ws, [App], TestContext.Current.CancellationToken);
+
+        Assert.False(result.Verifiable);
+        Assert.Contains("그룹 빌드 검증 불가 (App/App.csproj): 빌드 출력 파일이 잠겨 있습니다: MSB3027", result.Reason);
+        Assert.Contains("실행 중인 프로그램", result.Reason);
+        Assert.DoesNotContain("검증을 할 수 없습니다", result.Reason);
+    }
+
+    [Fact]
+    public async Task Missing_build_tool_is_unverifiable_before_building()
+    {
+        // Windows, a legacy project, no build.msbuildPath and no vswhere: MSBuild cannot be found.
+        var result = await Verifier(windows: true).BuildAsync(Ws, [App, Legacy], TestContext.Current.CancellationToken);
+
+        Assert.False(result.Verifiable);
+        Assert.Equal("GroupUnverifiable", result.FailureKind);
+        Assert.Contains("그룹 빌드 검증 불가 (Old/Old.csproj)", result.Reason);
+        Assert.Contains("MSBuild.exe를 찾을 수 없습니다", result.Reason);
+        Assert.Empty(result.Errors);
+        Assert.DoesNotContain(_processes.Calls, c => c.Arguments.Count > 0 && c.Arguments[0] == "build");
     }
 
     [Fact]
@@ -168,6 +199,7 @@ public sealed class GroupVerifierTests
         Assert.False(result.Verifiable);
         Assert.Equal("GroupUnverifiable", result.FailureKind);
         Assert.Contains("App/App.csproj", result.Reason);
+        Assert.Contains($"{new BuildOptions().TimeoutSeconds}초 안에", result.Reason);
         Assert.Single(_processes.Calls);
     }
 

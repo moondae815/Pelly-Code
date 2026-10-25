@@ -359,6 +359,71 @@ public sealed class ApplyTransactionTests : IDisposable
     }
 
     [Fact]
+    public async Task Group_rollback_restores_the_rest_when_one_restore_throws_unexpectedly()
+    {
+        string p = Make("a.txt", "one\n");
+        string q = Make("b.txt", "bee\n");
+        string groupBackup = Path.Combine(_ws.PellyDir, "backup", "apply-g10.G1", "a.txt");
+        // Reading a.txt's group backup throws an exception type the per-file catch did not expect.
+        var guard = new FileGuard(ThrowingReadFileSystem.Over(new FileSystem(), groupBackup), TimeProvider.System);
+        var tx = new ApplyTransaction(guard, _ws, "apply-g10");
+        tx.BeginGroup("G1");
+        var a0 = guard.Read(p);
+        tx.Track(a0);
+        tx.Record(a0, await Write(a0, "two\n"));
+        var b0 = guard.Read(q);
+        tx.Track(b0);
+        tx.Record(b0, await Write(b0, "bee2\n"));
+
+        Assert.Equal([p], await tx.RollbackGroupAsync(CancellationToken.None));
+
+        Assert.Equal("two\n", File.ReadAllText(p));
+        Assert.Equal("bee\n", File.ReadAllText(q)); // restored after a.txt's restore threw
+    }
+
+    /// <summary>A real file system whose <c>File.ReadAllBytes</c> of one path throws <see cref="NotSupportedException"/>.</summary>
+    public class ThrowingReadFileSystem : System.Reflection.DispatchProxy
+    {
+        private object _inner = null!;
+        private string _path = "";
+
+        public static IFileSystem Over(IFileSystem inner, string path)
+        {
+            var file = Create<IFile, ThrowingReadFileSystem>();
+            var proxy = (ThrowingReadFileSystem)(object)file;
+            proxy._inner = inner.File;
+            proxy._path = path;
+            return new FileSystemWithFile(inner, file);
+        }
+
+        protected override object? Invoke(System.Reflection.MethodInfo? method, object?[]? args)
+        {
+            if (method!.Name == nameof(IFile.ReadAllBytes) && args is [string path] && path == _path)
+                throw new NotSupportedException("odd path");
+            try { return method.Invoke(_inner, args); }
+            catch (System.Reflection.TargetInvocationException ex) when (ex.InnerException is not null)
+            {
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(ex.InnerException);
+                throw;
+            }
+        }
+
+        private sealed class FileSystemWithFile(IFileSystem inner, IFile file) : IFileSystem
+        {
+            public IFile File => file;
+            public IDirectory Directory => inner.Directory;
+            public IFileInfoFactory FileInfo => inner.FileInfo;
+            public IFileStreamFactory FileStream => inner.FileStream;
+            public IPath Path => inner.Path;
+            public IDirectoryInfoFactory DirectoryInfo => inner.DirectoryInfo;
+            public IDriveInfoFactory DriveInfo => inner.DriveInfo;
+            public IFileSystemWatcherFactory FileSystemWatcher => inner.FileSystemWatcher;
+            public IFileVersionInfoFactory FileVersionInfo => inner.FileVersionInfo;
+            public IRandomAccess RandomAccess => inner.RandomAccess;
+        }
+    }
+
+    [Fact]
     public async Task Failed_group_backup_in_track_leaves_the_file_untracked_by_the_group()
     {
         string p = Make("a.txt", "one\n");

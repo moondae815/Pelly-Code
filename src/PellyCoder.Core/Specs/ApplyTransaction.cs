@@ -157,7 +157,8 @@ public sealed class ApplyTransaction(FileGuard guard, Workspace ws, string apply
     /// Restores every file the open group changed to its content at group start, then closes the group (a rolled-back
     /// group has nothing left to approve or roll back); returns the paths that could not be restored (same rules as
     /// <see cref="RollbackAsync"/>). A restored file's last known content becomes its group-start content, so a later
-    /// <see cref="RollbackAsync"/> still restores the apply original. The group closes even when a restore throws.
+    /// <see cref="RollbackAsync"/> still restores the apply original. A restore that throws (anything but cancellation)
+    /// reports its file and the rest are still restored; the group closes even when cancellation stops the loop.
     /// </summary>
     public async Task<IReadOnlyList<string>> RollbackGroupAsync(CancellationToken ct)
     {
@@ -178,8 +179,10 @@ public sealed class ApplyTransaction(FileGuard guard, Workspace ws, string apply
                     if (result.Status != FileWriteStatus.Written) failed.Add(path);
                     else entry.LastKnown = start;
                 }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+                catch (Exception ex) when (ex is not OperationCanceledException)
                 {
+                    // Any failure (an odd path can throw ArgumentException or NotSupportedException) leaves this file
+                    // edited and reported; the rest are still restored.
                     failed.Add(path);
                 }
             }

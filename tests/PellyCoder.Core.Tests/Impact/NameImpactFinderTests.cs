@@ -78,4 +78,36 @@ public class NameImpactFinderTests
         Assert.Equal(["T7"], result.UnsupportedSeeds);
         Assert.Empty(result.Targets);
     }
+
+    [Fact]
+    public void Truncated_walk_is_reported_as_incomplete()
+    {
+        var fs = new MockFileSystem();
+        fs.AddFile(P("Lib.cs"), new MockFileData("class Lib { public int Run() => 1; }"));
+        fs.AddFile(P("a/A.cs"), new MockFileData("class A { void F() { new Lib().Run(); } }"));
+        fs.AddFile(P("b/B.cs"), new MockFileData("class B { void F() { new Lib().Run(); } }"));
+        var seed = new ImpactSeed("T1", 1, "Lib.cs", null, "Run");
+        var ws = new Workspace(Root, P(".pelly"));
+
+        Assert.True(NameImpactFinder.Find(fs, ws, [seed], [], Fallback, maxDirectories: 2).Incomplete);
+        Assert.False(NameImpactFinder.Find(fs, ws, [seed], [], Fallback).Incomplete);
+    }
+
+    [Fact]
+    public void Implementation_through_an_intermediate_base_class_is_found()
+    {
+        var fs = new MockFileSystem();
+        fs.AddFile(P("I.cs"), new MockFileData("interface I { void M(); }"));
+        fs.AddFile(P("C.cs"), new MockFileData("class C : I { public virtual void M() {} }"));
+        fs.AddFile(P("D.cs"), new MockFileData("class D : C { public override void M() {} }"));
+        var seed = new ImpactSeed("T1", 1, "I.cs", "I", "M");
+
+        var result = NameImpactFinder.Find(fs, new Workspace(Root, P(".pelly")), [seed], [], Fallback);
+
+        Assert.Equal(
+        [
+            new ImpactTarget("T1", "C.cs", "M", "구현"),
+            new ImpactTarget("T1", "D.cs", "M", "재정의"),
+        ], result.Targets);
+    }
 }

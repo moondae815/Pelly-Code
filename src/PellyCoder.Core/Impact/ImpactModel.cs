@@ -31,8 +31,9 @@ public sealed record ImpactSeed(string TaskId, int Line, string Path, string? Cl
 public sealed record ImpactTarget(string SeedTaskId, string Path, string Member, string Reason);
 
 /// <param name="Fallback">Why the semantic analysis was replaced by the name-based one; null for a semantic result.</param>
+/// <param name="Incomplete">True when the file walk was cut short or a folder or file could not be read, so targets may be missing.</param>
 /// <param name="UnsupportedSeeds">Task ids of seeds that are not a method or property.</param>
-public sealed record ImpactResult(ImpactMode Mode, SemanticFailure? Fallback, IReadOnlyList<ImpactTarget> Targets, IReadOnlyList<string> UnsupportedSeeds);
+public sealed record ImpactResult(ImpactMode Mode, SemanticFailure? Fallback, IReadOnlyList<ImpactTarget> Targets, IReadOnlyList<string> UnsupportedSeeds, bool Incomplete = false);
 
 public interface IImpactFinder
 {

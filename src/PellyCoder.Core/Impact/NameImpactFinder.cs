@@ -17,9 +17,9 @@ public static class NameImpactFinder
 
     private sealed record Parsed(string Path, SyntaxNode Root);
 
-    public static ImpactResult Find(IFileSystem fs, Workspace ws, IReadOnlyList<ImpactSeed> seeds, IReadOnlyList<string> projects, SemanticFailure fallback)
+    public static ImpactResult Find(IFileSystem fs, Workspace ws, IReadOnlyList<ImpactSeed> seeds, IReadOnlyList<string> projects, SemanticFailure fallback, int maxDirectories = MaxDirectories)
     {
-        var files = Load(fs, ws, projects);
+        var (files, incomplete) = Load(fs, ws, projects, maxDirectories);
         var targets = new List<ImpactTarget>();
         var unsupported = new List<string>();
 
@@ -37,7 +37,7 @@ public static class NameImpactFinder
             targets.AddRange(FindFor(files, seed, seedPath, seedTypes));
         }
 
-        return new ImpactResult(ImpactMode.Name, fallback, targets, unsupported);
+        return new ImpactResult(ImpactMode.Name, fallback, targets, unsupported, incomplete);
     }
 
     private static List<TypeDeclarationSyntax> SeedTypes(SyntaxNode root, ImpactSeed seed) =>
@@ -62,8 +62,26 @@ public static class NameImpactFinder
         }
 
         var seedTypeNames = seedTypes.Select(t => t.Identifier.Text).ToHashSet(StringComparer.Ordinal);
+        var allTypes = files.SelectMany(f => f.Root.DescendantNodes().OfType<TypeDeclarationSyntax>()).ToList();
+
+        // Upward closure of the seed types' base lists, by simple name.
         var baseNames = seedTypes.SelectMany(BaseNames).ToHashSet(StringComparer.Ordinal);
+        for (bool grew = true; grew;)
+        {
+            grew = false;
+            foreach (var type in allTypes.Where(t => baseNames.Contains(t.Identifier.Text)))
+                foreach (var b in BaseNames(type))
+                    grew |= baseNames.Add(b);
+        }
+
+        // Downward closure: every type that derives, however indirectly, from the seed type or one of its bases.
         var related = new HashSet<string>(seedTypeNames.Concat(baseNames), StringComparer.Ordinal);
+        for (bool grew = true; grew;)
+        {
+            grew = false;
+            foreach (var type in allTypes.Where(t => BaseNames(t).Any(related.Contains)))
+                grew |= related.Add(type.Identifier.Text);
+        }
 
         foreach (var file in files)
             foreach (var type in file.Root.DescendantNodes().OfType<TypeDeclarationSyntax>())
@@ -73,7 +91,7 @@ public static class NameImpactFinder
                 if (baseNames.Contains(type.Identifier.Text))
                     Add(file.Path, member.SpanStart, name, "기반 멤버");
                 else if (BaseNames(type).Any(related.Contains))
-                    Add(file.Path, member.SpanStart, name, "구현");
+                    Add(file.Path, member.SpanStart, name, member.Modifiers.Any(SyntaxKind.OverrideKeyword) ? "재정의" : "구현");
             }
 
         foreach (var file in files)
@@ -120,20 +138,27 @@ public static class NameImpactFinder
         _ => t.ToString(),
     };
 
-    private static List<Parsed> Load(IFileSystem fs, Workspace ws, IReadOnlyList<string> projects)
+    private static (List<Parsed> Files, bool Incomplete) Load(IFileSystem fs, Workspace ws, IReadOnlyList<string> projects, int maxDirectories)
     {
         var roots = projects.Count > 0
             ? projects.Select(p => fs.Path.GetDirectoryName(p) ?? ws.Root).ToList()
             : [ws.Root];
         var seen = new HashSet<string>(PathComparers.ForOs);
         var result = new List<Parsed>();
+        var incomplete = false;
         foreach (var root in roots)
-            foreach (var file in BoundedWalker.Files(fs, root, "*.cs", MaxDirectories).Order(StringComparer.Ordinal))
+        {
+            var walk = BoundedWalker.Collect(fs, root, "*.cs", maxDirectories);
+            incomplete |= walk.Truncated || walk.Unreadable.Count > 0;
+            foreach (var file in walk.Files.Order(StringComparer.Ordinal))
             {
                 var relative = Relative(fs, ws, file);
-                if (seen.Add(relative) && Read(fs, ws, relative) is { } parsed) result.Add(parsed);
+                if (!seen.Add(relative)) continue;
+                if (Read(fs, ws, relative) is { } parsed) result.Add(parsed);
+                else incomplete = true;
             }
-        return result;
+        }
+        return (result, incomplete);
     }
 
     private static Parsed? Read(IFileSystem fs, Workspace ws, string relative)

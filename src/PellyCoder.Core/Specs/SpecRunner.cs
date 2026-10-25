@@ -466,11 +466,11 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             }
             catch (OperationCanceledException)
             {
-                _results.Add(new ApplyTaskResult(task.Id, null, 2, null, Seconds(started)));
+                _results.Add(new ApplyTaskResult(task.Id, null, 2, null, Seconds(started), task.Group));
                 throw;
             }
 
-            _results.Add(new ApplyTaskResult(task.Id, r.RunId, r.ExitCode, r.FailureKind, Seconds(started)));
+            _results.Add(new ApplyTaskResult(task.Id, r.RunId, r.ExitCode, r.FailureKind, Seconds(started), task.Group));
             // A null Original means the run failed before reading the file, so it wrote nothing.
             if (r.Original is not null) tx.Record(r.Original, r.Final);
             if (r.ExitCode == 2 && ct.IsCancellationRequested) throw new OperationCanceledException(ct);
@@ -507,10 +507,23 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
         private async Task<GroupEnd> UnverifiableBeforeEditAsync(ApplyTransaction tx, GroupState g, string reason)
         {
             owner.Ui.Warn(reason);
+            // No task ran, so the report would not see the group otherwise.
+            foreach (var t in g.Tasks) _results.Add(new ApplyTaskResult(t.Id, null, 4, GroupVerifier.UnverifiableKind, 0, g.Id));
             var marks = g.Tasks.Select(t => new SpecMark(t.Id, ApplyId!, GroupVerifier.UnverifiableKind)).ToList();
             if (!await SpecWrittenAsync(_doc.MarkAsync(marks, CancellationToken.None))) return new GroupEnd(Unreviewed(tx, 4), true);
             _marked.AddRange(g.Tasks.Select(t => t.Id));
             return new GroupEnd(4, false);
+        }
+
+        /// <summary>
+        /// A group that fails as a whole ends every task of it with the group's kind in the summary, so the report can tell the
+        /// group's outcome from its tasks' own exit codes. A task that failed by itself keeps its own kind.
+        /// </summary>
+        private void StampGroupFailure(GroupState g, string kind)
+        {
+            var ids = g.Tasks.Select(t => t.Id).ToHashSet(StringComparer.Ordinal);
+            for (int i = 0; i < _results.Count; i++)
+                if (ids.Contains(_results[i].TaskId) && _results[i].FailureKind is null) _results[i] = _results[i] with { FailureKind = kind };
         }
 
         /// <summary>A group task's file could not be backed up: undo the group and stop, as a single task would.</summary>
@@ -528,6 +541,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
         private async Task<GroupEnd> UndoGroupAsync(ApplyTransaction tx, GroupState g, string? failureKind, int exitCode)
         {
             var notRestored = await tx.RollbackGroupAsync(CancellationToken.None); // also closes the group
+            if (failureKind is not null && failureKind.StartsWith("Group", StringComparison.Ordinal)) StampGroupFailure(g, failureKind);
 
             var unrestored = new HashSet<string>(notRestored, SpecTaskPaths.Comparer);
             var kept = g.Tasks.Where(t => g.Succeeded.TryGetValue(t.Id, out var s) && unrestored.Contains(s.Path)).Select(t => t.Id).ToList();
@@ -686,7 +700,8 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                 var dir = owner.Fs.Path.Combine(ws.PellyDir, "runs", ApplyId!);
                 owner.Fs.Directory.CreateDirectory(dir);
                 var summary = new ApplySummary(ApplyId!, SpecId, _results, exitCode, warnings, _archived,
-                    impact is null ? null : impact.Mode == ImpactMode.Semantic ? "semantic" : "name", impact?.Fallback?.Kind.ToString());
+                    impact is null ? null : impact.Mode == ImpactMode.Semantic ? "semantic" : "name", impact?.Fallback?.Kind.ToString(),
+                    _doc?.Spec.Tasks.Count ?? 0, o.Resume);
                 owner.Fs.File.WriteAllText(owner.Fs.Path.Combine(dir, "apply.json"), JsonSerializer.Serialize(summary, SummaryJson));
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

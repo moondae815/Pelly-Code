@@ -17,6 +17,9 @@ public sealed record SanitizedRun(
     IReadOnlyList<string> MatchStages, IReadOnlyList<string> ErrorCodes, int DroppedErrorCodes, int FormatErrors,
     string? FailureKind, string PellyVersion, string? OllamaVersion, string PromptVersion);
 
+/// <summary>The spec KPI as six plain numbers: completed/total, completed/total for 3 to 8 tasks, groups passed/total.</summary>
+public sealed record ApplyCounts(int Completed, int CompletionTotal, int Completed3To8, int Completion3To8Total, int GroupPassed, int GroupTotal);
+
 public sealed record SanitizedAggregate(
     int RunCount, IReadOnlyDictionary<string, int> RunsByKind, int SuccessCount, double SuccessRate,
     IReadOnlyDictionary<string, int> ExitCodes,
@@ -25,7 +28,8 @@ public sealed record SanitizedAggregate(
     int ThinkMax, int ThinkTruncatedCount,
     IReadOnlyDictionary<string, int> FailureKinds,
     IReadOnlyDictionary<string, double> MeanPhaseSeconds,
-    IReadOnlyDictionary<string, int> AttemptDistribution);
+    IReadOnlyDictionary<string, int> AttemptDistribution,
+    ApplyCounts? Apply = null);
 
 /// <summary>
 /// Report that can leave a closed network (D11, design §8.12). Whitelist only: every string in it is a fixed literal,
@@ -56,7 +60,15 @@ public sealed record SanitizedReport(SanitizedAggregate Aggregate, IReadOnlyList
         sb.AppendLine($"| 패치 포맷 파싱 성공률 | {(a.ParseRate is { } r ? Pct(r) : "-")} ({N(a.ParseOk)}/{N(a.ParseTotal)} 시도) |");
         sb.AppendLine($"| 최종 작업 성공률 | {Pct(a.SuccessRate)} ({N(a.SuccessCount)}/{N(a.RunCount)}건) |");
         sb.AppendLine($"| 단일 작업 완료 시간 | {Describe(a.TaskSeconds)} |");
-        sb.AppendLine();
+        if (a.Apply is { } ap)
+        {
+            sb.AppendLine("## 명세").AppendLine();
+            sb.AppendLine("| 지표 | 값 |").AppendLine("| --- | --- |");
+            sb.AppendLine($"| 명세 완료율 | {Ratio(ap.Completed, ap.CompletionTotal)} ({N(ap.Completed)}/{N(ap.CompletionTotal)}건) |");
+            sb.AppendLine($"| 명세 완료율(작업 3~8개) | {Ratio(ap.Completed3To8, ap.Completion3To8Total)} ({N(ap.Completed3To8)}/{N(ap.Completion3To8Total)}건) |");
+            sb.AppendLine($"| 그룹 빌드 통과율 | {Ratio(ap.GroupPassed, ap.GroupTotal)} ({N(ap.GroupPassed)}/{N(ap.GroupTotal)}그룹) |");
+            sb.AppendLine();
+        }
         Table(sb, "종류", a.RunsByKind);
         Table(sb, "종료 코드", a.ExitCodes);
         Table(sb, "실패 유형", a.FailureKinds);
@@ -92,6 +104,7 @@ public sealed record SanitizedReport(SanitizedAggregate Aggregate, IReadOnlyList
 
     private static string N(int v) => v.ToString(CultureInfo.InvariantCulture);
     private static string F(double v) => v.ToString("F2", CultureInfo.InvariantCulture);
+    private static string Ratio(int ok, int total) => total == 0 ? "-" : Pct((double)ok / total);
     private static string Pct(double v) => (v * 100).ToString("F1", CultureInfo.InvariantCulture) + "%";
     private static string Describe(Spread? s) => s is null ? "-" : $"중위 {F(s.Median)}초 / P90 {F(s.P90)}초";
 }
@@ -110,10 +123,13 @@ public static partial class ReportSanitizer
     private static readonly string[] ProjectStyles = ["Sdk", "Legacy", "None", "Sql"];
     private static readonly string[] ThinkModes = ["Off", "Retry", "Always"];
 
-    public static SanitizedReport Sanitize(IReadOnlyList<RunRecord> runs, RunReportData aggregate)
+    public static SanitizedReport Sanitize(IReadOnlyList<RunRecord> runs, RunReportData aggregate, ApplyReportData? apply = null)
     {
         var rows = runs.Select((r, i) => SanitizeRun(r.Summary, i + 1)).ToList();
-        return new SanitizedReport(SanitizeAggregate(aggregate), rows);
+        var counts = apply is null ? null
+            : new ApplyCounts(apply.Completion.Ok, apply.Completion.Total, apply.Completion3To8.Ok, apply.Completion3To8.Total,
+                apply.GroupBuild.Ok, apply.GroupBuild.Total);
+        return new SanitizedReport(SanitizeAggregate(aggregate) with { Apply = counts }, rows);
     }
 
     private static SanitizedRun SanitizeRun(RunSummary s, int index)

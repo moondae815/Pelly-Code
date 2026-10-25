@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using PellyCoder.Core.Fsm;
 using PellyCoder.Core.Logging;
 using PellyCoder.Core.Models;
+using PellyCoder.Core.Specs;
 using Spectre.Console;
 using Spectre.Console.Cli.Testing;
 using Spectre.Console.Testing;
@@ -74,6 +75,54 @@ public class ReportCommandTests
             last = at;
         }
         Assert.Contains("검증 불변 조건", result.Output);
+    }
+
+    private static void AddApply(MockFileSystem fs, string id, int exit, bool archived, int taskCount, params ApplyTaskResult[] tasks)
+    {
+        var s = new ApplySummary(id, "spec-x", tasks, exit, [], archived, TaskCount: taskCount);
+        fs.AddFile($"/w/.pelly/runs/{id}/apply.json", new MockFileData(JsonSerializer.Serialize(s, Json)));
+    }
+
+    [Fact]
+    public void Shows_spec_completion_even_without_task_runs()
+    {
+        var (app, _, fs) = Build();
+        AddApply(fs, "apply-20261001-101010-aaaa", 0, true, 4, new ApplyTaskResult("T1", "R", 0, null, 1, "G1"));
+        AddApply(fs, "apply-20261002-101010-bbbb", 1, false, 5, new ApplyTaskResult("T1", "R", 0, "GroupBuildFailed", 1, "G1"));
+
+        var result = app.Run("report");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.DoesNotContain("실행 기록이 없습니다", result.Output);
+        Assert.Contains("명세 완료율", result.Output);
+        Assert.Contains("50.0% (1/2건, 이어서 하기 0건 제외)", result.Output);
+        Assert.Contains("명세 완료율(작업 3~8개)", result.Output);
+        Assert.Contains("50.0% (1/2그룹, 검증 불가 0그룹 제외)", result.Output);
+    }
+
+    [Fact]
+    public void Spec_rows_show_a_dash_without_a_denominator()
+    {
+        var (app, _, fs) = Build();
+        AddRun(fs, "20261001-101010-aaaa", 0);
+        AddApply(fs, "apply-20261001-111111-bbbb", 0, true, 2);
+
+        var result = app.Run("report");
+
+        Assert.Contains("명세 완료율(작업 3~8개)", result.Output);
+        Assert.Contains("-", result.Output);
+        Assert.Contains("그룹 빌드 통과율", result.Output);
+    }
+
+    [Fact]
+    public void Report_Since_AppliesToApplies()
+    {
+        var (app, _, fs) = Build();
+        AddApply(fs, "apply-20261001-101010-aaaa", 0, true, 4);
+
+        var result = app.Run("report", "--since", "2026-10-02");
+
+        Assert.Contains("실행 기록이 없습니다", result.Output);
     }
 
     [Fact]

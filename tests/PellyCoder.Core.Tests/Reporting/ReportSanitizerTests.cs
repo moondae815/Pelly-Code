@@ -51,6 +51,31 @@ public sealed class ReportSanitizerTests
     }
 
     [Fact]
+    public void Apply_aggregate_has_counts_only()
+    {
+        var applies = new[]
+        {
+            ApplyReportTests.Apply("apply-20261018-101010-abcd", 0, archived: true, taskCount: 4,
+                tasks: [ApplyReportTests.T("G1"), ApplyReportTests.T("G2", kind: "GroupBuildFailed")]),
+        };
+        var data = ApplyReport.Build(applies);
+        var runs = new[] { Rec(Injected()) };
+
+        var report = ReportSanitizer.Sanitize(runs, RunReport.Build(runs), data);
+
+        Assert.Equal(new ApplyCounts(1, 1, 1, 1, 1, 2), report.Aggregate.Apply);
+        foreach (var text in new[] { report.ToJson(), report.ToMarkdown() })
+        {
+            Assert.DoesNotContain("apply-2026", text);
+            Assert.DoesNotContain("spec", text);
+            Assert.DoesNotContain("G1", text);
+            Assert.DoesNotContain("GroupBuildFailed", text);
+        }
+        Assert.Contains("\"apply\":", report.ToJson());
+        Assert.Contains("명세 완료율", report.ToMarkdown());
+    }
+
+    [Fact]
     public void Sanitize_UsesInvariantCulture()
     {
         var old = Thread.CurrentThread.CurrentCulture;

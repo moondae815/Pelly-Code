@@ -447,6 +447,67 @@ public sealed class SpecRunnerGroupTests : IDisposable
         Assert.Empty(_exec.Calls);
     }
 
+    private System.Text.Json.JsonElement ReadApply()
+    {
+        var file = Directory.GetFiles(P(".pelly/runs"), "apply.json", SearchOption.AllDirectories).Single();
+        return System.Text.Json.JsonDocument.Parse(File.ReadAllText(file)).RootElement.Clone();
+    }
+
+    [Fact]
+    public async Task Apply_json_records_group_task_count_and_resumed()
+    {
+        Spec(Group + "- [ ] T3 sql db/a.sql 셋째\n");
+        Assert.Equal(0, await Run(Opts()));
+
+        var a = ReadApply();
+        Assert.Equal(3, a.GetProperty("taskCount").GetInt32());
+        Assert.False(a.GetProperty("resumed").GetBoolean());
+        var tasks = a.GetProperty("tasks").EnumerateArray().ToList();
+        Assert.Equal("G1", tasks[0].GetProperty("group").GetString());
+        Assert.Equal("G1", tasks[1].GetProperty("group").GetString());
+        Assert.Equal(System.Text.Json.JsonValueKind.Null, tasks[2].GetProperty("group").ValueKind);
+    }
+
+    [Fact]
+    public async Task Apply_json_records_resume()
+    {
+        Spec("- [x] T0 sql db/a.sql 첫째 <!-- run: R-OLD -->\n" + Group);
+        Assert.Equal(0, await Run(Opts(resume: true)));
+
+        var a = ReadApply();
+        Assert.True(a.GetProperty("resumed").GetBoolean());
+        Assert.Equal(3, a.GetProperty("taskCount").GetInt32());
+    }
+
+    [Fact]
+    public async Task Apply_json_marks_group_tasks_with_the_group_failure_kind()
+    {
+        Spec(Group);
+        _builds.Results.Enqueue(Built());
+        _builds.Results.Enqueue(Built(Error("src/App/Controller.cs", 7, "CS1501")));
+        Assert.Equal(1, await Run(Opts()));
+
+        var tasks = ReadApply().GetProperty("tasks").EnumerateArray().ToList();
+        Assert.All(tasks, t => Assert.Equal("GroupMissingTarget", t.GetProperty("failureKind").GetString()));
+        Assert.All(tasks, t => Assert.Equal("G1", t.GetProperty("group").GetString()));
+    }
+
+    [Fact]
+    public async Task Apply_json_records_an_unverifiable_group_that_never_ran()
+    {
+        Spec(Group);
+        _builds.Results.Enqueue(new GroupBuild(false, "그룹 빌드 검증 불가 (src/App/App.csproj): 레거시", GroupVerifier.UnverifiableKind, []));
+        Assert.Equal(4, await Run(Opts()));
+
+        var tasks = ReadApply().GetProperty("tasks").EnumerateArray().ToList();
+        Assert.Equal(2, tasks.Count);
+        Assert.All(tasks, t =>
+        {
+            Assert.Equal("GroupUnverifiable", t.GetProperty("failureKind").GetString());
+            Assert.Equal("G1", t.GetProperty("group").GetString());
+        });
+    }
+
     [Fact]
     public async Task Resume_after_failed_group_restarts_at_group_start()
     {

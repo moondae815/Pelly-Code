@@ -192,6 +192,8 @@ pelly doctor --sanitize --out C:\export
 * 반출 가능 여부는 사내 보안 규정을 따르십시오. 파일 내용을 직접 열어 확인한 뒤 반출하십시오.
 * `--sanitize` 없이 `pelly report`만 실행하면 화면에 TTFT·성공률·완료 시간 표를 보여 줍니다.
 
+`pelly apply`가 남긴 `.pelly/runs/apply-*/apply.json`으로 「명세」 표도 보입니다. 명세 완료율은 `--resume`이 아닌 apply 중 종료 코드 0으로 보관(archive)까지 끝낸 비율이고(이어서 하기는 분모에서 빼고 건수만 따로 보입니다), 작업 3~8개 명세만 따로도 셉니다. 그룹 빌드 통과율은 그룹 빌드까지 간 그룹 중 통과한 비율이며 빌드 검증 불가 그룹은 따로 세고 분모에서 뺍니다. 작업 실행 기록이 없어도 apply 기록만으로 나오고, `--since`는 둘 모두에 적용되며, `--sanitize` 보고서에는 이 비율의 숫자 여섯만 더해집니다.
+
 ## 알려진 한계
 
 * **인라인 SQL은 DB로 검증하지 않습니다.** C# 문자열 안의 SQL(Dapper, `SqlCommand.CommandText`)은 C# 빌드만 통과하면 승인됩니다. 잘못된 컬럼명은 실행할 때 드러납니다. 바뀐 문자열 리터럴에 `SELECT`·`INSERT`·`UPDATE`·`DELETE`·`EXEC`가 있으면 「인라인 SQL이 바뀌었습니다」 경고를 `--yes`일 때도 보여 줍니다.

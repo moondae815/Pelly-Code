@@ -48,18 +48,29 @@ public sealed class ReportCommand(IFileSystem fs, IAnsiConsole console) : Comman
         DateOnly? since = settings.Since is null ? null : DateOnly.ParseExact(settings.Since, "yyyy-MM-dd", CultureInfo.InvariantCulture);
 
         var history = RunHistory.Load(fs, ws, since);
-        if (history.Runs.Count == 0)
+        var (applies, applyUnreadable) = ApplyHistory.Load(fs, ws, since);
+        var unreadable = history.Unreadable + applyUnreadable;
+        // Spec KPIs come from apply.json alone: an apply history without task runs still reports.
+        if (history.Runs.Count == 0 && applies.Count == 0)
         {
             console.MarkupLine(Markup.Escape($"실행 기록이 없습니다: {fs.Path.Combine(ws.PellyDir, "runs")}"));
             if (settings.Sanitize) console.MarkupLine("비식별 리포트를 쓰지 않았습니다 (실행 기록 없음)");
-            if (history.Unreadable > 0) console.MarkupLine(Markup.Escape($"읽을 수 없는 기록 {history.Unreadable}건은 건너뛰었습니다."));
+            if (unreadable > 0) console.MarkupLine(Markup.Escape($"읽을 수 없는 기록 {unreadable}건은 건너뛰었습니다."));
             return ExitCodes.Success;
         }
 
         var d = RunReport.Build(history.Runs);
-        if (settings.Sanitize) return WriteSanitized(history.Runs, d, settings.Out);
+        var applyData = applies.Count == 0 ? null : ApplyReport.Build(applies);
+        if (settings.Sanitize) return WriteSanitized(history.Runs, d, applyData, settings.Out);
+        if (history.Runs.Count == 0)
+        {
+            console.MarkupLine(Markup.Escape($"작업 기록이 없습니다: {fs.Path.Combine(ws.PellyDir, "runs")}"));
+            if (unreadable > 0) console.MarkupLine(Markup.Escape($"읽을 수 없어 건너뜀 {unreadable}건"));
+            SpecTable(applyData!);
+            return ExitCodes.Success;
+        }
         var kinds = string.Join(", ", d.RunsByKind.Select(k => $"{k.Key} {k.Value}"));
-        console.MarkupLine(Markup.Escape($"실행 {d.RunCount}건 ({kinds})" + (history.Unreadable > 0 ? $", 읽을 수 없어 건너뜀 {history.Unreadable}건" : "")));
+        console.MarkupLine(Markup.Escape($"실행 {d.RunCount}건 ({kinds})" + (unreadable > 0 ? $", 읽을 수 없어 건너뜀 {unreadable}건" : "")));
 
         var kpi = new Table().AddColumns("지표", "값");
         kpi.AddRow("검증 불변 조건", "독립 검증 없음 — 벤치마크 실행기로 측정");
@@ -78,12 +89,25 @@ public sealed class ReportCommand(IFileSystem fs, IAnsiConsole console) : Comman
         var phases = new Table().AddColumns("단계", "평균 시간(초)");
         foreach (var p in d.MeanPhaseSeconds) phases.AddRow(Markup.Escape(p.Key.ToString()), p.Value.ToString("F2", CultureInfo.InvariantCulture));
         console.Write(phases);
+        if (applyData is not null) SpecTable(applyData);
         return ExitCodes.Success;
     }
 
-    private int WriteSanitized(IReadOnlyList<RunRecord> runs, RunReportData d, string? outDir)
+    private void SpecTable(ApplyReportData a)
     {
-        var report = ReportSanitizer.Sanitize(runs, d);
+        var table = new Table().AddColumns("명세", "값");
+        table.AddRow("명세 완료율", Markup.Escape(RatioText(a.Completion, $"건, 이어서 하기 {a.Resumed}건 제외")));
+        table.AddRow("명세 완료율(작업 3~8개)", Markup.Escape(RatioText(a.Completion3To8, "건")));
+        table.AddRow("그룹 빌드 통과율", Markup.Escape(RatioText(a.GroupBuild, $"그룹, 검증 불가 {a.GroupsUnverifiable}그룹 제외")));
+        console.Write(table);
+    }
+
+    private static string RatioText(Ratio r, string unit) =>
+        r.Rate is { } rate ? $"{(rate * 100).ToString("F1", CultureInfo.InvariantCulture)}% ({r.Ok}/{r.Total}{unit})" : "-";
+
+    private int WriteSanitized(IReadOnlyList<RunRecord> runs, RunReportData d, ApplyReportData? apply, string? outDir)
+    {
+        var report = ReportSanitizer.Sanitize(runs, d, apply);
         string jsonPath, mdPath;
         try
         {

@@ -254,6 +254,32 @@ public sealed class GroupVerifierTests
     }
 
     [Fact]
+    public async Task Relative_error_path_prefers_the_project_folder_over_the_workspace_root()
+    {
+        // MSBuild prints relative paths from the project folder: a same-named file under the root is a different file.
+        _fs.AddFile(P("Services/OrderService.cs"), new MockFileData("class Other { }"));
+        _fs.AddFile(P("Old/Services/OrderService.cs"), new MockFileData("class OrderService { }"));
+        _processes.Enqueue((_, _) => Task.FromResult(Build(1, false,
+            $@"Services\OrderService.cs(12,5): error CS0029: Cannot implicitly convert type 'string' to 'int' [{Legacy}]")));
+        var result = await WindowsVerifier().BuildAsync(Ws, [Legacy], TestContext.Current.CancellationToken);
+
+        Assert.True(result.Verifiable, result.Reason);
+        Assert.Equal("Old/Services/OrderService.cs", Assert.Single(result.Errors).File);
+    }
+
+    [Fact]
+    public async Task Full_error_path_stays_relative_to_the_workspace_root_even_when_the_project_folder_has_the_same_path()
+    {
+        _fs.AddFile(P("App/B.cs"), new MockFileData("class B { }"));
+        _fs.AddFile(P("App/App/B.cs"), new MockFileData("class Nested { }"));
+        Script(1, new() { [App] = Build(1, false, Line(App, "App/B.cs", 5, "CS0029", "Cannot implicitly convert type 'string' to 'int'")) });
+
+        var result = await Verifier().BuildAsync(Ws, [App], TestContext.Current.CancellationToken);
+
+        Assert.Equal("App/B.cs", Assert.Single(result.Errors).File);
+    }
+
+    [Fact]
     public async Task Workspace_relative_error_path_stays_as_it_is()
     {
         _fs.AddFile(P("App/B.cs"), new MockFileData("class B { }"));

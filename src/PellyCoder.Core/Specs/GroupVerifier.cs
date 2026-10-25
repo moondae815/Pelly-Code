@@ -76,7 +76,8 @@ public sealed class GroupVerifier(IFileSystem fs, BuildVerifier builds, BuildToo
             BuildRun run;
             try
             {
-                run = await builds.BuildAsync(tool, projects[i], ws.Root, FullPaths, ct);
+                // A tool that ignores GenerateFullPaths prints paths relative to the project folder: resolve them there.
+                run = await builds.BuildAsync(tool, projects[i], ws.Root, FullPaths, projectRelativePaths: true, ct);
             }
             catch (ProcessStartException ex)
             {
@@ -90,24 +91,10 @@ public sealed class GroupVerifier(IFileSystem fs, BuildVerifier builds, BuildToo
                 return Unverifiable(ws, projects[i],
                     BuildMessages.BlockerDetail(blocker, "프로젝트를 복원(dotnet restore 또는 Visual Studio 복원)하고 빌드되는지 먼저 확인하세요"));
 
-            errors.AddRange(run.Errors.Select(e => UnderWorkspace(ws, projects[i], e)).Where(seen.Add));
+            errors.AddRange(run.Errors.Where(seen.Add));
         }
 
         return new GroupBuild(true, null, null, errors);
-    }
-
-    /// <summary>
-    /// A diagnostic whose relative path names no file under the workspace root but one under the project's folder (a tool
-    /// that ignored <c>GenerateFullPaths</c>), rewritten relative to the root; any other diagnostic unchanged.
-    /// </summary>
-    private Diagnostic UnderWorkspace(Workspace ws, string project, Diagnostic error)
-    {
-        if (string.IsNullOrEmpty(error.File) || fs.Path.IsPathRooted(error.File)) return error;
-        var relative = error.File.Replace('/', fs.Path.DirectorySeparatorChar);
-        if (fs.File.Exists(fs.Path.Combine(ws.Root, relative))) return error;
-        var underProject = fs.Path.GetFullPath(fs.Path.Combine(fs.Path.GetDirectoryName(project) ?? ws.Root, relative));
-        if (!fs.File.Exists(underProject)) return error;
-        return error with { File = fs.Path.GetRelativePath(ws.Root, underProject).Replace('\\', '/') };
     }
 
     private static GroupBuild Unverifiable(Workspace ws, string project, string detail)

@@ -19,9 +19,11 @@ public static partial class BuildErrorParser
 
     /// <summary>
     /// Like <see cref="Parse(string, string, bool)"/>, with several spellings of the same root (e.g. as given and with
-    /// links resolved); a path is made relative to the first root it is under.
+    /// links resolved); a path is made relative to the first root it is under. With <paramref name="relativeBase"/> a
+    /// relative path in the output is first resolved against it (MSBuild prints paths relative to the project folder).
     /// </summary>
-    public static IReadOnlyList<Diagnostic> Parse(string output, IReadOnlyList<string> workspaceRoots, bool caseInsensitivePaths)
+    public static IReadOnlyList<Diagnostic> Parse(string output, IReadOnlyList<string> workspaceRoots, bool caseInsensitivePaths,
+        string? relativeBase = null)
     {
         var comparison = caseInsensitivePaths ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
         var roots = workspaceRoots.Select(r => Normalize(r).TrimEnd('/')).Distinct().ToList();
@@ -37,7 +39,7 @@ public static partial class BuildErrorParser
             int ln = 0, col = 0;
             if (m.Success)
             {
-                file = Relativize(Normalize(m.Groups["file"].Value.Trim()), roots, comparison);
+                file = Relativize(Normalize(Resolve(m.Groups["file"].Value.Trim(), relativeBase)), roots, comparison);
                 ln = int.Parse(m.Groups["line"].Value);
                 col = int.Parse(m.Groups["col"].Value);
             }
@@ -56,6 +58,21 @@ public static partial class BuildErrorParser
     }
 
     private static string Normalize(string path) => path.Replace('\\', '/');
+
+    private static string Resolve(string file, string? relativeBase)
+    {
+        if (relativeBase is null) return file;
+        var local = file.Replace('\\', Path.DirectorySeparatorChar).Replace('/', Path.DirectorySeparatorChar);
+        if (Path.IsPathRooted(local)) return file;
+        try
+        {
+            return Path.GetFullPath(Path.Combine(relativeBase, local));
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return file;
+        }
+    }
 
     private static string Relativize(string file, IReadOnlyList<string> roots, StringComparison comparison)
     {

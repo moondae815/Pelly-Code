@@ -39,8 +39,16 @@ public sealed class BuildVerifier(IProcessRunner processes, BuildOptions options
         BuildAsync(tool, csprojPath, workspaceRoot, null, ct);
 
     /// <param name="properties">Global MSBuild properties (<c>-p:Name=Value</c>), e.g. the judge project's <c>JudgeTargetRoot</c>.</param>
+    public Task<BuildRun> BuildAsync(BuildTool tool, string csprojPath, string workspaceRoot,
+        IReadOnlyDictionary<string, string>? properties, CancellationToken ct) =>
+        BuildAsync(tool, csprojPath, workspaceRoot, properties, projectRelativePaths: false, ct);
+
+    /// <param name="projectRelativePaths">
+    /// Resolve a relative path in the output against the project folder (where MSBuild runs) before making it relative to
+    /// the workspace root; otherwise a relative path is kept as printed.
+    /// </param>
     public async Task<BuildRun> BuildAsync(BuildTool tool, string csprojPath, string workspaceRoot,
-        IReadOnlyDictionary<string, string>? properties, CancellationToken ct)
+        IReadOnlyDictionary<string, string>? properties, bool projectRelativePaths, CancellationToken ct)
     {
         var spec = new ProcessSpec(
             tool.Executable,
@@ -54,7 +62,8 @@ public sealed class BuildVerifier(IProcessRunner processes, BuildOptions options
             return new BuildRun([], [], result.ExitCode, true, result.Duration);
 
         var output = DecodeStdOut(result) + "\n" + result.StdErr;
-        var all = BuildErrorParser.Parse(output, [workspaceRoot, PhysicalPath(workspaceRoot)], OperatingSystem.IsWindows());
+        var all = BuildErrorParser.Parse(output, [workspaceRoot, PhysicalPath(workspaceRoot)], OperatingSystem.IsWindows(),
+            projectRelativePaths ? spec.WorkingDirectory : null);
         var errors = all.Where(d => d.Severity == "error").ToList();
         var warnings = all.Where(d => d.Severity == "warning").ToList();
 

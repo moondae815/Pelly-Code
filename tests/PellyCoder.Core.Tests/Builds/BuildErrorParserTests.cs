@@ -153,4 +153,21 @@ public class BuildErrorParserTests
     }
 
     private static string Legacy() => File.ReadAllText(Fixture("msbuild-legacy-errors.txt"));
+
+    [Fact]
+    public void RelativeBase_ResolvesRelativePathsFromIt_AndLeavesFullPathsAlone()
+    {
+        var root = OperatingSystem.IsWindows() ? @"C:\ws" : "/ws";
+        var project = Path.Combine(root, "Old");
+        var output =
+            "Services\\A.cs(1,1): error CS0029: x\n" +
+            "..\\Lib\\B.cs(2,1): error CS0029: y\n" +
+            Path.Combine(root, "App", "C.cs") + "(3,1): error CS0029: z\n";
+
+        var files = BuildErrorParser.Parse(output, [root], OperatingSystem.IsWindows(), project).Select(d => d.File);
+        Assert.Equal(["Old/Services/A.cs", "Lib/B.cs", "App/C.cs"], files);
+
+        // Without a base a relative path stays as printed.
+        Assert.Equal("Services/A.cs", BuildErrorParser.Parse(output, [root], OperatingSystem.IsWindows())[0].File);
+    }
 }

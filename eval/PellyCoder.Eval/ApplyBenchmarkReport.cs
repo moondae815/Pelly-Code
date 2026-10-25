@@ -11,6 +11,8 @@ namespace PellyCoder.Eval;
 /// <summary>
 /// <c>apply-results.json</c> (every case run) and <c>apply-summary.md</c>. The rates are <see cref="ApplyReport.Build"/>'s over
 /// the <c>apply.json</c> each run's work copy holds, read by <see cref="ApplyHistory"/>: the same counting as <c>pelly report</c>.
+/// A run that ended without writing one (spec check error, refusal) and is neither skipped nor errored is added on top to the
+/// completion denominators (by its task count for the 3~8 row) as a non-completion, so a refusal never raises the rate.
 /// </summary>
 public static class ApplyBenchmarkReport
 {
@@ -28,7 +30,7 @@ public static class ApplyBenchmarkReport
     public static string Write(IFileSystem fs, string outDir, IReadOnlyList<ApplyCaseResult> results, string header)
     {
         var records = new List<ApplyRecord>();
-        var missing = 0;
+        var missing = new List<ApplyCaseResult>();
         var unreadable = 0;
         foreach (var r in results.Where(r => r.Outcome != ApplyBenchmark.Skipped))
         {
@@ -36,7 +38,7 @@ public static class ApplyBenchmarkReport
             var (applies, bad) = ApplyHistory.Load(fs, new Workspace(corpus, Path.Combine(corpus, ".pelly")), null);
             records.AddRange(applies);
             unreadable += bad;
-            if (applies.Count == 0) missing++;
+            if (applies.Count == 0 && r.Outcome != ApplyBenchmark.Errored) missing.Add(r);
         }
 
         var md = Render(results, ApplyReport.Build(records), header, missing, unreadable);
@@ -46,12 +48,15 @@ public static class ApplyBenchmarkReport
         return md;
     }
 
-    private static string Render(IReadOnlyList<ApplyCaseResult> results, ApplyReportData data, string header, int missing, int unreadable)
+    private static string Render(IReadOnlyList<ApplyCaseResult> results, ApplyReportData data, string header, IReadOnlyList<ApplyCaseResult> missing,
+        int unreadable)
     {
+        string Missing(int n) => n > 0 ? $" — apply.json 없는 실행 {n}건을 미완료로 포함" : "";
+        var missing3To8 = missing.Count(r => r.TaskCount is >= 3 and <= 8);
         var sb = new StringBuilder();
         sb.Append("# pelly-eval apply 결과\n\n").Append(header).Append("\n\n## 요약\n");
-        sb.Append($"* 명세 완료율: {Ratio(data.Completion)}\n");
-        sb.Append($"* 명세 완료율(작업 3~8개): {Ratio(data.Completion3To8)}\n");
+        sb.Append($"* 명세 완료율: {Ratio(data.Completion with { Total = data.Completion.Total + missing.Count })}{Missing(missing.Count)}\n");
+        sb.Append($"* 명세 완료율(작업 3~8개): {Ratio(data.Completion3To8 with { Total = data.Completion3To8.Total + missing3To8 })}{Missing(missing3To8)}\n");
         sb.Append($"* 그룹 빌드 통과율: {Ratio(data.GroupBuild)}" + (data.GroupsUnverifiable > 0 ? $" · 그룹 빌드 검증 불가 {data.GroupsUnverifiable}건" : "") + "\n");
 
         var exit0 = results.Where(r => r.Outcome != ApplyBenchmark.Skipped && r.ExitCode == 0).ToList();
@@ -61,8 +66,8 @@ public static class ApplyBenchmarkReport
             + $"C# 변경 없음 {noCs}\n");
         sb.Append($"* 사례 실행 {results.Count}건: 완료 {Count(results, ApplyBenchmark.Completed)} · 실패 {Count(results, ApplyBenchmark.Failed)} · "
             + $"실행기 오류 {Count(results, ApplyBenchmark.Errored)} · 건너뜀 {Count(results, ApplyBenchmark.Skipped)}\n");
-        if (missing > 0 || unreadable > 0)
-            sb.Append($"* 기록(apply.json)이 없는 실행 {missing}건 · 읽지 못한 기록 {unreadable}건 — 완료율 분모에 들지 않습니다\n");
+        if (unreadable > 0)
+            sb.Append($"* 읽지 못한 기록(apply.json) {unreadable}건 — 그 실행은 기록 없는 실행으로 미완료에 셉니다\n");
 
         sb.Append("\n## 건너뛴 사례\n");
         var skipped = results.Where(r => r.Outcome == ApplyBenchmark.Skipped).ToList();

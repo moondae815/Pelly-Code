@@ -79,7 +79,7 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
           Legacy 범위 사례는 Windows에서만, Sql 범위 사례는 SQL 연결이 있을 때만 실행하고 아니면 건너뜁니다.
           종료 0인 사례는 바뀐 C# 파일의 프로젝트와 그 의존자를 다시 빌드합니다(독립 검증).
           산출물: apply-results.json, apply-summary.md(명세 완료율·작업 3~8개 완료율·그룹 빌드 통과율·건너뛴 사례), work/<id>-<n>/
-          종료 코드: 0 실행 완료 · 1 검증 불변 조건 위반(종료 0인데 독립 빌드에 컴파일러 오류) · 2 중단 · 4 설정 오류 또는 LLM 서버 연결 불가
+          종료 코드: 0 실행 완료 · 1 검증 불변 조건 위반(종료 0인데 독립 빌드에 컴파일러 오류) · 2 중단 · 4 설정 오류·LLM 서버 연결 불가·실행기 오류 사례 있음 (여럿이면 2 → 1 → 4)
 
         SQL 연결은 환경 변수 PELLY_SQL_CONNECTION. 없거나 허용 목록에 없으면 sql 작업은 건너뜁니다.
         산출물: results.json, report.md, work/<id>/ (작업별 스위트 루트 복사본과 .pelly/runs 로그); --repeat N>1이면 회차마다 run-<k>/ 아래에

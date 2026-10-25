@@ -253,7 +253,14 @@ public static class ApplyBenchmark
         return changed;
     }
 
-    /// <summary>The command's exit code, as <c>run</c>: 2 cancelled, 1 an exit-0 apply whose independent build has compiler errors, else 0.</summary>
+    /// <summary>
+    /// The command's exit code, as <c>run</c>. Precedence: 2 cancelled; 1 an exit-0 apply whose independent build has compiler
+    /// errors (the verification invariant outranks a setup problem of another case); 4 any <c>error</c> row (the runner could not
+    /// run a case: copy failure, runner exception); else 0.
+    /// </summary>
     public static int ExitCode(IReadOnlyList<ApplyCaseResult> results, bool cancelled) =>
-        cancelled ? 2 : results.Any(r => r.IndependentBuildOk == false) ? 1 : 0;
+        cancelled ? 2
+        : results.Any(r => r.IndependentBuildOk == false) ? 1
+        : results.Any(r => r.Outcome == Errored) ? 4
+        : 0;
 }

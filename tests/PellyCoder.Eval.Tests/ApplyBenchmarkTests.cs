@@ -180,6 +180,44 @@ public sealed class ApplyBenchmarkTests : IDisposable
     }
 
     [Fact]
+    public async Task Run_without_apply_json_counts_as_not_completed()
+    {
+        var setup = Setup(EditingRun(), new FixedBuild([]));
+        var ct = TestContext.Current.CancellationToken;
+        // The spec check fails (unknown member): pelly apply exits 4 before it writes apply.json.
+        var unknown = ThreeTasks.Take(2).Append("- [ ] T3 cs Modern/App/Calc.cs#Div 오버플로를 검사한다").ToArray();
+        List<ApplyCaseResult> results =
+        [
+            await ApplyBenchmark.RunCaseAsync(Case("m1-three", "Modern", ThreeTasks), 1, setup, Out, ct),
+            await ApplyBenchmark.RunCaseAsync(Case("m2-nocheck", "Modern", unknown), 1, setup, Out, ct),
+            await ApplyBenchmark.RunCaseAsync(Case("m3-nocheck-one", "Modern", "- [ ] T1 cs Modern/App/Calc.cs#Div 오버플로를 검사한다"), 1, setup, Out, ct),
+        ];
+        Assert.Equal([(ApplyBenchmark.Completed, 0), (ApplyBenchmark.Failed, 4), (ApplyBenchmark.Failed, 4)],
+            results.Select(r => (r.Outcome, r.ExitCode)));
+
+        var lines = ApplyBenchmarkReport.Write(new FileSystem(), Out, results, "* 시험").Split('\n');
+
+        Assert.Contains(lines, l => l.StartsWith("* 명세 완료율: 33.3% (1/3건)", StringComparison.Ordinal) && l.Contains("apply.json 없는 실행 2건", StringComparison.Ordinal));
+        Assert.Contains(lines, l => l.StartsWith("* 명세 완료율(작업 3~8개): 50.0% (1/2건)", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Exit_code_precedence_is_cancelled_then_violation_then_error()
+    {
+        ApplyCaseResult Row(string outcome, bool? independent) =>
+            new("x", 1, outcome, null, outcome == ApplyBenchmark.Errored ? 4 : 0, false, 1, [], independent, 0);
+        var ok = Row(ApplyBenchmark.Completed, true);
+        var violation = Row(ApplyBenchmark.Completed, false);
+        var error = Row(ApplyBenchmark.Errored, null);
+
+        Assert.Equal(0, ApplyBenchmark.ExitCode([ok], cancelled: false));
+        Assert.Equal(4, ApplyBenchmark.ExitCode([ok, error], cancelled: false));
+        Assert.Equal(4, ApplyBenchmark.ExitCode([error, error], cancelled: false));
+        Assert.Equal(1, ApplyBenchmark.ExitCode([violation, error], cancelled: false));
+        Assert.Equal(2, ApplyBenchmark.ExitCode([violation, error], cancelled: true));
+    }
+
+    [Fact]
     public void Summary_without_results_says_not_judged()
     {
         var outDir = Path.Combine(_root, "empty-out");

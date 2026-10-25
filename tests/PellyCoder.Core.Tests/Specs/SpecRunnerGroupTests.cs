@@ -250,6 +250,48 @@ public sealed class SpecRunnerGroupTests : IDisposable
     }
 
     [Fact]
+    public async Task Missing_project_referenced_by_a_scope_project_is_unverifiable_before_any_edit()
+    {
+        Make("src/Web/Web.csproj",
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><ItemGroup><ProjectReference Include=\"../App/App.csproj\" /><ProjectReference Include=\"..\\Gone\\Gone.csproj\" /></ItemGroup></Project>");
+        Spec(Group);
+        var code = await Run(Opts());
+
+        Assert.Equal(4, code);
+        Assert.Empty(_exec.Calls);
+        Assert.Empty(_builds.Calls);
+        AssertGroupFilesUntouched();
+        Assert.Contains(_ui.Warnings, w => w.Contains("그룹 빌드 검증 불가") && w.Contains("src/Web/Web.csproj") && w.Contains("src/Gone/Gone.csproj"));
+        Assert.Contains("GroupUnverifiable -->", Read("changes/x.md"));
+    }
+
+    [Fact]
+    public async Task Link_folder_pointing_outside_the_workspace_is_unverifiable_before_any_edit()
+    {
+        var outside = Directory.CreateTempSubdirectory("pelly-group-outside-").FullName;
+        try
+        {
+            try { Directory.CreateSymbolicLink(P("shared"), outside); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                Assert.Skip($"symbolic links cannot be created here ({ex.Message})");
+            }
+            Spec(Group);
+            var code = await Run(Opts());
+
+            Assert.Equal(4, code);
+            Assert.Empty(_exec.Calls);
+            Assert.Empty(_builds.Calls);
+            AssertGroupFilesUntouched();
+            Assert.Contains(_ui.Warnings, w => w.Contains("그룹 빌드 검증 불가") && w.Contains("링크 폴더") && w.Contains("shared"));
+        }
+        finally
+        {
+            Directory.Delete(outside, true);
+        }
+    }
+
+    [Fact]
     public async Task Baseline_error_in_a_referenced_scope_project_is_unverifiable_before_any_edit()
     {
         // App does not compile, so the build of Web (which references App) never compiles Web: its breakage would be hidden.

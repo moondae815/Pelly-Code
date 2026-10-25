@@ -35,6 +35,12 @@ public sealed class MsBuildSemanticLoader(IFileSystem fs, TimeSpan? timeout = nu
 
     public async Task<SemanticLoad> LoadAsync(IReadOnlyList<string> projects, CancellationToken ct)
     {
+        // Pure filesystem check first: an unrestored SDK project would otherwise spend the whole time limit in
+        // MSBuild and come back as Timeout instead of the actionable NotRestored. JudgeAsync still checks again
+        // for anything the build reports.
+        if (projects.Any(p => SemanticHealth.IsUnrestoredSdkProject(fs, p)))
+            return new SemanticLoad(null, new SemanticFailure(SemanticFailureKind.NotRestored), null);
+
         using var limit = CancellationTokenSource.CreateLinkedTokenSource(ct);
         limit.CancelAfter(_timeout);
         MSBuildWorkspace? workspace = null;

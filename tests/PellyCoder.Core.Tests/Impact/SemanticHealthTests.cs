@@ -145,7 +145,7 @@ public class SemanticHealthTests
 
     [Fact]
     public async Task Judge_without_references_is_not_healthy() =>
-        Assert.NotNull(await Judge(Build(Healthy, withReferences: false)));
+        Assert.Equal(SemanticFailureKind.CompileErrors, (await Judge(Build(Healthy, withReferences: false)))?.Kind);
 
     [Fact]
     public async Task Judge_no_calls_counts_as_full_resolution() =>

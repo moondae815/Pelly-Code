@@ -15,8 +15,11 @@ public sealed class RestoredSameNameFixture : IAsyncLifetime
     public async ValueTask InitializeAsync()
     {
         Root = CorpusCopy.CreateFrom(SameNameSource.Path());
+        // Restore the one project that references the other two, not SameName.sln: on macOS the temp root is
+        // /var/... (a link to /private/var/...), and the solution restore then saw Data.csproj under both spellings
+        // and restored it twice in parallel, failing with "Web.csproj.nuget.g.props already exists".
         var restore = await new SystemProcessRunner(TimeProvider.System).RunAsync(
-            new ProcessSpec("dotnet", ["restore", Path.Combine(Root, "SameName.sln"), "--nologo"], Root, TimeSpan.FromMinutes(5)),
+            new ProcessSpec("dotnet", ["restore", Path.Combine(Root, "Web.Tests", "Web.Tests.csproj"), "--nologo"], Root, TimeSpan.FromMinutes(5)),
             CancellationToken.None);
         Assert.True(restore.ExitCode == 0, "dotnet restore 실패:\n" + restore.StdOut + restore.StdErr);
     }
@@ -75,6 +78,24 @@ public sealed class MsBuildSemanticLoaderTests(RestoredSameNameFixture fx) : ICl
 
             Assert.Equal(SemanticFailureKind.NotRestored, load.Failure?.Kind);
             Assert.Null(load.Solution);
+        }
+        finally
+        {
+            CorpusCopy.Delete(root);
+        }
+    }
+
+    [Fact]
+    public async Task Unrestored_project_is_NotRestored_before_opening_the_workspace()
+    {
+        // A 1 ms limit would turn any MSBuild work into Timeout: NotRestored proves the filesystem pre-check ran first.
+        var root = CorpusCopy.CreateFrom(SameNameSource.Path());
+        try
+        {
+            using var load = await new MsBuildSemanticLoader(Fs, TimeSpan.FromMilliseconds(1))
+                .LoadAsync(SameNameSource.Projects(root), TestContext.Current.CancellationToken);
+
+            Assert.Equal(SemanticFailureKind.NotRestored, load.Failure?.Kind);
         }
         finally
         {

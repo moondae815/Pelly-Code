@@ -85,7 +85,7 @@ public static class SemanticHealth
     }
 
     /// <summary>An SDK-style project (Sdk attribute on the root) with no obj/project.assets.json.</summary>
-    private static bool IsUnrestoredSdkProject(IFileSystem fs, string projectPath)
+    internal static bool IsUnrestoredSdkProject(IFileSystem fs, string projectPath)
     {
         if (!fs.File.Exists(projectPath)) return false;
         try

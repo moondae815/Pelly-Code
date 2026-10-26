@@ -26,7 +26,7 @@ public static class UiHost
     /// reason to <paramref name="error"/> and returns 4 before any run starts.
     /// </summary>
     public static int Run(UiLaunch launch, Func<GuiUserInteraction, UiSession> createSession, TextWriter error) =>
-        Run(launch, createSession, error, SetupDesktop);
+        CheckNatives(error) ?? Run(launch, createSession, error, SetupDesktop);
 
     /// <summary><see cref="Run(UiLaunch, Func{GuiUserInteraction, UiSession}, TextWriter)"/> with the platform setup replaceable (tests).</summary>
     internal static int Run(UiLaunch launch, Func<GuiUserInteraction, UiSession> createSession, TextWriter error, Action setup) =>
@@ -88,7 +88,7 @@ public static class UiHost
     /// "ui selftest: ok (&lt;width&gt;x&lt;height&gt;)" to <paramref name="output"/>. Touches no files.
     /// 0 on success, 4 on failure (the reason is written to <paramref name="error"/>).
     /// </summary>
-    public static int SelfTest(TextWriter output, TextWriter error) => SelfTest(output, error, () =>
+    public static int SelfTest(TextWriter output, TextWriter error) => CheckNatives(error) ?? SelfTest(output, error, () =>
     {
         Configure().SetupWithoutStarting();
         using var bitmap = RenderWindow();
@@ -163,6 +163,32 @@ public static class UiHost
         using var bitmap = new RenderTargetBitmap(new PixelSize(8, 8));
         bitmap.Render(probe);
     }
+
+    /// <summary>
+    /// Native files that must sit beside pelly.exe for the GUI (design §7.2). ANGLE (<c>av_libglesv2.dll</c>) is shipped too but
+    /// not required here: without it Avalonia may fall back to software rendering (CI logs that case).
+    /// </summary>
+    private static readonly string[] RequiredNatives = ["libSkiaSharp.dll", "libHarfBuzzSharp.dll"];
+
+    /// <summary>The first required native file missing from <paramref name="baseDirectory"/>, else null.</summary>
+    internal static string? MissingNativeFile(string baseDirectory, Func<string, bool> fileExists) =>
+        RequiredNatives.FirstOrDefault(name => !fileExists(Path.Combine(baseDirectory, name)));
+
+    /// <summary>
+    /// Checks the native files beside pelly.exe before Avalonia starts. On Windows a missing Skia native surfaces as a
+    /// type-initializer fault inside SkiaSharp rather than a <see cref="DllNotFoundException"/> (CI run 40331719146), so the
+    /// exception path alone cannot name it. Null to continue; 4 after writing the hint to <paramref name="error"/>.
+    /// Other platforms are development only and load natives from the NuGet runtime folders, so they are not checked.
+    /// </summary>
+    internal static int? CheckNatives(TextWriter error, bool isWindows, string baseDirectory, Func<string, bool> fileExists)
+    {
+        if (!isWindows || MissingNativeFile(baseDirectory, fileExists) is not { } file) return null;
+        error.WriteLine(MissingNativeMessage(file));
+        return ExitCodes.EnvError;
+    }
+
+    private static int? CheckNatives(TextWriter error) =>
+        CheckNatives(error, OperatingSystem.IsWindows(), AppContext.BaseDirectory, File.Exists);
 
     /// <summary>The library named by a <see cref="DllNotFoundException"/> in <paramref name="ex"/>'s inner chain (e.g. inside a <see cref="TypeInitializationException"/>), else null.</summary>
     private static string? MissingNative(Exception ex)

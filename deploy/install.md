@@ -10,12 +10,14 @@
 | 파일 | 용도 |
 | :--- | :--- |
 | `pelly.exe` | 실행 파일 (단일 파일) |
+| `av_libglesv2.dll`, `libHarfBuzzSharp.dll`, `libSkiaSharp.dll` | `pelly ui`(승인 창)가 쓰는 그래픽 네이티브 DLL 셋. **`pelly.exe`와 같은 폴더에 그대로 두십시오.** 없으면 `pelly ui`만 종료 코드 4로 끝나고 다른 명령은 그대로 동작합니다 |
 | `BuildHost-net472/`, `BuildHost-netcore/` | 영향 탐색의 의미 분석이 띄우는 보조 프로세스(Roslyn 빌드 호스트). **`pelly.exe`와 같은 폴더에 그대로 두십시오.** 없으면 `pelly doctor --offline-selftest`의 「의미 분석 보조 프로세스」 행이 Fail입니다 |
 | `pelly.json.template` | 설정 템플릿 |
 | `SHA256SUMS.txt` | 파일별 SHA-256 체크섬 |
 | `sbom.cdx.json` | SBOM (CycloneDX), 보안 심사용 |
 | `THIRD-PARTY-NOTICES.md` | 서드파티 라이선스 목록 |
 | `licenses/Microsoft.Data.SqlClient.SNI.runtime.LICENSE.txt` | 예외 승인한 SQL Server 네이티브 클라이언트(SNI)의 라이선스 전문 |
+| `licenses/Avalonia.Angle.Windows.Natives.LICENSE.txt` | 예외 승인한 그래픽 네이티브(`av_libglesv2.dll`, ANGLE, BSD-3-Clause)의 라이선스 전문 |
 | `version-record.json` | pelly 버전, Ollama 버전, 측정에 쓴 모델(`qwen3.6:35b`, GGUF `Q4_K_M`)의 태그·digest·형식·양자화·GGUF SHA-256 |
 | `benchmark-summary.md` | 벤치마크 결과 요약 |
 | `docs/` | 이 문서들 (`install.md`, `usage.md`, `ide-external-tools.md`, `server-checklist.md`, `no-network.md`) |
@@ -29,7 +31,7 @@
 
 ## 1. zip 풀기
 
-원하는 폴더에 풉니다. 예: `C:\Tools\pelly`. `pelly.exe`만 따로 옮기지 말고 `BuildHost-net472`, `BuildHost-netcore` 폴더와 함께 두십시오.
+원하는 폴더에 풉니다. 예: `C:\Tools\pelly`. `pelly.exe`만 따로 옮기지 말고 옆의 DLL 셋(`av_libglesv2.dll`, `libHarfBuzzSharp.dll`, `libSkiaSharp.dll`)과 `BuildHost-net472`, `BuildHost-netcore` 폴더를 함께 두십시오. **`pelly.exe` 옆의 DLL을 함께 두어야 `pelly ui`가 뜹니다.** DLL이 없으면 `pelly ui`는 「GUI 구성 요소를 불러오지 못했습니다: <파일>. pelly.exe 옆의 DLL을 함께 두십시오.」를 내고 종료 코드 4이며, `pelly cs`·`pelly sql` 같은 다른 명령은 영향이 없습니다. (`pelly ui`가 Windows에서 실제로 뜨는지는 Windows 미확인입니다.)
 
 ## 2. 체크섬 확인
 
@@ -141,6 +143,7 @@ Ollama 접속, 모델, 토크나이저, 응답 시간, .NET SDK, MSBuild, SQL �
 
 `pelly.exe`는 처음 실행할 때 네이티브 SQL 클라이언트 `Microsoft.Data.SqlClient.SNI.dll` 하나를 `%TEMP%\.net\pelly\<해시>\`에 풀고 거기서 불러옵니다. .NET 단일 파일 실행 방식이 그렇게 합니다.
 AppLocker나 WDAC가 `%TEMP%`에서 DLL을 불러오는 것을 막으면 SQL 기능이 실패할 수 있습니다. 이때는 허용된 폴더로 옮기십시오.
+`pelly ui`의 그래픽 DLL 셋은 이 폴더에 풀리지 않고 `pelly.exe` 옆(설치 폴더)에서 바로 읽힙니다. 그래서 설치 폴더의 DLL 실행이 허용돼야 합니다. 정책에 막히는지는 Windows 미확인이며 `field-results.md`의 U4에서 확인합니다.
 
 ```powershell
 [Environment]::SetEnvironmentVariable('DOTNET_BUNDLE_EXTRACT_BASE_DIR', 'C:\Tools\pelly\extract', 'User')
@@ -156,7 +159,7 @@ AppLocker나 WDAC가 `%TEMP%`에서 DLL을 불러오는 것을 막으면 SQL 기
 
 ## 업데이트
 
-새 zip을 같은 방법으로 반입하고 `pelly.exe`와 `BuildHost-net472`, `BuildHost-netcore` 폴더를 함께 바꿉니다. 설정 파일은 그대로 둡니다.
+새 zip을 같은 방법으로 반입하고 `pelly.exe`, 옆의 DLL 셋(`av_libglesv2.dll`, `libHarfBuzzSharp.dll`, `libSkiaSharp.dll`), `BuildHost-net472`, `BuildHost-netcore` 폴더를 함께 바꿉니다. DLL을 예전 것으로 남겨 두면 `pelly ui`가 뜨지 않을 수 있습니다. 설정 파일은 그대로 둡니다.
 `version-record.json`으로 버전을 확인하십시오. 샘플링·예산 같은 값은 설정 파일로 바꿀 수 있어서 재반입이 필요 없습니다.
 
 ## 현장 키트

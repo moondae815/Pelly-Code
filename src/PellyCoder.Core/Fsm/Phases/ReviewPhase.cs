@@ -25,6 +25,6 @@ public sealed class ReviewPhase(IUserInteraction ui) : IPhase
             return PhaseOutcome.Rejected;
         }
 
-        return await ui.ConfirmAsync("적용할까요?", false, ct) ? PhaseOutcome.Approved : PhaseOutcome.Rejected;
+        return await ui.ApproveAsync("적용할까요?", ct) ? PhaseOutcome.Approved : PhaseOutcome.Rejected;
     }
 }

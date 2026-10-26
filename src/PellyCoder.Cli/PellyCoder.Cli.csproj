@@ -23,6 +23,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\PellyCoder.Core\PellyCoder.Core.csproj" />
+    <ProjectReference Include="..\PellyCoder.Ui\PellyCoder.Ui.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="PellyCoder.Cli.Tests" />
   </ItemGroup>
 
   <ItemGroup>
@@ -30,12 +35,13 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="DiffPlex" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
     <PackageReference Include="Spectre.Console.Cli" />
   </ItemGroup>
 
   <!-- Roslyn build hosts beside the single-file exe (V2-1c Task 5). -->
   <Import Project="$(MSBuildThisFileDirectory)../../build/BuildHostOutside.targets" />
+  <!-- Avalonia/Skia/HarfBuzz native DLLs beside the single-file exe (V2-0 design §7.2). -->
+  <Import Project="$(MSBuildThisFileDirectory)../../build/UiNativeOutside.targets" />
 
 </Project>

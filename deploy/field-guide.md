@@ -8,7 +8,7 @@
 
 | zip | 내용 |
 | :--- | :--- |
-| `pelly-<버전>-win-x64.zip` | `pelly.exe`와 그 옆 `BuildHost-net472\`·`BuildHost-netcore\` 폴더(함께 두십시오), 설치 문서. 이 문서에서 「pelly zip을 푼 폴더의 `docs\install.md`」처럼 부릅니다 |
+| `pelly-<버전>-win-x64.zip` | `pelly.exe`와 그 옆 GUI DLL 셋(`av_libglesv2.dll`, `libHarfBuzzSharp.dll`, `libSkiaSharp.dll`)·`BuildHost-net472\`·`BuildHost-netcore\` 폴더(함께 두십시오), 설치 문서. 이 문서에서 「pelly zip을 푼 폴더의 `docs\install.md`」처럼 부릅니다 |
 | 현장 키트 zip | `pelly-eval.exe`와 그 옆 `BuildHost-net472\`·`BuildHost-netcore\` 폴더(함께 두십시오), 이 문서들(`docs\field-*.md`), `templates\` |
 
 이 문서에서 실행기를 `pelly-eval`이라고 부릅니다. 파일 이름은 `pelly-eval.exe`입니다.
@@ -195,3 +195,5 @@ pelly doctor --sanitize --out D:\pelly-field\export\doctor --config <pelly.json>
 **pelly zip**을 푼 폴더의 `docs\ide-external-tools.md`(현장 키트 zip에는 없습니다)의 「Visual Studio 실기 확인 결과」 표를 0번부터 8번까지 채웁니다.
 설정은 같은 문서의 「설정 값」 절을 따릅니다. 항목마다 결과(합격·불합격·해당 없음)와 메모를 적습니다.
 불합격 항목은 고치지 말고 그대로 기록해서 내보내십시오.
+
+`pelly ui`(승인 창)를 쓸 PC라면 같은 문서의 「GUI 항목」대로 항목을 더 등록하고, `field-results.md` 9절 「`pelly ui` 현장 확인」의 U1~U4를 채웁니다. (Windows 미확인)

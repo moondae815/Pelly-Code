@@ -1,7 +1,7 @@
 using DiffPlex.DiffBuilder;
 using DiffPlex.DiffBuilder.Model;
 
-namespace PellyCoder.Cli.Terminal;
+namespace PellyCoder.Core.Reporting;
 
 /// <summary>Builds unified-diff lines (like <c>diff -u</c>) for the REVIEW preview.</summary>
 public static class DiffRenderer

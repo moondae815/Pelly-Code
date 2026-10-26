@@ -41,6 +41,29 @@ External Tools 창이 키 입력을 받지 못하면 요청문을 인수로 넘�
 나머지 값은 C# 항목과 같습니다. `.sql` 파일에서 실행하십시오.
 SQL 항목은 [install.md](install.md)의 설정(`sql.allowedHosts` 등)이 끝나 있어야 동작합니다.
 
+## GUI 항목 (`pelly ui`)
+
+콘솔 입력이 안 되는 IDE에서는 콘솔 대신 승인 창을 씁니다. 요청 입력·diff 확인·승인이 창 안에서 되므로 표준 입력과 `--pause-on-exit`가 필요 없습니다. 기존 콘솔 항목은 그대로 두고 **항목을 더 등록**합니다. 사용법은 [usage.md](usage.md)의 「`pelly ui`」를 보십시오.
+이 절의 모든 설정은 **Windows 미확인**입니다. Rider 열은 실기 미확인입니다.
+
+| 항목 | Visual Studio | Rider (실기 미확인) |
+| :--- | :--- | :--- |
+| 제목 | `Pelly C# (창)` | 같음 |
+| 명령 | `pelly.exe` 전체 경로 | 같음 |
+| 인수 (C#) | `ui cs "$(ItemPath)" --line $(CurLine)` | `ui cs "$FilePath$" --line $LineNumber$` |
+| 인수 (SQL) | `ui sql "$(ItemPath)" --line $(CurLine)` | `ui sql "$FilePath$" --line $LineNumber$` |
+| 초기 디렉터리 | `$(SolutionDir)` | `$ProjectFileDir$` |
+| 기타 | **「출력 창 사용」 켬** | 「Synchronize files after execution」 켬. Run 도구 창으로 충분합니다(표준 입력이 필요 없음) |
+
+* Visual Studio는 반드시 「출력 창 사용」을 켜십시오. `pelly.exe`는 콘솔 실행 파일이라 끄면 빈 콘솔 창이 창과 함께 뜹니다.
+* `--pause-on-exit`와 `--yes`는 붙이지 않습니다. 주면 종료 코드 4입니다.
+* 요청문은 인수에 넣지 않고 창의 요청 칸에 입력한 뒤 「실행」(Ctrl+Enter)을 누릅니다.
+* 모르는 옵션이나 값 빠진 옵션 같은 명령줄 오류는 창 없이 출력 창에 한 줄로 나오고 종료 코드 4입니다. 항목을 처음 등록한 뒤 한 번 실행해 출력 창을 확인하십시오.
+* 파일 경로 검사 같은 그 밖의 오류는 창 안에 빨간 글씨로 보입니다.
+* `pelly.exe` 옆에 `av_libglesv2.dll`, `libHarfBuzzSharp.dll`, `libSkiaSharp.dll`이 있어야 창이 뜹니다. 없으면 출력 창에 「GUI 구성 요소를 불러오지 못했습니다」가 나오고 종료 코드 4입니다.
+* 승인 뒤 IDE가 파일을 다시 불러오는 것과 「실행 전에 저장」은 콘솔 항목과 같습니다(아래 절).
+* 한글 IME 입력, 고해상도 표시, 창이 뜨는지는 현장 확인 전입니다. 결과는 `field-results.md`의 「pelly ui 현장 확인」에 적습니다.
+
 ## 실행 전에 저장
 
 IDE에 저장하지 않은 편집이 있으면 pelly는 **디스크의 파일만** 보고 수정합니다.

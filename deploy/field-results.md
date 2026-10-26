@@ -114,11 +114,27 @@
 * `compare` 판정(종료 코드): ____
 * 외부 참고: 내장 50건 46.00 → 46.67, 관례 작업 6건 0/6 → 6/6
 
-## 9. Visual Studio External Tools
+## 9. `pelly ui` 현장 확인 (V2-0)
+
+CI와 헤드리스 테스트로는 확인할 수 없는 네 가지입니다. CI는 창을 화면에 띄우지 않고 한 번 그리는 `pelly ui --selftest`로 DLL 적재만 확인했습니다. 결과 칸에는 합격 / 불합격 / 해당 없음 중 하나를 적고, 메모에는 화면에 보인 실제 문구를 적습니다. 불합격은 고치지 말고 그대로 적습니다.
+준비: `pelly.exe` 옆에 `av_libglesv2.dll`, `libHarfBuzzSharp.dll`, `libSkiaSharp.dll`이 있는지 확인하고, `deploy/ide-external-tools.md`의 「GUI 항목」대로 등록합니다.
+
+| 번호 | 확인할 것 | 결과 | 메모 |
+| :--- | :--- | :--- | :--- |
+| U1 | 한국어 Windows 11에서 요청 칸에 한글 IME로 입력이 되는가 (조합 중 글자 표시, 확정, 백스페이스) | | |
+| U2 | Visual Studio External Tools(「출력 창 사용」 켬)에서 창이 뜨는가, 콘솔 창이 따로 뜨지 않는가, 적용 뒤 파일 다시 불러오기가 되는가 | | |
+| U3 | 고해상도(125%·150% 배율)에서 글자와 diff가 흐리지 않은가 | | |
+| U4 | 폐쇄망 PC에서 `pelly ui`가 뜨는가 (백신·응용 프로그램 제어가 DLL을 막지 않는가) | | |
+
+* U4 참고: 네이티브 DLL은 임시 폴더에 풀리지 않고 `pelly.exe` 옆에서 바로 읽힙니다. 막히면 어느 파일 이름이 안내 문구에 나왔는지 메모에 적습니다.
+* 확인한 Windows·Visual Studio 버전: ____
+* 확인한 날짜·확인자: ____
+
+## 10. Visual Studio External Tools
 
 pelly zip의 `docs\ide-external-tools.md`의 「Visual Studio 실기 확인 결과」 표를 채웠는가: 예 / 아니오
 
-## 10. 반출한 파일 목록
+## 11. 반출한 파일 목록
 
 | 파일 (반출 폴더 기준) | 만든 명령 |
 | :--- | :--- |
@@ -129,6 +145,6 @@ pelly zip의 `docs\ide-external-tools.md`의 「Visual Studio 실기 확인 결�
 * 반출 전에 파일을 직접 열어 사내 이름이 없는지 확인했는가: 예 / 아니오
 * 반출 승인한 사람·날짜: ____
 
-## 11. 메모
+## 12. 메모
 
 막힌 명령, 이상한 출력, 문서와 다른 점을 적습니다.

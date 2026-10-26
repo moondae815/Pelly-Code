@@ -34,12 +34,8 @@ public sealed class SqlCommand(
 {
     public override async Task<int> ExecuteAsync(CommandContext context, SqlSettings settings, CancellationToken _)
     {
-        if (settings.Line is not null && settings.Object is not null)
-            return Fail("--line은 --object와 함께 쓸 수 없습니다");
-        if (settings.Line is <= 0)
-            return Fail("--line은 1 이상이어야 합니다");
-        if (settings.MaxRetries is < 0)
-            return Fail("--max-retries는 0 이상이어야 합니다");
+        if (RunArguments.ValidateSql(settings) is [var invalid, ..])
+            return Fail(invalid);
 
         var requestText = settings.Request;
         if (requestText is null)
@@ -51,29 +47,26 @@ public sealed class SqlCommand(
         if (string.IsNullOrWhiteSpace(requestText))
             return Fail("요청문(REQUEST)이 비어 있습니다");
 
-        var file = fs.Path.GetFullPath(settings.File);
-        if (!fs.File.Exists(file))
-            return Fail($"파일을 찾을 수 없습니다: {file}");
+        var (prepared, errors) = RunArguments.PrepareSql(settings, fs, resolver);
+        if (prepared is null)
+            return Report(errors);
 
-        var loaded = resolver.Resolve(file, settings.Config, settings.Think, settings.Model, settings.Endpoint);
-        if (loaded.Options is null)
-        {
-            foreach (var error in loaded.Errors) console.MarkupLine($"[red]{Markup.Escape(error)}[/]");
-            return ExitCodes.EnvError;
-        }
-
-        var request = new RunRequest(
-            file, null, null, settings.Line, requestText, settings.Yes, settings.DryRun, settings.MaxRetries,
-            ObjectName: settings.Object, Kind: EditKind.Sql, Verbose: settings.Verbose);
+        var request = RunArguments.SqlRequest(settings, prepared.File, requestText);
         try
         {
-            return await runner.RunAsync(request, loaded.Options, cancellation);
+            return await runner.RunAsync(request, prepared.Options, cancellation);
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
         {
             console.MarkupLine("[yellow]사용자가 실행을 중단했습니다.[/]");
             return ExitCodes.UserCancelled;
         }
+    }
+
+    private int Report(IReadOnlyList<string> errors)
+    {
+        foreach (var error in errors) console.MarkupLine($"[red]{Markup.Escape(error)}[/]");
+        return ExitCodes.EnvError;
     }
 
     private int Fail(string message)

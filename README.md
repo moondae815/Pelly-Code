@@ -13,6 +13,7 @@
 
 ## 빌드·테스트
 ```bash
+export AVALONIA_TELEMETRY_OPTOUT=1   # Avalonia 빌드 시점 사용 정보 수집 끄기 (PowerShell: $env:AVALONIA_TELEMETRY_OPTOUT = "1")
 dotnet build -warnaserror
 dotnet test
 dotnet run --project src/PellyCoder.Cli -- --version
@@ -243,6 +244,24 @@ pelly rules check [--config <경로>] [--pause-on-exit]
 * **`pelly rules check`:** 규칙을 줄·태그·규칙·토큰 수·forbid 표로 보여 줍니다. `[*]` 규칙만으로 `budget.rules`를 넘으면 아래쪽 규칙이 빠진다는 경고를 냅니다. 오류가 있으면 종료 코드 4, 규칙이 없으면 알림과 함께 종료 코드 0입니다.
 * **`--verbose`:** 실행 요약에 포함된 규칙(`+`)과 제외된 규칙(`-`)을 보여 주고 `summary.json`에 `rulesIncluded`·`rulesDropped`를 남깁니다. `pelly report --sanitize`의 반출 보고서에는 담기지 않습니다.
 
+### `pelly ui` — 승인 창 (V2-0)
+```bash
+pelly ui cs  <file.cs>  ["<요청>"] [--class <Name>] [--method <Name>] | [--line <n>]  [cs 옵션]
+pelly ui sql <file.sql> ["<요청>"] [--object <Name>] | [--line <n>]  [공통 옵션]
+```
+
+`pelly cs`·`pelly sql`과 같은 실행을 작은 창에서 합니다. 요청 입력, 진행 표시, diff 확인, 승인·거부를 창에서 하므로 표준 입력이 필요 없습니다. External Tools의 콘솔이 키 입력을 받지 못하는 IDE(Rider 등)와 `--pause-on-exit`가 필요했던 곳에 씁니다. FSM·검증·롤백 코드는 `cs`·`sql`과 같습니다. `pelly ui`만 쓰면 사용법을 출력합니다.
+
+* **흐름:** 창이 뜨면 대상(파일, 줄 또는 멤버)과 요청 칸이 보입니다. 인수에 요청문을 주었으면 미리 채워 둡니다. 「실행」(Ctrl+Enter)을 눌러야 시작합니다. 진행 줄이 쌓이고, 대상이 여럿이면 목록에서 고르고, 경고는 「계속」/「중단」으로 묻습니다. 검증을 통과하면 diff가 보이고 「적용」/「거부」를 누릅니다. 이때 파일은 이미 바뀐 상태이며 거부하면 원래대로 되돌립니다.
+* **끝난 뒤:** 창은 남고 결과(종료 코드와 뜻)를 보여 줍니다. 요청문을 고쳐 다시 실행할 수 있습니다. 프로세스 종료 코드는 **마지막 실행의 종료 코드**이고, 한 번도 실행하지 않고 닫으면 2입니다.
+* **취소·닫기:** 실행 중 「취소」나 창 닫기는 Ctrl+C와 같습니다. 원본 복원이 끝날 때까지 창이 「되돌리는 중…」으로 남고 그 뒤 종료 코드 2입니다. 질문을 기다리는 중에 창을 닫아도 답이 아니라 취소(Ctrl+C와 같음)입니다. Esc는 승인·경고 질문이면 거부(또는 중단), 목록 선택이면 취소이고, 질문이 없으면 창 닫기와 같습니다(실행 중이면 취소). 새 질문이 뜬 뒤 0.5초 동안은 Esc도 무시합니다.
+* **옵션:** `cs`·`sql`과 같은 뜻입니다. `--yes`와 `--pause-on-exit`는 쓸 수 없고 주면 종료 4입니다(승인은 창에서 하고 창이 남기 때문). `--dry-run`은 diff만 보이고 「확인」 하나만 둡니다(창이 닫힘). `--verbose`는 끝난 뒤 접힌 「실행 요약」을 보입니다. 창에서 옵션을 고르는 기능은 없습니다.
+* **오류:** 파일 없음·옵션 충돌·설정 오류 같은 명령 검증 오류는 창 안에 빨갛게 보이고 「실행」이 잠기며 종료 4입니다(출력 창 사용 시 콘솔이 안 보이기 때문). 모르는 옵션·형식 오류(`--line abc`)·값 빠진 옵션은 창 없이 콘솔에 출력하고 종료 4입니다.
+* **실수 방지:** 「적용」은 기본 단추가 아니며 다른 질문 단추와 떨어져 있습니다. 새 질문이 뜬 뒤 0.5초 동안은 단추 입력을 무시합니다(더블클릭 방지).
+* **반입 배치:** 창을 그리는 네이티브 DLL 셋(`av_libglesv2.dll`, `libHarfBuzzSharp.dll`, `libSkiaSharp.dll`)은 `pelly.exe`에 묶지 않고 **`pelly.exe` 옆에 둡니다.** 없으면 `pelly ui`만 「GUI 구성 요소를 불러오지 못했습니다: <파일>. pelly.exe 옆의 DLL을 함께 두십시오.」를 내고 종료 4이고, 다른 명령은 영향이 없습니다. `pelly.exe`는 +9.3 MB(127,059,367 → 136,359,551 바이트, macOS 교차 publish 측정이며 Windows 값은 CI가 출력합니다)이고 DLL 셋은 합쳐 약 18.8 MB입니다. Windows에서 창이 뜨는지, 한글 IME 입력, 고해상도 표시는 **Windows 미확인**입니다(현장 확인표는 `deploy/field-results.md`). CI는 창을 화면에 띄우지 않고 한 번 그리는 숨은 `pelly ui --selftest`로 DLL 적재만 확인합니다.
+* IDE 등록은 [deploy/ide-external-tools.md](deploy/ide-external-tools.md)의 「GUI 항목」을 보십시오. 같은 문서의 설계 배경은 `docs/superpowers/specs/2026-10-26-v2-0-gui-design.md`입니다.
+* **개발 메모:** Avalonia 12.1.4. `Avalonia.Headless.XUnit`이 xunit.v3 4.0.2와 맞지 않아 UI 테스트는 `HeadlessUnitTestSession`으로 직접 세션을 띄웁니다. 빌드 시점 사용 정보 수집은 `AVALONIA_TELEMETRY_OPTOUT=1`로 끕니다.
+
 ### `pelly doctor` — 환경 점검
 ```bash
 pelly doctor [--project <csproj>] [--sanitize [--out <폴더>]] [--config <경로>] [--model <태그>] [--endpoint <URL>]
@@ -285,14 +304,14 @@ pelly report [--since 2026-10-01] [--sanitize [--out <폴더>]]
 실제 모델 실행 기록은 [docs/m1-e2e.md](docs/m1-e2e.md)(C# 최소 경로), [docs/m2a-e2e.md](docs/m2a-e2e.md)(빌드 검증·교정 루프), [docs/m2b-e2e.md](docs/m2b-e2e.md)(SQL 경로), [docs/m3a-e2e.md](docs/m3a-e2e.md)(DTO 슬라이스·`--test`·리포트)에 있습니다.
 
 ## 반입 패키지 만들기
-폐쇄망에 들고 갈 zip은 둘이고 CI의 `package` 잡이 만듭니다(Windows, PowerShell 7). `pelly-0.9.1-win-x64.zip`은 `pelly.exe`와 그 옆 BuildHost 폴더 둘(`BuildHost-net472/`, `BuildHost-netcore/`, 의미 분석 보조 프로세스)·설치 문서, `pelly-field-kit-0.9.1-win-x64.zip`(현장 키트)은 `pelly-eval.exe`와 같은 BuildHost 폴더 둘·현장 절차 문서·스위트 템플릿입니다. 로컬(Windows)에서 반입 zip을 만들려면 단일 파일 publish 뒤 스크립트를 실행합니다.
+폐쇄망에 들고 갈 zip은 둘이고 CI의 `package` 잡이 만듭니다(Windows, PowerShell 7). `pelly-0.9.1-win-x64.zip`은 `pelly.exe`와 그 옆 BuildHost 폴더 둘(`BuildHost-net472/`, `BuildHost-netcore/`, 의미 분석 보조 프로세스)·GUI 네이티브 DLL 셋(`av_libglesv2.dll`, `libHarfBuzzSharp.dll`, `libSkiaSharp.dll`, `pelly ui`용)·설치 문서, `pelly-field-kit-0.9.1-win-x64.zip`(현장 키트)은 `pelly-eval.exe`와 같은 BuildHost 폴더 둘·현장 절차 문서·스위트 템플릿입니다. 로컬(Windows)에서 반입 zip을 만들려면 단일 파일 publish 뒤 스크립트를 실행합니다.
 
 ```powershell
 dotnet publish src/PellyCoder.Cli -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:PublishTrimmed=false -p:DebugType=none -o artifacts/publish/win-x64
 dotnet tool restore   # CycloneDX 6.3.1 (SBOM)
 pwsh ./deploy/build-package.ps1 -PublishDir artifacts/publish/win-x64 -OutDir artifacts/package
 ```
-* zip에는 `deploy/package-files.txt` 허용 목록에 있는 것만 들어갑니다(실행 파일·publish 폴더의 BuildHost 폴더 둘 전체·`LICENSE`(Payletter 사내 전용)·설정 템플릿·문서·`SHA256SUMS.txt`·SBOM·서드파티 라이선스·버전 기록·벤치마크 요약). 허용되지 않은 라이선스가 있으면 스크립트가 실패하며, 예외는 `deploy/license-exceptions.json`에 승인자와 함께 적습니다(현재 하나, 잠정).
+* zip에는 `deploy/package-files.txt` 허용 목록에 있는 것만 들어갑니다(실행 파일·`pelly.exe` 옆 Avalonia 네이티브 DLL 셋·publish 폴더의 BuildHost 폴더 둘 전체·`LICENSE`(Payletter 사내 전용)·설정 템플릿·문서·`SHA256SUMS.txt`·SBOM·서드파티 라이선스·버전 기록·벤치마크 요약). 허용되지 않은 라이선스가 있으면 스크립트가 실패하며, 예외는 `deploy/license-exceptions.json`에 승인자와 함께 적습니다(현재 둘: SNI와 Avalonia ANGLE 네이티브, 둘 다 사람이 승인. `"packages"`를 적은 예외는 그 zip에서만 적용됩니다).
 * 현장 키트 zip은 `eval/PellyCoder.Eval`을 같은 옵션으로 publish한 뒤(그 폴더에 `pelly-eval.exe`와 BuildHost 폴더 둘이 나옵니다) `pwsh ./deploy/build-package.ps1 -Package field-kit -PublishDir <폴더> -OutDir artifacts/package`로 만듭니다. 허용 목록은 `deploy/field-kit-files.txt`이고 사용 순서는 [deploy/field-guide.md](deploy/field-guide.md)입니다.
 * `deploy/version-record.json`은 개발 PC의 Ollama에서 `dotnet run --project eval/PellyCoder.Eval -- record --out deploy/version-record.json`으로 다시 만듭니다(현장 모델의 GGUF SHA-256은 `--gguf-sha256 <hex>`, 현장에서는 `pelly-eval record`). 반입 전에 사람이 다시 실행합니다. Apple 칩 Mac에서는 `ollama pull qwen3.6:35b`가 GGUF가 아닌 `nvfp4` 판을 받으므로, GGUF를 받는 방법은 [docs/m4-gguf-baseline.md](docs/m4-gguf-baseline.md) 1절을 따르십시오.
 * 설치·사용·IDE·외부 통신 없음 문서는 [deploy/](deploy/)에 있고 zip의 `docs/`에도 들어갑니다. 현재 CI는 Windows에서만 이 zip을 검증하며, 실제 폐쇄망 PC는 **Windows 미확인**(M4)입니다.

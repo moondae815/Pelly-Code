@@ -9,9 +9,26 @@ using PellyCoder.Core.Llm;
 using PellyCoder.Core.Models;
 using PellyCoder.Core.Processes;
 using PellyCoder.Core.Sql;
+using PellyCoder.Ui.Session;
+using PellyCoder.Ui.Views;
 using Spectre.Console;
 
 namespace PellyCoder.Cli;
+
+/// <summary>A runner that asks its questions through <paramref name="ui"/> (<c>pelly ui</c> passes the window's interaction).</summary>
+public delegate IRunner RunnerFactory(IUserInteraction ui);
+
+/// <summary>Shows the approval window until it is closed and returns the session's exit code; tests replace it.</summary>
+public interface IUiLauncher
+{
+    int Run(UiLaunch launch, Func<GuiUserInteraction, UiSession> createSession);
+}
+
+/// <summary><c>pelly ui --selftest</c>: draws the window once off screen and returns 0, or 4 with the reason on stderr; tests replace it.</summary>
+public interface IUiSelfTest
+{
+    int Run();
+}
 
 /// <summary>Composition root: the only place that creates the real file system, process runner, <see cref="HttpClient"/> and backend.</summary>
 public static class Composition
@@ -31,6 +48,12 @@ public static class Composition
         services.AddSingleton<HttpClientHolder>();
         services.AddSingleton<OptionsResolver>();
         services.AddSingleton<IRunner, OrchestratorRunner>();
+        services.AddSingleton<RunnerFactory>(sp => runUi => new OrchestratorRunner(
+            sp.GetRequiredService<IFileSystem>(), runUi, sp.GetRequiredService<TimeProvider>(),
+            sp.GetRequiredService<HttpClientHolder>(), sp.GetRequiredService<IProcessRunner>(),
+            sp.GetRequiredService<Func<string, ISqlDefinitionReader>>()));
+        services.AddSingleton<IUiLauncher, UiHostLauncher>();
+        services.AddSingleton<IUiSelfTest, UiHostSelfTest>();
         services.AddSingleton<IDoctorRunner, DoctorRunner>();
         return services;
     }
@@ -50,10 +73,13 @@ public static class Composition
         public void Dispose() => _client?.Dispose();
     }
 
-    private sealed class OrchestratorRunner(
+    internal sealed class OrchestratorRunner(
         IFileSystem fs, IUserInteraction ui, TimeProvider time, HttpClientHolder http, IProcessRunner processes,
         Func<string, ISqlDefinitionReader> readerFactory) : IRunner
     {
+        /// <summary>Where this runner asks its questions (tests: <c>pelly ui</c> must get the window's interaction).</summary>
+        internal IUserInteraction Interaction => ui;
+
         public Task<RunResult> RunDetailedAsync(RunRequest request, PellyOptions options, CancellationToken ct)
         {
             var backend = new OllamaBackend(http.Get(options.Llm), options.Llm, time);
@@ -63,6 +89,17 @@ public static class Composition
                     .RunDetailedAsync(request, ct);
             return FsmOrchestratorFactory.Create(fs, backend, ui, options, time, processes).RunDetailedAsync(request, ct);
         }
+    }
+
+    private sealed class UiHostLauncher : IUiLauncher
+    {
+        public int Run(UiLaunch launch, Func<GuiUserInteraction, UiSession> createSession) =>
+            UiHost.Run(launch, createSession, Console.Error);
+    }
+
+    private sealed class UiHostSelfTest : IUiSelfTest
+    {
+        public int Run() => UiHost.SelfTest(Console.Out, Console.Error);
     }
 
     private sealed class DoctorRunner(IFileSystem fs, TimeProvider time, HttpClientHolder http, IProcessRunner processes,

@@ -23,6 +23,7 @@ pelly는 실행 중에 설정된 서버 둘에만 접속합니다. 그 밖의 �
   * 그 밖의 OS에서는 연결 객체를 만들기만 하고 열지 않습니다.
 * 반입 zip 안의 실행 파일은 위 두 곳 말고 다른 곳에 접속하지 않습니다.
 * 빌드·패키징(CI)에서 NuGet과 도구를 내려받는 것은 예외입니다. 그것은 반입 전 단계입니다.
+* GUI 라이브러리 Avalonia의 빌드 도구(`Avalonia.BuildServices`)가 빌드 시점에 보내는 익명 사용 정보는 환경 변수 `AVALONIA_TELEMETRY_OPTOUT=1`로 끕니다(CI 전체와 README 개발 환경 절). 반입본 실행 중에는 이 수집이 없습니다.
 * pelly가 직접 열지는 않지만 OS가 대신 만드는 통신이 있을 수 있습니다. 모두 Windows 미확인입니다.
   * DNS: 설정한 Ollama·SQL 호스트 이름을 OS 리졸버가 조회합니다.
   * `Integrated Security=true`: Windows 인증을 위해 OS가 도메인 컨트롤러(Kerberos/NTLM)와 통신합니다.

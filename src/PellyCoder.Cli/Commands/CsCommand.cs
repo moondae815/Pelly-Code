@@ -58,23 +58,8 @@ public sealed class CsCommand(
 {
     public override async Task<int> ExecuteAsync(CommandContext context, CsSettings settings, CancellationToken _)
     {
-        if (settings.Line is not null && (settings.Class is not null || settings.Method is not null))
-            return Fail("--line은 --class/--method와 함께 쓸 수 없습니다");
-        if (settings.Line is <= 0)
-            return Fail("--line은 1 이상이어야 합니다");
-        if (settings.MaxRetries is < 0)
-            return Fail("--max-retries는 0 이상이어야 합니다");
-
-        // Distinct, in the order given; an empty list means the option was absent.
-        var verifyTests = settings.VerifyTest?.Distinct(StringComparer.Ordinal).ToList() ?? [];
-        var expectBreaks = settings.ExpectBreak?.Distinct(StringComparer.Ordinal).ToList() ?? [];
-        foreach (var name in verifyTests.Concat(expectBreaks))
-            if (!TestNames.IsValid(name))
-                return Fail($"테스트 이름 형식이 아닙니다: {name}");
-        if (expectBreaks.Count > 0 && verifyTests.Count == 0)
-            return Fail("--expect-break는 --verify-test와 함께 써야 합니다");
-        if (verifyTests.Intersect(expectBreaks, StringComparer.Ordinal).FirstOrDefault() is { } both)
-            return Fail($"같은 테스트를 --verify-test와 --expect-break에 함께 줄 수 없습니다: {both}");
+        if (RunArguments.ValidateCs(settings) is [var invalid, ..])
+            return Fail(invalid);
 
         var requestText = settings.Request;
         if (requestText is null)
@@ -86,25 +71,14 @@ public sealed class CsCommand(
         if (string.IsNullOrWhiteSpace(requestText))
             return Fail("요청문(REQUEST)이 비어 있습니다");
 
-        var file = fs.Path.GetFullPath(settings.File);
-        if (!fs.File.Exists(file))
-            return Fail($"파일을 찾을 수 없습니다: {file}");
+        var (prepared, errors) = RunArguments.PrepareCs(settings, fs, resolver);
+        if (prepared is null)
+            return Report(errors);
 
-        var loaded = resolver.Resolve(
-            file, settings.Config, settings.Think, settings.Model, settings.Endpoint, settings.StrictBaseline, settings.WarnAsError);
-        if (loaded.Options is null)
-        {
-            foreach (var error in loaded.Errors) console.MarkupLine($"[red]{Markup.Escape(error)}[/]");
-            return ExitCodes.EnvError;
-        }
-
-        var request = new RunRequest(
-            file, settings.Class, settings.Method, settings.Line, requestText, settings.Yes, settings.DryRun, settings.MaxRetries,
-            Verbose: settings.Verbose, RunTests: settings.Test,
-            VerifyTests: verifyTests.Count > 0 ? verifyTests : null, ExpectBreaks: expectBreaks.Count > 0 ? expectBreaks : null);
+        var request = RunArguments.CsRequest(settings, prepared.File, requestText);
         try
         {
-            return await runner.RunAsync(request, loaded.Options, cancellation);
+            return await runner.RunAsync(request, prepared.Options, cancellation);
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
         {
@@ -112,6 +86,13 @@ public sealed class CsCommand(
             console.MarkupLine("[yellow]사용자가 실행을 중단했습니다.[/]");
             return ExitCodes.UserCancelled;
         }
+    }
+
+    // A missing file is a plain failure; configuration errors are each printed in red. Both exit with EnvError.
+    private int Report(IReadOnlyList<string> errors)
+    {
+        foreach (var error in errors) console.MarkupLine($"[red]{Markup.Escape(error)}[/]");
+        return ExitCodes.EnvError;
     }
 
     private int Fail(string message)

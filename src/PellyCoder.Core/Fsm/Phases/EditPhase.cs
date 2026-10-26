@@ -36,7 +36,7 @@ public sealed class EditPhase(PromptBuilder prompts, QwenStreamClient client, Fe
         try
         {
             gen = await client.GenerateEditAsync(prompt.BasePrompt, ctx.Attempt, ct,
-                elapsed => ui.ShowStatus(RunPhase.Edit, ctx.Attempt,
+                elapsed => ui.ShowWaiting(RunPhase.Edit, ctx.Attempt,
                     $"서버 응답 대기 중 ({elapsed.TotalSeconds:0}초) — 다른 요청을 처리 중이거나 모델을 불러오는 중일 수 있습니다"));
         }
         catch (LlmUnavailableException ex)

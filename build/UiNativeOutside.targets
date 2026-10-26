@@ -1,0 +1,17 @@
+<Project>
+  <!--
+    V2-0 design §7.2: the GUI's native libraries (Avalonia ANGLE, SkiaSharp, HarfBuzzSharp) stay beside the single-file exe.
+    Bundled natives (IncludeNativeLibrariesForSelfExtract) are extracted on the first run of every command, so `pelly cs`
+    would pay for them and the extracted DLLs widen AppLocker/WDAC exposure; beside the exe they load only for `pelly ui`.
+    Only native assets of packages whose id starts with Avalonia., SkiaSharp. or HarfBuzzSharp. are moved; other natives
+    (SqlClient SNI) stay bundled. Their .pdb files are dropped: no pdb is shipped (PackageTests.Pdb_NotShipped).
+  -->
+  <Target Name="PellyKeepUiNativeOutside" AfterTargets="ComputeResolvedFilesToPublishList" Condition="'$(PublishSingleFile)' == 'true'">
+    <ItemGroup>
+      <_PellyUiNative Include="@(ResolvedFileToPublish)"
+                      Condition="'%(ResolvedFileToPublish.AssetType)' == 'native' and ($([System.String]::new('%(ResolvedFileToPublish.NuGetPackageId)').StartsWith('Avalonia.')) or $([System.String]::new('%(ResolvedFileToPublish.NuGetPackageId)').StartsWith('SkiaSharp.')) or $([System.String]::new('%(ResolvedFileToPublish.NuGetPackageId)').StartsWith('HarfBuzzSharp.')))" />
+      <ResolvedFileToPublish Remove="@(_PellyUiNative)" />
+      <ResolvedFileToPublish Include="@(_PellyUiNative)" Condition="'%(Extension)' != '.pdb'" ExcludeFromSingleFile="true" />
+    </ItemGroup>
+  </Target>
+</Project>

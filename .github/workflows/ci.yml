@@ -8,6 +8,8 @@ on:
 env:
   DOTNET_NOLOGO: "1"
   DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  # Avalonia.BuildServices build-time usage collection: honours only this environment variable
+  AVALONIA_TELEMETRY_OPTOUT: "1"
 
 jobs:
   unit:
@@ -74,6 +76,9 @@ jobs:
             Write-Host ("offline-selftest {0} run: {1:N2} s" -f $run, $t.TotalSeconds)
           }
           Get-ChildItem -Recurse -File $env:DOTNET_BUNDLE_EXTRACT_BASE_DIR | ForEach-Object { Write-Host "extracted: $($_.FullName) $($_.Length)" }
+          # Avalonia 네이티브(Skia·HarfBuzz·ANGLE)는 exe 옆에 두므로 단일 파일에서 풀려 나오면 안 된다 (V2-0, 설계 「pelly.exe 옆에 둔다」)
+          $guiNatives = @(Get-ChildItem -Recurse -File $env:DOTNET_BUNDLE_EXTRACT_BASE_DIR | Where-Object { $_.Name -match 'skia|harfbuzz|glesv2|angle|avalonia' })
+          if ($guiNatives.Count -gt 0) { throw "GUI natives extracted from the single file: $($guiNatives.Name -join ', ')" }
 
           $version = (& $exe --version | Out-String).Trim()
           if ($LASTEXITCODE -ne 0) { throw "--version exit $LASTEXITCODE" }
@@ -88,6 +93,62 @@ jobs:
           if ($LASTEXITCODE -ne 4) { throw "doctor (no server) exit $LASTEXITCODE, expected 4" }
           if (-not $out.Contains('OLLAMA_KV_CACHE_TYPE')) { Write-Host $out; throw 'server checklist resource missing' }
           # 마지막 네이티브 명령이 의도대로 4로 끝났으므로, 그 값이 스텝 종료 코드가 되지 않게 끝낸다
+          exit 0
+      - name: pelly ui selftest
+        # 승인 창을 화면에 띄우지 않고 한 번 그린다. exe 옆의 Avalonia 네이티브 DLL을 실제로 불러온다 (V2-0 Task 6)
+        timeout-minutes: 5
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $publish = 'artifacts/publish/win-x64'
+          foreach ($dll in 'av_libglesv2.dll', 'libHarfBuzzSharp.dll', 'libSkiaSharp.dll') {
+            if (-not (Test-Path -PathType Leaf (Join-Path $publish $dll))) { throw "$dll is not beside pelly.exe" }
+          }
+          $env:DOTNET_BUNDLE_EXTRACT_BASE_DIR = Join-Path $env:RUNNER_TEMP 'pelly-extract'
+          $out = (& (Resolve-Path "$publish/pelly.exe") ui --selftest 2>&1 | Out-String)
+          $code = $LASTEXITCODE
+          Write-Host $out
+          if ($code -ne 0) { throw "ui --selftest exit $code" }
+          if (-not $out.Contains('ui selftest: ok')) { throw 'ui --selftest output lacks "ui selftest: ok"' }
+      - name: pelly ui selftest without the GUI DLLs
+        # exe만 둔 사본: ui는 DLL 안내와 함께 종료 4, ui가 아닌 명령은 네이티브 DLL 없이 뜬다
+        timeout-minutes: 5
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # 한국어 안내 문구를 비교하므로 pelly.exe의 UTF-8 출력을 UTF-8로 읽는다
+          [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+          $env:DOTNET_BUNDLE_EXTRACT_BASE_DIR = Join-Path $env:RUNNER_TEMP 'pelly-extract'
+          $bare = New-Item -ItemType Directory -Force (Join-Path $env:RUNNER_TEMP 'pelly-no-gui-dlls')
+          Copy-Item artifacts/publish/win-x64/pelly.exe $bare
+          $exe = Join-Path $bare 'pelly.exe'
+
+          $version = (& $exe --version | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0) { throw "--version without GUI DLLs exit $LASTEXITCODE" }
+          Write-Host "version without GUI DLLs: $version"
+
+          $out = (& $exe ui --selftest 2>&1 | Out-String)
+          $code = $LASTEXITCODE
+          Write-Host $out
+          if ($code -ne 4) { throw "ui --selftest without GUI DLLs exit $code, expected 4" }
+          if (-not $out.Contains('pelly.exe 옆의 DLL')) { throw 'ui --selftest without GUI DLLs lacks the DLL hint' }
+          Write-Host "without GUI DLLs: exit $code as expected"
+          # 마지막 네이티브 명령이 의도대로 4로 끝났으므로, 그 값이 스텝 종료 코드가 되지 않게 끝낸다
+          exit 0
+      - name: pelly ui selftest without ANGLE (informational)
+        # 기록만 한다(판정하지 않음): av_libglesv2.dll만 빠졌을 때 Avalonia가 소프트웨어 렌더링으로 넘어가는지 로그로 남긴다
+        timeout-minutes: 5
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+          $env:DOTNET_BUNDLE_EXTRACT_BASE_DIR = Join-Path $env:RUNNER_TEMP 'pelly-extract'
+          $dir = New-Item -ItemType Directory -Force (Join-Path $env:RUNNER_TEMP 'pelly-no-angle')
+          foreach ($file in 'pelly.exe', 'libHarfBuzzSharp.dll', 'libSkiaSharp.dll') { Copy-Item (Join-Path artifacts/publish/win-x64 $file) $dir }
+          $out = (& (Join-Path $dir 'pelly.exe') ui --selftest 2>&1 | Out-String)
+          $code = $LASTEXITCODE
+          Write-Host "ui --selftest without av_libglesv2.dll: exit $code"
+          Write-Host $out
           exit 0
       - name: Check build-host folders beside pelly.exe
         # 의미 분석(V2-1c)은 Roslyn 보조 프로세스를 exe 옆 폴더에서 띄운다(S8). 폴더가 있으면 자기 점검 행이 Ok, 지운 사본에서는 종료 4
@@ -146,9 +207,13 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: pelly-publish-win-x64
-          # exe와 Roslyn 보조 프로세스 폴더 둘 (V2-1c Task 5). 공통 상위 폴더 기준이라 상대 경로가 그대로 남는다
+          # exe, Avalonia 네이티브 셋(V2-0, pdb는 빼려고 하나씩 적는다), Roslyn 보조 프로세스 폴더 둘 (V2-1c Task 5).
+          # 공통 상위 폴더 기준이라 상대 경로가 그대로 남는다
           path: |
             artifacts/publish/win-x64/pelly.exe
+            artifacts/publish/win-x64/av_libglesv2.dll
+            artifacts/publish/win-x64/libHarfBuzzSharp.dll
+            artifacts/publish/win-x64/libSkiaSharp.dll
             artifacts/publish/win-x64/BuildHost-net472/
             artifacts/publish/win-x64/BuildHost-netcore/
           if-no-files-found: error
@@ -203,7 +268,7 @@ jobs:
           retention-days: 1
 
   package:
-    # 반입 zip (Task 9). publish-check가 만든 exe와 BuildHost 폴더 둘을 그대로 쓴다 (publish는 한 번만 한다)
+    # 반입 zip (Task 9). publish-check가 만든 exe, GUI 네이티브 DLL과 BuildHost 폴더 둘을 그대로 쓴다 (publish는 한 번만 한다)
     needs: publish-check
     runs-on: windows-latest
     steps:
@@ -295,8 +360,8 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          # 13: 고정 파일(SHA256SUMS 제외). BuildHost 폴더 둘의 파일 수는 패키지 버전에 따르므로 zip 안 실제 파일 수로 더한다
-          foreach ($case in @(@{ zip = $env:PELLY_TEST_PACKAGE; fixed = 13 }, @{ zip = $env:PELLY_TEST_FIELD_KIT; fixed = 13 })) {
+          # 고정 파일 수(SHA256SUMS 제외): 반입 zip 17(GUI 네이티브 DLL 셋, ANGLE 라이선스 전문 포함), 현장 키트 13. BuildHost 폴더 둘의 파일 수는 패키지 버전에 따르므로 zip 안 실제 파일 수로 더한다
+          foreach ($case in @(@{ zip = $env:PELLY_TEST_PACKAGE; fixed = 17 }, @{ zip = $env:PELLY_TEST_FIELD_KIT; fixed = 13 })) {
             $dir = Join-Path $env:RUNNER_TEMP ('unzip-' + [System.IO.Path]::GetFileNameWithoutExtension($case.zip))
             Expand-Archive $case.zip $dir
             $buildHostFiles = @(Get-ChildItem -Recurse -File (Join-Path $dir 'BuildHost-net472'), (Join-Path $dir 'BuildHost-netcore')).Count
@@ -321,7 +386,7 @@ jobs:
         run: dotnet build tests/PellyCoder.Integration.Tests -warnaserror
       - name: Package tests
         # zip이 없거나 Skip되거나 필터 오타로 수가 모자라면 실패해야 한다
-        run: dotnet test tests/PellyCoder.Integration.Tests --no-build -- --filter-class "PellyCoder.Integration.Tests.Package.PackageTests" --fail-skips on --minimum-expected-tests 14 --report-xunit-trx --results-directory artifacts/package-tests
+        run: dotnet test tests/PellyCoder.Integration.Tests --no-build -- --filter-class "PellyCoder.Integration.Tests.Package.PackageTests" --fail-skips on --minimum-expected-tests 15 --report-xunit-trx --results-directory artifacts/package-tests
       - name: List package test results
         if: always()
         shell: pwsh

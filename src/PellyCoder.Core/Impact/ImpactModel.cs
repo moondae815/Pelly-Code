@@ -1,5 +1,6 @@
 using System.Globalization;
 using PellyCoder.Core.Specs;
+using PellyCoder.Core.Sql;
 using PellyCoder.Core.Workspaces;
 
 namespace PellyCoder.Core.Impact;
@@ -37,7 +38,10 @@ public enum ImpactTargetKind { CSharpMember, SqlObject }
 /// EXEC|참조|이름 호출(문자열)|같은 컬럼 읽음. A <see cref="ImpactTargetKind.SqlObject"/> target has an empty
 /// <paramref name="Path"/> and a schema-qualified <paramref name="Member"/> (<c>dbo.usp_X</c>).
 /// </summary>
-public sealed record ImpactTarget(string SeedTaskId, string Path, string Member, string Reason, ImpactTargetKind TargetKind = ImpactTargetKind.CSharpMember);
+/// <param name="SqlObject">A SQL object target's name as the server gave it (compared directly, never re-parsed from <paramref name="Member"/>).</param>
+/// <param name="SqlTypeCode">A SQL object target's <c>sys.objects.type</c> (<c>P</c>, <c>V</c>, <c>TR</c>…); null when unknown.</param>
+public sealed record ImpactTarget(string SeedTaskId, string Path, string Member, string Reason, ImpactTargetKind TargetKind = ImpactTargetKind.CSharpMember,
+    SqlObjectName? SqlObject = null, string? SqlTypeCode = null);
 
 /// <param name="Fallback">Why the semantic analysis was replaced by the name-based one; null for a semantic result.</param>
 /// <param name="Incomplete">True when the file walk was cut short or a folder or file could not be read, so targets may be missing.</param>

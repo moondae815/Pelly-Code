@@ -32,4 +32,12 @@ public class PullRecordTests
         var rec = new PullRecord("prod", "s", "d", new SqlObjectName("dbo", "a]b"), "ab", DateTimeOffset.UnixEpoch);
         Assert.Equal(rec, PullRecord.TryParse(rec.Format()));
     }
+
+    [Fact]
+    public void TryParse_skips_leading_bom()
+    {
+        var rec = PullRecord.TryParse("\uFEFF-- pelly pull: source=prod server=s database=d object=[dbo].[usp_X] sha256=ab at=2026-10-26T09:12:33Z\nGO\n");
+        Assert.NotNull(rec);
+        Assert.Equal(new SqlObjectName("dbo", "usp_X"), rec!.Object);
+    }
 }

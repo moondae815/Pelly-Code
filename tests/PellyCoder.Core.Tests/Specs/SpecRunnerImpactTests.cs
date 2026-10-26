@@ -285,14 +285,15 @@ public sealed class SpecRunnerImpactTests : IDisposable
 
     private sealed class FakeSqlFinder : ISqlImpactFinder
     {
-        public List<(IReadOnlyList<SqlImpactSeed> Seeds, SqlReaderOpen Db, SqlImpactBasis Basis)> Calls { get; } = [];
+        public List<(IReadOnlyList<SqlImpactSeed> Seeds, IReadOnlyCollection<SqlObjectName> Covered, SqlReaderOpen Db, SqlImpactBasis Basis)> Calls { get; } = [];
         public IReadOnlyList<ImpactTarget> Targets { get; set; } = [];
         public IReadOnlyList<SqlTableShare> Tables { get; set; } = [];
         public Exception? Throw { get; set; }
 
-        public Task<SqlImpactResult> FindAsync(Workspace ws, IReadOnlyList<SqlImpactSeed> seeds, SqlReaderOpen db, SqlImpactBasis basis, CancellationToken ct)
+        public Task<SqlImpactResult> FindAsync(Workspace ws, IReadOnlyList<SqlImpactSeed> seeds, IReadOnlyCollection<SqlObjectName> covered, SqlReaderOpen db,
+            SqlImpactBasis basis, CancellationToken ct)
         {
-            Calls.Add((seeds, db, basis));
+            Calls.Add((seeds, covered, db, basis));
             if (Throw is not null) throw Throw;
             return Task.FromResult(new SqlImpactResult(basis, null, Targets, Tables, [], false, new Dictionary<string, IReadOnlyList<SqlImpactModuleRow>>()));
         }

@@ -20,10 +20,12 @@ public sealed class SqlImpactFinder(IFileSystem fs, int compatLevel) : ISqlImpac
 
     private const string NoConnection = "DB 연결 없음";
 
-    public async Task<SqlImpactResult> FindAsync(Workspace ws, IReadOnlyList<SqlImpactSeed> seeds, SqlReaderOpen db, SqlImpactBasis basis, CancellationToken ct)
+    public async Task<SqlImpactResult> FindAsync(Workspace ws, IReadOnlyList<SqlImpactSeed> seeds, IReadOnlyCollection<SqlObjectName> covered, SqlReaderOpen db,
+        SqlImpactBasis basis, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(ws);
         ArgumentNullException.ThrowIfNull(seeds);
+        ArgumentNullException.ThrowIfNull(covered);
         ArgumentNullException.ThrowIfNull(db);
 
         var (strings, incomplete) = SqlNameStringFinder.Find(fs, ws, seeds.Select(s => new SqlNameSeed(s.TaskId, s.Object)).ToList());
@@ -31,7 +33,7 @@ public sealed class SqlImpactFinder(IFileSystem fs, int compatLevel) : ISqlImpac
         if (db.Problem is not null || db.Reader is null)
             return OnlyStrings(db.Problem ?? NoConnection);
 
-        var search = new Search(db.Reader, compatLevel);
+        var search = new Search(db.Reader, compatLevel, covered);
         try
         {
             foreach (var seed in seeds)
@@ -58,7 +60,7 @@ public sealed class SqlImpactFinder(IFileSystem fs, int compatLevel) : ISqlImpac
         return $"{name.Schema ?? "dbo"}.{name.Name}";
     }
 
-    private sealed class Search(ISqlDefinitionReader reader, int compatLevel)
+    private sealed class Search(ISqlDefinitionReader reader, int compatLevel, IReadOnlyCollection<SqlObjectName> covered)
     {
         public List<ImpactTarget> Targets { get; } = [];
         public List<SqlTableShare> Tables { get; } = [];
@@ -84,7 +86,7 @@ public sealed class SqlImpactFinder(IFileSystem fs, int compatLevel) : ISqlImpac
                 var display = Display(module.Name);
                 if (!warned.Add(display)) continue;
                 var reason = await CallsAsync(module, seed.Object, ct).ConfigureAwait(false) ? ExecReason : ReferenceReason;
-                Targets.Add(new ImpactTarget(seed.TaskId, "", display, reason, ImpactTargetKind.SqlObject));
+                Targets.Add(new ImpactTarget(seed.TaskId, "", display, reason, ImpactTargetKind.SqlObject, module.Name, module.TypeCode));
             }
 
             if (def.Definition is null) return;   // encrypted or no permission: the written columns are unknown
@@ -116,16 +118,20 @@ public sealed class SqlImpactFinder(IFileSystem fs, int compatLevel) : ISqlImpac
                 rows.Add(new SqlImpactModuleRow(candidate.Name, written.Where(read.Contains).ToList(), false));
             }
 
+            // The cap applies to what would be shown: a module a sql task already names, or that ① already warned for this
+            // seed, is never warned here, so it must not take one of the ten places (the full list still has every row).
             var readers = rows.Where(r => r.OverlapColumns.Count > 0)
+                .Where(r => !warned.Contains(Display(r.Module)) && !covered.Any(c => c.SameAs(r.Module)))
                 .OrderByDescending(r => r.OverlapColumns.Count)
                 .ThenBy(r => Display(r.Module), StringComparer.Ordinal)
                 .ToList();
             var shown = readers.Take(MaxWarningsPerTable).ToList();
+            var types = candidates.ToDictionary(m => Display(m.Name), m => m.TypeCode, StringComparer.OrdinalIgnoreCase);
             foreach (var row in shown)
             {
                 var display = Display(row.Module);
-                if (warned.Add(display))
-                    Targets.Add(new ImpactTarget(seed.TaskId, "", display, SameColumnReason, ImpactTargetKind.SqlObject));
+                warned.Add(display);
+                Targets.Add(new ImpactTarget(seed.TaskId, "", display, SameColumnReason, ImpactTargetKind.SqlObject, row.Module, types.GetValueOrDefault(display)));
             }
 
             Tables.Add(new SqlTableShare(seed.TaskId, table, written, candidates.Count, shown.Count, readers.Count - shown.Count, rows.Count(r => r.Unverifiable)));

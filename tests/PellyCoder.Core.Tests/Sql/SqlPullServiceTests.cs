@@ -16,12 +16,14 @@ public class SqlPullServiceTests
     {
         public Dictionary<string, SqlModuleDefinition> Modules { get; } = new(StringComparer.OrdinalIgnoreCase);
         public bool Unreachable { get; set; }
+        public Dictionary<string, Exception> Throws { get; } = new(StringComparer.OrdinalIgnoreCase);
 
         public Task<SqlServerProbe> ProbeAsync(CancellationToken ct) => Task.FromResult(new SqlServerProbe("16", "Shop", canView));
 
         public Task<SqlModuleDefinition?> GetDefinitionAsync(SqlObjectName name, CancellationToken ct)
         {
             if (Unreachable) throw new SqlUnavailableException("down");
+            if (Throws.TryGetValue(name.Display, out var ex)) throw ex;
             return Task.FromResult(Modules.GetValueOrDefault(name.Display));
         }
 
@@ -119,6 +121,35 @@ public class SqlPullServiceTests
 
         Assert.Equal([PullItemStatus.UnsupportedKind, PullItemStatus.Written], items.Select(i => i.Status));
         Assert.False(fs.File.Exists("/w/db/pulled/dbo.Orders.sql"));
+    }
+
+    [Fact]
+    public async Task Query_error_fails_only_that_object()
+    {
+        var fs = new MockFileSystem();
+        var reader = new FakeReader().With("dbo.usp_X");
+        reader.Throws["dbo.usp_Bad"] = new FakeDbException("Lock request time out period exceeded. Password=secret");
+
+        var items = await Service(fs).PullAsync(Request(objects: ["dbo.usp_Bad", "dbo.usp_X"]), reader, Endpoint, null, TestContext.Current.CancellationToken);
+
+        Assert.Equal([PullItemStatus.ReadFailed, PullItemStatus.Written], items.Select(i => i.Status));
+        var reason = Assert.Single(items[0].Notices);
+        Assert.StartsWith("dbo.usp_Bad의 정의를 읽지 못했습니다: Lock request time out period exceeded.", reason);
+        Assert.DoesNotContain("secret", reason);
+    }
+
+    [Fact]
+    public async Task Dev_query_error_notes_not_compared()
+    {
+        var fs = new MockFileSystem();
+        var dev = new FakeReader();
+        dev.Throws["dbo.usp_X"] = new FakeDbException("Invalid object name");
+
+        var items = await Service(fs).PullAsync(Request(objects: "dbo.usp_X"), new FakeReader().With("dbo.usp_X"), Endpoint, dev, TestContext.Current.CancellationToken);
+
+        var item = Assert.Single(items);
+        Assert.Equal(PullItemStatus.Written, item.Status);
+        Assert.Equal(["개발 DB와 비교하지 못함"], item.Notices);
     }
 
     [Fact]

@@ -122,7 +122,7 @@ public static partial class SpecChecker
         SqlImpactResult result;
         try
         {
-            result = await sql.Finder.FindAsync(check.Workspace, seeds, sql.Db, sql.Basis, ct);
+            result = await sql.Finder.FindAsync(check.Workspace, seeds, objects.Values.ToList(), sql.Db, sql.Basis, ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

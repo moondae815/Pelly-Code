@@ -20,7 +20,7 @@ public sealed record PullRecord(string Source, string Server, string Database, S
     public static PullRecord? TryParse(string fileTextLf)
     {
         ArgumentNullException.ThrowIfNull(fileTextLf);
-        var text = fileTextLf.TrimStart('﻿');
+        var text = fileTextLf.TrimStart('\uFEFF');
         var end = text.IndexOf('\n');
         var line = (end < 0 ? text : text[..end]).TrimEnd('\r');
         var m = Pattern.Match(line);

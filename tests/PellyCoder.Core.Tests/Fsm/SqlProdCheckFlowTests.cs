@@ -151,6 +151,36 @@ public sealed class SqlProdCheckFlowTests : IDisposable
     }
 
     [Fact]
+    public async Task Same_as_prod_with_stale_record_notes_pull_and_continues()
+    {
+        // pull → edit → deploy in SSMS → edit again: the file is production now, the record is older.
+        var deployed = "CREATE PROCEDURE dbo.usp_P @Id int\nAS\nBEGIN\n" + Search + "\nEND\n";
+        Prepare(Record(Hash(OlderDef)) + Script);
+        _backend.Enqueue(Block(Search, Good));
+
+        var result = await Run(Open(deployed));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Single(_backend.Requests);
+        Assert.Contains(_ui.Warnings, w => w == "받은 기록이 운영보다 오래되었습니다 — 고치기 전에 pelly sql pull dbo.usp_P --force로 다시 받으십시오");
+        Assert.Equal("SameAsProd", Summary().GetProperty("sqlProd").GetProperty("outcome").GetString());
+    }
+
+    [Fact]
+    public async Task Same_as_prod_with_current_record_is_silent()
+    {
+        var deployed = "CREATE PROCEDURE dbo.usp_P @Id int\nAS\nBEGIN\n" + Search + "\nEND\n";
+        Prepare(Record(Hash(deployed)) + Script);
+        _backend.Enqueue(Block(Search, Good));
+
+        var result = await Run(Open(deployed));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(_ui.Warnings);
+        Assert.Equal("SameAsProd", Summary().GetProperty("sqlProd").GetProperty("outcome").GetString());
+    }
+
+    [Fact]
     public async Task Not_configured_is_silent_and_records_nothing()
     {
         Prepare(Script);

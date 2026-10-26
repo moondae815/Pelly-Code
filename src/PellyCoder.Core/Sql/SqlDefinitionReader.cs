@@ -74,10 +74,14 @@ public sealed class SqlDefinitionReader(string connectionString) : ISqlDefinitio
     private static CommandDefinition Cmd(string sql, object? parameters, CancellationToken ct)
         => SqlCalls.Cmd(sql, parameters, ct);
 
-    private static string Quote(SqlObjectName name)
+    /// <summary>
+    /// The <c>OBJECT_ID</c> argument: always two-part, a missing schema meaning <c>dbo</c> as everywhere else in pelly
+    /// (a one-part name would resolve in the login's default schema).
+    /// </summary>
+    internal static string Quote(SqlObjectName name)
     {
-        static string Part(string p) => "[" + p.Replace("]", "]]") + "]";
-        return name.Schema is null ? Part(name.Name) : $"{Part(name.Schema)}.{Part(name.Name)}";
+        static string Part(string p) => "[" + p.Replace("]", "]]", StringComparison.Ordinal) + "]";
+        return $"{Part(name.Schema ?? "dbo")}.{Part(name.Name)}";
     }
 
     private sealed record DefinitionRow(string? Schema, string Name, string TypeCode, string? Definition, bool UsesAnsiNulls, bool UsesQuotedIdentifier);

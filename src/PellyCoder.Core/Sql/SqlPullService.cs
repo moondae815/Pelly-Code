@@ -1,3 +1,4 @@
+using System.Data.Common;
 using System.IO.Abstractions;
 using System.Text;
 using PellyCoder.Core.Abstractions;
@@ -8,7 +9,7 @@ public enum PullSource { Prod, Dev }
 
 public sealed record SqlPullRequest(IReadOnlyList<string> Objects, PullSource Source, string OutDirectory, bool Force);
 
-public enum PullItemStatus { Written, Exists, NotFound, UnsupportedKind, Encrypted, NoPermission, BadName }
+public enum PullItemStatus { Written, Exists, NotFound, UnsupportedKind, Encrypted, NoPermission, BadName, ReadFailed }
 
 /// <param name="Notices">For a failed item the first entry is the reason (Korean); for a written item they are warnings and notes.</param>
 public sealed record PullItem(string Input, PullItemStatus Status, string? Path, IReadOnlyList<string> Notices);
@@ -20,6 +21,9 @@ public sealed record PullItem(string Input, PullItemStatus Status, string? Path,
 public sealed class SqlPullService(IFileSystem fs, TimeProvider time, int compatLevel)
 {
     private static readonly HashSet<string> SupportedTypes = new(StringComparer.Ordinal) { "P", "FN", "IF", "TF", "V" };
+
+    /// <summary>True for the module kinds <c>pelly sql pull</c> writes: procedures, functions and views.</summary>
+    public static bool CanPull(string typeCode) => SupportedTypes.Contains(typeCode);
 
     /// <param name="compareWith">The dev reader when pulling from production; null when there is nothing to compare with.</param>
     public async Task<IReadOnlyList<PullItem>> PullAsync(SqlPullRequest req, ISqlDefinitionReader source, SqlEndpoint sourceEndpoint,
@@ -55,7 +59,18 @@ public sealed class SqlPullService(IFileSystem fs, TimeProvider time, int compat
                 continue;
             }
 
-            var module = await source.GetDefinitionAsync(name, ct);
+            SqlModuleDefinition? module;
+            try
+            {
+                module = await source.GetDefinitionAsync(name, ct);
+                if (module is { Definition: null } && SupportedTypes.Contains(module.TypeCode)) probe ??= await source.ProbeAsync(ct);
+            }
+            catch (DbException e) when (!ct.IsCancellationRequested)
+            {
+                // A query-level SqlException (permission, lock timeout…) fails this object only; the others are still pulled.
+                items.Add(Fail(input, PullItemStatus.ReadFailed, null, $"{name.Display}의 정의를 읽지 못했습니다: {SqlConnectionText.MaskInText(e.Message, null)}"));
+                continue;
+            }
             if (module is null)
             {
                 items.Add(Fail(input, PullItemStatus.NotFound, null, $"{name.Display}이(가) {(req.Source == PullSource.Prod ? "운영" : "개발")} DB에 없습니다"));
@@ -69,8 +84,7 @@ public sealed class SqlPullService(IFileSystem fs, TimeProvider time, int compat
             }
             if (module.Definition is null)
             {
-                probe ??= await source.ProbeAsync(ct);
-                items.Add(probe.CanViewDefinition
+                items.Add(probe!.CanViewDefinition
                     ? Fail(input, PullItemStatus.Encrypted, null, $"암호화된 객체는 받을 수 없습니다: {name.Display}")
                     : Fail(input, PullItemStatus.NoPermission, null, $"정의를 볼 권한이 없습니다 (VIEW DEFINITION): {name.Display}"));
                 continue;
@@ -105,6 +119,10 @@ public sealed class SqlPullService(IFileSystem fs, TimeProvider time, int compat
                     catch (SqlUnavailableException)
                     {
                         devUnreachable = true;
+                        notices.Add("개발 DB와 비교하지 못함");
+                    }
+                    catch (DbException) when (!ct.IsCancellationRequested)
+                    {
                         notices.Add("개발 DB와 비교하지 못함");
                     }
                 }

@@ -26,8 +26,9 @@ public class SqlImpactFinderTests
 
     private const string CallerCode = "class Repo { void Cancel() { var s = \"dbo.usp_Seed\"; } }";
 
-    private static Task<SqlImpactResult> Run(FakeReader reader, MockFileSystem? fs = null, IReadOnlyList<SqlImpactSeed>? seeds = null) =>
-        new SqlImpactFinder(fs ?? Fs(), 160).FindAsync(Ws, seeds ?? [Seed], new SqlReaderOpen(reader, null, null), SqlImpactBasis.Prod, CancellationToken.None);
+    private static Task<SqlImpactResult> Run(FakeReader reader, MockFileSystem? fs = null, IReadOnlyList<SqlImpactSeed>? seeds = null,
+        IReadOnlyCollection<SqlObjectName>? covered = null) =>
+        new SqlImpactFinder(fs ?? Fs(), 160).FindAsync(Ws, seeds ?? [Seed], covered ?? [], new SqlReaderOpen(reader, null, null), SqlImpactBasis.Prod, CancellationToken.None);
 
     private static string Proc(string name, string body) => $"CREATE PROCEDURE {name} AS\nBEGIN\n{body}\nEND";
 
@@ -54,6 +55,9 @@ public class SqlImpactFinderTests
         Assert.Equal("EXEC", a.Reason);
         Assert.Equal("참조", Assert.Single(result.Targets, t => t.Member == "dbo.usp_B").Reason);
         Assert.Equal("참조", Assert.Single(result.Targets, t => t.Member == "dbo.vw_C").Reason);
+        Assert.Equal(new SqlObjectName("dbo", "usp_A"), a.SqlObject);
+        Assert.Equal("P", a.SqlTypeCode);
+        Assert.Equal("V", Assert.Single(result.Targets, t => t.Member == "dbo.vw_C").SqlTypeCode);
     }
 
     [Fact]
@@ -146,6 +150,36 @@ public class SqlImpactFinderTests
     }
 
     [Fact]
+    public async Task Cap_skips_covered_and_already_warned_modules_before_taking_ten()
+    {
+        var reader = new FakeReader()
+            .Module(SeedName, "P", Proc("dbo.usp_Seed", "UPDATE dbo.Orders SET Status = 9 WHERE OrderId = 1;"))
+            .Module(new("dbo", "usp_R00"), "P", Proc("dbo.usp_R00", "EXEC dbo.usp_Seed;"))
+            .Refs(SeedName, ("dbo", "usp_R00", "P"))
+            .Columns(Orders, "OrderId", "Status");
+        var refs = new List<(string, string, string)>();
+        for (var i = 0; i < 13; i++)
+        {
+            var name = $"usp_R{i:00}";
+            refs.Add(("dbo", name, "P"));
+            reader.Uses(new("dbo", name), Sel("Status"));
+        }
+        reader.Refs(Orders, [.. refs]);
+        // R01..R10 are sql tasks of the spec (one written without a schema); R00 is warned by EXEC already.
+        var covered = Enumerable.Range(1, 10).Select(i => i == 1 ? new SqlObjectName(null, "USP_R01") : new SqlObjectName("dbo", $"usp_R{i:00}")).ToList();
+
+        var result = await Run(reader, covered: covered);
+
+        Assert.Equal(["dbo.usp_R00", "dbo.usp_R11", "dbo.usp_R12"], result.Targets.Select(t => t.Member));
+        Assert.Equal(["EXEC", "같은 컬럼 읽음", "같은 컬럼 읽음"], result.Targets.Select(t => t.Reason));
+        var share = Assert.Single(result.Tables);
+        Assert.Equal(13, share.Modules);
+        Assert.Equal(2, share.Warned);
+        Assert.Equal(0, share.Omitted);
+        Assert.Equal(13, result.FullLists["T1|dbo.Orders"].Count);
+    }
+
+    [Fact]
     public async Task Unverifiable_candidate_counts_in_summary()
     {
         var reader = new FakeReader()
@@ -202,7 +236,7 @@ public class SqlImpactFinderTests
     [Fact]
     public async Task Unavailable_db_runs_only_string_search()
     {
-        var result = await new SqlImpactFinder(Fs(CallerCode), 160).FindAsync(Ws, [Seed],
+        var result = await new SqlImpactFinder(Fs(CallerCode), 160).FindAsync(Ws, [Seed], [],
             new SqlReaderOpen(null, null, "운영 SQL 접속 대상이 허용되지 않습니다"), SqlImpactBasis.Prod, CancellationToken.None);
 
         Assert.Null(result.Basis);
@@ -240,7 +274,8 @@ public class SqlImpactFinderTests
 
         var t = Assert.Single(result.Targets);
         Assert.Equal("EXEC", t.Reason);
-        Assert.Equal(1, Assert.Single(result.Tables).Warned);
+        // Warned counts only the column-reader warnings shown for the table; usp_A is warned once, by ①.
+        Assert.Equal(0, Assert.Single(result.Tables).Warned);
     }
 
     private sealed class FakeReader : ISqlDefinitionReader

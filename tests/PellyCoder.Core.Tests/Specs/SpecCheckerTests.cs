@@ -402,20 +402,26 @@ public sealed class SpecCheckerTests
 
         var missing = Assert.Single(r.Issues, i => i.Code == "ImpactMissing");
         Assert.Contains("dbo.usp_Other (참조)", missing.Message);
+        // The finder gets every sql task's object, so its per-table cap skips modules the spec already names.
+        var covered = Assert.Single(h.Finder.Calls).Covered;
+        Assert.Equal(2, covered.Count);
+        Assert.Contains(covered, o => o.SameAs(new SqlObjectName("dbo", "usp_One")));
+        Assert.Contains(covered, o => o.SameAs(new SqlObjectName("dbo", "usp_Two")));
     }
 
     private sealed class FakeSqlFinder : ISqlImpactFinder
     {
-        public List<(IReadOnlyList<SqlImpactSeed> Seeds, SqlReaderOpen Db, SqlImpactBasis Basis)> Calls { get; } = [];
+        public List<(IReadOnlyList<SqlImpactSeed> Seeds, IReadOnlyCollection<SqlObjectName> Covered, SqlReaderOpen Db, SqlImpactBasis Basis)> Calls { get; } = [];
         public SqlImpactBasis? Basis { get; set; } = SqlImpactBasis.Prod;
         public IReadOnlyList<ImpactTarget> Targets { get; set; } = [];
         public IReadOnlyList<SqlTableShare> Tables { get; set; } = [];
         public IReadOnlyDictionary<string, IReadOnlyList<SqlImpactModuleRow>> FullLists { get; set; } = new Dictionary<string, IReadOnlyList<SqlImpactModuleRow>>();
         public Exception? Throw { get; set; }
 
-        public Task<SqlImpactResult> FindAsync(Workspace ws, IReadOnlyList<SqlImpactSeed> seeds, SqlReaderOpen db, SqlImpactBasis basis, CancellationToken ct)
+        public Task<SqlImpactResult> FindAsync(Workspace ws, IReadOnlyList<SqlImpactSeed> seeds, IReadOnlyCollection<SqlObjectName> covered, SqlReaderOpen db,
+            SqlImpactBasis basis, CancellationToken ct)
         {
-            Calls.Add((seeds, db, basis));
+            Calls.Add((seeds, covered, db, basis));
             if (Throw is not null) throw Throw;
             var unavailable = db.Problem;
             return Task.FromResult(new SqlImpactResult(unavailable is null ? Basis : null, unavailable, Targets, Tables, [], false, FullLists));

@@ -22,13 +22,18 @@ public class SqlPullCommandTests
         public Task<SqlServerProbe> ProbeAsync(CancellationToken ct) => Task.FromResult(new SqlServerProbe("16", "x", true));
 
         public Task<SqlModuleDefinition?> GetDefinitionAsync(SqlObjectName name, CancellationToken ct) =>
-            Task.FromResult<SqlModuleDefinition?>(new SqlModuleDefinition(new SqlObjectName("dbo", name.Name), "P",
-                ConnectionString == Dev ? Definition + "-- dev\n" : Definition, true, true));
+            name.Name == "usp_Bad"
+                ? throw new QueryError("The SELECT permission was denied on the object 'sql_modules'.")
+                : Task.FromResult<SqlModuleDefinition?>(new SqlModuleDefinition(new SqlObjectName("dbo", name.Name), "P",
+                    ConnectionString == Dev ? Definition + "-- dev\n" : Definition, true, true));
 
         public Task<IReadOnlyList<SqlModuleRef>> GetReferencingModulesAsync(SqlObjectName name, CancellationToken ct) => throw new NotSupportedException();
         public Task<IReadOnlyList<SqlColumnUse>?> GetColumnUsesAsync(SqlObjectName module, CancellationToken ct) => throw new NotSupportedException();
         public Task<IReadOnlyList<string>> GetColumnsAsync(SqlObjectName table, CancellationToken ct) => throw new NotSupportedException();
     }
+
+    /// <summary>Stands in for a query-level SqlException (no public constructor).</summary>
+    private sealed class QueryError(string message) : System.Data.Common.DbException(message);
 
     private sealed class FakeGit(int exitCode, bool missing = false) : IProcessRunner
     {
@@ -92,6 +97,19 @@ public class SqlPullCommandTests
         Assert.Equal(4, exit);
         Assert.Contains("sql.production", output);
         Assert.Empty(f.Connections);
+    }
+
+    [Fact]
+    public void Query_error_fails_that_object_others_continue_exit_4()
+    {
+        var f = new Fixture(Config(), new FakeGit(0));
+
+        var (exit, output) = f.Run("sql", "pull", "dbo.usp_Bad", "dbo.usp_X");
+
+        Assert.Equal(4, exit);
+        Assert.Contains("실패: dbo.usp_Bad의 정의를 읽지 못했습니다: The SELECT permission was denied", output);
+        Assert.True(f.Fs.File.Exists("/w/db/pulled/dbo.usp_X.sql"), output);
+        Assert.Contains("1개 받음, 1개 실패", output);
     }
 
     [Fact]

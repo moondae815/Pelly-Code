@@ -84,7 +84,8 @@ public static class ImpactCheck
     {
         if (target.TargetKind != ImpactTargetKind.SqlObject) return Covers(task, target);
         if (task.Kind != TaskKind.Sql || !sqlObjects.TryGetValue(task.Id, out var obj)) return false;
-        return TryParse(target.Member) is { } name && obj.SameAs(name);
+        // The finder's name is compared as is: Member is display text and does not round-trip for names with '.', ' ' or ']'.
+        return (target.SqlObject ?? TryParse(target.Member)) is { } name && obj.SameAs(name);
     }
 
     /// <summary>
@@ -156,9 +157,11 @@ public static class ImpactCheck
         {
             var first = place.First();
             var ids = string.Join(", ", place.Select(t => t.SeedTaskId).Distinct(StringComparer.Ordinal));
-            var message = first.TargetKind == ImpactTargetKind.SqlObject
-                ? $"작업 {ids}의 영향 대상이 명세에 없습니다: {first.Member} ({first.Reason}) — pelly sql pull {first.Member} 로 받아 작업 줄에 추가할 수 있습니다 ({(pull.Length == 0 ? "" : pull + "/")}{first.Member}.sql)"
-                : $"작업 {ids}의 영향 대상이 명세에 없습니다: {place.Key.Path}#{place.Key.Member} ({first.Reason})";
+            var message = first.TargetKind != ImpactTargetKind.SqlObject
+                ? $"작업 {ids}의 영향 대상이 명세에 없습니다: {place.Key.Path}#{place.Key.Member} ({first.Reason})"
+                : first.SqlTypeCode is { } type && !SqlPullService.CanPull(type)
+                    ? $"작업 {ids}의 영향 대상이 명세에 없습니다: {first.Member} ({first.Reason})"
+                    : $"작업 {ids}의 영향 대상이 명세에 없습니다: {first.Member} ({first.Reason}) — pelly sql pull {PullArgument(first)} 로 받아 작업 줄에 추가할 수 있습니다 ({(pull.Length == 0 ? "" : pull + "/")}{first.Member}.sql)";
             issues.Add(Warning(LineOf(first.SeedTaskId), "ImpactMissing", message));
         }
 
@@ -189,6 +192,22 @@ public static class ImpactCheck
             return null;
         }
     }
+
+    /// <summary>
+    /// The object as a <c>pelly sql pull</c> argument: <c>dbo.usp_X</c>, or — when a part is not a regular identifier
+    /// (a space, '.', ']'…) — bracketed and quoted for the shell (<c>"[dbo].[My Proc]"</c>).
+    /// </summary>
+    private static string PullArgument(ImpactTarget target)
+    {
+        if (target.SqlObject is not { } name) return target.Member;
+        var schema = name.Schema ?? "dbo";
+        if (RegularIdentifier(schema) && RegularIdentifier(name.Name)) return $"{schema}.{name.Name}";
+        return $"\"[{schema.Replace("]", "]]", StringComparison.Ordinal)}].[{name.Name.Replace("]", "]]", StringComparison.Ordinal)}]\"";
+    }
+
+    private static bool RegularIdentifier(string part) =>
+        part.Length > 0 && (char.IsLetter(part[0]) || part[0] is '_' or '@' or '#')
+        && part.All(c => char.IsLetterOrDigit(c) || c is '_' or '@' or '#' or '$');
 
     private static SqlObjectName? TryParse(string text)
     {

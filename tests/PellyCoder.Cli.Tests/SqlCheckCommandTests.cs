@@ -25,7 +25,10 @@ public class SqlCheckCommandTests
         public Task<SqlServerProbe> ProbeAsync(CancellationToken ct) => throw new NotSupportedException();
 
         public Task<SqlModuleDefinition?> GetDefinitionAsync(SqlObjectName name, CancellationToken ct) =>
-            Task.FromResult<SqlModuleDefinition?>(exists ? new SqlModuleDefinition(new SqlObjectName("dbo", name.Name), "P", definition, true, true) : null);
+            // Production holds each object under its own name, so a file's two objects are compared with different definitions.
+            Task.FromResult<SqlModuleDefinition?>(exists
+                ? new SqlModuleDefinition(new SqlObjectName("dbo", name.Name), "P", definition?.Replace("usp_X", name.Name, StringComparison.Ordinal), true, true)
+                : null);
 
         public Task<IReadOnlyList<SqlModuleRef>> GetReferencingModulesAsync(SqlObjectName name, CancellationToken ct) => throw new NotSupportedException();
         public Task<IReadOnlyList<SqlColumnUse>?> GetColumnUsesAsync(SqlObjectName module, CancellationToken ct) => throw new NotSupportedException();
@@ -78,6 +81,16 @@ public class SqlCheckCommandTests
         Assert.Contains("운영과 같음 (이미 반영됨 또는 아직 고치지 않음)", output);
         Assert.Equal(Same, fs.File.ReadAllText("/w/x.sql"));
         Assert.Equal(0, runner.Calls);
+        Assert.DoesNotContain("받은 기록이 운영보다 오래되었습니다", output);
+    }
+
+    [Fact]
+    public void Same_as_prod_with_stale_record_notes_it_and_exits_0()
+    {
+        var (exit, output, _, _) = Run(Config, Record(OldDef) + "SET ANSI_NULLS ON\nGO\n" + Same, ProdDef, true);   // a pulled file's shape, then deployed
+        Assert.Equal(0, exit);
+        Assert.Contains("운영과 같음 (이미 반영됨 또는 아직 고치지 않음)", output);
+        Assert.Contains("받은 기록이 운영보다 오래되었습니다 — 고치기 전에 pelly sql pull dbo.usp_X --force로 다시 받으십시오", output);
     }
 
     [Fact]
@@ -110,7 +123,7 @@ public class SqlCheckCommandTests
     {
         var (exit, output, _, _) = Run(Config, Edited, null, false);
         Assert.Equal(0, exit);
-        Assert.Contains("새 객체", output);
+        Assert.Contains("운영에 없음 (새 객체)", output);
     }
 
     [Fact]
@@ -129,11 +142,14 @@ public class SqlCheckCommandTests
         Assert.Contains("--object", output);
     }
 
-    [Fact]
-    public void Object_option_picks_one_of_two()
+    [Theory]
+    [InlineData("dbo.usp_X", 4)]   // edited: differs from production, no record
+    [InlineData("dbo.usp_Y", 0)]   // unchanged: same as production
+    public void Object_option_picks_one_of_two(string obj, int expected)
     {
-        var (exit, _, _, _) = Run(Config, Edited + "GO\n" + Same.Replace("usp_X", "usp_Y"), ProdDef, true, "--object", "dbo.usp_X");
-        Assert.Equal(4, exit);
+        var (exit, output, _, _) = Run(Config, Edited + "GO\n" + Same.Replace("usp_X", "usp_Y"), ProdDef, true, "--object", obj);
+        Assert.Equal(expected, exit);
+        Assert.Equal(expected == 0, output.Contains("운영과 같음", StringComparison.Ordinal));
     }
 
     [Fact]

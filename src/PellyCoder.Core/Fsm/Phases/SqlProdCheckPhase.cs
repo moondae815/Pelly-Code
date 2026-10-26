@@ -33,6 +33,10 @@ public sealed class SqlProdCheckPhase(IPhase locate, SqlReaderOpen prod) : IPhas
             case ProdCheckOutcome.NotInProd:
                 ctx.Messages.Add(check.Message);
                 break;
+            case ProdCheckOutcome.SameAsProd when check.Notice is not null:
+                // The user's own deploy made the record older than production: continue, but say to pull before the next edit.
+                ctx.Messages.Add(check.Notice);
+                break;
         }
         return PhaseOutcome.Ok;
     }

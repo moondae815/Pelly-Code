@@ -240,6 +240,61 @@ public class ImpactCheckTests
         ], issues);
     }
 
+    [Theory]
+    [InlineData("TR")]
+    [InlineData("U")]
+    public void SqlIssues_target_pull_cannot_fetch_has_no_pull_hint(string type)
+    {
+        var target = new ImpactTarget("T2", "", "dbo.trg_A", "참조", ImpactTargetKind.SqlObject, new SqlObjectName("dbo", "trg_A"), type);
+
+        var issue = Assert.Single(SqlIssues(SqlResult(targets: [target])));
+
+        Assert.Equal("작업 T2의 영향 대상이 명세에 없습니다: dbo.trg_A (참조)", issue.Message);
+    }
+
+    [Theory]
+    [InlineData("P")]
+    [InlineData("FN")]
+    [InlineData("IF")]
+    [InlineData("TF")]
+    [InlineData("V")]
+    public void SqlIssues_pullable_target_keeps_pull_hint(string type)
+    {
+        var target = new ImpactTarget("T2", "", "dbo.usp_A", "참조", ImpactTargetKind.SqlObject, new SqlObjectName("dbo", "usp_A"), type);
+
+        var issue = Assert.Single(SqlIssues(SqlResult(targets: [target])));
+
+        Assert.EndsWith("— pelly sql pull dbo.usp_A 로 받아 작업 줄에 추가할 수 있습니다 (db/pulled/dbo.usp_A.sql)", issue.Message);
+    }
+
+    [Theory]
+    [InlineData("My Proc", "\"[dbo].[My Proc]\"")]
+    [InlineData("usp.Dotted", "\"[dbo].[usp.Dotted]\"")]
+    [InlineData("usp]X", "\"[dbo].[usp]]X]\"")]
+    public void SqlIssues_pull_hint_brackets_names_that_need_it(string name, string argument)
+    {
+        var target = new ImpactTarget("T2", "", $"dbo.{name}", "EXEC", ImpactTargetKind.SqlObject, new SqlObjectName("dbo", name), "P");
+
+        var issue = Assert.Single(SqlIssues(SqlResult(targets: [target])));
+
+        Assert.Equal($"작업 T2의 영향 대상이 명세에 없습니다: dbo.{name} (EXEC) — pelly sql pull {argument} 로 받아 작업 줄에 추가할 수 있습니다 (db/pulled/dbo.{name}.sql)",
+            issue.Message);
+    }
+
+    [Theory]
+    [InlineData("My Proc")]
+    [InlineData("usp.Dotted")]
+    [InlineData("usp]X")]
+    public void Covers_sql_target_compares_names_not_display_text(string name)
+    {
+        var spec = Parse($"- [ ] T1 cs src/App/A.cs#A.Run 바꾼다\n- [ ] T2 sql db/a.sql 바꾼다\n");
+        var objects = new Dictionary<string, SqlObjectName> { ["T2"] = new(null, name.ToUpperInvariant()) };
+        var target = new ImpactTarget("T1", "", $"dbo.{name}", "EXEC", ImpactTargetKind.SqlObject, new SqlObjectName("dbo", name), "P");
+
+        Assert.True(ImpactCheck.Covers(spec.Tasks[1], target, objects));
+        Assert.Empty(ImpactCheck.SqlIssues(spec, [], [], SqlResult(targets: [target]), objects, "db/pulled", null, SqlImpactBasis.Prod));
+    }
+
     [Fact]
     public void SqlIssues_pull_directory_uses_forward_slashes()
     {

@@ -74,12 +74,13 @@ public sealed class SqlCheckCommand(
         {
             case ProdCheckOutcome.SameAsProd:
                 Print("green", "운영과 같음 (이미 반영됨 또는 아직 고치지 않음)");
+                if (check.Notice is not null) Print("yellow", check.Notice);
                 return ExitCodes.Success;
             case ProdCheckOutcome.UnchangedSincePull:
                 Print("green", "받은 뒤 운영이 바뀌지 않음");
                 return ExitCodes.Success;
             case ProdCheckOutcome.NotInProd:
-                Print("green", check.Message);
+                Print("green", "운영에 없음 (새 객체)");
                 return ExitCodes.Success;
             case ProdCheckOutcome.ChangedSincePull:
                 Print("red", $"받은 뒤 운영이 바뀜 — 반영하면 그 변경을 덮어씁니다. {check.Message}");

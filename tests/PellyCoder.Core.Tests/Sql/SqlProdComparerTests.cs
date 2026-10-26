@@ -16,6 +16,7 @@ public class SqlProdComparerTests
         public int Calls { get; private set; }
         public SqlModuleDefinition? Result { get; set; }
         public bool Unreachable { get; set; }
+        public Exception? Throw { get; set; }
 
         public Task<SqlServerProbe> ProbeAsync(CancellationToken ct) => throw new NotSupportedException();
 
@@ -23,6 +24,7 @@ public class SqlProdComparerTests
         {
             Calls++;
             if (Unreachable) throw new SqlUnavailableException("서버에 연결할 수 없습니다");
+            if (Throw is not null) throw Throw;
             return Task.FromResult(Result);
         }
 
@@ -65,6 +67,35 @@ public class SqlProdComparerTests
         var r = await Run(file, Batch(AlterProd), new SqlReaderOpen(reader, Endpoint, null));
         Assert.Equal(ProdCheckOutcome.SameAsProd, r.Outcome);
         Assert.Equal(r.FileHash, r.ProdHash);
+        Assert.Equal("받은 기록이 운영보다 오래되었습니다 — 고치기 전에 pelly sql pull dbo.usp_X --force로 다시 받으십시오", r.Notice);
+    }
+
+    [Fact]
+    public async Task Same_as_prod_with_current_record_has_no_notice()
+    {
+        var file = Record(Hash(ProdDef)) + AlterProd;
+        var r = await Run(file, Batch(AlterProd), new SqlReaderOpen(ProdWith(), Endpoint, null));
+        Assert.Equal(ProdCheckOutcome.SameAsProd, r.Outcome);
+        Assert.Null(r.Notice);
+    }
+
+    [Theory]
+    [InlineData("dev", "proddb01")]
+    [InlineData("prod", "otherdb")]
+    public async Task Same_as_prod_with_invalid_stale_record_has_no_notice(string source, string server)
+    {
+        var file = Record(Hash(OldDef), source, server) + AlterProd;
+        var r = await Run(file, Batch(AlterProd), new SqlReaderOpen(ProdWith(), Endpoint, null));
+        Assert.Equal(ProdCheckOutcome.SameAsProd, r.Outcome);
+        Assert.Null(r.Notice);
+    }
+
+    [Fact]
+    public async Task Same_as_prod_without_record_has_no_notice()
+    {
+        var r = await Run(AlterProd, Batch(AlterProd), new SqlReaderOpen(ProdWith(), Endpoint, null));
+        Assert.Equal(ProdCheckOutcome.SameAsProd, r.Outcome);
+        Assert.Null(r.Notice);
     }
 
     [Fact]
@@ -140,6 +171,16 @@ public class SqlProdComparerTests
         Assert.Equal(ProdCheckOutcome.Unavailable, r.Outcome);
         Assert.StartsWith("운영 정의와 비교하지 못했습니다: ", r.Message);
         Assert.Contains("서버에 연결할 수 없습니다", r.Message);
+    }
+
+    [Fact]
+    public async Task Query_error_is_Unavailable_with_masked_message()
+    {
+        var reader = new FakeReader { Throw = new FakeDbException("Invalid object name 'sys.sql_modules'. Password=secret;") };
+        var r = await Run("x", Batch(Edited), new SqlReaderOpen(reader, Endpoint, null));
+        Assert.Equal(ProdCheckOutcome.Unavailable, r.Outcome);
+        Assert.StartsWith("운영 정의와 비교하지 못했습니다: Invalid object name 'sys.sql_modules'.", r.Message);
+        Assert.DoesNotContain("secret", r.Message);
     }
 
     [Fact]

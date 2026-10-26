@@ -11,7 +11,8 @@ public enum SqlImpactBasis { Prod, Dev }
 
 /// <summary>
 /// Summary of one table a seed writes: <paramref name="Modules"/> other modules reference it, <paramref name="Warned"/> of
-/// the ones reading a written column became warnings, <paramref name="Omitted"/> more were cut by the per-table cap and
+/// the ones reading a written column became warnings here (modules a sql task names, or ① already warned, are not counted),
+/// <paramref name="Omitted"/> more were cut by the per-table cap and
 /// <paramref name="Unverifiable"/> could not report their column uses. <paramref name="WrittenColumns"/> is empty for a DELETE-only table.
 /// </summary>
 public sealed record SqlTableShare(string SeedTaskId, SqlObjectName Table, IReadOnlyList<string> WrittenColumns, int Modules, int Warned, int Omitted, int Unverifiable);
@@ -30,5 +31,7 @@ public sealed record SqlImpactResult(SqlImpactBasis? Basis, string? Unavailable,
 
 public interface ISqlImpactFinder
 {
-    Task<SqlImpactResult> FindAsync(Workspace ws, IReadOnlyList<SqlImpactSeed> seeds, SqlReaderOpen db, SqlImpactBasis basis, CancellationToken ct);
+    /// <param name="covered">Every object a sql task of the spec names: the per-table cap of ③ skips them, they are never missing.</param>
+    Task<SqlImpactResult> FindAsync(Workspace ws, IReadOnlyList<SqlImpactSeed> seeds, IReadOnlyCollection<SqlObjectName> covered, SqlReaderOpen db,
+        SqlImpactBasis basis, CancellationToken ct);
 }

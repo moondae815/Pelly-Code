@@ -1,10 +1,15 @@
+using System.Data.Common;
 using PellyCoder.Core.Abstractions;
 
 namespace PellyCoder.Core.Sql;
 
 public enum ProdCheckOutcome { NotConfigured, SameAsProd, UnchangedSincePull, ChangedSincePull, DiffersNoRecord, NotInProd, Unavailable }
 
-public sealed record ProdCheck(ProdCheckOutcome Outcome, string? FileHash, string? ProdHash, string? PulledHash, string Message);
+/// <param name="Notice">
+/// Extra information that never changes the outcome: with <see cref="ProdCheckOutcome.SameAsProd"/>, a valid pull record
+/// whose hash is not production's (the user deployed their edit; the record is older than production).
+/// </param>
+public sealed record ProdCheck(ProdCheckOutcome Outcome, string? FileHash, string? ProdHash, string? PulledHash, string Message, string? Notice = null);
 
 /// <summary>Production comparison verdict for a target batch (design 6.2-6.4). Reads production only.</summary>
 public static class SqlProdComparer
@@ -34,6 +39,11 @@ public static class SqlProdComparer
         {
             return Unavailable(fileHash, e.Message);
         }
+        catch (DbException e) when (!ct.IsCancellationRequested)
+        {
+            // A query-level SqlException (permission, lock timeout…) is as much "cannot compare" as an unreachable server.
+            return Unavailable(fileHash, SqlConnectionText.MaskInText(e.Message, null));
+        }
 
         if (module is null)
             return new(ProdCheckOutcome.NotInProd, fileHash, null, null, $"운영에 {display}가 없습니다 (새 객체)");
@@ -41,10 +51,17 @@ public static class SqlProdComparer
             return Unavailable(fileHash, $"{display}의 정의를 읽을 수 없습니다 (암호화되었거나 권한이 없습니다)");
 
         var prodHash = SqlDefinitionText.Hash(module.Definition, compatLevel);
-        if (fileHash == prodHash)
-            return new(ProdCheckOutcome.SameAsProd, fileHash, prodHash, null, $"{display}가 운영 정의와 같습니다");
-
         var record = PullRecord.TryParse(fileTextLf);
+        if (fileHash == prodHash)
+        {
+            // Same as production wins (design 6.2), but a valid record that no longer matches production would stop the next
+            // edit as "changed since pull": say so now, before the user edits again.
+            var stale = record is not null && IsValid(record, prod.Endpoint, targetName) && record.Sha256 != prodHash
+                ? $"받은 기록이 운영보다 오래되었습니다 — 고치기 전에 pelly sql pull {display} --force로 다시 받으십시오"
+                : null;
+            return new(ProdCheckOutcome.SameAsProd, fileHash, prodHash, null, $"{display}가 운영 정의와 같습니다", stale);
+        }
+
         if (record is not null && IsValid(record, prod.Endpoint, targetName))
         {
             if (record.Sha256 == prodHash)

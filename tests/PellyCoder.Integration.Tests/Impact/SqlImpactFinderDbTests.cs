@@ -18,7 +18,7 @@ public class SqlImpactFinderDbTests
             var db = new SqlReaderOpen(new SqlDefinitionReader(ProdDb.ConnectionString!), null, null);
             var seed = new SqlImpactSeed("T1", 1, SqlObjectName.Parse("dbo.usp_CancelOrder"));
 
-            var result = await new SqlImpactFinder(new FileSystem(), 160).FindAsync(ws, [seed], db, SqlImpactBasis.Prod, CancellationToken.None);
+            var result = await new SqlImpactFinder(new FileSystem(), 160).FindAsync(ws, [seed], [], db, SqlImpactBasis.Prod, CancellationToken.None);
 
             Assert.Equal(SqlImpactBasis.Prod, result.Basis);
             Assert.Null(result.Unavailable);

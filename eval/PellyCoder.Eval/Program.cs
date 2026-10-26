@@ -165,14 +165,16 @@ static async Task<int> RunApplyAsync(EvalArguments parsed, IFileSystem fs, ILlmB
     var suiteLoad = BenchmarkSuite.Load(suiteDir);
     if (suiteLoad.Suite is not { } suite) return Fail("스위트 오류:\n  " + string.Join("\n  ", suiteLoad.Errors));
     var casesDir = Path.Combine(suite.Dir, "apply");
+    var testFirstDir = Path.Combine(suite.Dir, "apply-test-first");
     var corpusDir = Path.GetFullPath(Path.Combine(suite.Dir, "..", "corpus"));
-    if (!Directory.Exists(casesDir)) return Fail($"사례 폴더가 없습니다: {casesDir}");
+    if (parsed.Set != ApplyBenchmark.SetTestFirst && !Directory.Exists(casesDir)) return Fail($"사례 폴더가 없습니다: {casesDir}");
+    if (parsed.Set != ApplyBenchmark.SetDefault && !Directory.Exists(testFirstDir)) return Fail($"사례 폴더가 없습니다: {testFirstDir}");
     if (!Directory.Exists(corpusDir)) return Fail($"코퍼스 폴더가 없습니다: {corpusDir}");
 
     IReadOnlyList<ApplyCase> cases;
     try
     {
-        cases = ApplyBenchmark.LoadCases(casesDir, parsed.Cases);
+        cases = ApplyBenchmark.LoadSet(casesDir, testFirstDir, parsed.Set, parsed.Cases);
     }
     catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException)
     {
@@ -243,8 +245,9 @@ static async Task<int> RunApplyAsync(EvalArguments parsed, IFileSystem fs, ILlmB
 
     var header = $"* 실행: {stamp} · pelly {PellyInfo.Version} · 모델 `{options.Llm.Model}` ({options.Llm.Endpoint}, Ollama {status.Version}) · "
         + $"thinkMode {options.Llm.ThinkMode} · {Environment.OSVersion.Platform}\n* 선택: --cases {parsed.Cases ?? "*"}"
+        + (parsed.Set != ApplyBenchmark.SetDefault ? $" --set {parsed.Set}" : "")
         + (parsed.Repeat > 1 ? $" --repeat {parsed.Repeat}" : "") + (cancelled ? "\n* **중단됨** — 끝난 사례만 집계했습니다" : "");
-    var summary = ApplyBenchmarkReport.Write(fs, outDir, results, header);
+    var summary = ApplyBenchmarkReport.Write(fs, outDir, results, header, cases);
     Console.WriteLine();
     Console.WriteLine(summary);
     Console.WriteLine($"결과: {Path.Combine(outDir, ApplyBenchmarkReport.SummaryFile)}");

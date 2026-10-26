@@ -1,4 +1,6 @@
 using System.IO.Abstractions;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using PellyCoder.Core.Abstractions;
 using PellyCoder.Core.Builds;
 using PellyCoder.Core.Config;
@@ -8,14 +10,33 @@ using PellyCoder.Core.Fsm;
 using PellyCoder.Core.Impact;
 using PellyCoder.Core.Reporting;
 using PellyCoder.Core.Specs;
+using PellyCoder.Core.Testing;
+using PellyCoder.Core.Verification;
 using PellyCoder.Core.Workspaces;
 
 namespace PellyCoder.Eval;
 
-/// <summary>One benchmark spec (<c>eval/benchmark/apply/&lt;id&gt;.md</c>): its front matter scope and the shape of its tasks.</summary>
+/// <summary>
+/// One benchmark spec (<c>eval/benchmark/apply/&lt;id&gt;.md</c>, or a test-first case folder
+/// <c>eval/benchmark/apply-test-first/&lt;id&gt;/</c>): its front matter scope and the shape of its tasks.
+/// </summary>
 /// <param name="Scope">The corpus roots the spec touches (<c>Modern</c>, <c>Legacy</c>, <c>Sql</c>), as the S6 gold lists them.</param>
 /// <param name="SpecText">The spec as written to the work copy's <c>changes/&lt;id&gt;.md</c>.</param>
-public sealed record ApplyCase(string Id, IReadOnlyList<string> Scope, string SpecText, int TaskCount, bool HasSql, bool HasGroup);
+/// <param name="FilesDir">The case folder's <c>files/</c>, copied over the work copy's <c>corpus/</c> (same relative paths); null without one.</param>
+/// <param name="Expected">The case's <c>expected.json</c>: shown beside the actual results, never used to judge.</param>
+/// <param name="Approved">False for a folder case not listed in <c>APPROVED.json</c> (the summary is then preliminary).</param>
+public sealed record ApplyCase(string Id, IReadOnlyList<string> Scope, string SpecText, int TaskCount, bool HasSql, bool HasGroup,
+    string? FilesDir = null, IReadOnlyList<ExpectedCriterion>? Expected = null, bool Approved = true);
+
+/// <summary>One entry of a case's <c>expected.json</c>: the criterion's expected RED state and outcome (enum names).</summary>
+public sealed record ExpectedCriterion(string AcId, string Red, string Outcome);
+
+/// <summary>
+/// The eval's own re-run of a Met criterion's <c>test:</c> outside pelly: <see cref="Verdict"/> is <see cref="ApplyBenchmark.TestPassed"/>,
+/// <see cref="ApplyBenchmark.TestMismatch"/> (a test judge mismatch), <see cref="ApplyBenchmark.TestSkipped"/> (legacy off Windows) or
+/// <see cref="ApplyBenchmark.TestUnverifiable"/>; <see cref="Detail"/> says why when it did not pass.
+/// </summary>
+public sealed record AcTestCheck(string AcId, string Verdict, string? Detail);
 
 /// <summary>
 /// One case run. <paramref name="Outcome"/>: <c>completed</c> (exit 0 and archived), <c>failed</c>, <c>skipped</c> (never run,
@@ -23,10 +44,16 @@ public sealed record ApplyCase(string Id, IReadOnlyList<string> Scope, string Sp
 /// <paramref name="Archived"/> and <paramref name="Tasks"/> come from the apply's own <c>apply.json</c>.
 /// <paramref name="IndependentBuildOk"/> is the eval's own rebuild of an exit-0 apply: false is a verification invariant
 /// violation, null means not judged (<paramref name="IndependentDetail"/> says why).
+/// <paramref name="Criteria"/> are the criteria of the run's <c>apply.json</c>; <paramref name="TestChecks"/> the independent re-run of
+/// each Met criterion's test, <paramref name="TestJudgeMismatches"/> how many of them did not pass (an invariant violation like a
+/// failed independent build). The three are left out of <c>apply-results.json</c> when unset.
 /// </summary>
 public sealed record ApplyCaseResult(string Id, int Repeat, string Outcome, string? SkipReason,
     int ExitCode, bool Archived, int TaskCount, IReadOnlyList<ApplyTaskResult> Tasks, bool? IndependentBuildOk, double Seconds,
-    string? Error = null, string? IndependentDetail = null);
+    string? Error = null, string? IndependentDetail = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<AcResult>? Criteria = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] int TestJudgeMismatches = 0,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<AcTestCheck>? TestChecks = null);
 
 /// <summary>What the apply benchmark needs besides the case: the composition the real command or a test supplies.</summary>
 /// <param name="RunFactory">Builds the per-task run delegate (the v1 orchestrator in <c>pelly-eval apply</c>).</param>
@@ -55,6 +82,109 @@ public static class ApplyBenchmark
     /// <summary><see cref="ApplyCaseResult.IndependentDetail"/> when the apply changed no C# file (nothing to rebuild).</summary>
     public const string NoCsChange = "C# 변경 없음";
 
+    /// <summary><see cref="AcTestCheck.Verdict"/> values.</summary>
+    public const string TestPassed = "통과";
+    public const string TestMismatch = "불일치";
+    public const string TestSkipped = "건너뜀";
+    public const string TestUnverifiable = "검증 불가";
+
+    /// <summary><c>--set</c> values: the flat S6 cases, the test-first case folders, or both.</summary>
+    public const string SetDefault = "default";
+    public const string SetTestFirst = "test-first";
+    public const string SetAll = "all";
+
+    /// <summary>The approval file of the test-first case folders.</summary>
+    public const string ApprovedFile = "APPROVED.json";
+
+    private static readonly JsonSerializerOptions ReadJson = new() { PropertyNameCaseInsensitive = true };
+
+    /// <summary>
+    /// The cases of a <c>--set</c>: <see cref="SetDefault"/> reads <paramref name="applyDir"/> only (the folder cases are never
+    /// read), <see cref="SetTestFirst"/> <paramref name="testFirstDir"/> only, <see cref="SetAll"/> both (flat cases first).
+    /// </summary>
+    /// <exception cref="InvalidDataException">A case does not parse, or two cases of <see cref="SetAll"/> share an id.</exception>
+    public static IReadOnlyList<ApplyCase> LoadSet(string applyDir, string testFirstDir, string set, string? glob)
+    {
+        IReadOnlyList<ApplyCase> TestFirst() => LoadTestFirstCases(testFirstDir, glob, LoadApproved(testFirstDir));
+        switch (set)
+        {
+            case SetDefault: return LoadCases(applyDir, glob);
+            case SetTestFirst: return TestFirst();
+            case SetAll:
+                var all = LoadCases(applyDir, glob).Concat(TestFirst()).ToList();
+                if (all.GroupBy(c => c.Id, StringComparer.Ordinal).FirstOrDefault(g => g.Count() > 1) is { } duplicate)
+                    throw new InvalidDataException($"사례 id가 겹칩니다: {duplicate.Key}");
+                return all;
+            default: throw new ArgumentException($"알 수 없는 --set: {set}", nameof(set));
+        }
+    }
+
+    /// <summary>
+    /// The case folders in <paramref name="dir"/> (ordinal by folder name) whose id matches <paramref name="glob"/>: each holds
+    /// <c>spec.md</c> (the flat cases' front matter rules, id = folder name), optionally <c>files/</c> and <c>expected.json</c>
+    /// (<c>[{ "acId", "red", "outcome" }]</c>). A case is approved when <paramref name="approved"/> lists its id.
+    /// </summary>
+    /// <exception cref="InvalidDataException">A folder has no spec, a spec does not parse, its id is not the folder name, or expected.json is malformed.</exception>
+    public static IReadOnlyList<ApplyCase> LoadTestFirstCases(string dir, string? glob, IReadOnlySet<string> approved)
+    {
+        var cases = new List<ApplyCase>();
+        foreach (var folder in Directory.GetDirectories(dir).Order(StringComparer.Ordinal))
+        {
+            var id = Path.GetFileName(folder);
+            var specFile = Path.Combine(folder, "spec.md");
+            if (!File.Exists(specFile)) throw new InvalidDataException($"{id}: spec.md가 없습니다");
+            var parsed = Parse($"{id}/spec.md", specFile, id, "폴더 이름");
+            if (!TaskFilter.MatchesId(id, glob)) continue;
+            var files = Path.Combine(folder, "files");
+            cases.Add(parsed with
+            {
+                FilesDir = Directory.Exists(files) ? files : null,
+                Expected = Expected(id, Path.Combine(folder, "expected.json")),
+                Approved = approved.Contains(id),
+            });
+        }
+        return cases;
+    }
+
+    /// <summary>
+    /// The ids listed in <paramref name="dir"/>'s <see cref="ApprovedFile"/> (<c>{ "approvedBy", "approvedAt", "cases": [ids] }</c>);
+    /// empty without the file or its <c>cases</c>.
+    /// </summary>
+    /// <exception cref="InvalidDataException">The file is not that JSON.</exception>
+    public static IReadOnlySet<string> LoadApproved(string dir)
+    {
+        var file = Path.Combine(dir, ApprovedFile);
+        if (!File.Exists(file)) return new HashSet<string>(StringComparer.Ordinal);
+        try
+        {
+            var approval = JsonSerializer.Deserialize<Approval>(File.ReadAllText(file), ReadJson);
+            return new HashSet<string>(approval?.Cases ?? [], StringComparer.Ordinal);
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidDataException($"{ApprovedFile}: {ex.Message}", ex);
+        }
+    }
+
+    private sealed record Approval(IReadOnlyList<string>? Cases);
+
+    private static IReadOnlyList<ExpectedCriterion>? Expected(string id, string file)
+    {
+        if (!File.Exists(file)) return null;
+        try
+        {
+            var expected = JsonSerializer.Deserialize<List<ExpectedCriterion>>(File.ReadAllText(file), ReadJson)
+                ?? throw new InvalidDataException($"{id}/expected.json: 비어 있습니다");
+            if (expected.Any(e => e is null || e.AcId is null || e.Red is null || e.Outcome is null))
+                throw new InvalidDataException($"{id}/expected.json: 항목마다 acId, red, outcome이 있어야 합니다");
+            return expected;
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidDataException($"{id}/expected.json: {ex.Message}", ex);
+        }
+    }
+
     /// <summary>The work copy of one case run: <c>&lt;out&gt;/work/&lt;id&gt;-&lt;repeat&gt;</c>, the corpus in its <c>corpus</c> folder.</summary>
     public static string CaseDir(string outDir, string id, int repeat) => Path.Combine(outDir, "work", $"{id}-{repeat}");
 
@@ -73,18 +203,23 @@ public static class ApplyBenchmark
             .Order(StringComparer.Ordinal);
         foreach (var file in files)
         {
-            var name = Path.GetFileName(file);
-            var text = File.ReadAllText(file).Replace("\r\n", "\n");
-            var spec = ChangeSpecParser.Parse(text);
-            if (spec.Issues.Count > 0)
-                throw new InvalidDataException($"{name}: {string.Join("; ", spec.Issues.Select(i => $"줄 {i.Line}: {i.Message}"))}");
-            if (spec.Id != Path.GetFileNameWithoutExtension(file))
-                throw new InvalidDataException($"{name}: 머리말 id({spec.Id})가 파일 이름과 다릅니다");
-            if (!TaskFilter.MatchesId(spec.Id, glob)) continue;
-            cases.Add(new ApplyCase(spec.Id, Scope(text), text, spec.Tasks.Count,
-                spec.Tasks.Any(t => t.Kind == TaskKind.Sql), spec.Tasks.Any(t => t.Group is not null)));
+            var c = Parse(Path.GetFileName(file), file, Path.GetFileNameWithoutExtension(file), "파일 이름");
+            if (TaskFilter.MatchesId(c.Id, glob)) cases.Add(c);
         }
         return cases;
+    }
+
+    /// <summary>One spec file as a case; <paramref name="name"/> names it in errors, <paramref name="idSource"/> says where its id must come from.</summary>
+    private static ApplyCase Parse(string name, string file, string expectedId, string idSource)
+    {
+        var text = File.ReadAllText(file).Replace("\r\n", "\n");
+        var spec = ChangeSpecParser.Parse(text);
+        if (spec.Issues.Count > 0)
+            throw new InvalidDataException($"{name}: {string.Join("; ", spec.Issues.Select(i => $"줄 {i.Line}: {i.Message}"))}");
+        if (spec.Id != expectedId)
+            throw new InvalidDataException($"{name}: 머리말 id({spec.Id})가 {idSource}과 다릅니다");
+        return new ApplyCase(expectedId, Scope(text), text, spec.Tasks.Count,
+            spec.Tasks.Any(t => t.Kind == TaskKind.Sql), spec.Tasks.Any(t => t.Group is not null));
     }
 
     /// <summary>The front matter's <c>scope: [A, B]</c> (the parser ignores the key); empty without one.</summary>
@@ -165,19 +300,25 @@ public static class ApplyBenchmark
         var record = ApplyHistory.Load(setup.Fs, ws, null).Applies.LastOrDefault()?.Summary;
         var archived = record?.Archived ?? false;
 
-        (bool? ok, string? detail) independent = exit == 0 ? await IndependentBuildAsync(setup, ws, ct) : (null, null);
+        (bool? ok, string? detail) independent = exit == 0 ? await IndependentBuildAsync(setup, ws, c.FilesDir, ct) : (null, null);
+        var criteria = record?.Criteria;
+        var checks = exit == 0 && criteria is not null ? await TestJudgeAsync(c, setup, ws, caseDir, criteria, ct) : null;
+        var mismatches = checks?.Count(k => k.Verdict == TestMismatch) ?? 0;
 
         var outcome = exit == 0 && archived ? Completed : Failed;
         setup.Log($"[{c.Id}#{repeat}] {outcome} (종료 {exit}, 보관 {(archived ? "예" : "아니오")}, {seconds:0.0}초"
             + (exit == 0 ? $", 독립 빌드 {(independent.ok switch { true => "통과", false => "위반", null => "검증 불가" })}" : "")
-            + (independent.detail is { } d ? $" — {d}" : "") + ")");
+            + (independent.detail is { } d ? $" — {d}" : "")
+            + (checks is { Count: > 0 } ? $", 독립 테스트 {string.Join(", ", checks.Select(k => $"{k.AcId} {k.Verdict}" + (k.Detail is { } kd ? $" — {kd}" : "")))}" : "")
+            + ")");
         return new ApplyCaseResult(c.Id, repeat, outcome, null, exit, archived, c.TaskCount, record?.Tasks ?? [], independent.ok, seconds,
-            IndependentDetail: independent.detail);
+            IndependentDetail: independent.detail, Criteria: criteria, TestJudgeMismatches: mismatches, TestChecks: checks);
     }
 
     /// <summary>
     /// Builds <paramref name="caseDir"/>: the support files at its top, the corpus in <c>corpus/</c> (standard excludes), an empty
-    /// <c>.git</c> folder there so the whole copy is one workspace (each root has its own <c>.sln</c>), and the spec.
+    /// <c>.git</c> folder there so the whole copy is one workspace (each root has its own <c>.sln</c>), the spec, then the case's
+    /// <c>files/</c> over <c>corpus/</c>.
     /// </summary>
     /// <returns>The spec's path, <c>corpus/changes/&lt;id&gt;.md</c>.</returns>
     private static string PrepareWorkCopy(ApplyCase c, ApplyBenchSetup setup, string caseDir, string corpus)
@@ -191,19 +332,20 @@ public static class ApplyBenchmark
         Directory.CreateDirectory(changes);
         var specPath = Path.Combine(changes, c.Id + ".md");
         File.WriteAllText(specPath, c.SpecText);
+        if (c.FilesDir is { } files) WorkCopy.Overlay(files, corpus);
         return specPath;
     }
 
     /// <summary>
     /// Rebuilds the projects of the C# files whose bytes now differ from the pristine corpus (pelly's records are not used) and
-    /// their dependents. True: no compiler error; false: compiler errors (invariant violated); null: nothing to judge or the
-    /// build could not judge, with the reason.
+    /// their dependents; the baseline of a file the case's <c>files/</c> overlays is that file. True: no compiler error; false:
+    /// compiler errors (invariant violated); null: nothing to judge or the build could not judge, with the reason.
     /// </summary>
-    private static async Task<(bool? Ok, string? Detail)> IndependentBuildAsync(ApplyBenchSetup setup, Workspace ws, CancellationToken ct)
+    private static async Task<(bool? Ok, string? Detail)> IndependentBuildAsync(ApplyBenchSetup setup, Workspace ws, string? filesDir, CancellationToken ct)
     {
         try
         {
-            var changed = ChangedCsFiles(ws.Root, setup.CorpusDir);
+            var changed = ChangedCsFiles(ws.Root, setup.CorpusDir, filesDir);
             if (changed.Count == 0) return (null, NoCsChange);
 
             var projects = new List<string>();
@@ -231,8 +373,11 @@ public static class ApplyBenchmark
         }
     }
 
-    /// <summary>The <c>.cs</c> files under <paramref name="workRoot"/> (standard excludes) that are new or differ byte for byte from <paramref name="pristineRoot"/>.</summary>
-    private static List<string> ChangedCsFiles(string workRoot, string pristineRoot)
+    /// <summary>
+    /// The <c>.cs</c> files under <paramref name="workRoot"/> (standard excludes) that are new or differ byte for byte from their
+    /// baseline: <paramref name="pristineRoot"/> with <paramref name="overlayRoot"/> (the case's <c>files/</c>) on top.
+    /// </summary>
+    private static List<string> ChangedCsFiles(string workRoot, string pristineRoot, string? overlayRoot)
     {
         var skip = new HashSet<string>(WorkCopy.Excluded, StringComparer.OrdinalIgnoreCase);
         var changed = new List<string>();
@@ -242,7 +387,10 @@ public static class ApplyBenchmark
             var dir = pending.Pop();
             foreach (var file in Directory.GetFiles(dir, "*.cs").Where(f => f.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)))
             {
-                var pristine = Path.Combine(pristineRoot, Path.GetRelativePath(workRoot, file));
+                var relative = Path.GetRelativePath(workRoot, file);
+                var pristine = overlayRoot is not null && File.Exists(Path.Combine(overlayRoot, relative))
+                    ? Path.Combine(overlayRoot, relative)
+                    : Path.Combine(pristineRoot, relative);
                 if (!File.Exists(pristine) || !File.ReadAllBytes(pristine).AsSpan().SequenceEqual(File.ReadAllBytes(file)))
                     changed.Add(file);
             }
@@ -254,13 +402,90 @@ public static class ApplyBenchmark
     }
 
     /// <summary>
+    /// The independent re-run (design V2-2c §5.2): every criterion pelly called <see cref="AcOutcome.Met"/> has its <c>test:</c>
+    /// built and run again outside pelly with <see cref="TestRunner"/>, in each project declaring it (<see cref="TestMethodIndex"/>
+    /// over the work copy); every result matching the name (<see cref="TestNames.Matches"/>) must pass. Reports go to
+    /// <c>&lt;case&gt;/test-judge/</c>, outside the corpus.
+    /// </summary>
+    private static async Task<IReadOnlyList<AcTestCheck>> TestJudgeAsync(ApplyCase c, ApplyBenchSetup setup, Workspace ws, string caseDir,
+        IReadOnlyList<AcResult> criteria, CancellationToken ct)
+    {
+        var tests = ChangeSpecParser.Parse(c.SpecText).Criteria.Where(a => a.Test is not null)
+            .GroupBy(a => a.Id, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First().Test!, StringComparer.Ordinal);
+        var runner = new TestRunner(setup.Processes, setup.Options.Build, setup.Options.Test);
+        var tools = new BuildToolResolver(setup.Fs, setup.Processes, setup.Options.Build, setup.IsWindows);
+        var checks = new List<AcTestCheck>();
+        foreach (var ac in criteria.Where(a => a.Outcome == AcOutcome.Met))
+        {
+            AcTestCheck check;
+            if (!tests.TryGetValue(ac.AcId, out var name))
+                check = new AcTestCheck(ac.AcId, TestUnverifiable, "명세에 그 수용 기준의 test:가 없습니다");
+            else
+            {
+                try
+                {
+                    check = await CheckTestAsync(ac.AcId, name, setup, ws, runner, tools, Path.Combine(caseDir, "test-judge"), ct);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    check = new AcTestCheck(ac.AcId, TestUnverifiable, ex.Message);
+                }
+            }
+            checks.Add(check);
+        }
+        return checks;
+    }
+
+    private static async Task<AcTestCheck> CheckTestAsync(string acId, string name, ApplyBenchSetup setup, Workspace ws, TestRunner runner,
+        BuildToolResolver tools, string reportDir, CancellationToken ct)
+    {
+        AcTestCheck Verdict(string verdict, string? detail = null) => new(acId, verdict, detail);
+
+        var decls = TestMethodIndex.Find(setup.Fs, ws.Root, name);
+        if (decls.Count == 0) return Verdict(TestMismatch, $"테스트 {name}을(를) 작업 공간에서 찾지 못했습니다");
+        if (decls.Any(d => d.Csproj is null)) return Verdict(TestUnverifiable, $"테스트 {name}이(가) 어떤 테스트 프로젝트에도 속하지 않습니다");
+        var projects = decls.Select(d => Path.GetFullPath(d.Csproj!)).Distinct(PathComparers.ForOs).ToList();
+
+        // Every declaring project's tool first, so a legacy project off Windows skips the check before anything runs.
+        var resolved = new List<BuildTool>();
+        foreach (var project in projects)
+        {
+            var style = ProjectStyleDetector.Detect(setup.Fs, project);
+            if (style == ProjectStyle.Legacy && !setup.IsWindows())
+                return Verdict(TestSkipped, "레거시 테스트는 Windows에서만 실행합니다");
+            var resolution = await tools.ResolveAsync(style, ct);
+            if (resolution.Tool is not { } tool) return Verdict(TestUnverifiable, resolution.Error);
+            resolved.Add(tool);
+        }
+
+        var matched = new List<TestCaseResult>();
+        for (var i = 0; i < projects.Count; i++)
+        {
+            var trx = Path.Combine(reportDir, $"{acId}-{i + 1}.trx");
+            var run = await runner.RunAsync(resolved[i], projects[i], ws.Root, trx, ct);
+            if (run.TimedOut) return Verdict(TestUnverifiable, "테스트 실행 시간이 초과되었습니다");
+            if (run.Error is { } error) return Verdict(TestUnverifiable, error);
+            // As in GroupTester: a non-compiler error (restore, SDK) says nothing about the test.
+            if (run.BuildErrors.FirstOrDefault(e => !BuildMessages.IsCompilerError(e)) is { } blocker)
+                return Verdict(TestUnverifiable, $"테스트 프로젝트를 빌드할 수 없습니다: {blocker.Code} {blocker.Message}");
+            if (run.BuildErrors.Count > 0)
+                return Verdict(TestMismatch, $"테스트 프로젝트가 빌드되지 않습니다: {string.Join("; ", run.BuildErrors.Take(3).Select(e => $"{e.Code} {e.Message}"))}");
+            if (!run.PerTestResults) return Verdict(TestUnverifiable, "테스트별 결과가 없습니다 (레거시는 test.command에 {trx}를 넣으세요)");
+            matched.AddRange(run.Results.Where(r => TestNames.Matches(name, r.FullName)));
+        }
+        if (matched.Count == 0) return Verdict(TestMismatch, $"테스트 결과에 {name}이(가) 없습니다");
+        var failed = matched.Where(r => !r.Passed).Select(r => r.FullName).Distinct(StringComparer.Ordinal).ToList();
+        return failed.Count == 0 ? Verdict(TestPassed) : Verdict(TestMismatch, $"실패: {string.Join(", ", failed)}");
+    }
+
+    /// <summary>
     /// The command's exit code, as <c>run</c>. Precedence: 2 cancelled; 1 an exit-0 apply whose independent build has compiler
-    /// errors (the verification invariant outranks a setup problem of another case); 4 any <c>error</c> row (the runner could not
+    /// errors or whose Met criterion's test does not pass when re-run (the verification invariant outranks a setup problem of another case); 4 any <c>error</c> row (the runner could not
     /// run a case: copy failure, runner exception); else 0.
     /// </summary>
     public static int ExitCode(IReadOnlyList<ApplyCaseResult> results, bool cancelled) =>
         cancelled ? 2
-        : results.Any(r => r.IndependentBuildOk == false) ? 1
+        : results.Any(r => r.IndependentBuildOk == false || r.TestJudgeMismatches > 0) ? 1
         : results.Any(r => r.Outcome == Errored) ? 4
         : 0;
 }

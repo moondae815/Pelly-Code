@@ -27,6 +27,10 @@ public static class WorkCopy
         Copy(from, to, skip);
     }
 
+    /// <summary>Copies <paramref name="from"/> over <paramref name="to"/> (same relative paths, existing files overwritten), with the standard excludes.</summary>
+    public static void Overlay(string from, string to) =>
+        Copy(from, to, new HashSet<string>(Excluded, StringComparer.OrdinalIgnoreCase), overwrite: true);
+
     private static void Copy(string from, string to, HashSet<string> skip, bool overwrite = false)
     {
         Directory.CreateDirectory(to);
@@ -71,7 +75,7 @@ public static class WorkCopy
         var rootCopy = Path.Combine(workRoot, task.Root.Name);
         CopyDirectory(task.Root.Path, rootCopy, task.Root.Exclude);
         if (task.Root.Overlay is { } overlay)
-            Copy(overlay, rootCopy, new HashSet<string>(Excluded, StringComparer.OrdinalIgnoreCase), overwrite: true);
+            Overlay(overlay, rootCopy);
         if (removeRules) RemoveRules(workRoot);
         Directory.CreateDirectory(Path.Combine(workRoot, ".svn"));
         return Path.Combine([workRoot, task.Root.Name, .. task.RelativeFile.Split('/')]);

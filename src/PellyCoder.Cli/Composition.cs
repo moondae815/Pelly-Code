@@ -24,6 +24,12 @@ public interface IUiLauncher
     int Run(UiLaunch launch, Func<GuiUserInteraction, UiSession> createSession);
 }
 
+/// <summary><c>pelly ui --selftest</c>: draws the window once off screen and returns 0, or 4 with the reason on stderr; tests replace it.</summary>
+public interface IUiSelfTest
+{
+    int Run();
+}
+
 /// <summary>Composition root: the only place that creates the real file system, process runner, <see cref="HttpClient"/> and backend.</summary>
 public static class Composition
 {
@@ -44,6 +50,7 @@ public static class Composition
             sp.GetRequiredService<IFileSystem>(), runUi, sp.GetRequiredService<TimeProvider>(),
             sp.GetRequiredService<HttpClientHolder>(), sp.GetRequiredService<IProcessRunner>()));
         services.AddSingleton<IUiLauncher, UiHostLauncher>();
+        services.AddSingleton<IUiSelfTest, UiHostSelfTest>();
         services.AddSingleton<IDoctorRunner, DoctorRunner>();
         return services;
     }
@@ -78,7 +85,13 @@ public static class Composition
 
     private sealed class UiHostLauncher : IUiLauncher
     {
-        public int Run(UiLaunch launch, Func<GuiUserInteraction, UiSession> createSession) => UiHost.Run(launch, createSession);
+        public int Run(UiLaunch launch, Func<GuiUserInteraction, UiSession> createSession) =>
+            UiHost.Run(launch, createSession, Console.Error);
+    }
+
+    private sealed class UiHostSelfTest : IUiSelfTest
+    {
+        public int Run() => UiHost.SelfTest(Console.Out, Console.Error);
     }
 
     private sealed class DoctorRunner(IFileSystem fs, TimeProvider time, HttpClientHolder http, IProcessRunner processes) : IDoctorRunner

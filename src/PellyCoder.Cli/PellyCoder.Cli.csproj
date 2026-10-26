@@ -37,5 +37,7 @@
 
   <!-- Roslyn build hosts beside the single-file exe (V2-1c Task 5). -->
   <Import Project="$(MSBuildThisFileDirectory)../../build/BuildHostOutside.targets" />
+  <!-- Avalonia/Skia/HarfBuzz native DLLs beside the single-file exe (V2-0 design §7.2). -->
+  <Import Project="$(MSBuildThisFileDirectory)../../build/UiNativeOutside.targets" />
 
 </Project>

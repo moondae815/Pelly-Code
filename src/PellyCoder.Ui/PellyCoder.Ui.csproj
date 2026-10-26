@@ -11,6 +11,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="PellyCoder.Ui.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\PellyCoder.Core\PellyCoder.Core.csproj" />
   </ItemGroup>
 

@@ -7,11 +7,14 @@ using PellyCoder.Ui.Views;
 
 namespace PellyCoder.Ui.Tests.Views;
 
-/// <summary>Headless Avalonia app for the window tests: the real <see cref="App"/> (Fluent light theme) without a desktop platform.</summary>
+/// <summary>
+/// Headless Avalonia app for the window tests: the real <see cref="App"/> (Fluent light theme) without a desktop platform.
+/// Draws with Skia (not the headless stub), so <see cref="SelfTestTests"/> can check the self-test's pixels.
+/// </summary>
 public static class TestAppBuilder
 {
     public static AppBuilder BuildAvaloniaApp() =>
-        AppBuilder.Configure<App>().UseHeadless(new AvaloniaHeadlessPlatformOptions());
+        AppBuilder.Configure<App>().UseSkia().UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false });
 }
 
 /// <summary>

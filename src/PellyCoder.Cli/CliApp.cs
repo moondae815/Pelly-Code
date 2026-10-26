@@ -39,6 +39,7 @@ public static class CliApp
         config.AddBranch("ui", b =>
         {
             b.SetDescription("작은 창에서 요청·진행·diff 승인을 합니다.");
+            b.SetDefaultCommand<UiUsageCommand>();
             b.AddCommand<UiCsCommand>("cs").WithDescription("C# 메서드 하나를 창에서 요청·승인해 수정합니다.");
             b.AddCommand<UiSqlCommand>("sql").WithDescription("SQL 객체 하나를 창에서 요청·승인해 수정합니다.");
         });

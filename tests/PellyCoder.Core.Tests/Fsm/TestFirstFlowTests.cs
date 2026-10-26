@@ -104,11 +104,16 @@ public sealed class TestFirstFlowTests : IDisposable
     private string TestSourcePath => Path.Combine(_root, "Demo.Tests", "CalcTests.cs");
 
     private static RunRequest Req(string path, string[] names, bool yes = true, bool dryRun = false, string method = "Divide",
-        string[]? breaks = null, bool verbose = false) =>
+        string[]? breaks = null, bool verbose = false, IReadOnlyDictionary<string, TestCheck>? checks = null) =>
         new(path, null, method, null, "Throw DivideByZeroException when b is zero.", yes, dryRun, null,
-            Verbose: verbose, VerifyTests: names, ExpectBreaks: breaks);
+            Verbose: verbose, VerifyTests: names, ExpectBreaks: breaks, TestChecks: checks);
 
     private static string Block(string search, string replace) => search + "\n=======\n" + replace + "\n>>>>>>> REPLACE\n";
+
+    private Task<RunResult> RunDetailed(RunRequest request) =>
+        FsmOrchestratorFactory.Create(_fs, _backend, _ui, _options, TimeProvider.System, _processes, _isWindows)
+            .RunDetailedAsync(request, TestContext.Current.CancellationToken)
+            .WaitAsync(WallClock, CancellationToken.None);
 
     private Task<int> Run(RunRequest request) =>
         FsmOrchestratorFactory.Create(_fs, _backend, _ui, _options, TimeProvider.System, _processes, _isWindows)
@@ -672,5 +677,139 @@ public sealed class TestFirstFlowTests : IDisposable
         Assert.Equal(originalBytes, File.ReadAllBytes(CalcPath));
         Assert.Equal("TestFileChanged", FailureKind());
         Assert.Contains($"지정한 테스트 파일이 실행 중에 바뀌었습니다: {Path.Combine("Demo.Tests", "CalcTests.cs")}", _ui.Warnings);
+    }
+    private static Dictionary<string, TestCheck> Checks(params (string Name, TestCheck Check)[] checks) =>
+        checks.ToDictionary(c => c.Name, c => c.Check, StringComparer.Ordinal);
+
+    private const string AlreadyPassedWarning = "이 테스트는 변경을 검증하지 못합니다 (원본 상태에서 이미 통과)";
+
+    [Fact]
+    public async Task Roles_RedOnly_NoGreenCheck()
+    {
+        EnqueueBaseline(Red());
+        EnqueueAttempt(Red());      // the named test still fails: not judged (RED role only), and failed in the baseline
+        _backend.Enqueue(Block(Original, Wrong));
+
+        var exit = await Run(Req(CalcPath, [Name], checks: Checks((Name, TestCheck.Red))));
+
+        Assert.Equal(0, exit);
+        Assert.Single(_backend.Requests);
+        Assert.Equal(CalcSource.Replace(Original, Wrong), File.ReadAllText(CalcPath));
+        var tf = Summary().GetProperty("testFirst");
+        Assert.Equal("Red", tf.GetProperty("red").GetString());
+        Assert.Equal("NotChecked", tf.GetProperty("green").GetString());
+        Assert.Equal(0, tf.GetProperty("regressions").GetInt32());
+        Assert.False(tf.GetProperty("inApply").GetBoolean());
+    }
+
+    [Fact]
+    public async Task Roles_GreenOnlyName_NoAlreadyPassedWarning()
+    {
+        EnqueueBaseline(Green());   // already passes on the original code: no RED role, so no warning
+        EnqueueAttempt(Green());
+        _backend.Enqueue(Block(Original, Guarded));
+
+        var exit = await Run(Req(CalcPath, [Name], checks: Checks((Name, TestCheck.Green))));
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain(_ui.Warnings, w => w.StartsWith(AlreadyPassedWarning, StringComparison.Ordinal));
+        // Nothing was said at all, so the run wrote no messages.txt either.
+        Assert.Empty(Directory.GetFiles(Path.Combine(_root, ".pelly", "runs"), "messages.txt", SearchOption.AllDirectories));
+        var tf = Summary().GetProperty("testFirst");
+        Assert.Equal("NotChecked", tf.GetProperty("red").GetString());
+        Assert.Equal("Passed", tf.GetProperty("green").GetString());
+    }
+
+    [Fact]
+    public async Task Roles_GreenOnly_Fails_Retries()
+    {
+        var originalBytes = File.ReadAllBytes(CalcPath);
+        EnqueueBaseline(Red());
+        EnqueueAttempt(Red());
+        EnqueueAttempt(Red());
+        _backend.Enqueue(Block(Original, Wrong));
+        _backend.Enqueue("Throw instead.</think>", evalCount: 10);
+        _backend.Enqueue(Block(Wrong, Guarded));
+
+        var exit = await Run(Req(CalcPath, [Name], checks: Checks((Name, TestCheck.Green))) with { MaxRetries = 1 });
+
+        Assert.Equal(1, exit);
+        Assert.Equal(originalBytes, File.ReadAllBytes(CalcPath));
+        Assert.Equal("TestGreenFailed", FailureKind());
+        Assert.Contains("TEST NOT PASSING: " + FullName, _backend.Requests[1].RawPrompt);
+        Assert.Equal("Failed", Summary().GetProperty("testFirst").GetProperty("green").GetString());
+    }
+
+    [Fact]
+    public async Task Roles_None_RegressionOnly()
+    {
+        var originalBytes = File.ReadAllBytes(CalcPath);
+        EnqueueBaseline(Green());   // passes in the baseline: no warning (no RED role)
+        EnqueueAttempt(Trx((FullName, false), (OtherTest, true)));   // now fails: a regression, not a GREEN failure
+        EnqueueAttempt(Trx((FullName, false), (OtherTest, true)));
+        _backend.Enqueue(Block(Original, Wrong));
+        _backend.Enqueue("Keep the test passing.</think>", evalCount: 10);
+        _backend.Enqueue(Block(Wrong, Guarded));
+
+        var exit = await Run(Req(CalcPath, [Name], checks: Checks((Name, TestCheck.None))) with { MaxRetries = 1 });
+
+        Assert.Equal(1, exit);
+        Assert.Equal(originalBytes, File.ReadAllBytes(CalcPath));
+        Assert.Equal("TestRegression", FailureKind());
+        Assert.DoesNotContain(_ui.Warnings, w => w.StartsWith(AlreadyPassedWarning, StringComparison.Ordinal));
+        var prompt = _backend.Requests[1].RawPrompt;
+        Assert.Contains("TESTS FAILED (1 new failure)\n" + FullName, prompt);
+        Assert.DoesNotContain("TEST NOT PASSING", prompt);
+        var tf = Summary().GetProperty("testFirst");
+        Assert.Equal("NotChecked", tf.GetProperty("red").GetString());
+        Assert.Equal("NotChecked", tf.GetProperty("green").GetString());
+        Assert.Equal(1, tf.GetProperty("regressions").GetInt32());
+    }
+
+    [Fact]
+    public async Task RunResult_CarriesRedStates()
+    {
+        File.WriteAllText(TestSourcePath, TestSource.Replace("public class CalcTests\n{\n",
+            "public class CalcTests\n{\n    [Fact]\n    public void Divide_Positive() { }\n\n"));
+        EnqueueBaseline(Red());     // Name fails, Divide_Positive passes
+        EnqueueAttempt(Green());
+        _backend.Enqueue(Block(Original, Guarded));
+
+        var result = await RunDetailed(Req(CalcPath, [Name, "Divide_Positive"],
+            checks: Checks((Name, TestCheck.Red | TestCheck.Green), ("Divide_Positive", TestCheck.Green))));
+
+        Assert.Equal(0, result.ExitCode);
+        var tf = Assert.IsType<TestFirstOutcome>(result.TestFirst);
+        Assert.Equal(new Dictionary<string, RedState> { [Name] = RedState.Red }, tf.Red);
+        Assert.Equal(0, tf.BreaksExcluded);
+    }
+
+    [Fact]
+    public async Task RunResult_NotTestFirst_NoOutcome()
+    {
+        _processes.Enqueue(Ok());
+        _processes.Enqueue(Ok());
+        _backend.Enqueue(Block(Original, Guarded));
+
+        var result = await RunDetailed(new RunRequest(CalcPath, null, "Divide", null, "Throw.", true, false, null));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Null(result.TestFirst);
+    }
+
+    [Fact]
+    public async Task Summary_InApply_WhenHosted()
+    {
+        var ws = new Workspace(_root, Path.Combine(_root, ".pelly"));
+        using var held = WorkspaceLock.TryAcquire(_fs, ws);
+        Assert.NotNull(held);
+        EnqueueBaseline(Red());
+        EnqueueAttempt(Green());
+        _backend.Enqueue(Block(Original, Guarded));
+
+        var exit = await Run(Req(CalcPath, [Name]) with { Host = new ApplyHost(ws) });
+
+        Assert.Equal(0, exit);
+        Assert.True(Summary().GetProperty("testFirst").GetProperty("inApply").GetBoolean());
     }
 }

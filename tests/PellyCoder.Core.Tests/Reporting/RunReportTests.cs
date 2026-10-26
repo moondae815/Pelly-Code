@@ -43,6 +43,18 @@ public sealed class RunReportTests
     }
 
     [Fact]
+    public void RunReport_SkipsInApplyRuns()
+    {
+        var inApply = TfRec(2, 0, RedState.AlreadyPassed, GreenState.Passed, 0);
+        inApply = inApply with { Summary = inApply.Summary with { TestFirst = inApply.Summary.TestFirst! with { InApply = true } } };
+
+        var d = RunReport.Build([TfRec(1, 0, RedState.Red, GreenState.Passed, 0), inApply]);
+
+        Assert.Equal(new TestFirstCounts(Met: 1, Judged: 1, RedWarned: 0, RedChecked: 1), d.TestFirst);
+        Assert.Null(RunReport.Build([inApply]).TestFirst);
+    }
+
+    [Fact]
     public void Build_NoTestFirstRuns_Null() => Assert.Null(RunReport.Build([Rec(1), Rec(2, exit: 1)]).TestFirst);
 
     [Fact]

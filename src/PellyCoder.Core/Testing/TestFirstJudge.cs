@@ -1,6 +1,7 @@
 namespace PellyCoder.Core.Testing;
 
-public enum RedState { NotChecked, Red, AlreadyPassed }
+/// <summary>Baseline state of a named test. <c>RedCompile</c> and <c>Skipped</c> are kept last so stored values never shift.</summary>
+public enum RedState { NotChecked, Red, AlreadyPassed, RedCompile, Skipped }
 
 public enum GreenState { NotChecked, Passed, Failed }
 

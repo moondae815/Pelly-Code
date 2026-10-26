@@ -74,7 +74,8 @@ public static class RunReport
 
     private static TestFirstCounts? CountTestFirst(List<RunSummary> s)
     {
-        var tf = s.Where(x => x.TestFirst is not null).ToList();
+        // A run inside pelly apply is one task of an acceptance criterion; apply's own record counts those.
+        var tf = s.Where(x => x.TestFirst is { InApply: false }).ToList();
         if (tf.Count == 0) return null;
         // Judged: passed RED and not declined by the human, so a run that never reached GREEN still counts in the denominator.
         var judged = tf.Where(x => x.TestFirst!.Red == RedState.Red && x.ExitCode != ExitCodes.UserCancelled).ToList();

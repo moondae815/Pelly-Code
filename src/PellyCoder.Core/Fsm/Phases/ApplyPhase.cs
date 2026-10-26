@@ -222,7 +222,9 @@ public sealed class ApplyPhase(FileGuard fileGuard, FeedbackBuilder feedback, IU
             return PhaseOutcome.EnvError;
         }
 
-        var passed = red.Tests.Where(t => t.State == RedState.AlreadyPassed).Select(t => t.Name).ToList();
+        // Only a name with the RED role is meant to fail first; one that only has to pass after the edit may pass already.
+        var passed = red.Tests.Where(t => t.State == RedState.AlreadyPassed && ctx.Request.CheckOf(t.Name).HasFlag(TestCheck.Red))
+            .Select(t => t.Name).ToList();
         if (passed.Count > 0)
         {
             var warning = $"이 테스트는 변경을 검증하지 못합니다 (원본 상태에서 이미 통과): {string.Join(", ", passed)}";

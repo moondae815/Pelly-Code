@@ -21,8 +21,11 @@ public sealed record RunSummary(
     IReadOnlyList<string>? RulesIncluded = null, IReadOnlyList<string>? RulesDropped = null,
     TestFirstSummary? TestFirst = null);
 
-/// <summary>Test-first outcome of a run: counts and enum states only, never test names (they stay out of the sanitized report).</summary>
-public sealed record TestFirstSummary(int Tests, RedState Red, GreenState Green, int Regressions, int BreaksExcluded);
+/// <summary>
+/// Test-first outcome of a run: counts and enum states only, never test names (they stay out of the sanitized report).
+/// <paramref name="InApply"/> is true when <c>pelly apply</c> ran it as one of its tasks.
+/// </summary>
+public sealed record TestFirstSummary(int Tests, RedState Red, GreenState Green, int Regressions, int BreaksExcluded, bool InApply = false);
 
 /// <summary>
 /// Writes <c>.pelly/runs/&lt;runId&gt;/</c>: <c>events.jsonl</c>, <c>attempt-&lt;n&gt;/*.txt</c>, <c>summary.json</c>.
@@ -128,18 +131,20 @@ public sealed class RunLogger(IFileSystem fs, TimeProvider time)
             [.. ctx.MatchStages], [.. ctx.ErrorCodes], ctx.FormatErrors, ctx.FailureKind,
             ctx.Prompt?.Rules is { } sel ? [.. sel.Included.Select(r => r.Text)] : null,
             ctx.Prompt?.Rules is { } sel2 ? [.. sel2.Dropped.Select(r => r.Text)] : null,
-            SummarizeTestFirst(ctx.TestFirst));
+            SummarizeTestFirst(ctx));
     }
 
-    private static TestFirstSummary? SummarizeTestFirst(TestFirstState? s)
+    private static TestFirstSummary? SummarizeTestFirst(RunContext ctx)
     {
-        if (s is null) return null;
-        // AlreadyPassed wins; Red only when the baseline was actually judged (no unverifiable/failure verdict).
+        if (ctx.TestFirst is not { } s) return null;
+        // Only the names with the RED role: AlreadyPassed wins; Red only when the baseline was actually judged (no
+        // unverifiable/failure verdict). Without such a name RED is NotChecked.
+        var tests = s.Red?.Tests.Where(t => ctx.Request.CheckOf(t.Name).HasFlag(TestCheck.Red)).ToList() ?? [];
         var red = s.Red is null ? RedState.NotChecked
-            : s.Red.Tests.Any(t => t.State == RedState.AlreadyPassed) ? RedState.AlreadyPassed
-            : s.Red.Unverifiable is null && s.Red.FailureKind is null && s.Red.Tests.Any(t => t.State == RedState.Red) ? RedState.Red
+            : tests.Any(t => t.State == RedState.AlreadyPassed) ? RedState.AlreadyPassed
+            : s.Red.Unverifiable is null && s.Red.FailureKind is null && tests.Any(t => t.State == RedState.Red) ? RedState.Red
             : RedState.NotChecked;
-        return new TestFirstSummary(s.Names.Count, red, s.Green, s.Regressions, s.BreaksExcluded);
+        return new TestFirstSummary(s.Names.Count, red, s.Green, s.Regressions, s.BreaksExcluded, ctx.Request.Host is not null);
     }
 
     private string RunsDir(RunContext ctx) => fs.Path.Combine(ctx.Workspace!.PellyDir, "runs");

@@ -155,11 +155,13 @@ public sealed class TestStep(TestRunner runner, FeedbackBuilder feedback, TestOp
             if (rows.Count > 0 && rows.All(r => r.Passed) && !ctx.Messages.Contains(notice)) ctx.Messages.Add(notice);
         }
 
-        // A named test that passed in the baseline and fails now is reported once, as a GREEN failure.
-        var named = red.Tests.Select(t => t.FullName).ToHashSet(StringComparer.Ordinal);
+        // GREEN judges only the names with the GREEN role. Such a test that passed in the baseline and fails now is reported
+        // once, as a GREEN failure; every other named test stays in the regression check (one failing in the baseline never counts).
+        var greenTests = red.Tests.Where(t => ctx.Request.CheckOf(t.Name).HasFlag(TestCheck.Green)).ToList();
+        var named = greenTests.Select(t => t.FullName).ToHashSet(StringComparer.Ordinal);
         var regressions = failures.Where(f => !named.Contains(TestNames.WithoutArguments(f.FullName)))
             .DistinctBy(f => f.FullName).ToList();
-        var green = TestFirstJudge.Green(red.Tests, runs);
+        var green = TestFirstJudge.Green(greenTests, runs);
         state.BreaksExcluded = excluded.Count;
 
         // R8: code TEST; the test name stays in the message, which the de-identified report never prints.
@@ -173,7 +175,7 @@ public sealed class TestStep(TestRunner runner, FeedbackBuilder feedback, TestOp
             return StepResult.Fail(feedback.ForGreen(green, regressions, target), diagnostics, [], "TestGreenFailed");
         }
 
-        state.Green = GreenState.Passed;
+        state.Green = greenTests.Count > 0 ? GreenState.Passed : GreenState.NotChecked;
         state.Regressions = regressions.Count + exitFailures.Count;
         if (state.Regressions > 0)
         {

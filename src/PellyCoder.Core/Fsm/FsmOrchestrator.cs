@@ -5,6 +5,7 @@ using PellyCoder.Core.CSharp;
 using PellyCoder.Core.Files;
 using PellyCoder.Core.Logging;
 using PellyCoder.Core.Models;
+using PellyCoder.Core.Testing;
 
 namespace PellyCoder.Core.Fsm;
 
@@ -107,7 +108,18 @@ public sealed class FsmOrchestrator(
             }
         }
         return new RunResult(ctx.ExitCode, ctx.RunId, ctx.FilePath.Length == 0 ? null : ctx.FilePath,
-            ctx.Original, final, ctx.FailureKind, TargetDisplayIn(ctx, final), HelpersIn(ctx, final));
+            ctx.Original, final, ctx.FailureKind, TargetDisplayIn(ctx, final), HelpersIn(ctx, final), OutcomeOf(ctx));
+    }
+
+    /// <summary>The test-first outcome: the RED-role names RED judged, with their states; null outside a test-first run.</summary>
+    private static TestFirstOutcome? OutcomeOf(RunContext ctx)
+    {
+        if (!ctx.Request.TestFirst || ctx.TestFirst is not { } state) return null;
+        var red = new Dictionary<string, RedState>(StringComparer.Ordinal);
+        foreach (var test in state.Red?.Tests ?? [])
+            if (ctx.Request.CheckOf(test.Name).HasFlag(TestCheck.Red))
+                red[test.Name] = test.State;
+        return new TestFirstOutcome(red, state.BreaksExcluded);
     }
 
     /// <summary>

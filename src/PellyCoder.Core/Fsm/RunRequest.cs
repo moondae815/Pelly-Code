@@ -20,16 +20,25 @@ namespace PellyCoder.Core.Fsm;
 /// <paramref name="Host"/> is set when <c>pelly apply</c> runs this request as one of its tasks; <paramref name="Group"/>
 /// when that task belongs to a task group. <paramref name="VerifyTests"/> (<c>--verify-test</c>) names the tests that must
 /// fail before the edit and pass after it (design §6); <paramref name="ExpectBreaks"/> (<c>--expect-break</c>) the tests the
-/// change may break (design §5.2b).
+/// change may break (design §5.2b). <paramref name="TestChecks"/> gives each named test's role (RED before the edit, GREEN
+/// after it); null means every name has both (a <c>pelly cs</c> run).
 /// </summary>
 public sealed record RunRequest(
     string FilePath, string? ClassName, string? MethodName, int? Line, string Request, bool Yes, bool DryRun, int? MaxRetries,
     string? ObjectName = null, EditKind Kind = EditKind.CSharp, bool Verbose = false, bool RunTests = false,
     ApplyHost? Host = null, GroupRun? Group = null,
-    IReadOnlyList<string>? VerifyTests = null, IReadOnlyList<string>? ExpectBreaks = null)
+    IReadOnlyList<string>? VerifyTests = null, IReadOnlyList<string>? ExpectBreaks = null,
+    IReadOnlyDictionary<string, TestCheck>? TestChecks = null)
 {
     /// <summary>A test-first run: it always runs the tests and judges RED before the first write and GREEN after it.</summary>
     public bool TestFirst => VerifyTests is { Count: > 0 };
+
+    /// <summary>
+    /// Role of the named test <paramref name="name"/>: both without <see cref="TestChecks"/>, otherwise its entry there
+    /// (<see cref="TestCheck.None"/> when it has none). LOCATE's preconditions and RED's existence rules apply to every name.
+    /// </summary>
+    public TestCheck CheckOf(string name) =>
+        TestChecks is null ? TestCheck.Red | TestCheck.Green : TestChecks.GetValueOrDefault(name, TestCheck.None);
 }
 
 /// <summary>
@@ -56,10 +65,17 @@ public sealed record ApplyHost(Workspace Workspace);
 /// rollback to <paramref name="Original"/> it is the original display again; null without a C# target.
 /// <paramref name="AddedHelpers"/> are the displays of the private helpers the run's patches added (and, in a group re-run, the
 /// editable helpers it was given) that are in <paramref name="Final"/> (all of them when it is null); null when the orchestrator
-/// did not report them.
+/// did not report them. <paramref name="TestFirst"/> is set in a test-first run that reached LOCATE's test-first state.
 /// </summary>
 public sealed record RunResult(int ExitCode, string RunId, string? FilePath, FileSnapshot? Original, FileSnapshot? Final, string? FailureKind,
-    string? TargetDisplay = null, IReadOnlyList<string>? AddedHelpers = null);
+    string? TargetDisplay = null, IReadOnlyList<string>? AddedHelpers = null, TestFirstOutcome? TestFirst = null);
+
+/// <summary>
+/// Test-first outcome handed back to the caller: <paramref name="Red"/> maps each named test with the RED role that RED judged
+/// to its baseline state (empty when RED was not judged or gave no verdict); <paramref name="BreaksExcluded"/> counts the
+/// expected breaks left out of the regressions.
+/// </summary>
+public sealed record TestFirstOutcome(IReadOnlyDictionary<string, RedState> Red, int BreaksExcluded);
 
 /// <summary>State of a <c>pelly sql</c> run (set by SQL LOCATE; null for C# runs).</summary>
 public sealed class SqlRunState(SqlScript originalScript, int targetIndex, SqlObjectName target, SqlObjectKind kind,

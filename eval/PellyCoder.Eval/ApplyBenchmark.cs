@@ -302,6 +302,9 @@ public static class ApplyBenchmark
 
         if (InScope(c, "Legacy") && !setup.IsWindows()) return Skip(WindowsOnly);
         if ((c.HasSql || InScope(c, "Sql")) && !setup.SqlAvailable) return Skip(NoSql);
+        // A bare vstest.console.exe is only on PATH in a Developer prompt; elsewhere use the copy vswhere finds.
+        if (c.TestCommand is { } command)
+            c = c with { TestCommand = await VstestCommand.ResolveAsync(command, setup.Processes, setup.Fs, ct) };
 
         var caseDir = CaseDir(outDir, c.Id, repeat);
         var corpus = CorpusOf(caseDir);

@@ -28,7 +28,7 @@
 | t7 | Modern | 수용 기준 테스트가 대상 프로젝트를 참조하지 않는 새 테스트 프로젝트 `Shop.Services.Tests`(서비스 소스를 `Compile Include`)에 있음: 「선언 프로젝트 합집합」으로만 찾음 | `Shop.Services.Tests/OrderSearchRangeTests.cs` | AC1 Red/Met |
 | t8 | Legacy | 레거시 MSTest 프로젝트 + 사례 `pelly.json`의 `test.command`(`{trx}`), Windows 전용 | `Legacy/Shop.Tests/PendingCancelTests.cs`(+ `Shop.Tests.csproj` 사본) | AC1 Red/Met |
 
-* t6은 범위에 `Sql`이 있어 SQL 연결이 없으면 건너뜁니다. t8은 Windows가 아니면 건너뜁니다. t8의 명령은 `vstest.console.exe`가 `PATH`에 있어야 하고(Visual Studio 개발자 명령 창), `Legacy/packages`(`eval/corpus/Legacy/build.ps1`)가 준비되어 있어야 합니다.
+* t6은 범위에 `Sql`이 있어 SQL 연결이 없으면 건너뜁니다. t8은 Windows가 아니면 건너뜁니다. t8의 명령은 `vstest.console.exe`를 이름만 씁니다. `PATH`에 없으면(개발자 명령 창이 아닐 때, CI 포함) 실행기가 vswhere로 최신 Visual Studio의 `TestPlatform\vstest.console.exe`를 찾아 바꿔 넣습니다. 또 `Legacy/packages`(`eval/corpus/Legacy/build.ps1`)가 준비되어 있어야 합니다.
 
 ## 정의 검사
 * `tests/PellyCoder.Eval.Tests/ApplyTestFirstCasesTests`: 사례 8건과 `expected.json`, `spec check`(코퍼스 사본 + `files/`) 오류 0·경고는 `Unverified` 기대 수만큼의 `TestUnverified`뿐, `files/`의 Modern 테스트 프로젝트가 `Modern.sln`에 있음.

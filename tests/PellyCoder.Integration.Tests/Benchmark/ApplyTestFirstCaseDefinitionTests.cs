@@ -150,7 +150,9 @@ public sealed class ApplyTestFirstCaseDefinitionTests(ApplyTestFirstCaseDefiniti
             var projects = decls.Values.SelectMany(d => d).Select(d => d.Csproj ?? throw new InvalidDataException($"{c.Id}: {d.FullName}의 프로젝트가 없습니다"))
                 .Select(Path.GetFullPath).Distinct(StringComparer.Ordinal).ToList();
 
-            var options = new PellyOptions { Test = new TestOptions { Command = c.TestCommand } };
+            // The same resolution the apply benchmark does: CI's Windows runner has no vstest.console.exe on PATH.
+            var command = c.TestCommand is { } raw ? await VstestCommand.ResolveAsync(raw, processes, fs, ct) : null;
+            var options = new PellyOptions { Test = new TestOptions { Command = command } };
             var runner = new TestRunner(processes, options.Build, options.Test);
             var tools = new BuildToolResolver(fs, processes, options.Build);
             var results = new Dictionary<string, TestRun>(StringComparer.Ordinal);

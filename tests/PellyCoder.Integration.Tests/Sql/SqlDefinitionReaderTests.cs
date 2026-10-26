@@ -117,7 +117,7 @@ public class SqlDefinitionReaderTests
         finally
         {
             await admin.ExecuteAsync($"DROP USER IF EXISTS [{login}]");
-            await admin.ExecuteAsync($"USE master; DROP LOGIN [{login}]");
+            await admin.ExecuteAsync($"USE master; IF SUSER_ID(N'{login}') IS NOT NULL DROP LOGIN [{login}]");
         }
     }
 }

@@ -11,16 +11,8 @@ namespace PellyCoder.Core.Sql;
 /// </summary>
 public sealed class SqlDefinitionReader(string connectionString) : ISqlDefinitionReader
 {
-    private const int CommandTimeoutSeconds = SqlServerExecutor.CommandTimeoutSeconds;
-
     public Task<SqlServerProbe> ProbeAsync(CancellationToken ct)
-        => SqlCalls.RunAsync(connectionString, async conn =>
-        {
-            var row = await conn.QuerySingleAsync<ProbeRow>(Cmd(
-                "SELECT @@VERSION AS Version, DB_NAME() AS [Database], " +
-                "CAST(CASE WHEN HAS_PERMS_BY_NAME(DB_NAME(), 'DATABASE', 'VIEW DEFINITION') = 1 THEN 1 ELSE 0 END AS int) AS CanView, SUSER_SNAME() AS LoginName", null, ct));
-            return new SqlServerProbe(row.Version.Split('\n')[0].Trim(), row.Database, row.CanView == 1, row.LoginName);
-        }, ct);
+        => SqlCalls.RunAsync(connectionString, conn => SqlCalls.ProbeAsync(conn, ct), ct);
 
     public Task<SqlModuleDefinition?> GetDefinitionAsync(SqlObjectName name, CancellationToken ct)
         => SqlCalls.RunAsync(connectionString, async conn =>
@@ -80,7 +72,7 @@ public sealed class SqlDefinitionReader(string connectionString) : ISqlDefinitio
         }, ct);
 
     private static CommandDefinition Cmd(string sql, object? parameters, CancellationToken ct)
-        => new(sql, parameters, commandTimeout: CommandTimeoutSeconds, cancellationToken: ct);
+        => SqlCalls.Cmd(sql, parameters, ct);
 
     private static string Quote(SqlObjectName name)
     {
@@ -88,7 +80,6 @@ public sealed class SqlDefinitionReader(string connectionString) : ISqlDefinitio
         return name.Schema is null ? Part(name.Name) : $"{Part(name.Schema)}.{Part(name.Name)}";
     }
 
-    private sealed record ProbeRow(string Version, string Database, int CanView, string? LoginName);
     private sealed record DefinitionRow(string? Schema, string Name, string TypeCode, string? Definition, bool UsesAnsiNulls, bool UsesQuotedIdentifier);
     private sealed record RefRow(string? Schema, string Name, string TypeCode);
     private sealed record UseRow(string? Schema, string Name, string? Column, bool Selected, bool Updated, bool SelectAll);

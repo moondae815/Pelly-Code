@@ -1,3 +1,4 @@
+using Dapper;
 using Microsoft.Data.SqlClient;
 using PellyCoder.Core.Abstractions;
 
@@ -50,4 +51,17 @@ internal static class SqlCalls
 
     internal static bool IsConnectionLevel(SqlException ex, SqlConnection conn)
         => conn.State != System.Data.ConnectionState.Open || ex.Number == TimeoutErrorNumber;
+
+    internal static CommandDefinition Cmd(string sql, object? parameters = null, CancellationToken ct = default)
+        => new(sql, parameters, commandTimeout: SqlServerExecutor.CommandTimeoutSeconds, cancellationToken: ct);
+
+    /// <summary>The probe SELECT shared by the executor and the read-only reader.</summary>
+    internal static async Task<SqlServerProbe> ProbeAsync(SqlConnection conn, CancellationToken ct)
+    {
+        var row = await conn.QuerySingleAsync<(string Version, string Database, int CanView, string? LoginName)>(Cmd(
+            "SELECT @@VERSION AS Version, DB_NAME() AS [Database], " +
+            "CAST(CASE WHEN HAS_PERMS_BY_NAME(DB_NAME(), 'DATABASE', 'VIEW DEFINITION') = 1 THEN 1 ELSE 0 END AS int) AS CanView, SUSER_SNAME() AS LoginName", ct: ct));
+        var first = row.Version.Split('\n')[0].Trim();
+        return new SqlServerProbe(first, row.Database, row.CanView == 1, row.LoginName);
+    }
 }

@@ -22,7 +22,7 @@ public interface ISqlDefinitionReader
     /// <summary>Modules in the same database that reference <paramref name="name"/>, itself excluded.</summary>
     Task<IReadOnlyList<SqlModuleRef>> GetReferencingModulesAsync(SqlObjectName name, CancellationToken ct);
 
-    /// <summary>Null when the dependency function fails (the module no longer compiles).</summary>
+    /// <summary>Null when the dependency function fails (the module no longer compiles) and also when the object does not exist.</summary>
     Task<IReadOnlyList<SqlColumnUse>?> GetColumnUsesAsync(SqlObjectName module, CancellationToken ct);
 
     /// <summary>Column names in <c>column_id</c> order.</summary>

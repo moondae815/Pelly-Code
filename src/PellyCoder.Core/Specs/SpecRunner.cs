@@ -139,7 +139,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
         private readonly Dictionary<string, RunResult> _firstRuns = new(StringComparer.Ordinal);
         private readonly Dictionary<string, RunResult> _lastRuns = new(StringComparer.Ordinal);
         private readonly Dictionary<string, int> _ends = new(StringComparer.Ordinal);
-        private bool _rolledBack; // the whole apply was undone: end review rejected, or cancelled under --review-at-end
+        private bool _rolledBack; // the whole apply was fully undone: end review rejected, or cancelled under --review-at-end
 
         public string? ApplyId { get; private set; }
 
@@ -664,7 +664,6 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
         /// <summary>Undoes this apply (marks first, then files); 2 when everything was restored, otherwise 4.</summary>
         private async Task<int> RollBackApplyAsync(ApplyTransaction tx, string notApplied)
         {
-            _rolledBack = true;
             // Spec first: if the marks cannot be cleared, the files must stay too, or a rolled-back task would keep its [x].
             if (_marked.Count > 0 && !await SpecWrittenAsync(_doc.ClearMarksAsync(_marked, CancellationToken.None), notApplied)) return 4;
             // Tasks done in an earlier session (--resume) keep their marks, so the spec stays in progress.
@@ -672,7 +671,11 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             if (!await SpecWrittenAsync(_doc.SetStatusAsync(status, CancellationToken.None), notApplied)) return 4;
 
             var notRestored = new HashSet<string>(await tx.RollbackAsync(CancellationToken.None), SpecTaskPaths.Comparer);
-            if (notRestored.Count == 0) return 2;
+            if (notRestored.Count == 0)
+            {
+                _rolledBack = true; // only a full rollback undoes every task; a partial one leaves edits and marks in place
+                return 2;
+            }
 
             // A file changed outside pelly keeps the tasks' edits, so those tasks keep their [x].
             var kept = _done.Where(d => notRestored.Contains(d.Value.Path)).Select(d => d.Key).ToList();
@@ -729,8 +732,8 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
         }
 
         /// <summary>
-        /// A criterion's result. Its last linked task decides: exit 0 and kept → met; exit 2, or not run (stopped earlier,
-        /// review rejected, cancelled) → not run; otherwise not met. A group task ends with its group (Task 6 adds group tests).
+        /// A criterion's result. Its last linked task decides: exit 0 and kept → met; exit 2, or not run in this apply (stopped
+        /// earlier, done in an earlier session, review rejected, cancelled) → not run; otherwise not met. A group task ends with its group (Task 6 adds group tests).
         /// </summary>
         private AcResult CriterionResult(AcLink link)
         {
@@ -745,12 +748,8 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             if (_rolledBack) outcome = AcOutcome.NotRun;
             else if (_ends.TryGetValue(last, out var end))
                 outcome = end == 0 ? AcOutcome.Met : end == 2 || run is null ? AcOutcome.NotRun : AcOutcome.NotMet;
-            else if (_doneAtStart.Contains(last))
-            {
-                // Done in an earlier session (--resume): its GREEN passed then.
-                outcome = AcOutcome.Met;
-                runId = _doc.Spec.Tasks.FirstOrDefault(t => t.Id == last)?.RunId;
-            }
+            // Not run in this apply, including a last linked task done in an earlier session (--resume): that apply's
+            // apply.json already recorded its verdict, so counting it again here would double-count it.
             else outcome = AcOutcome.NotRun;
             return new AcResult(link.AcId, red, outcome, runId, breaks);
         }

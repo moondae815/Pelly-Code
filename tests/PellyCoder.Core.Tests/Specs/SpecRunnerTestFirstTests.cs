@@ -2,6 +2,7 @@ using System.IO.Abstractions;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Time.Testing;
+using PellyCoder.Core.Abstractions;
 using PellyCoder.Core.Files;
 using PellyCoder.Core.Fsm;
 using PellyCoder.Core.Specs;
@@ -137,6 +138,22 @@ public sealed class SpecRunnerTestFirstTests : IDisposable
     }
 
     [Fact]
+    public async Task Apply_Resume_AllLinkedDone_NotRun()
+    {
+        Spec($"- AC1: 하나\n  test: {CancelTest}\n",
+            Cs("T1", "Cancel", "(AC1)", done: true) + Cs("T2", "Ship", "(AC1)", done: true) + "- [ ] T3 sql db/a.sql 한 줄 추가\n");
+
+        Assert.Equal(0, await Run(Opts(resume: true)));
+
+        Assert.Equal(["T3"], _exec.Calls);
+        var ac = Assert.Single(Criteria());
+        Assert.Equal("Skipped", ac.GetProperty("red").GetString());
+        Assert.Equal("NotRun", ac.GetProperty("outcome").GetString());
+        Assert.Equal(JsonValueKind.Null, ac.GetProperty("greenRunId").ValueKind);
+        Assert.Equal(0, ac.GetProperty("breaksExcluded").GetInt32());
+    }
+
+    [Fact]
     public async Task Apply_RedDeclined_StopsEvenWithContinue()
     {
         Spec($"- AC1: 하나\n  test: {CancelTest}\n", Cs("T1", "Cancel", "(AC1)") + Cs("T2", "Ship", ""));
@@ -247,6 +264,41 @@ public sealed class SpecRunnerTestFirstTests : IDisposable
 
         Assert.Null(Assert.Single(_exec.Options).Tests);
         Assert.False(ApplyJson().TryGetProperty("criteria", out _));
+    }
+
+    [Fact]
+    public async Task Apply_ReviewAtEnd_Rejected_PartialRollback_KeepsOutcome()
+    {
+        Spec($"- AC1: 하나\n  test: {CancelTest}\n", Cs("T1", "Cancel", "(AC1)"));
+        _ui.ConfirmAnswers.Enqueue(false);
+        // Changed outside pelly before the answer: the rollback cannot restore it, so T1's edit and [x] stay.
+        var ui = new ConfirmHookUi(_ui, () => File.AppendAllText(P("src/App/OrderService.cs"), "// outside\n"));
+        var runner = new SpecRunner(_fs, _guard, _exec, ui, _time, 160, groups: new PassingGroups());
+
+        Assert.Equal(4, await runner.RunAsync(SpecPath, Opts(reviewAtEnd: true, yes: false), TestContext.Current.CancellationToken));
+
+        Assert.Contains("- [x] T1", File.ReadAllText(SpecPath));
+        Assert.Equal("Met", Assert.Single(Criteria()).GetProperty("outcome").GetString());
+    }
+
+    /// <summary>Delegates to the scripted UI and runs <paramref name="onConfirm"/> just before each confirm.</summary>
+    private sealed class ConfirmHookUi(ScriptedUserInteraction inner, Action onConfirm) : IUserInteraction
+    {
+        public bool IsInteractive => inner.IsInteractive;
+
+        public Task<bool> ConfirmAsync(string message, bool defaultValue, CancellationToken ct)
+        {
+            onConfirm();
+            return inner.ConfirmAsync(message, defaultValue, ct);
+        }
+
+        public Task<T> SelectAsync<T>(string title, IReadOnlyList<T> choices, Func<T, string> label, CancellationToken ct) =>
+            inner.SelectAsync(title, choices, label, ct);
+
+        public void ShowDiff(string path, string before, string after) => inner.ShowDiff(path, before, after);
+        public void ShowStatus(RunPhase phase, int attempt, string message) => inner.ShowStatus(phase, attempt, message);
+        public void Warn(string message) => inner.Warn(message);
+        public void ShowRunSummary(PellyCoder.Core.Logging.RunSummary summary, string? runDirectory) => inner.ShowRunSummary(summary, runDirectory);
     }
 
     /// <summary>Every build is verifiable and clean.</summary>

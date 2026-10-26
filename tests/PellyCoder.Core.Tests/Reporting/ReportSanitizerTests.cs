@@ -3,6 +3,7 @@ using PellyCoder.Core.Fsm;
 using PellyCoder.Core.Logging;
 using PellyCoder.Core.Models;
 using PellyCoder.Core.Reporting;
+using PellyCoder.Core.Specs;
 using PellyCoder.Core.Testing;
 using PellyCoder.Core.Workspaces;
 
@@ -219,6 +220,33 @@ public sealed class ReportSanitizerTests
 
         Assert.Single(report.Runs);
         Assert.DoesNotContain("secret", report.ToJson());
+    }
+
+    [Fact]
+    public void Sanitize_NoAcIds()
+    {
+        var applyRec = ApplyReportTests.Apply("apply-1") with { };
+        applyRec = applyRec with
+        {
+            Summary = applyRec.Summary with
+            {
+                Criteria = [new AcResult("AC-SecretCriterion", RedState.Red, AcOutcome.Met, "run-secret", 2),
+                            new AcResult("AC-Other", RedState.NotChecked, AcOutcome.Unverified, null, 0)],
+            },
+        };
+        var runs = new[] { Rec(Injected()) };
+        var report = ReportSanitizer.Sanitize(runs, RunReport.Build(runs), ApplyReport.Build([applyRec]));
+
+        foreach (var text in new[] { report.ToJson(), report.ToMarkdown() })
+        {
+            Assert.DoesNotContain("SecretCriterion", text);
+            Assert.DoesNotContain("AC-Other", text);
+            Assert.DoesNotContain("run-secret", text);
+        }
+        var md = report.ToMarkdown();
+        Assert.Contains("| 수용 기준 충족률 | 100.0% (1/1) |", md);
+        Assert.Contains("| 테스트로 검증되지 않은 수용 기준 | 1건 |", md);
+        Assert.Contains("| breaks로 뺀 테스트 | 2건 |", md);
     }
 }
 

@@ -242,4 +242,62 @@ public class ReportCommandTests
         Assert.Contains("비식별 리포트를 쓰지 않았습니다 (실행 기록 없음)", result.Output);
         Assert.False(fs.Directory.Exists("/out"));
     }
+
+    private static void AddCriteriaApply(MockFileSystem fs, string id, params AcResult[] acs)
+    {
+        var s = new ApplySummary(id, "spec-x", [], 0, [], true, TaskCount: 3, Criteria: acs);
+        fs.AddFile($"/w/.pelly/runs/{id}/apply.json", new MockFileData(JsonSerializer.Serialize(s, Json)));
+    }
+
+    [Fact]
+    public void Report_CombinesSingleRunsAndCriteria()
+    {
+        var (app, _, fs) = Build();
+        AddTestFirstRun(fs, "20261001-101010-aaaa", 0, RedState.Red, GreenState.Passed, 0);
+        AddCriteriaApply(fs, "apply-20261002-101010",
+            new AcResult("AC1", RedState.Red, AcOutcome.Met, "r1", 0),
+            new AcResult("AC2", RedState.Red, AcOutcome.NotMet, "r2", 0));
+
+        var output = app.Run("report").Output;
+
+        Assert.Contains("수용 기준 충족률", output);
+        Assert.Contains("66.7% (2/3)", output);
+        Assert.Contains("RED 확인 경고율", output);
+    }
+
+    [Fact]
+    public void Report_UnverifiedAc_CountedSeparately()
+    {
+        var (app, _, fs) = Build();
+        AddRun(fs, "20261001-101010-aaaa", 0);
+        AddCriteriaApply(fs, "apply-20261002-101010",
+            new AcResult("AC1", RedState.NotChecked, AcOutcome.Unverified, null, 0),
+            new AcResult("AC2", RedState.NotChecked, AcOutcome.Unverified, null, 0));
+
+        var output = app.Run("report").Output;
+
+        Assert.Contains("테스트로 검증되지 않은 수용 기준", output);
+        Assert.Contains("2건", output);
+    }
+
+    [Fact]
+    public void Report_BreaksExcludedRow()
+    {
+        var (app, _, fs) = Build();
+        AddTestFirstRun(fs, "20261001-101010-aaaa", 0, RedState.Red, GreenState.Passed, 0);
+        AddCriteriaApply(fs, "apply-20261002-101010", new AcResult("AC1", RedState.Red, AcOutcome.Met, "r1", 3));
+
+        var output = app.Run("report").Output;
+
+        Assert.Contains("breaks로 뺀 테스트", output);
+        Assert.Contains("3건", output);
+    }
+
+    [Fact]
+    public void Report_WithoutTestFirstData_HasNoUnverifiedRow()
+    {
+        var (app, _, fs) = Build();
+        AddRun(fs, "20261001-101010-aaaa", 0);
+        Assert.DoesNotContain("테스트로 검증되지 않은 수용 기준", app.Run("report").Output);
+    }
 }

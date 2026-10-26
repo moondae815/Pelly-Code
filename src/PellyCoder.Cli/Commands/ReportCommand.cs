@@ -67,6 +67,10 @@ public sealed class ReportCommand(IFileSystem fs, IAnsiConsole console) : Comman
             console.MarkupLine(Markup.Escape($"작업 기록이 없습니다: {fs.Path.Combine(ws.PellyDir, "runs")}"));
             if (unreadable > 0) console.MarkupLine(Markup.Escape($"읽을 수 없어 건너뜀 {unreadable}건"));
             SpecTable(applyData!);
+            // No task runs: the test-first rows come from the criteria alone.
+            var tfOnly = new Table().AddColumns("지표", "값");
+            AddTestFirstRows(tfOnly, null, applyData!.Criteria);
+            if (tfOnly.Rows.Count > 0) console.Write(tfOnly);
             return ExitCodes.Success;
         }
         var kinds = string.Join(", ", d.RunsByKind.Select(k => $"{k.Key} {k.Value}"));
@@ -80,11 +84,7 @@ public sealed class ReportCommand(IFileSystem fs, IAnsiConsole console) : Comman
         kpi.AddRow("패치 포맷 파싱 성공률", d.Parse.Rate is { } r ? $"{r:P1} ({d.Parse.Ok}/{d.Parse.Total} 시도)" : "-");
         kpi.AddRow("최종 작업 성공률", $"{d.SuccessRate:P1} ({d.SuccessCount}/{d.RunCount}건, 종료 코드 0)");
         kpi.AddRow("단일 작업 완료 시간", Describe(d.TaskSeconds, " (단계 합)"));
-        if (d.TestFirst is { } tf)
-        {
-            kpi.AddRow("수용 기준 충족률", Markup.Escape(RatioText(tf.Met, tf.Judged)));
-            kpi.AddRow("RED 확인 경고율", Markup.Escape(RatioText(tf.RedWarned, tf.RedChecked)));
-        }
+        AddTestFirstRows(kpi, d.TestFirst, applyData?.Criteria);
         console.Write(kpi);
 
         Distribution("종료 코드", d.ExitCodes.Select(e => ($"{e.Key}", e.Value)));
@@ -96,6 +96,15 @@ public sealed class ReportCommand(IFileSystem fs, IAnsiConsole console) : Comman
         console.Write(phases);
         if (applyData is not null) SpecTable(applyData);
         return ExitCodes.Success;
+    }
+
+    private static void AddTestFirstRows(Table t, TestFirstCounts? single, AcCounts? ac)
+    {
+        if (ApplyReport.Combine(single, ac) is not { } tf) return;
+        t.AddRow("수용 기준 충족률", Markup.Escape(RatioText(tf.Met, tf.Judged)));
+        t.AddRow("RED 확인 경고율", Markup.Escape(RatioText(tf.RedWarned, tf.RedChecked)));
+        t.AddRow("테스트로 검증되지 않은 수용 기준", Markup.Escape($"{ac?.Unverified ?? 0}건"));
+        t.AddRow("breaks로 뺀 테스트", Markup.Escape($"{tf.BreaksExcluded}건"));
     }
 
     private void SpecTable(ApplyReportData a)

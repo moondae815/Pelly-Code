@@ -31,7 +31,7 @@ public sealed record SanitizedAggregate(
     IReadOnlyDictionary<string, int> FailureKinds,
     IReadOnlyDictionary<string, double> MeanPhaseSeconds,
     IReadOnlyDictionary<string, int> AttemptDistribution,
-    ApplyCounts? Apply = null, TestFirstCounts? TestFirst = null);
+    ApplyCounts? Apply = null, TestFirstCounts? TestFirst = null, int UnverifiedAc = 0);
 
 /// <summary>
 /// Report that can leave a closed network (D11, design §8.12). Whitelist only: every string in it is a fixed literal,
@@ -78,6 +78,8 @@ public sealed record SanitizedReport(SanitizedAggregate Aggregate, IReadOnlyList
             sb.AppendLine("| 지표 | 값 |").AppendLine("| --- | --- |");
             sb.AppendLine($"| 수용 기준 충족률 | {Ratio(tf.Met, tf.Judged)} ({N(tf.Met)}/{N(tf.Judged)}) |");
             sb.AppendLine($"| RED 확인 경고율 | {Ratio(tf.RedWarned, tf.RedChecked)} ({N(tf.RedWarned)}/{N(tf.RedChecked)}) |");
+            sb.AppendLine($"| 테스트로 검증되지 않은 수용 기준 | {N(a.UnverifiedAc)}건 |");
+            sb.AppendLine($"| breaks로 뺀 테스트 | {N(tf.BreaksExcluded)}건 |");
             sb.AppendLine();
         }
         Table(sb, "종류", a.RunsByKind);
@@ -140,7 +142,10 @@ public static partial class ReportSanitizer
         var counts = apply is null ? null
             : new ApplyCounts(apply.Completion.Ok, apply.Completion.Total, apply.Completion3To8.Ok, apply.Completion3To8.Total,
                 apply.GroupBuild.Ok, apply.GroupBuild.Total);
-        return new SanitizedReport(SanitizeAggregate(aggregate) with { Apply = counts }, rows);
+        var agg = SanitizeAggregate(aggregate) with { Apply = counts };
+        if (apply?.Criteria is { } ac)
+            agg = agg with { TestFirst = ApplyReport.Combine(aggregate.TestFirst, ac), UnverifiedAc = ac.Unverified };
+        return new SanitizedReport(agg, rows);
     }
 
     private static SanitizedRun SanitizeRun(RunSummary s, int index)

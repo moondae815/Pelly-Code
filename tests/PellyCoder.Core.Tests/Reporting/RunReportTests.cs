@@ -115,4 +115,12 @@ public sealed class RunReportTests
         Assert.Null(d.Ttft);
         Assert.Null(d.Parse.Rate);
     }
+
+    [Fact]
+    public void Build_BreaksExcludedSumsSingleRuns()
+    {
+        var a = RunHistoryTests.Summary("20261001-101010-aaaa", 0) with { TestFirst = new TestFirstSummary(1, RedState.Red, GreenState.Passed, 0, 2) };
+        var b = RunHistoryTests.Summary("20261001-101011-bbbb", 0) with { TestFirst = new TestFirstSummary(1, RedState.Red, GreenState.Passed, 0, 1) };
+        Assert.Equal(3, RunReport.Build([new RunRecord(a, DateTimeOffset.UnixEpoch), new RunRecord(b, DateTimeOffset.UnixEpoch)]).TestFirst!.BreaksExcluded);
+    }
 }

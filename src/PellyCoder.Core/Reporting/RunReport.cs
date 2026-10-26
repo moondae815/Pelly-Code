@@ -32,7 +32,7 @@ public sealed record RunReportData(
     TestFirstCounts? TestFirst = null);
 
 /// <summary>Test-first KPIs per run: Met of Judged (acceptance criteria met), RedWarned of RedChecked (baseline already green).</summary>
-public sealed record TestFirstCounts(int Met, int Judged, int RedWarned, int RedChecked);
+public sealed record TestFirstCounts(int Met, int Judged, int RedWarned, int RedChecked, int BreaksExcluded = 0);
 
 public static class RunReport
 {
@@ -82,7 +82,8 @@ public static class RunReport
         // ExitCode 0 also excludes a run whose test file changed mid-run (exit 4) even though Green/Regressions look fine.
         var met = judged.Count(x => x.TestFirst!.Green == GreenState.Passed && x.TestFirst.Regressions == 0 && x.ExitCode == ExitCodes.Success);
         return new TestFirstCounts(met, judged.Count,
-            tf.Count(x => x.TestFirst!.Red == RedState.AlreadyPassed), tf.Count(x => x.TestFirst!.Red != RedState.NotChecked));
+            tf.Count(x => x.TestFirst!.Red == RedState.AlreadyPassed), tf.Count(x => x.TestFirst!.Red != RedState.NotChecked),
+            tf.Sum(x => x.TestFirst!.BreaksExcluded));
     }
 
     private static Spread? SpreadOf(IEnumerable<double> values)

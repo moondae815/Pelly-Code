@@ -25,7 +25,7 @@ public sealed class TestStep(TestRunner runner, FeedbackBuilder feedback, TestOp
     /// Model-facing message of a test that passed in the baseline and is missing from a failed run
     /// (사용자 의미: 실행되지 않음 (테스트 호스트가 중단되었을 수 있음)).
     /// </summary>
-    public const string NotRunFeedback = "not run (test host may have crashed)";
+    public const string NotRunFeedback = TestRegressions.NotRunFeedback;
 
     public string Name => "Test";
 
@@ -40,6 +40,14 @@ public sealed class TestStep(TestRunner runner, FeedbackBuilder feedback, TestOp
         var excluded = new HashSet<string>(StringComparer.Ordinal); // expected breaks left out of the regressions
         var failures = new List<TestCaseResult>();          // named tests, across all projects
         var exitFailures = new List<(string Project, int ExitCode)>(); // projects that failed without a named test
+        // Expected breaks (--expect-break) are left out of the regressions; their names are counted in `excluded`.
+        IReadOnlyList<string> breaks = testFirst?.Breaks ?? [];
+        void Collect(TestRun before, TestRun run, string project)
+        {
+            var (found, exitOnly) = TestRegressions.Find(before, run, breaks, excluded);
+            failures.AddRange(found);
+            if (exitOnly) exitFailures.Add((project, run.ExitCode));
+        }
         for (var i = 0; i < ctx.TestProjects.Count; i++)
         {
             // Baseline tests that could not run were announced by APPLY; this project is judged by the build alone.
@@ -57,13 +65,8 @@ public sealed class TestStep(TestRunner runner, FeedbackBuilder feedback, TestOp
             runs[i] = run;
             if (run.ReportMissing && before.PerTestResults)
             {
-                // The edit killed an in-process test host (stack overflow, fail-fast): no report exists, which is a test failure the
-                // model can fix, not a broken environment. Every test that passed before did not pass now.
-                var lost = before.Results.Where(r => r.Passed)
-                    .Select(r => new TestCaseResult(r.FullName, false, NotRunFeedback)).ToList();
-                if (testFirst is not null) lost.RemoveAll(r => IsExpectedBreak(testFirst, r.FullName, excluded));
-                if (lost.Count > 0) failures.AddRange(lost);
-                else exitFailures.Add((project, run.ExitCode));
+                // A crashed test host (no report) is a test failure the model can fix, not a broken environment.
+                Collect(before, run, project);
                 continue;
             }
             if (run.Error is { } error)
@@ -85,38 +88,13 @@ public sealed class TestStep(TestRunner runner, FeedbackBuilder feedback, TestOp
             // A baseline that did not build was announced by APPLY (BaselineNotBuilt); there is nothing to compare against.
             if (before.BuildErrors.Count > 0) continue;
 
-            var brokeExit = before.ExitCode == 0 && run.ExitCode != 0;
-            if (!run.PerTestResults || !before.PerTestResults)
+            // Exit code only (R7): an original failure cannot be compared.
+            if ((!run.PerTestResults || !before.PerTestResults) && before.ExitCode != 0 && !ctx.TestNotComparableShown)
             {
-                // Exit code only (R7): a pass that turned into a failure fails; an original failure cannot be compared.
-                if (brokeExit)
-                    exitFailures.Add((project, run.ExitCode));
-                else if (before.ExitCode != 0 && !ctx.TestNotComparableShown)
-                {
-                    ctx.Messages.Add(NotComparable);
-                    ctx.TestNotComparableShown = true;
-                }
-                continue;
+                ctx.Messages.Add(NotComparable);
+                ctx.TestNotComparableShown = true;
             }
-
-            var failedBefore = before.Results.Where(r => !r.Passed).Select(r => r.FullName).ToHashSet(StringComparer.Ordinal);
-            var found = run.Results.Where(r => !r.Passed && !failedBefore.Contains(r.FullName)).ToList();
-            // A crashed test host leaves a partial report: tests that passed before and are missing now did not pass. When the
-            // baseline already failed, a missing name alone is not enough (dynamic test names change between runs); the run must
-            // also look cut short: an abnormal run outcome, or fewer executed results than the baseline (a VSTest host killed by
-            // FailFast writes outcome Failed with zero results, measured 2026-10-19).
-            var cutShort = brokeExit
-                || (before.ExitCode != 0 && run.ExitCode != 0 && (run.RunAborted || run.Results.Count < before.Results.Count));
-            if (cutShort)
-            {
-                var ran = run.Results.Select(r => r.FullName).ToHashSet(StringComparer.Ordinal);
-                found.AddRange(before.Results.Where(r => r.Passed && !ran.Contains(r.FullName))
-                    .Select(r => new TestCaseResult(r.FullName, false, NotRunFeedback)));
-            }
-            var breaksHere = testFirst is null ? 0 : found.RemoveAll(r => IsExpectedBreak(testFirst, r.FullName, excluded));
-            failures.AddRange(found);
-            // The exit code still counts when no test can be named (e.g. the host died before reporting anything).
-            if (found.Count == 0 && breaksHere == 0 && brokeExit) exitFailures.Add((project, run.ExitCode));
+            Collect(before, run, project);
         }
 
         if (testFirst is not null) return JudgeTestFirst(ctx, testFirst, runs, failures, exitFailures, excluded);
@@ -132,13 +110,6 @@ public sealed class TestStep(TestRunner runner, FeedbackBuilder feedback, TestOp
 
     /// <summary>Notice for an expected break (<c>--expect-break</c>) that still passes after the edit; followed by its name.</summary>
     public const string BreakStillPasses = "깨질 것으로 정한 테스트가 여전히 통과합니다";
-
-    private static bool IsExpectedBreak(TestFirstState state, string fullName, HashSet<string> excluded)
-    {
-        if (!state.Breaks.Any(b => TestNames.Matches(b, fullName))) return false;
-        excluded.Add(TestNames.WithoutArguments(fullName));
-        return true;
-    }
 
     /// <summary>
     /// GREEN and regression verdict of a test-first run: GREEN failures first (<c>TestGreenFailed</c>), then regressions

@@ -9,6 +9,13 @@ public class ExitPauseTests
         Assert.True(ExitPause.ShouldPause(["cs", "A.cs", "--pause-on-exit"], inputRedirected: false));
 
     [Fact]
+    public void ShouldPause_SqlPullAndCheck_True()
+    {
+        Assert.True(ExitPause.ShouldPause(["sql", "pull", "dbo.X", "--pause-on-exit"], inputRedirected: false));
+        Assert.True(ExitPause.ShouldPause(["sql", "check", "a.sql", "--pause-on-exit"], inputRedirected: false));
+    }
+
+    [Fact]
     public void ShouldPause_RedirectedInput_NeverPauses() =>
         Assert.False(ExitPause.ShouldPause(["cs", "A.cs", "--pause-on-exit"], inputRedirected: true));
 

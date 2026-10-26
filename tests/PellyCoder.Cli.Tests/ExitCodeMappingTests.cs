@@ -130,7 +130,7 @@ public class ExitCodeMappingTests
     /// <summary>A typo such as <c>--dry-rum</c> must not be ignored: it would turn a preview into a real write.</summary>
     [Theory]
     [InlineData("cs", File, "do it", "--method", "M", "--dry-rum")]
-    [InlineData("sql", "/w/src/A.sql", "do it", "--dry-rum")]
+    [InlineData("sql", "pull", "dbo.X", "--bogus")]
     [InlineData("doctor", "--sanitze")]
     [InlineData("report", "--sinse", "2026-10-01")]
     public void UnknownOption_Exit4_NamesTheOption(params string[] args)
@@ -140,6 +140,26 @@ public class ExitCodeMappingTests
         Assert.Equal(4, result.ExitCode);
         var bad = args.Single(a => a.StartsWith("--", StringComparison.Ordinal) && a is not "--method");
         Assert.Contains($"Unknown option '{bad[2..]}'", result.Output);
+    }
+
+    /// <summary>
+    /// Spectre reports any parse failure on the <c>sql</c> branch default command as <c>Unknown command '&lt;FILE&gt;'</c>
+    /// (exit 4, nothing runs); the option name comes from <see cref="CliApp.RejectUnknownSqlOption"/>, which Program runs first.
+    /// </summary>
+    [Fact]
+    public void Sql_UnknownOption_Exit4_NothingRuns_AndNamed()
+    {
+        var args = new[] { "sql", "/w/src/A.sql", "do it", "--dry-rum" };
+        var result = Build(CancellationToken.None).Run(args);
+        Assert.Equal(4, result.ExitCode);
+
+        var console = new Spectre.Console.Testing.TestConsole();
+        Assert.Equal(4, CliApp.RejectUnknownSqlOption(args, console));
+        Assert.Contains("Unknown option 'dry-rum'", console.Output);
+        Assert.Null(CliApp.FindUnknownSqlOption(["sql", "A.sql", "x", "--dry-run", "--object", "dbo.P"]));
+        Assert.Equal("bogus", CliApp.FindUnknownSqlOption(["sql", "pull", "dbo.X", "--bogus"]));
+        Assert.Null(CliApp.FindUnknownSqlOption(["sql", "pull", "dbo.X", "--from", "prod", "--force"]));
+        Assert.Null(CliApp.FindUnknownSqlOption(["cs", "A.cs", "--bogus"]));
     }
 
     [Theory]
@@ -215,12 +235,12 @@ public class ExitCodeMappingTests
     [Fact]
     public void ValueOptionCheck_KnowsEveryCommand()
     {
-        foreach (var command in new[] { new[] { "cs" }, ["sql"], ["doctor"], ["report"], ["rules", "init"], ["rules", "check"], ["apply"], ["spec", "new"], ["spec", "check"] })
+        foreach (var command in new[] { new[] { "cs" }, ["sql"], ["sql", "pull"], ["sql", "check"], ["doctor"], ["report"], ["rules", "init"], ["rules", "check"], ["apply"], ["spec", "new"], ["spec", "check"] })
         {
             var help = Build(CancellationToken.None).Run([.. command, "--help"]);
             Assert.Equal(0, help.ExitCode);
         }
-        Assert.Equal(["apply", "cs", "doctor", "report", "rules check", "rules init", "spec check", "spec new", "sql"], CliApp.CommandSettings.Keys.Order().ToArray());
+        Assert.Equal(["apply", "cs", "doctor", "report", "rules check", "rules init", "spec check", "spec new", "sql", "sql check", "sql pull"], CliApp.CommandSettings.Keys.Order().ToArray());
     }
 
     /// <summary>Command lines from README and deploy/*.md still parse under strict parsing (cancelled token: no real work runs).</summary>

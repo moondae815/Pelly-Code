@@ -16,10 +16,18 @@ public static class CliApp
         // An unknown option is an argument error (exit 4), not ignored: a typo like --dry-rum would turn a preview into a write.
         config.Settings.StrictParsing = true;
         config.AddCommand<CsCommand>("cs").WithDescription("C# 메서드 하나를 요청대로 수정합니다.");
-        config.AddCommand<SqlCommand>("sql").WithDescription("SQL 저장 프로시저·함수·뷰 하나를 요청대로 수정합니다.");
         config.AddCommand<DoctorCommand>("doctor").WithDescription("Ollama 서버·모델·토크나이저 환경을 점검합니다.");
         config.AddCommand<ApplyCommand>("apply").WithDescription("명세 파일(changes/<id>.md)의 작업을 순서대로 실행합니다.");
         config.AddCommand<ReportCommand>("report").WithDescription("실행 기록에서 KPI와 실패 유형을 집계합니다.");
+        // "pelly sql <FILE> [REQUEST]" stays the edit command (the branch default); a file named pull or check is written ./pull.
+        config.AddBranch("sql", b =>
+        {
+            b.SetDescription("SQL 저장 프로시저·함수·뷰 하나를 요청대로 수정합니다.");
+            b.SetDefaultCommand<SqlCommand>();
+            b.AddCommand<SqlPullCommand>("pull").WithDescription("서버의 객체 정의를 파일로 가져옵니다.");
+            b.AddCommand<SqlCheckCommand>("check").WithDescription("SQL 파일의 객체를 서버와 대조합니다.");
+        });
+
         config.AddBranch("rules", b =>
         {
             b.SetDescription("AGENTS.md의 Pelly rules 절을 다룹니다.");
@@ -51,6 +59,8 @@ public static class CliApp
     {
         ["cs"] = typeof(CsSettings),
         ["sql"] = typeof(SqlSettings),
+        ["sql pull"] = typeof(SqlPullSettings),
+        ["sql check"] = typeof(SqlCheckSettings),
         ["doctor"] = typeof(DoctorSettings),
         ["report"] = typeof(ReportSettings),
         ["apply"] = typeof(ApplySettings),
@@ -73,7 +83,9 @@ public static class CliApp
     {
         if (args.Count == 0) return null;
         // "rules" and "spec" are branches: the command is "<branch> <sub>" and its options start at index 2.
-        var isBranch = args[0] is "rules" or "spec";
+        // "sql" is a branch whose default command is the edit: "sql pull" and "sql check" are subcommands, anything else is "sql".
+        var isSqlSub = args[0] == "sql" && args.Count >= 2 && (args[1] is "pull" or "check");
+        var isBranch = args[0] is "rules" or "spec" || isSqlSub;
         var first = isBranch ? 2 : 1;
         var key = isBranch ? (args.Count >= 2 ? args[0] + " " + args[1] : null) : args[0];
         if (key is null || !CommandSettings.TryGetValue(key, out var settingsType)) return null;
@@ -93,6 +105,14 @@ public static class CliApp
             i++;
         }
         return null;
+    }
+
+    /// <summary>Exit 4 with <c>Unknown option 'x'.</c> when <see cref="FindUnknownSqlOption"/> finds one; otherwise null.</summary>
+    public static int? RejectUnknownSqlOption(IReadOnlyList<string> args, IAnsiConsole console)
+    {
+        if (FindUnknownSqlOption(args) is not { } option) return null;
+        console.MarkupLine($"[red]{Markup.Escape($"Unknown option '{option}'.")}[/]");
+        return ExitCodes.EnvError;
     }
 
     /// <summary>Exit 4 with a message naming the option when <see cref="FindOptionWithoutValue"/> finds one; otherwise null.</summary>
@@ -116,6 +136,31 @@ public static class CliApp
             ? $"[red]예기치 않은 오류로 중단합니다: {Markup.Escape(ex.GetType().Name)}: {Markup.Escape(ex.Message)}[/]"
             : $"[red]{Markup.Escape(ex.Message)}[/]");
         return ExitCodes.EnvError;
+    }
+
+    /// <summary>
+    /// The first <c>--option</c> of a <c>sql</c> command line that the command does not have, or null. Spectre parses
+    /// the branch default command (<c>pelly sql &lt;FILE&gt;</c>) in two steps and reports any failure there as
+    /// <c>Unknown command '&lt;FILE&gt;'</c>, which hides a mistyped option; checking the raw arguments first keeps the message.
+    /// </summary>
+    public static string? FindUnknownSqlOption(IReadOnlyList<string> args)
+    {
+        if (args.Count == 0 || args[0] != "sql") return null;
+        var settingsType = args.Count >= 2 && args[1] is "pull" or "check" ? CommandSettings["sql " + args[1]] : typeof(SqlSettings);
+        var known = settingsType.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Select(p => p.GetCustomAttribute<CommandOptionAttribute>())
+            .Where(a => a is not null)
+            .SelectMany(a => a!.LongNames)
+            .Append("help")
+            .ToHashSet(StringComparer.Ordinal);
+        foreach (var token in args.Skip(1))
+        {
+            if (token == "--") break;
+            if (!token.StartsWith("--", StringComparison.Ordinal)) continue;
+            var name = token[2..].Split('=', ':')[0];
+            if (!known.Contains(name)) return name;
+        }
+        return null;
     }
 
     /// <summary>Backstop for a result outside 0–5 (Spectre uses negative codes for its own failures): treated as an argument error.</summary>

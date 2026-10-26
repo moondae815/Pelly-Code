@@ -1,6 +1,6 @@
-using PellyCoder.Cli.Terminal;
+using PellyCoder.Core.Reporting;
 
-namespace PellyCoder.Cli.Tests;
+namespace PellyCoder.Core.Tests.Reporting;
 
 public class DiffRendererTests
 {

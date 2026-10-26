@@ -2,6 +2,7 @@ using PellyCoder.Core.Abstractions;
 using System.Globalization;
 using PellyCoder.Core.Fsm;
 using PellyCoder.Core.Logging;
+using PellyCoder.Core.Reporting;
 using Spectre.Console;
 
 namespace PellyCoder.Cli.Terminal;

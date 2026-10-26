@@ -8,6 +8,7 @@ using PellyCoder.Core.CSharp;
 using PellyCoder.Core.Files;
 using PellyCoder.Core.Impact;
 using PellyCoder.Core.Sql;
+using PellyCoder.Core.Testing;
 using PellyCoder.Core.Workspaces;
 using Workspace = PellyCoder.Core.Workspaces.Workspace;
 
@@ -33,11 +34,7 @@ public static partial class SpecChecker
         foreach (var task in spec.Tasks)
             CheckTask(fs, ws, task, sqlCompatLevel, scans, issues);
 
-        foreach (var ac in spec.Criteria.Where(c => c.Test is not null))
-        {
-            if (!scans.TestExists(ac.Test!))
-                issues.Add(new SpecIssue(0, SpecIssueSeverity.Warning, "TestNotFound", $"수용 기준 {ac.Id}의 테스트 {ac.Test}를 작업 공간에서 찾을 수 없습니다."));
-        }
+        CheckAcTests(fs, ws, spec, issues);
 
         return new SpecCheckResult(spec, ws, issues);
     }
@@ -71,6 +68,50 @@ public static partial class SpecChecker
         }
 
         return check with { Issues = [.. check.Issues, .. ImpactCheck.Issues(check.Spec, seeds, result)], Impact = result };
+    }
+
+    /// <summary>
+    /// Acceptance-criterion tests: an AC with a not-done linked cs task is judged (test and breaks must resolve exactly,
+    /// else errors); other ACs only warn. Also flags an AC without linked cs tasks and a task that edits its own test.
+    /// </summary>
+    private static void CheckAcTests(IFileSystem fs, Workspace ws, ChangeSpec spec, List<SpecIssue> issues)
+    {
+        var cache = new Dictionary<string, IReadOnlyList<TestMethodDecl>>(StringComparer.Ordinal);
+        IReadOnlyList<TestMethodDecl> Find(string name) =>
+            cache.TryGetValue(name, out var d) ? d : cache[name] = TestMethodIndex.Find(fs, ws.Root, name);
+
+        foreach (var link in TestFirstLinks.Build(spec))
+        {
+            var linked = link.LinkedTaskIds.Select(id => spec.Tasks.First(t => t.Id == id)).ToList();
+            var judged = linked.Any(t => !t.Done);
+            var severity = judged ? SpecIssueSeverity.Error : SpecIssueSeverity.Warning;
+
+            foreach (var name in new[] { link.Test }.Concat(link.Breaks))
+            {
+                var found = Find(name);
+                var distinct = found.Select(f => f.FullName).Distinct(StringComparer.Ordinal).ToList();
+                if (found.Count == 0)
+                    issues.Add(new SpecIssue(0, severity, "TestNotFound", $"수용 기준 {link.AcId}의 테스트 {name}을(를) 작업 공간에서 찾을 수 없습니다 (테스트 특성이 붙은 메서드만 찾습니다)."));
+                else if (distinct.Count > 1)
+                    issues.Add(new SpecIssue(0, severity, "TestAmbiguous", $"수용 기준 {link.AcId}의 테스트 {name}이(가) 여러 테스트와 맞습니다: {string.Join(", ", distinct)}"));
+            }
+
+            if (linked.Count == 0)
+            {
+                issues.Add(new SpecIssue(0, SpecIssueSeverity.Warning, "TestUnverified", $"수용 기준 {link.AcId}은(는) 테스트로 검증되지 않습니다 (연결된 cs 작업이 없음)."));
+                continue;
+            }
+
+            var decls = Find(link.Test);
+            foreach (var task in linked.Where(t => !t.Done && t.Symbol is not null))
+            {
+                var taskFile = SpecTaskPaths.FullPath(fs.Path, ws.Root, task.Path);
+                var member = SpecSymbol.Split(task.Symbol!).Member;
+                if (decls.Any(d => SpecTaskPaths.Comparer.Equals(fs.Path.GetFullPath(d.File), taskFile)
+                                   && d.FullName[(d.FullName.LastIndexOf('.') + 1)..] == member))
+                    issues.Add(new SpecIssue(task.Line, SpecIssueSeverity.Error, "TestIsTarget", $"작업 {task.Id}: 수용 기준 {link.AcId}의 테스트 메서드를 고치는 작업입니다. 테스트는 사람이 씁니다."));
+            }
+        }
     }
 
     private static void CheckTask(IFileSystem fs, Workspace ws, SpecTask task, int compat, Scans scans, List<SpecIssue> issues)
@@ -159,7 +200,6 @@ public static partial class SpecChecker
     {
         private readonly Dictionary<string, HashSet<string>> cs = new(StringComparer.Ordinal);
         private HashSet<string>? sql;
-        private HashSet<(string? Type, string Method)>? methods;
 
         /// <summary>Identifier tokens (Roslyn tokenizer) of every .cs file under the project folder.</summary>
         public HashSet<string> CsIdentifiers(string dir)
@@ -180,23 +220,6 @@ public static partial class SpecChecker
             foreach (var text in Read(root, "*.sql"))
                 foreach (Match m in SqlWord().Matches(text)) sql.Add(m.Value);
             return sql;
-        }
-
-        /// <summary>True when a method declaration named <c>Class.Method</c> or <c>Method</c> exists in a workspace .cs file.</summary>
-        public bool TestExists(string name)
-        {
-            methods ??= CollectMethods();
-            var (cls, method) = SpecSymbol.Split(name);
-            return methods.Any(m => m.Method == method && (cls is null || m.Type == cls));
-        }
-
-        private HashSet<(string? Type, string Method)> CollectMethods()
-        {
-            var set = new HashSet<(string?, string)>();
-            foreach (var text in Read(root, "*.cs"))
-                foreach (var m in CSharpSyntaxTree.ParseText(text).GetRoot().DescendantNodes().OfType<MethodDeclarationSyntax>())
-                    set.Add(((m.Parent as BaseTypeDeclarationSyntax)?.Identifier.ValueText, m.Identifier.ValueText));
-            return set;
         }
 
         private IEnumerable<string> Read(string dir, string pattern) =>

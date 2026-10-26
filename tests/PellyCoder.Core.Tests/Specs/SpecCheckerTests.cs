@@ -21,7 +21,7 @@ public sealed class SpecCheckerTests
         fs.AddFile("/ws/App.sln", "");
         fs.AddFile("/ws/src/App/App.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>");
         fs.AddFile("/ws/src/App/OrderService.cs", Cs);
-        fs.AddFile("/ws/src/Tests/OrderTests.cs", "public class OrderTests { public void Cancel_works() { } }\n");
+        fs.AddFile("/ws/src/Tests/OrderTests.cs", "public class OrderTests { [Fact] public void Cancel_works() { } }\n");
         fs.AddFile("/ws/db/one.sql", Sql);
         fs.AddFile("/ws/db/two.sql", TwoSql);
         fs.AddFile("/ws/changes/x.md", "---\nid: x\nstatus: draft\n---\n# 제목\n\n## 수용 기준\n" + criteria + "\n## 작업\n" + tasks);
@@ -112,18 +112,98 @@ public sealed class SpecCheckerTests
         Assert.Empty(r.Issues);
     }
 
+    private const string CsTask = "- [ ] T1 cs src/App/OrderService.cs#OrderService.Cancel 요청 (AC1)\n";
+    private const string DoneCsTask = "- [x] T1 cs src/App/OrderService.cs#OrderService.Cancel 요청 (AC1) <!-- run: R-1 -->\n";
+
+    private static string Ac(string test, string extra = "") => $"- AC1: 하나\n  test: {test}\n{extra}";
+
     [Fact]
-    public void Ac_test_missing_in_workspace_is_a_warning()
+    public void Ac_test_found_is_clean_and_bare_name_works()
     {
-        var ok = Check(Fs("- [ ] T1 sql db/one.sql 요청 (AC1)\n", "- AC1: 하나\n  test: OrderTests.Cancel_works\n"));
-        Assert.Empty(ok.Issues);
-        var bare = Check(Fs("- [ ] T1 sql db/one.sql 요청 (AC1)\n", "- AC1: 하나\n  test: Cancel_works\n"));
-        Assert.Empty(bare.Issues);
-        var bad = Check(Fs("- [ ] T1 sql db/one.sql 요청 (AC1)\n", "- AC1: 하나\n  test: OrderTests.Nope\n"));
-        var issue = Assert.Single(bad.Issues);
+        Assert.Empty(Check(Fs(CsTask, Ac("OrderTests.Cancel_works"))).Issues);
+        Assert.Empty(Check(Fs(CsTask, Ac("Cancel_works"))).Issues);
+    }
+
+    [Fact]
+    public void Check_LinkedTestMissing_IsError()
+    {
+        var r = Check(Fs(CsTask, Ac("OrderTests.Nope")));
+        var issue = Assert.Single(r.Issues);
         Assert.Equal("TestNotFound", issue.Code);
+        Assert.Equal(SpecIssueSeverity.Error, issue.Severity);
+        Assert.Equal("수용 기준 AC1의 테스트 OrderTests.Nope을(를) 작업 공간에서 찾을 수 없습니다 (테스트 특성이 붙은 메서드만 찾습니다).", issue.Message);
+        Assert.True(r.HasErrors);
+    }
+
+    [Fact]
+    public void Check_UnlinkedTestMissing_IsWarning()
+    {
+        var r = Check(Fs("- [ ] T1 sql db/one.sql 요청 (AC1)\n", Ac("OrderTests.Nope")));
+        Assert.Equal(["TestNotFound", "TestUnverified"], Codes(r));
+        Assert.All(r.Issues, i => Assert.Equal(SpecIssueSeverity.Warning, i.Severity));
+        Assert.False(r.HasErrors);
+    }
+
+    [Fact]
+    public void Check_LinkedTestAmbiguous_IsError()
+    {
+        var fs = Fs(CsTask, Ac("Cancel_works"));
+        fs.AddFile("/ws/src/Tests/OtherTests.cs", "public class OtherTests { [Fact] public void Cancel_works() { } }\n");
+        var r = Check(fs);
+        var issue = Assert.Single(r.Issues);
+        Assert.Equal("TestAmbiguous", issue.Code);
+        Assert.Equal(SpecIssueSeverity.Error, issue.Severity);
+        Assert.Contains("OrderTests.Cancel_works", issue.Message);
+        Assert.Contains("OtherTests.Cancel_works", issue.Message);
+    }
+
+    [Fact]
+    public void Check_ProductMethodSameName_NotATest()
+    {
+        // OrderService.Cancel is a product method without a test attribute.
+        var r = Check(Fs(CsTask, Ac("OrderService.Cancel")));
+        var issue = Assert.Single(r.Issues);
+        Assert.Equal("TestNotFound", issue.Code);
+        Assert.Equal(SpecIssueSeverity.Error, issue.Severity);
+    }
+
+    [Fact]
+    public void Check_TestWithoutLinkedCsTask_TestUnverified()
+    {
+        var r = Check(Fs("- [ ] T1 sql db/one.sql 요청 (AC1)\n", Ac("OrderTests.Cancel_works")));
+        var issue = Assert.Single(r.Issues);
+        Assert.Equal("TestUnverified", issue.Code);
         Assert.Equal(SpecIssueSeverity.Warning, issue.Severity);
-        Assert.False(bad.HasErrors);
+        Assert.Equal("수용 기준 AC1은(는) 테스트로 검증되지 않습니다 (연결된 cs 작업이 없음).", issue.Message);
+    }
+
+    [Fact]
+    public void Check_TaskTargetsItsTest_TestIsTarget()
+    {
+        var r = Check(Fs("- [ ] T1 cs src/Tests/OrderTests.cs#OrderTests.Cancel_works 요청 (AC1)\n", Ac("OrderTests.Cancel_works")));
+        var issue = Assert.Single(r.Issues);
+        Assert.Equal("TestIsTarget", issue.Code);
+        Assert.Equal(SpecIssueSeverity.Error, issue.Severity);
+        Assert.Equal("작업 T1: 수용 기준 AC1의 테스트 메서드를 고치는 작업입니다. 테스트는 사람이 씁니다.", issue.Message);
+    }
+
+    [Fact]
+    public void Check_LinkedBreaksMissing_IsError()
+    {
+        var r = Check(Fs(CsTask, Ac("OrderTests.Cancel_works", "  breaks: OrderTests.Gone\n")));
+        var issue = Assert.Single(r.Issues);
+        Assert.Equal("TestNotFound", issue.Code);
+        Assert.Equal(SpecIssueSeverity.Error, issue.Severity);
+        Assert.Contains("OrderTests.Gone", issue.Message);
+    }
+
+    [Fact]
+    public void Check_AllLinkedTasksDone_OnlyWarnings()
+    {
+        var r = Check(Fs(DoneCsTask, Ac("OrderTests.Nope", "  breaks: OrderTests.Gone\n")));
+        Assert.Equal(["TestNotFound", "TestNotFound"], Codes(r));
+        Assert.All(r.Issues, i => Assert.Equal(SpecIssueSeverity.Warning, i.Severity));
+        Assert.False(r.HasErrors);
     }
 
     [Fact]

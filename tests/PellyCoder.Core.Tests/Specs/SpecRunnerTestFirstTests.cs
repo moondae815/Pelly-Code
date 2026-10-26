@@ -318,6 +318,64 @@ public sealed class SpecRunnerTestFirstTests : IDisposable
         Assert.Equal("NotRun", acs[1].GetProperty("outcome").GetString());
     }
 
+    private string? HashOf(string test) => TestDeclarationHash.Of(_fs, _root, test);
+
+    private void EditTests(string from, string to) => Make("src/Tests/OrderTests.cs", File.ReadAllText(P("src/Tests/OrderTests.cs")).Replace(from, to));
+
+    [Fact]
+    public async Task CrossTask_TestEditedBetweenTasks_LastTaskGetsExpectedHash()
+    {
+        Spec($"- AC1: 하나\n  test: {CancelTest}\n", Cs("T1", "Cancel", "(AC1)") + Cs("T2", "Ship", "") + Cs("T3", "Pay", "(AC1)"));
+        var before = HashOf(CancelTest);
+        _exec.OnRun["T1"] = () => EditTests("Cancel_works() { }", "Cancel_works() { Assert.True(true); }");
+
+        Assert.Equal(0, await Run(Opts()));
+
+        Assert.NotNull(before);
+        Assert.NotEqual(before, HashOf(CancelTest));
+        Assert.Null(_exec.Options[0].Tests!.ExpectedHashes);
+        var expected = Assert.Single(_exec.Options[2].Tests!.ExpectedHashes!);
+        Assert.Equal((CancelTest, before), (expected.Key, expected.Value));
+    }
+
+    [Fact]
+    public async Task CrossTask_HelperInTestFileChanged_NoFalseAlarm()
+    {
+        Spec($"- AC1: 하나\n  test: {CancelTest}\n- AC2: 둘\n  test: {ShipTest}\n",
+            Cs("T1", "Cancel", "(AC1)") + Cs("T2", "Ship", "(AC2)") + Cs("T3", "Pay", "(AC1)"));
+        _exec.OnRun["T1"] = () => EditTests("    [Fact] public void Old_behavior() { }\n",
+            "    [Fact] public void Old_behavior() { }\n    private static int Helper() => 1;\n");
+
+        Assert.Equal(0, await Run(Opts()));
+
+        // Only AC1's test, as measured now: the helper is not part of its declaration.
+        var expected = Assert.Single(_exec.Options[2].Tests!.ExpectedHashes!);
+        Assert.Equal((CancelTest, HashOf(CancelTest)), (expected.Key, expected.Value));
+        Assert.Null(_exec.Options[1].Tests!.ExpectedHashes);
+    }
+
+    [Fact]
+    public async Task CrossTask_Resume_NoExpectedHash()
+    {
+        Spec($"- AC1: 하나\n  test: {CancelTest}\n", Cs("T1", "Cancel", "(AC1)", done: true) + Cs("T3", "Pay", "(AC1)"));
+
+        Assert.Equal(0, await Run(Opts(resume: true)));
+
+        Assert.Null(Assert.Single(_exec.Options).Tests!.ExpectedHashes);
+    }
+
+    [Fact]
+    public async Task CrossTask_SingleLinkedTask_NoExpectedHash()
+    {
+        Spec($"- AC1: 하나\n  test: {CancelTest}\n", Cs("T1", "Cancel", "(AC1)") + Cs("T2", "Ship", ""));
+        _exec.OnRun["T1"] = () => EditTests("Cancel_works() { }", "Cancel_works() { Assert.True(true); }");
+
+        Assert.Equal(0, await Run(Opts()));
+
+        Assert.Null(_exec.Options[0].Tests!.ExpectedHashes);
+        Assert.Null(_exec.Options[1].Tests);
+    }
+
     /// <summary>Delegates to the scripted UI and runs <paramref name="onConfirm"/> just before each confirm.</summary>
     private sealed class ConfirmHookUi(ScriptedUserInteraction inner, Action onConfirm) : IUserInteraction
     {
@@ -364,11 +422,13 @@ public sealed class SpecRunnerTestFirstTests : IDisposable
         public Dictionary<string, int> Exit { get; } = [];
         public Dictionary<string, string> Kind { get; } = [];
         public Dictionary<string, TestFirstOutcome> TestFirst { get; } = [];
+        public Dictionary<string, Action> OnRun { get; } = [];
 
         public async Task<RunResult> ExecuteAsync(SpecTask task, Workspace ws, TaskRunOptions o, CancellationToken ct)
         {
             Calls.Add(task.Id);
             Options.Add(o);
+            OnRun.GetValueOrDefault(task.Id)?.Invoke();
             var path = Path.Combine(ws.Root, task.Path.Replace('/', Path.DirectorySeparatorChar));
             var original = guard.Read(path);
             int exit = Exit.GetValueOrDefault(task.Id);

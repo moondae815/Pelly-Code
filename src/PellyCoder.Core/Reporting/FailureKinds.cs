@@ -51,6 +51,7 @@ public static class FailureKinds
     public const string GroupTestGreenFailed = "GroupTestGreenFailed";
     public const string GroupTestRegression = "GroupTestRegression";
     public const string GroupTestUnverifiable = "GroupTestUnverifiable";
+    public const string GroupTestFileChanged = "GroupTestFileChanged";
 
     public const string RulesInvalid = "RulesInvalid";
     public const string RulesErrors = "RulesErrors";
@@ -68,7 +69,7 @@ public static class FailureKinds
         TargetAmbiguous, TargetNotFound,
         SyntaxErrors, BuildErrors, SqlObjectsErrors, SqlCompileErrors, TestErrors,
         TestGreenFailed, TestRegression, TestNotFound, TestAmbiguous, TestUnverifiable, TestRedDeclined, TestFileChanged,
-        GroupTestGreenFailed, GroupTestRegression, GroupTestUnverifiable,
+        GroupTestGreenFailed, GroupTestRegression, GroupTestUnverifiable, GroupTestFileChanged,
         RulesInvalid, RulesErrors,
         EnvError, BudgetExceeded, Rejected, Cancelled,
     };

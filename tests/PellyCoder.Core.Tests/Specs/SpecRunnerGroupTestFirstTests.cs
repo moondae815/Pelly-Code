@@ -425,6 +425,72 @@ public sealed class SpecRunnerGroupTestFirstTests : IDisposable
         AssertGroupFilesUntouched();
     }
 
+    [Fact]
+    public async Task Group_TestEditedDuringGroup_UndoneExit4()
+    {
+        Spec(Criterion, GroupTasks + "- [ ] T3 cs src/App/OrderService.cs#OrderService.Cancel 다른 일\n");
+        var file = Path.Combine("tests", "App.Tests", "OrderTests.cs");
+        _tests.Fallback = Passing() with { ChangedTestFile = file };
+
+        Assert.Equal(4, await Run(Opts(cont: true)));
+
+        Assert.Equal(["T1", "T2"], _exec.Calls); // exit 4 stops even --continue
+        AssertGroupFilesUntouched();
+        Assert.Contains("그룹 G1: 지정한 테스트가 실행 중에 바뀌었습니다: " + file, _ui.Warnings);
+        var spec = Read("changes/x.md");
+        Assert.Contains("<!-- failed: R-T1 GroupTestFileChanged -->", spec);
+        Assert.Contains("<!-- failed: R-T2 GroupTestFileChanged -->", spec);
+        Assert.Equal("NotMet", Criteria().GetProperty("outcome").GetString());
+    }
+
+    [Fact]
+    public async Task Group_LastLinkedInGroup_UsesExpectedHashFromOutside()
+    {
+        Spec(Criterion,
+            "- [ ] T1 cs src/App/OrderService.cs#OrderService.GetOrder 먼저 (AC1)\n" +
+            "- [ ] T2 cs src/App/Repo.cs#Repo.Find 이름을 바꾼다 (AC1) [G1]\n" +
+            "- [ ] T3 cs src/App/OrderService.cs#OrderService.Cancel 고친다 (AC1) [G1]\n");
+        _exec.Display["T3"] = "OrderService.Cancel()";
+        var before = TestDeclarationHash.Of(_fs, _root, Test);
+        _exec.OnRun["T1"] = () => Make("tests/App.Tests/OrderTests.cs", OrderTests.Replace("GetOrder_works() { }", "GetOrder_works() { Assert.True(true); }"));
+
+        Assert.Equal(0, await Run(Opts()));
+
+        Assert.NotNull(before);
+        Assert.NotEqual(before, TestDeclarationHash.Of(_fs, _root, Test));
+        Assert.Null(_exec.Options[0].Tests!.ExpectedHashes); // T1's GREEN is the group's
+        var expected = Assert.Single(Assert.Single(_tests.Plans).ExpectedHashes!);
+        Assert.Equal((Test, before), (expected.Key, expected.Value));
+    }
+
+    [Fact]
+    public async Task Group_FirstLinkedInGroup_NoExpectedHash()
+    {
+        Spec(Criterion, GroupTasks);
+
+        Assert.Equal(0, await Run(Opts()));
+
+        Assert.Null(Assert.Single(_tests.Plans).ExpectedHashes); // the group's own baseline is the reference
+    }
+
+    [Fact]
+    public async Task Group_FirstLinkedInGroup_LastOutside_GetsHashFromBeforeGroup()
+    {
+        Spec(Criterion,
+            "- [ ] T1 cs src/App/OrderService.cs#OrderService.GetOrder 반환 형식을 바꾼다 (AC1) [G1]\n" +
+            "- [ ] T2 cs src/App/Repo.cs#Repo.Find 이름을 바꾼다 [G1]\n" +
+            "- [ ] T3 cs src/App/OrderService.cs#OrderService.Cancel 마무리 (AC1)\n");
+        _exec.Display["T3"] = "OrderService.Cancel()";
+        var before = TestDeclarationHash.Of(_fs, _root, Test);
+        _exec.OnRun["T2"] = () => Make("tests/App.Tests/OrderTests.cs", OrderTests.Replace("GetOrder_works() { }", "GetOrder_works() { Assert.True(true); }"));
+
+        Assert.Equal(0, await Run(Opts()));
+
+        Assert.Equal(["T1", "T2", "T3"], _exec.Calls);
+        var expected = Assert.Single(_exec.Options[2].Tests!.ExpectedHashes!);
+        Assert.Equal((Test, before), (expected.Key, expected.Value));
+    }
+
     private static GroupBuild Built(params Diagnostic[] errors) => new(true, null, null, errors);
 
     /// <summary>Scripted builds in order (then a clean one), counted.</summary>
@@ -471,11 +537,13 @@ public sealed class SpecRunnerGroupTestFirstTests : IDisposable
         public List<TaskRunOptions> Options { get; } = [];
         public Dictionary<string, string> Display { get; } = [];
         public Dictionary<string, TestFirstOutcome> TestFirst { get; } = [];
+        public Dictionary<string, Action> OnRun { get; } = [];
 
         public async Task<RunResult> ExecuteAsync(SpecTask task, Workspace ws, TaskRunOptions o, CancellationToken ct)
         {
             Calls.Add(task.Id);
             Options.Add(o);
+            OnRun.GetValueOrDefault(task.Id)?.Invoke();
             int n = Calls.Count(c => c == task.Id);
             string runId = n == 1 ? "R-" + task.Id : $"R-{task.Id}-{n}";
             var path = Path.Combine(ws.Root, task.Path.Replace('/', Path.DirectorySeparatorChar));

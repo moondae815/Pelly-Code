@@ -332,4 +332,73 @@ public sealed class GroupTesterTests : IDisposable
         Assert.Empty(verdict.Green);
         Assert.Equal(OtherFull, Assert.Single(verdict.Regressions).FullName);
     }
+
+    [Fact]
+    public async Task Group_NoTestChange_Unchanged()
+    {
+        var tester = Tester();
+        var plan = Plan([Cancel]);
+        Script(Trx((CancelFull, false), (OtherFull, true)));
+        var baseline = await Baseline(tester, [AppTests], plan);
+        // A helper elsewhere in the test file is not part of the test's declaration.
+        Make("tests/App.Tests/OrderTests.cs", OrderTests.Replace("    public void Old_behavior() { }\n", "    public void Old_behavior() { }\n\n    private static int Helper() => 1;\n"));
+        Script(Trx((CancelFull, true), (OtherFull, true)));
+
+        var verdict = await Verify(tester, baseline, plan);
+
+        Assert.Null(verdict.Unverifiable);
+        Assert.Empty(verdict.Green);
+        Assert.Empty(verdict.Regressions);
+        Assert.Null(verdict.ChangedTestFile);
+    }
+
+    [Fact]
+    public async Task Verify_TestEditedDuringGroup_ChangedTestFile()
+    {
+        var tester = Tester();
+        var plan = Plan([Cancel]);
+        Script(Trx((CancelFull, false), (OtherFull, true)));
+        var baseline = await Baseline(tester, [AppTests], plan);
+        Make("tests/App.Tests/OrderTests.cs", OrderTests.Replace("new App.Order().Cancel(true);", "Assert.True(true);"));
+        Script(Trx((CancelFull, true), (OtherFull, true)));
+
+        var verdict = await Verify(tester, baseline, plan);
+
+        Assert.Null(verdict.Unverifiable);
+        Assert.Empty(verdict.Green);
+        Assert.Equal(Path.Combine("tests", "App.Tests", "OrderTests.cs"), verdict.ChangedTestFile);
+    }
+
+    [Fact]
+    public async Task Verify_TestEdited_GreenFailureFirst()
+    {
+        var tester = Tester();
+        var plan = Plan([Cancel]);
+        Script(Trx((CancelFull, false), (OtherFull, true)));
+        var baseline = await Baseline(tester, [AppTests], plan);
+        Make("tests/App.Tests/OrderTests.cs", OrderTests.Replace("new App.Order().Cancel(true);", "Assert.True(true);"));
+        Script(Trx((CancelFull, false), (OtherFull, true)));
+
+        var verdict = await Verify(tester, baseline, plan);
+
+        Assert.Single(verdict.Green);
+        Assert.Null(verdict.ChangedTestFile);
+    }
+
+    [Fact]
+    public async Task Verify_ExpectedHashFromPlan_ComparedInsteadOfBaseline()
+    {
+        var tester = Tester();
+        var original = TestDeclarationHash.Of(_fs, _root, Cancel)!;
+        // Changed before the group (by the criterion's first linked task outside it): the baseline already sees the edit.
+        Make("tests/App.Tests/OrderTests.cs", OrderTests.Replace("new App.Order().Cancel(true);", "Assert.True(true);"));
+        var plan = Plan([Cancel], red: []) with { ExpectedHashes = new Dictionary<string, string> { [Cancel] = original } };
+        Script(Trx((CancelFull, false), (OtherFull, true)));
+        var baseline = await Baseline(tester, [AppTests], plan);
+        Script(Trx((CancelFull, true), (OtherFull, true)));
+
+        var verdict = await Verify(tester, baseline, plan);
+
+        Assert.Equal(Path.Combine("tests", "App.Tests", "OrderTests.cs"), verdict.ChangedTestFile);
+    }
 }

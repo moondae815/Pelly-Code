@@ -79,6 +79,11 @@ public sealed class FsmTaskExecutorTests
         Assert.Equal(["T.A", "T.B"], cs.VerifyTests!.Order());
         Assert.Same(tests.Checks, cs.TestChecks);
         Assert.Equal(["T.Old"], cs.ExpectBreaks);
+        Assert.Null(cs.ExpectedTestHashes);
+
+        var hashes = new Dictionary<string, string> { ["T.B"] = "abc" };
+        var guarded = await Run(Task(TaskKind.CSharp, "src/A.cs", "OrderService.Cancel"), Opts with { Tests = tests with { ExpectedHashes = hashes } });
+        Assert.Same(hashes, guarded.ExpectedTestHashes);
 
         var sql = await Run(Task(TaskKind.Sql, "db/a.sql", "dbo.usp_X"), Opts with { Tests = tests });
         Assert.Null(sql.VerifyTests);

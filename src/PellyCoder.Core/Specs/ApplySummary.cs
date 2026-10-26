@@ -51,7 +51,9 @@ public static class GroupFailureKinds
     public const string TestGreenFailed = Reporting.FailureKinds.GroupTestGreenFailed;
     public const string TestRegression = Reporting.FailureKinds.GroupTestRegression;
     public const string TestUnverifiable = Reporting.FailureKinds.GroupTestUnverifiable;
+    public const string TestFileChanged = Reporting.FailureKinds.GroupTestFileChanged;
 
     public static bool IsGroupKind(string? kind) =>
-        kind is Unverifiable or BuildFailed or MissingTarget or Rejected or TestGreenFailed or TestRegression or TestUnverifiable;
+        kind is Unverifiable or BuildFailed or MissingTarget or Rejected or TestGreenFailed or TestRegression or TestUnverifiable
+            or TestFileChanged;
 }

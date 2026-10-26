@@ -33,7 +33,7 @@ public sealed class FsmTaskExecutor(Func<RunRequest, CancellationToken, Task<Run
             request = new RunRequest(file, cls, o.MemberOverride ?? member, null, task.Request, o.Yes, o.DryRun, o.MaxRetries,
                 Verbose: o.Verbose, Host: host, Group: o.Group,
                 VerifyTests: tests?.Checks.Keys.ToList(), ExpectBreaks: tests is { Breaks.Count: > 0 } ? tests.Breaks : null,
-                TestChecks: tests?.Checks);
+                TestChecks: tests?.Checks, ExpectedTestHashes: tests?.ExpectedHashes);
         }
         return run(request, ct);
     }

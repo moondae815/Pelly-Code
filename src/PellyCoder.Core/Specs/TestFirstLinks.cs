@@ -7,9 +7,14 @@ public sealed record AcLink(string AcId, string Test, IReadOnlyList<string> Brea
 
 /// <summary>
 /// What one task checks: every test of its linked criteria (key = test name; <c>None</c> when the task is neither the
-/// first nor the last linked task) and the tests those criteria break.
+/// first nor the last linked task) and the tests those criteria break. <see cref="ExpectedHashes"/> maps a test (as keyed in
+/// <see cref="Checks"/>) to the declaration hash <c>pelly apply</c> recorded right before the criterion's first linked task ran,
+/// when this task is the criterion's last linked task and a different one; null when there is none.
 /// </summary>
-public sealed record TaskTests(IReadOnlyDictionary<string, TestCheck> Checks, IReadOnlyList<string> Breaks);
+public sealed record TaskTests(IReadOnlyDictionary<string, TestCheck> Checks, IReadOnlyList<string> Breaks)
+{
+    public IReadOnlyDictionary<string, string>? ExpectedHashes { get; init; }
+}
 
 /// <summary>Computes which cs tasks are linked to which acceptance-criterion tests.</summary>
 public static class TestFirstLinks

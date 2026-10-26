@@ -15,11 +15,15 @@ namespace PellyCoder.Core.Specs;
 /// group judges (first linked task in the group), the tests whose GREEN it judges (last linked task in the group), and the
 /// expected breaks of those criteria. <see cref="ReportPrefix"/> is the absolute path prefix of the group's TRX reports
 /// (e.g. <c>.pelly/runs/&lt;apply-id&gt;/group-tests/G1</c>); empty puts them under the workspace's run folder.
+/// <see cref="ExpectedHashes"/> maps a plan test to the declaration hash recorded right before its criterion's first linked
+/// task ran outside the group; the verdict compares a test without one to the group's baseline instead.
 /// </summary>
 public sealed record GroupTestPlan(IReadOnlyList<string> Tests, IReadOnlyList<string> RedNames, IReadOnlyList<string> GreenNames,
     IReadOnlyList<string> Breaks)
 {
     public string ReportPrefix { get; init; } = "";
+
+    public IReadOnlyDictionary<string, string>? ExpectedHashes { get; init; }
 }
 
 /// <summary>
@@ -33,6 +37,13 @@ public sealed record GroupTestBaseline(IReadOnlyList<string> Projects, IReadOnly
 {
     public IReadOnlyList<RedTest> Tests { get; init; } = [];
     public IReadOnlyList<string> Notices { get; init; } = [];
+
+    /// <summary>
+    /// Plan test → its declaring file (absolute) and <see cref="TestDeclarationHash.Of"/> before any edit; a test whose
+    /// hash could not be taken is absent (no reference to compare with).
+    /// </summary>
+    public IReadOnlyDictionary<string, (string File, string Hash)> Declarations { get; init; } =
+        new Dictionary<string, (string File, string Hash)>(StringComparer.Ordinal);
 }
 
 /// <summary>
@@ -47,6 +58,12 @@ public sealed record GroupTestVerdict(string? Unverifiable, IReadOnlyList<GreenF
 
     /// <summary>Full names (without arguments) of the expected breaks left out; null when not reported (then only the count is known).</summary>
     public IReadOnlyList<string>? ExcludedNames { get; init; }
+
+    /// <summary>
+    /// The workspace-relative file of a plan test whose declaration changed while the group ran (checked only once GREEN and
+    /// regressions passed); null when none did.
+    /// </summary>
+    public string? ChangedTestFile { get; init; }
 }
 
 /// <summary>Runs a task group's test projects before and after its edits (design §7.3).</summary>
@@ -146,7 +163,12 @@ public sealed class GroupTester(IFileSystem fs, TestRunner runner, BuildToolReso
         }
         notices.AddRange(TestFirstJudge.BreakWarnings(built.Select(i => runs[i]).ToList(), plan.Breaks));
 
-        return new GroupTestBaseline(projects, runs, compileRed, states, null) { Tests = tests, Notices = notices };
+        // The test-change guard's reference (design V2-2c): every plan test's declaration as it stands before the group edits.
+        var declarations = new Dictionary<string, (string File, string Hash)>(StringComparer.Ordinal);
+        foreach (var (name, decl) in decls)
+            if (HashOf(ws, name) is { } hash) declarations[name] = (decl.File, hash);
+
+        return new GroupTestBaseline(projects, runs, compileRed, states, null) { Tests = tests, Notices = notices, Declarations = declarations };
     }
 
     public async Task<GroupTestVerdict> VerifyAsync(Workspace ws, GroupTestBaseline baseline, GroupTestPlan plan, CancellationToken ct)
@@ -217,12 +239,47 @@ public sealed class GroupTester(IFileSystem fs, TestRunner runner, BuildToolReso
         var unbuiltTests = unbuilt.ToDictionary(i => Relative(ws, projects[i]),
             i => (IReadOnlyList<string>)baseline.Tests.Where(t => t.ProjectIndex == i).Select(t => t.Name).ToList());
         var breakHits = hits.Where(h => plan.Breaks.Any(b => TestNames.Matches(b, h))).Order(StringComparer.Ordinal).ToList();
-        return new GroupTestVerdict(null, TestFirstJudge.Green(green, runs), buildErrors.Distinct().ToList(),
-            regressions.DistinctBy(r => r.FullName).ToList(), breakHits.Count)
+        var greenFailures = TestFirstJudge.Green(green, runs);
+        var distinctRegressions = regressions.DistinctBy(r => r.FullName).ToList();
+        // As in TestStep: the test-change guard comes after GREEN and regressions passed.
+        var changed = greenFailures.Count == 0 && buildErrors.Count == 0 && distinctRegressions.Count == 0
+            ? ChangedTestFile(ws, baseline, plan)
+            : null;
+        return new GroupTestVerdict(null, greenFailures, buildErrors.Distinct().ToList(), distinctRegressions, breakHits.Count)
         {
             Unbuilt = unbuiltTests,
             ExcludedNames = breakHits,
+            ChangedTestFile = changed,
         };
+    }
+
+    /// <summary>
+    /// The workspace-relative file of the first plan test whose declaration no longer hashes to its reference: the hash its
+    /// criterion's first linked task outside the group started from (<see cref="GroupTestPlan.ExpectedHashes"/>), else the
+    /// baseline's. Null when every test still matches; a test with neither reference is not checked.
+    /// </summary>
+    private string? ChangedTestFile(Workspace ws, GroupTestBaseline baseline, GroupTestPlan plan)
+    {
+        foreach (var name in plan.Tests)
+        {
+            var known = baseline.Declarations.TryGetValue(name, out var declaration);
+            string? expected = plan.ExpectedHashes?.GetValueOrDefault(name) ?? (known ? declaration.Hash : null);
+            if (expected is null || HashOf(ws, name) == expected) continue;
+            // Name the declaring file found now; a vanished declaration falls back to the one the baseline saw.
+            string? file;
+            try { file = TestMethodIndex.Find(fs, ws.Root, name).Select(d => d.File).FirstOrDefault(); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { file = null; }
+            file ??= known ? declaration.File : null;
+            return file is null ? name : fs.Path.GetRelativePath(ws.Root, fs.Path.GetFullPath(file));
+        }
+        return null;
+    }
+
+    /// <summary>The test's declaration hash; null when it cannot be taken (not found, or a file cannot be read).</summary>
+    private string? HashOf(Workspace ws, string name)
+    {
+        try { return TestDeclarationHash.Of(fs, ws.Root, name); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
     }
 
     /// <summary>The scope's test projects (or its <c>test.projects</c>), then the projects declaring the named tests.</summary>

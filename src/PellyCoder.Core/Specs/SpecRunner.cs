@@ -149,6 +149,11 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
         private readonly Dictionary<string, RedState> _groupRed = new(StringComparer.Ordinal);
         private readonly Dictionary<string, int> _groupBreaks = new(StringComparer.Ordinal);
 
+        // Cross-task test-change guard (V2-2c): criterion ID → its test's declaration hash taken right before the criterion's
+        // first linked task (or that task's group) ran in this apply. Its last linked task, or the group holding it, must
+        // still see that declaration. A first linked task already done (--resume) records nothing.
+        private readonly Dictionary<string, string> _startHashes = new(StringComparer.Ordinal);
+
         public string? ApplyId { get; private set; }
 
         public async Task<int> ExecuteAsync(CancellationToken ct)
@@ -198,6 +203,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                     // The parser keeps a group's tasks contiguous; they run as one unit.
                     var group = todo.Skip(i).TakeWhile(t => t.Group == groupId).ToList();
                     i += group.Count - 1;
+                    RecordStartHashes(group);
                     var end = await RunGroupAsync(tx, group, ct);
                     foreach (var t in group) _ends[t.Id] = end.ExitCode;
                     if (end.Terminal) return Finish(end.ExitCode);
@@ -217,12 +223,17 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                     continue;
                 }
 
+                // The criterion's last linked task (when not also its first) checks the hash taken before its first one.
+                RecordStartHashes([task]);
+                var tests = TestFirstLinks.For(_links, task.Id);
+                if (tests is not null && ExpectedHashes([task.Id], t => t == task.Id) is { } expected)
+                    tests = tests with { ExpectedHashes = expected };
                 // Only a criterion's first linked task gets RED, so under --resume a criterion whose first linked task is
                 // already done has no RED role left (its result shows Skipped). Group tasks get none: the group tests them.
                 RunResult? run;
                 try
                 {
-                    run = await ExecuteTaskAsync(tx, task, taskOptions with { Tests = TestFirstLinks.For(_links, task.Id) }, ct);
+                    run = await ExecuteTaskAsync(tx, task, taskOptions with { Tests = tests }, ct);
                 }
                 catch (OperationCanceledException)
                 {
@@ -261,6 +272,41 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             }
 
             return Finish(stopCode ?? (anyFailed ? 1 : 0));
+        }
+
+        /// <summary>
+        /// Records the test hash of every criterion whose first linked task is one of <paramref name="tasks"/> and whose last
+        /// linked task is another one. Called right before those tasks run, so later edits to the test show.
+        /// </summary>
+        private void RecordStartHashes(IReadOnlyList<SpecTask> tasks)
+        {
+            foreach (var link in _links)
+            {
+                if (link.LinkedTaskIds.Count < 2 || _startHashes.ContainsKey(link.AcId)) continue;
+                if (!tasks.Any(t => t.Id == link.LinkedTaskIds[0])) continue;
+                string? hash;
+                try { hash = TestDeclarationHash.Of(owner.Fs, ws.Root, link.Test); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { hash = null; }
+                // Not found or unreadable: skip the test (it is not guarded across tasks). Never store null as an expected
+                // hash: it would silently pass. The last task's own run still locates and judges the test.
+                if (hash is not null) _startHashes[link.AcId] = hash;
+            }
+        }
+
+        /// <summary>
+        /// The recorded hashes (keyed by test name) of the criteria whose last linked task is in <paramref name="lastIds"/> and
+        /// whose first linked task is not (<paramref name="inSameRun"/> says whether it is); null when there is none.
+        /// </summary>
+        private Dictionary<string, string>? ExpectedHashes(IReadOnlyCollection<string> lastIds, Func<string, bool> inSameRun)
+        {
+            var hashes = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var link in _links)
+            {
+                if (link.LinkedTaskIds.Count == 0 || !lastIds.Contains(link.LinkedTaskIds[^1], StringComparer.Ordinal)) continue;
+                if (inSameRun(link.LinkedTaskIds[0]) || !_startHashes.TryGetValue(link.AcId, out var hash)) continue;
+                hashes.TryAdd(link.Test, hash); // a test named by two criteria: the earlier one's hash
+            }
+            return hashes.Count > 0 ? hashes : null;
         }
 
         private async Task<int> DryRunAsync(List<SpecTask> todo, CancellationToken ct)
@@ -434,7 +480,10 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             }
             if (tests.Count == 0) return null;
             var prefix = owner.Fs.Path.Combine(ws.PellyDir, "runs", ApplyId!, "group-tests", g.Id);
-            return new GroupTestPlan(tests, red, green, breaks) { ReportPrefix = prefix };
+            // A criterion started inside this group is compared with the group's own baseline (GroupTester).
+            var ids = g.Tasks.Select(t => t.Id).ToList();
+            var expected = ExpectedHashes(ids, id => ids.Contains(id, StringComparer.Ordinal));
+            return new GroupTestPlan(tests, red, green, breaks) { ReportPrefix = prefix, ExpectedHashes = expected };
         }
 
         /// <summary>
@@ -511,7 +560,13 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                     }
                     if (verdict.Green.Count == 0 && verdict.TestBuildErrors.Count == 0)
                     {
-                        if (verdict.Regressions.Count == 0) break;
+                        if (verdict.Regressions.Count == 0)
+                        {
+                            if (verdict.ChangedTestFile is not { } changedFile) break;
+                            // A test edited while the group ran (or since its criterion's first linked task) proves nothing.
+                            owner.Ui.Warn($"그룹 {g.Id}: 지정한 테스트가 실행 중에 바뀌었습니다: {changedFile}");
+                            return await UndoGroupAsync(tx, g, GroupFailureKinds.TestFileChanged, 4);
+                        }
                         // A newly failing test belongs to no task: the group cannot be fixed by a re-run (design §7.3).
                         owner.Ui.Warn($"그룹 {g.Id}: 테스트 회귀: {string.Join(", ", verdict.Regressions.Select(r => r.FullName).Distinct())}");
                         return await UndoGroupAsync(tx, g, GroupFailureKinds.TestRegression, 1);

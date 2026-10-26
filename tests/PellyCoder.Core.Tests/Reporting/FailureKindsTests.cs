@@ -32,6 +32,7 @@ public sealed partial class FailureKindsTests
     [InlineData("GroupTestGreenFailed")]
     [InlineData("GroupTestRegression")]
     [InlineData("GroupTestUnverifiable")]
+    [InlineData("GroupTestFileChanged")]
     public void FailureKinds_IncludesTestFirstKinds(string kind) => Assert.True(FailureKinds.IsKnown(kind));
 
     [Fact]

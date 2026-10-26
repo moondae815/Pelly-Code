@@ -213,9 +213,22 @@ public class SqlPullServiceTests
     {
         var fs = new MockFileSystem();
         var dev = new FakeReader().With("dbo.usp_X");
+        var trap = new FakeReader { Unreachable = true };
 
-        var items = await Service(fs).PullAsync(Request(source: PullSource.Dev, objects: "dbo.usp_X"), dev, Endpoint, null, TestContext.Current.CancellationToken);
+        var items = await Service(fs).PullAsync(Request(source: PullSource.Dev, objects: "dbo.usp_X"), dev, Endpoint, trap, TestContext.Current.CancellationToken);
 
+        Assert.Empty(items[0].Notices);
         Assert.Equal("dev", PullRecord.TryParse(fs.File.ReadAllText(items[0].Path!))!.Source);
+    }
+
+    [Fact]
+    public async Task Same_object_named_twice_is_pulled_once()
+    {
+        var fs = new MockFileSystem();
+        var reader = new FakeReader().With("dbo.usp_X");
+
+        var items = await Service(fs).PullAsync(Request(objects: ["usp_X", "dbo.usp_X", "[dbo].[USP_X]"]), reader, Endpoint, null, TestContext.Current.CancellationToken);
+
+        Assert.Equal(PullItemStatus.Written, Assert.Single(items).Status);
     }
 }

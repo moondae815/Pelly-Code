@@ -73,8 +73,15 @@ public sealed class SqlPullCommand(
         }
 
         ISqlDefinitionReader? compareWith = null;
+        string? devNotCompared = null;
         if (source == PullSource.Prod)
-            compareWith = SqlReaders.Development(options.Sql, readerFactory).Reader;
+        {
+            var dev = SqlReaders.Development(options.Sql, readerFactory);
+            compareWith = dev.Reader;
+            // An unconfigured dev connection stays silent; a configured one that was refused is reported.
+            if (dev.Reader is null && !string.IsNullOrWhiteSpace(options.Sql.ConnectionString))
+                devNotCompared = $"개발 DB와 비교하지 못함: {dev.Problem}";
+        }
 
         IReadOnlyList<PullItem> items;
         try
@@ -93,6 +100,7 @@ public sealed class SqlPullCommand(
             {
                 console.MarkupLine($"[green]{Markup.Escape($"받음: {item.Path}")}[/]");
                 foreach (var notice in item.Notices) console.MarkupLine($"[yellow]{Markup.Escape($"경고: {notice}")}[/]");
+                if (devNotCompared is not null) console.MarkupLine($"[yellow]{Markup.Escape($"경고: {devNotCompared}")}[/]");
             }
             else
             {

@@ -22,7 +22,8 @@ public class SqlPullCommandTests
         public Task<SqlServerProbe> ProbeAsync(CancellationToken ct) => Task.FromResult(new SqlServerProbe("16", "x", true));
 
         public Task<SqlModuleDefinition?> GetDefinitionAsync(SqlObjectName name, CancellationToken ct) =>
-            Task.FromResult<SqlModuleDefinition?>(new SqlModuleDefinition(new SqlObjectName("dbo", name.Name), "P", Definition, true, true));
+            Task.FromResult<SqlModuleDefinition?>(new SqlModuleDefinition(new SqlObjectName("dbo", name.Name), "P",
+                ConnectionString == Dev ? Definition + "-- dev\n" : Definition, true, true));
 
         public Task<IReadOnlyList<SqlModuleRef>> GetReferencingModulesAsync(SqlObjectName name, CancellationToken ct) => throw new NotSupportedException();
         public Task<IReadOnlyList<SqlColumnUse>?> GetColumnUsesAsync(SqlObjectName module, CancellationToken ct) => throw new NotSupportedException();
@@ -178,6 +179,8 @@ public class SqlPullCommandTests
         var call = Assert.Single(git.Calls);
         Assert.Equal("git", call.FileName);
         Assert.Equal(["check-ignore", "-q"], call.Arguments.Take(2));
+        Assert.EndsWith("dbo.usp_X.sql", call.Arguments[2]);
+        Assert.Equal(f.Fs.Path.GetFullPath("/w"), f.Fs.Path.GetFullPath(call.WorkingDirectory));
     }
 
     [Fact]
@@ -209,5 +212,41 @@ public class SqlPullCommandTests
         var (_, output) = f.Run("sql", "pull", "dbo.usp_X");
 
         Assert.DoesNotContain(".gitignore", output);
+    }
+
+    [Fact]
+    public void Prod_pull_compares_with_dev()
+    {
+        var f = new Fixture(Config(), new FakeGit(0));
+
+        var (exit, output) = f.Run("sql", "pull", "dbo.usp_X");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(Dev, f.Connections);
+        Assert.Contains("-- pelly pull: dev differs", f.Fs.File.ReadAllText("/w/db/pulled/dbo.usp_X.sql"));
+        Assert.Contains("개발 DB", output);
+    }
+
+    [Fact]
+    public void Dev_connection_refused_by_allow_list_notes_not_compared()
+    {
+        var f = new Fixture(Config().Replace("\"devdb01\"", "\"other\""), new FakeGit(0));
+
+        var (exit, output) = f.Run("sql", "pull", "dbo.usp_X");
+
+        Assert.Equal(0, exit);
+        Assert.True(f.Fs.File.Exists("/w/db/pulled/dbo.usp_X.sql"));
+        Assert.Contains("개발 DB와 비교하지 못함", output);
+        Assert.DoesNotContain(Dev, f.Connections);
+    }
+
+    [Fact]
+    public void Dev_not_configured_is_silent()
+    {
+        var f = new Fixture(Config(dev: false), new FakeGit(0));
+
+        var (_, output) = f.Run("sql", "pull", "dbo.usp_X");
+
+        Assert.DoesNotContain("개발 DB", output);
     }
 }

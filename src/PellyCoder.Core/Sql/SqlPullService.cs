@@ -29,6 +29,7 @@ public sealed class SqlPullService(IFileSystem fs, TimeProvider time, int compat
         var items = new List<PullItem>();
         SqlServerProbe? probe = null;
         var devUnreachable = false;
+        var seen = new List<SqlObjectName>();
 
         foreach (var input in req.Objects)
         {
@@ -38,6 +39,8 @@ public sealed class SqlPullService(IFileSystem fs, TimeProvider time, int compat
             catch (FormatException) { items.Add(Fail(input, PullItemStatus.BadName, null, $"객체 이름을 해석할 수 없습니다: {input}")); continue; }
 
             var name = new SqlObjectName(parsed.Schema ?? "dbo", parsed.Name);
+            if (seen.Any(n => n.SameAs(name))) continue; // the same object named twice is pulled once
+            seen.Add(name);
             var fileName = $"{name.Schema}.{name.Name}.sql";
             if (fileName.IndexOfAny(fs.Path.GetInvalidFileNameChars()) >= 0 || fileName.Contains('/') || fileName.Contains('\\'))
             {

@@ -15,6 +15,7 @@ public sealed class UiSession
     private readonly CancellationToken _shutdown;
     private CancellationTokenSource? _cts;
     private bool _closeRequested;
+    private bool _closeReadyRaised;
     private string _request = "";
 
     public UiSession(RunFunc run, GuiUserInteraction ui, IReadOnlyList<string> argumentErrors, CancellationToken shutdown)
@@ -31,6 +32,9 @@ public sealed class UiSession
             foreach (var error in argumentErrors)
                 _ui.AddLine(new StatusLine(null, 0, error, StatusLineKind.Error));
         }
+        // Console close, SIGTERM or SIGHUP: the shared token also cancels a running run (linked token); the window
+        // closes now when idle, or after the rollback. The registration lives as long as the session (one per process).
+        shutdown.Register(() => _ui.Dispatcher.Post(OnShutdown));
     }
 
     public SessionState State { get; private set; } = SessionState.Idle;
@@ -54,7 +58,10 @@ public sealed class UiSession
 
     public event Action? Changed;
 
-    /// <summary>Raised once, after a run ends, when a close was requested while it was running.</summary>
+    /// <summary>
+    /// Raised at most once, on the UI thread: after a run ends when a close was requested while it was running, or when
+    /// the shared shutdown token fires (at once when no run is active).
+    /// </summary>
     public event Action? CloseReady;
 
     /// <summary>Runs the request with a fresh token linked to the shutdown token; completes after the session is Finished.</summary>
@@ -94,7 +101,7 @@ public sealed class UiSession
             if (_closeRequested)
             {
                 _closeRequested = false;
-                CloseReady?.Invoke();
+                RaiseCloseReady();
             }
             finished.SetResult();
         });
@@ -127,6 +134,18 @@ public sealed class UiSession
             default:
                 return true;
         }
+    }
+
+    private void OnShutdown()
+    {
+        if (RequestClose()) RaiseCloseReady();
+    }
+
+    private void RaiseCloseReady()
+    {
+        if (_closeReadyRaised) return;
+        _closeReadyRaised = true;
+        CloseReady?.Invoke();
     }
 
     private void OnInteractionChanged()

@@ -227,6 +227,79 @@ public sealed class UiSessionTests : IDisposable
     }
 
     [Fact]
+    public void ShutdownToken_WhileIdle_RaisesCloseReady()
+    {
+        var session = NewSession(ApproveScript);
+        var closeReady = 0;
+        session.CloseReady += () => Interlocked.Increment(ref closeReady);
+
+        _shutdown.Cancel();
+
+        Assert.Equal(1, closeReady);
+        Assert.Equal(SessionState.Idle, session.State);
+        Assert.Equal(2, session.ExitCode);
+    }
+
+    [Fact]
+    public void ShutdownToken_WhileInvalid_RaisesCloseReadyKeepsExit4()
+    {
+        var session = NewSession(ApproveScript, errors: ["파일이 없습니다"]);
+        var closeReady = 0;
+        session.CloseReady += () => Interlocked.Increment(ref closeReady);
+
+        _shutdown.Cancel();
+
+        Assert.Equal(1, closeReady);
+        Assert.Equal(4, session.ExitCode);
+    }
+
+    [Fact]
+    public async Task ShutdownToken_WhileFinished_RaisesCloseReadyKeepsLastExit()
+    {
+        var session = NewSession((_, _, _) => Task.FromResult(ExitCodes.VerifyFailed));
+        var closeReady = 0;
+        session.CloseReady += () => Interlocked.Increment(ref closeReady);
+        await session.RunAsync().WaitAsync(Limit, TestContext.Current.CancellationToken);
+
+        _shutdown.Cancel();
+
+        Assert.Equal(1, closeReady);
+        Assert.Equal(ExitCodes.VerifyFailed, session.ExitCode);
+    }
+
+    [Fact]
+    public async Task ShutdownToken_WhileRunning_ClosesAfterRunEnds()
+    {
+        var rollbackGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var session = NewSession(async (_, _, ct) =>
+        {
+            try { await Task.Delay(Timeout.InfiniteTimeSpan, ct); }
+            catch (OperationCanceledException)
+            {
+                cancelled.SetResult();
+                await rollbackGate.Task; // rollback in progress
+                throw;
+            }
+            return 0;
+        });
+        var closeReady = 0;
+        session.CloseReady += () => Interlocked.Increment(ref closeReady);
+
+        var run = session.RunAsync();
+        _shutdown.Cancel();
+        await cancelled.Task.WaitAsync(Limit, TestContext.Current.CancellationToken);
+        Assert.Equal(0, closeReady);
+
+        rollbackGate.SetResult();
+        await run.WaitAsync(Limit, TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, closeReady);
+        Assert.Equal(2, session.ExitCode);
+        Assert.Equal(SessionState.Finished, session.State);
+    }
+
+    [Fact]
     public async Task RunThrows_ShowsErrorAndExit4()
     {
         var session = NewSession((_, _, _) => throw new InvalidOperationException("boom"));

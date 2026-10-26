@@ -23,6 +23,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\PellyCoder.Core\PellyCoder.Core.csproj" />
+    <ProjectReference Include="..\PellyCoder.Ui\PellyCoder.Ui.csproj" />
   </ItemGroup>
 
   <ItemGroup>

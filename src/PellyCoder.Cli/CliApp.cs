@@ -36,6 +36,13 @@ public static class CliApp
             b.AddCommand<SpecCheckCommand>("check").WithDescription("명세 파일의 문법·대상·이름을 검사합니다.");
         });
 
+        config.AddBranch("ui", b =>
+        {
+            b.SetDescription("작은 창에서 요청·진행·diff 승인을 합니다.");
+            b.AddCommand<UiCsCommand>("cs").WithDescription("C# 메서드 하나를 창에서 요청·승인해 수정합니다.");
+            b.AddCommand<UiSqlCommand>("sql").WithDescription("SQL 객체 하나를 창에서 요청·승인해 수정합니다.");
+        });
+
         // Without a handler Spectre returns -1 (process exit 255) for parse errors; PRD FR-00 allows only 0–5.
         var settings = config.Settings;
         config.SetExceptionHandler((ex, resolver) =>
@@ -58,6 +65,8 @@ public static class CliApp
         ["spec check"] = typeof(SpecCheckSettings),
         ["rules check"] = typeof(RulesCheckSettings),
         ["rules init"] = typeof(RulesInitSettings),
+        ["ui cs"] = typeof(CsSettings),
+        ["ui sql"] = typeof(SqlSettings),
     };
 
     /// <summary>
@@ -72,8 +81,8 @@ public static class CliApp
     public static string? FindOptionWithoutValue(IReadOnlyList<string> args)
     {
         if (args.Count == 0) return null;
-        // "rules" and "spec" are branches: the command is "<branch> <sub>" and its options start at index 2.
-        var isBranch = args[0] is "rules" or "spec";
+        // "rules", "spec" and "ui" are branches: the command is "<branch> <sub>" and its options start at index 2.
+        var isBranch = args[0] is "rules" or "spec" or "ui";
         var first = isBranch ? 2 : 1;
         var key = isBranch ? (args.Count >= 2 ? args[0] + " " + args[1] : null) : args[0];
         if (key is null || !CommandSettings.TryGetValue(key, out var settingsType)) return null;

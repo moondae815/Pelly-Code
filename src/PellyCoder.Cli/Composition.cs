@@ -9,9 +9,20 @@ using PellyCoder.Core.Llm;
 using PellyCoder.Core.Models;
 using PellyCoder.Core.Processes;
 using PellyCoder.Core.Sql;
+using PellyCoder.Ui.Session;
+using PellyCoder.Ui.Views;
 using Spectre.Console;
 
 namespace PellyCoder.Cli;
+
+/// <summary>A runner that asks its questions through <paramref name="ui"/> (<c>pelly ui</c> passes the window's interaction).</summary>
+public delegate IRunner RunnerFactory(IUserInteraction ui);
+
+/// <summary>Shows the approval window until it is closed and returns the session's exit code; tests replace it.</summary>
+public interface IUiLauncher
+{
+    int Run(UiLaunch launch, Func<GuiUserInteraction, UiSession> createSession);
+}
 
 /// <summary>Composition root: the only place that creates the real file system, process runner, <see cref="HttpClient"/> and backend.</summary>
 public static class Composition
@@ -29,6 +40,10 @@ public static class Composition
         services.AddSingleton<HttpClientHolder>();
         services.AddSingleton<OptionsResolver>();
         services.AddSingleton<IRunner, OrchestratorRunner>();
+        services.AddSingleton<RunnerFactory>(sp => runUi => new OrchestratorRunner(
+            sp.GetRequiredService<IFileSystem>(), runUi, sp.GetRequiredService<TimeProvider>(),
+            sp.GetRequiredService<HttpClientHolder>(), sp.GetRequiredService<IProcessRunner>()));
+        services.AddSingleton<IUiLauncher, UiHostLauncher>();
         services.AddSingleton<IDoctorRunner, DoctorRunner>();
         return services;
     }
@@ -59,6 +74,11 @@ public static class Composition
                     .RunDetailedAsync(request, ct);
             return FsmOrchestratorFactory.Create(fs, backend, ui, options, time, processes).RunDetailedAsync(request, ct);
         }
+    }
+
+    private sealed class UiHostLauncher : IUiLauncher
+    {
+        public int Run(UiLaunch launch, Func<GuiUserInteraction, UiSession> createSession) => UiHost.Run(launch, createSession);
     }
 
     private sealed class DoctorRunner(IFileSystem fs, TimeProvider time, HttpClientHolder http, IProcessRunner processes) : IDoctorRunner

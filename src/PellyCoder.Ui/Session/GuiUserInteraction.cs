@@ -82,14 +82,16 @@ public sealed class GuiUserInteraction(IUiDispatcher dispatcher) : IUserInteract
         Mutate(() => RunSummaryText = text);
     }
 
-    /// <summary>Answers the pending question. Approve/Confirm: 1 = yes, 0 = no. Select: the chosen index. Ignored when nothing is pending.</summary>
+    /// <summary>Answers the pending question. Approve/Confirm: 1 = yes, 0 = no. Select: the chosen index. Ignored when nothing is pending or the pending question is not shown yet.</summary>
     public void Answer(int choice)
     {
         Pending? pending;
         lock (_gate)
         {
             pending = _pending;
-            if (pending is null) return;
+            // Called on the UI thread: only answer the question that is on screen. Under an asynchronous dispatcher the
+            // run may already wait on the next question while the previous one is still shown (double click).
+            if (pending is null || !ReferenceEquals(Question, pending.Question)) return;
             if (pending.Question.Kind == QuestionKind.Select && (choice < 0 || choice >= pending.Question.Choices.Count))
                 throw new ArgumentOutOfRangeException(nameof(choice), choice, "선택지 범위를 벗어났습니다.");
             _pending = null;

@@ -100,4 +100,31 @@ public sealed class GuiUserInteractionTests
         Assert.Equal("src/A.cs", _ui.DiffPath);
         Assert.Equal(DiffRenderer.UnifiedLines(before, after), _ui.DiffLines);
     }
+
+    [Fact]
+    public async Task Answer_IgnoredUntilNextQuestionIsShown()
+    {
+        var dispatcher = new QueuedDispatcher();
+        var ui = new GuiUserInteraction(dispatcher);
+        var ct = TestContext.Current.CancellationToken;
+        var script = Task.Run(async () =>
+            await ui.ConfirmAsync("그래도 계속할까요?", false, ct) && await ui.ApproveAsync("적용할까요?", ct), ct);
+
+        while (dispatcher.Count < 1) await Task.Delay(10, ct);
+        dispatcher.Drain();
+        Assert.Equal(QuestionKind.Confirm, ui.Question!.Kind);
+
+        ui.Answer(1);                                    // clear of q1 queued, script asks q2
+        while (dispatcher.Count < 2) await Task.Delay(10, ct);
+        ui.Answer(1);                                    // double click on the still-shown q1 buttons
+
+        dispatcher.Drain();
+        Assert.Equal(QuestionKind.Approve, ui.Question!.Kind);
+        Assert.False(script.IsCompleted);
+
+        ui.Answer(0);
+        dispatcher.Drain();
+        Assert.False(await script.WaitAsync(TimeSpan.FromSeconds(10), ct));
+        Assert.Null(ui.Question);
+    }
 }

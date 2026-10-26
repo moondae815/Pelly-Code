@@ -80,7 +80,7 @@ pelly cs <파일> ["<요청문>"] [--class <클래스>] [--method <메서드>] [
 
 **실행 후 표시 옵션**
 * `--verbose`: 실행이 끝난 뒤 단계별 시간·토큰·시도 요약과 실행 폴더 경로를 보여줍니다. 프롬프트 원문은 출력하지 않고 `attempt-N/prompt.txt` 경로를 안내합니다(`pelly sql`에서도 같습니다).
-* `--pause-on-exit`: 결과를 보여준 뒤 키 입력을 기다립니다. IDE External Tools 창이 바로 닫히지 않게 할 때 씁니다. 아홉 명령(`cs`·`sql`·`doctor`·`report`·`rules init`·`rules check`·`spec new`·`spec check`·`apply`) 모두의 옵션입니다. 대기 여부는 `Program`이 `--` 앞의 원시 인자로 판정하므로 인자 오류로 끝나도 기다립니다. 입력이 리디렉션되거나 종료 신호를 받으면 기다리지 않습니다. Ctrl+C로 중단한 실행은 기다립니다. 키 대기는 Windows에서 확인하지 않았습니다.
+* `--pause-on-exit`: 결과를 보여준 뒤 키 입력을 기다립니다. IDE External Tools 창이 바로 닫히지 않게 할 때 씁니다. 열한 명령(`cs`·`sql`·`sql pull`·`sql check`·`doctor`·`report`·`rules init`·`rules check`·`spec new`·`spec check`·`apply`) 모두의 옵션입니다. 대기 여부는 `Program`이 `--` 앞의 원시 인자로 판정하므로 인자 오류로 끝나도 기다립니다. 입력이 리디렉션되거나 종료 신호를 받으면 기다리지 않습니다. Ctrl+C로 중단한 실행은 기다립니다. 키 대기는 Windows에서 확인하지 않았습니다.
 
 예:
 ```bash
@@ -103,6 +103,9 @@ pelly sql <파일.sql> ["<요청문>"] [--object <이름>] [--line N] [--yes] [-
 * 동적 SQL 안의 문장, `#임시테이블`의 컬럼, 다른 DB·연결된 서버(3·4부 이름) 객체는 검증하지 못하며 알림만 보여줍니다.
 * 파일에 쓰기 전에 **안전 가드**가 검사합니다: 대상 밖 배치 변경, 최상위 문장 수 변경, 금지 구문(`GRANT`/`REVOKE`/`DENY`, `xp_cmdshell`, `OPENROWSET`/`OPENDATASOURCE`, `SET NOEXEC`·`PARSEONLY`·`FMTONLY`, `ALTER DATABASE`류, 로그인 문장, `SHUTDOWN`, `RECONFIGURE`)은 거부되어 재시도되고, 끝내 못 고치면 종료 코드 5입니다. **원본 대상에 이미 금지 구문이 있으면** 모델을 부르기 전에 종료 코드 5로 멈춥니다(고칠 수 없는 프로시저).
 * 구문 오류가 있는 SQL을 만들면 파일에 쓰기 전에 걸러 재시도합니다(소진하면 종료 코드 1).
+* **명령 묶음:** `pelly sql`은 이제 명령 묶음입니다. `pelly sql <파일> …`은 위와 같이 수정 명령이고, `pelly sql pull`·`pelly sql check`가 더해졌습니다. 파일 이름이 `pull`이나 `check`이면 `./pull`·`./check`로 쓰십시오. 그 밖의 인자 오류(위치 인자가 너무 많음, `--line` 값이 숫자가 아님)는 `Unknown command '<파일>'`을 보이고 종료 코드 4로 끝나며 아무것도 실행하지 않습니다. 없는 `--옵션`은 `Unknown option '<이름>'.`으로 알립니다(종료 코드 4).
+* **운영 연결이 있으면(`sql.production`):** 대상 객체를 찾은 뒤 모델을 부르기 전에 운영 정의와 비교합니다(읽기 조회만). `pelly sql pull`로 받은 뒤 운영에서 바뀌었으면 메시지(`받은 뒤 운영에서 <dbo.이름>가 바뀌었습니다 …`)를 보이고 종료 코드 4(`SqlProdChanged`)로 멈춥니다. 그 밖의 경우(받은 기록 없이 다름, 운영에 없음, 운영 접속 불가)는 알림만 보이고 계속합니다. 운영 연결이 없으면 동작·출력이 이전과 같습니다.
+* 운영 연결이 있을 때 `pelly apply`가 `--dry-run`이거나 승인을 거부해도 `.pelly/runs/apply-…/`에 `impact-sql.json`만 남을 수 있습니다.
 
 예:
 ```bash
@@ -119,6 +122,10 @@ pelly sql Settlement_All.sql "조건 추가" --line 120
 | `sql.allowedDatabases` | `[]` | 접속을 허용할 데이터베이스. 비어 있으면 위와 같음 |
 | `sql.compatLevel` | `160` | 파서 호환성 수준: 90, 100, 110, 120, 130, 140, 150, 160, 170 |
 | `sql.connectionString` | `null` | **비밀번호가 없는 연결만** (예: `Server=db01;Database=Shop;Integrated Security=true;TrustServerCertificate=True`). `Password`/`Pwd`가 있으면 설정 오류(종료 코드 4) |
+| `sql.production.allowedHosts` | `[]` | 운영(읽기 전용) 접속을 허용할 서버 이름. 개발용 `sql.allowedHosts`와 따로 둡니다. 비어 있으면 운영에 접속하지 않습니다 |
+| `sql.production.allowedDatabases` | `[]` | 운영 접속을 허용할 데이터베이스. 비어 있으면 위와 같음 |
+| `sql.production.connectionString` | `null` | 운영 읽기 전용 연결. **비밀번호가 없는 연결만**(있으면 설정 오류, 종료 코드 4). 개발 연결(`sql.connectionString`)과 같은 서버·DB이면 설정 오류입니다 |
+| `sql.pullDirectory` | `db/pulled` | `pelly sql pull`이 파일을 쓰는 작업 공간 안 폴더 |
 
 ```json
 { "sql": { "allowedHosts": ["db01"], "allowedDatabases": ["Shop"], "connectionString": "Server=db01;Database=Shop;Integrated Security=true" } }
@@ -132,10 +139,12 @@ pelly sql Settlement_All.sql "조건 추가" --line 120
   $env:PELLY_SQL_CONNECTION = "Server=localhost,14333;Database=PellyCorpus;User Id=sa;Password=<비밀번호>;TrustServerCertificate=True"
   ```
   cmd: `set PELLY_SQL_CONNECTION=Server=...` (따옴표 없이)
+* 비밀번호가 필요한 운영 연결(SQL 인증)은 환경 변수 `PELLY_SQL_PROD_CONNECTION`으로만 지정합니다. 이 변수가 있으면 `sql.production.connectionString`보다 우선하며, `sql.production.*` 허용 목록은 이 경우에도 적용됩니다.
+* **운영 연결은 읽기 조회만 보냅니다:** 카탈로그 뷰·`OBJECT_DEFINITION`·`OBJECT_ID`·`HAS_PERMS_BY_NAME`·`sys.dm_sql_referenced_entities` 조회뿐이고, `SET NOEXEC`·트랜잭션·DDL·DML은 운영으로 보내지 않습니다. 운영 계정에는 DB 수준 `CONNECT`와 `VIEW DEFINITION`만 주십시오([deploy/server-checklist.md](deploy/server-checklist.md)). 운영 연결을 설정하지 않으면 운영 관련 동작은 모두 꺼집니다.
 * **Windows 미확인:** SQL 경로는 Windows에서 확인하지 않았습니다(CI의 SQL 테스트는 Linux에서만 돕니다). 코퍼스 배포 스크립트 `eval/corpus/Sql/deploy.sh`는 bash가 필요하므로 Windows에서는 WSL이나 Git Bash로 실행하십시오.
 * 허용 목록은 `Data Source`의 `.`, `(local)`, `np:` 형태를 정규화하지 않습니다. 허용 목록과 일치하지 않으면 접속을 거부하므로(fail closed) 호스트 이름을 쓰십시오.
 * 연결 문자열에 서버나 데이터베이스 키가 둘 이상 있거나 `Failover Partner`가 있으면 거부합니다(종료 코드 5).
-* **검증 계정 권한:** DB 수준 **`VIEW DEFINITION`** 하나면 됩니다(`ALTER`·`SHOWPLAN` 불필요). 없으면 객체 존재 검사와 스키마 요약이 동작하지 않으므로 종료 코드 4와 안내 메시지로 멈춥니다. `pelly doctor`가 접속·허용 목록·권한을 점검합니다.
+* **검증 계정 권한:** DB 수준 **`VIEW DEFINITION`** 하나면 됩니다(`ALTER`·`SHOWPLAN` 불필요). 없으면 객체 존재 검사와 스키마 요약이 동작하지 않으므로 종료 코드 4와 안내 메시지로 멈춥니다. `pelly doctor`가 접속·허용 목록·권한을 점검합니다. 운영 연결은 별도 행 「SQL 운영(읽기 전용)」으로 점검합니다(연결 없음은 Ok `운영 연결 없음(선택)`, `VIEW DEFINITION`이 없으면 Fail `VIEW DEFINITION 권한 필요`).
 
 ### `pelly sql pull` — 서버의 프로시저·함수·뷰를 SSMS 모양의 ALTER 스크립트로 받기
 ```bash
@@ -158,6 +167,8 @@ pelly sql check <파일.sql> [--object <이름>] [--config <경로>] [--pause-on
 * 모델을 부르지 않고 파일을 바꾸지 않습니다. 운영(`sql.production`)에는 읽기 조회만 합니다. 대상은 파일에 객체가 하나면 자동, 여럿이면 `--object`로 지정합니다.
 * 종료 코드: 운영과 같음·받은 뒤 운영이 바뀌지 않음·운영에 없음(새 객체) → 0, 받은 뒤 운영이 바뀜(반영하면 그 변경을 덮어씀) → 1, 대상이 여럿인데 `--object`가 없음 → 3, 운영 연결 없음·접속 실패·받은 기록 없이 파일이 운영과 다름·파일 오류 → 4.
 * 받은 기록은 `pelly sql pull`이 파일 첫 줄에 남긴 주석입니다. 운영과 같다는 판정이 받은 기록보다 먼저입니다.
+* **SSMS 흐름:** `pelly sql pull dbo.usp_X` → 받은 파일을 `pelly sql`로 수정 → 운영에 반영하기 전에 `pelly sql check <파일>` → SSMS에서 운영에 실행. pelly는 운영에 쓰지 않으므로 마지막 실행은 사람이 합니다.
+* **한계:** 동적 SQL(`EXEC(@sql)`, `sp_executesql`)로 부르는 곳, 다른 DB·연결된 서버를 거는 참조, 시노님(synonym)을 거친 참조는 영향 탐색에서 찾지 못합니다. 이름을 상수 클래스에 두고 쓰는 C# 코드는 상수 정의 위치만 찾습니다. 영향 탐색은 서버에 있는 **고치기 전** 정의를 기준으로 합니다.
 
 ### `pelly spec`·`pelly apply` — 작업 명세 파일과 순차 실행 (V2-1a)
 ```bash

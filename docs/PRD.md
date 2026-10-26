@@ -25,6 +25,7 @@
 | v1.14 | 2026-10-24 | V2-1a 구현: 명세 파일·spec new/check·순차 apply. 그룹·영향 탐색은 V2-1b·c |
 | v1.15 | 2026-10-25 | V2-1b 구현: 작업 그룹(시그니처·이름 변경, 영향 범위 빌드, 오류 귀속·재실행, 그룹 되돌리기). 영향 탐색·벤치마크는 V2-1c |
 | v1.16 | 2026-10-25 | V2-1c 구현: 영향 탐색(심볼·이름 대체 표시), BuildHost 배포, doctor 의미 분석 행, 명세 완료율 report, apply E2E 벤치마크 |
+| v1.17 | 2026-10-26 | V2-1d 구현: 운영 DB 읽기 전용 정의 읽기(`VIEW DEFINITION`, `sql.production.*`), `pelly sql pull`·`pelly sql check`, 받은 뒤 운영 변경 시 `pelly sql` 중단(`SqlProdChanged`), SQL 영향 탐색, doctor 「SQL 운영(읽기 전용)」 행. 사람 결정: 운영 읽기 접속 허용, pull 기본 출처는 운영, 영향 탐색 세 가지 모두 이번 단계, §12 로드맵에 올림 |
 
 ---
 
@@ -588,10 +589,12 @@ v2는 Superpowers, OpenSpec 같은 개발 하네스의 아이디어를 가져오
   | V2-1 | 작업 명세 파일과 순차 실행 | 2주 | v1 |
   | V2-2 | 테스트 우선 검증 | 2주 | V2-1 (수용 기준 ↔ 테스트 연결) |
   | V2-3 | 프로젝트 규칙 파일 | 1주 | v1 (다른 단계와 독립적이라 앞당길 수 있음) |
+  | V2-1d | 운영 정의 읽기·sql pull·SQL 영향 탐색 | 1~2주 | V2-1c |
 
 * 각 단계가 끝날 때마다 폐쇄망으로 반입해 검증합니다(§11.3).
 
 ### 12.3 V2-1. 작업 명세 파일과 순차 실행 (`pelly apply`)
+> **구현(V2-1d): 2026-10-26.** pelly가 운영 DB에 `VIEW DEFINITION`만으로 읽기 전용 접속합니다(`sql.production.*`, 환경 변수 `PELLY_SQL_PROD_CONNECTION`). `pelly sql pull`은 운영(기본)·개발의 프로시저·함수·뷰를 SSMS 모양의 ALTER 스크립트로 받아 `db/pulled/`(`.gitignore`로 제외)에 두고, `pelly sql check`는 운영에 실행하기 직전 운영과 대조합니다. 받은 뒤 운영이 바뀌었으면 `pelly sql`은 종료 코드 4(`SqlProdChanged`)로 멈춥니다. SQL 영향 탐색은 ① 그 객체를 참조하는 모듈(`EXEC`·참조), ② 이름을 문자열로 쓰는 C# 코드, ③ 같은 컬럼을 읽는 모듈(좁혀서 경고, 테이블마다 요약)을 `spec check --impact`와 `apply`에서 경고로 알립니다(운영 연결이 없으면 `apply`의 동작은 그대로). 한계는 동적 SQL·상수를 거친 이름·수정 전 정의 기준·다른 DB 참조입니다. SQL 통합 테스트(`[SqlServerFact]`)는 작성했으나 개발 중에는 실행하지 못했고 CI와 사람이 돌립니다. 현장에서 운영 주요 테이블로 개별 경고 수(상한 10)를 보는 것은 사람 몫입니다. 설계는 `docs/superpowers/specs/2026-10-26-v2-1d-sql-impact-design.md`, 사용법은 README `pelly sql pull`·`pelly sql check`·SQL 영향 탐색 절을 보십시오.
 > **구현(V2-1c): 2026-10-25.** 영향 탐색(심볼 기준, 의미 분석이 안 되면 「이름 기준(부정확)」으로 대체하고 표시), BuildHost 배포, `pelly doctor` 의미 분석 행, `pelly report`의 명세 완료율·그룹 빌드 통과율, E2E 벤치마크 `pelly-eval apply`(승인된 S6 정답 명세 12건, `eval/benchmark/apply/`)가 구현됐습니다. 현장 모델 실측(`--repeat N`)과 레거시 사례의 Windows 실측은 사람이 합니다(`deploy/field-results.md`).
 >
 > **구현(V2-1b): 2026-10-25.** 작업 그룹(`[G<n>]`: 시그니처·이름 변경, 영향 범위 빌드, 오류 귀속·재실행, 그룹 되돌리기)이 구현됐습니다. 영향 탐색과 벤치마크는 V2-1c입니다. 그룹 동작은 README `pelly apply` 절을 보십시오.

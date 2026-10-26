@@ -59,6 +59,28 @@ pelly sql Settlement_All.sql "월 정산에 수수료 컬럼 추가" --object db
 pelly sql Settlement_All.sql "조건 추가" --line 120
 ```
 
+## SSMS로 운영에 반영하기: `pelly sql pull`·`pelly sql check`
+
+운영 DB는 pelly가 읽기만 합니다. 운영에 실행하는 것은 사람이 SSMS에서 합니다. 설정은 `sql.production.*`(README의 「SQL 설정」)이고, 비밀번호가 필요하면 환경 변수 `PELLY_SQL_PROD_CONNECTION`을 씁니다.
+
+```
+pelly sql pull dbo.usp_CancelOrder                  # 1. 운영의 정의를 db/pulled/dbo.usp_CancelOrder.sql 로 받습니다
+pelly sql db/pulled/dbo.usp_CancelOrder.sql "배송 완료 주문은 오류를 내게 해줘"   # 2. 받은 파일을 수정합니다
+pelly sql check db/pulled/dbo.usp_CancelOrder.sql   # 3. 운영에 실행하기 직전 확인합니다
+```
+
+4. SSMS에서 파일을 열어 운영에 실행합니다.
+
+* `pelly sql pull`의 기본 출처는 운영입니다. 운영 연결이 없으면 종료 코드 4로 멈추고, 개발 DB에서 받으려면 `--from dev`를 씁니다. 이미 있는 파일은 `--force` 없이는 덮어쓰지 않습니다.
+* 받은 파일은 커밋하지 않습니다. pelly는 `.gitignore`를 고치지 않으므로 저장소 `.gitignore`에 한 줄을 직접 넣으십시오.
+  ```
+  db/pulled/
+  ```
+* 받은 뒤 운영에서 정의가 바뀌었으면 2단계의 `pelly sql`이 종료 코드 4(`SqlProdChanged`)로 멈추고, `pelly sql check`는 종료 코드 1입니다. 운영 변경을 덮어쓰지 않도록 `pelly sql pull <객체> --force`로 다시 받으십시오(고친 내용은 먼저 따로 보관).
+* `pelly sql check` 종료 코드: 0 운영과 같음·받은 뒤 바뀌지 않음·운영에 없음(새 객체), 1 받은 뒤 운영이 바뀜, 3 대상이 여럿인데 `--object` 없음, 4 운영 연결 없음·접속 실패·받은 기록 없이 운영과 다름·파일 오류.
+* 파일 이름이 `pull`이나 `check`이면 `pelly sql ./pull`처럼 `./`를 붙입니다.
+* 영향 탐색(`pelly spec check --impact`, `pelly apply`)이 찾는 SQL 쪽 경고와 한계는 README의 「SQL 영향 탐색」을 보십시오.
+
 ## `pelly spec`·`pelly apply` — 작업 명세 파일과 순차 실행 (V2-1a)
 ```bash
 pelly spec new <id> [--pause-on-exit]
@@ -174,7 +196,7 @@ SQL 안의 `#임시테이블` 컬럼, 동적 SQL 안의 문장, 다른 DB·연�
 pelly doctor [--project <csproj>]
 ```
 
-* 서버, 모델, .NET SDK, SQL 연결과 함께 **의미 분석** 행을 보여 줍니다. pelly.exe 옆에 `BuildHost-net472`, `BuildHost-netcore` 폴더가 없으면 Fail(종료 코드 4)이니 반입 zip을 다시 풀어 두십시오.
+* 서버, 모델, .NET SDK, SQL 연결, 운영 연결(「SQL 운영(읽기 전용)」 행: 연결이 없으면 Ok `운영 연결 없음(선택)`, `VIEW DEFINITION`이 없으면 Fail)과 함께 **의미 분석** 행을 보여 줍니다. pelly.exe 옆에 `BuildHost-net472`, `BuildHost-netcore` 폴더가 없으면 Fail(종료 코드 4)이니 반입 zip을 다시 풀어 두십시오.
 * `--project`를 주면 그 프로젝트를 불러와 봅니다. 불러오지 못하면 Warn이고 종료 코드는 그대로이며, 영향 탐색은 이름 기준으로 대신합니다.
 
 ## 반출 자료 만들기: `pelly report --sanitize`

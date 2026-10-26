@@ -13,3 +13,23 @@ pelly는 서버 설정을 바꾸거나 읽을 수 없습니다. 아래 항목을
 | `OLLAMA_KEEP_ALIVE` | 업무 시간 동안 언로드되지 않는 값 | 모델을 다시 올리면 첫 응답이 느려집니다. pelly도 요청마다 `keep_alive: "30m"`을 지정합니다 | `pelly doctor`가 `/api/ps`로 자동 확인 |
 
 pelly가 요청마다 지정하는 값: `options.num_ctx = 8192`, `keep_alive = "30m"`, 단계별 샘플링 값.
+
+## 운영 SQL Server 읽기 전용 계정 (DB 관리자용, V2-1d)
+
+pelly는 운영 DB의 저장 프로시저·함수·뷰 정의와 참조 관계를 **읽기만** 합니다(`pelly sql pull`·`pelly sql check`·영향 탐색). 운영에 쓰는 문장은 보내지 않으므로 계정에는 아래 두 권한만 주십시오. 개발 DB용 계정과 분리하는 것을 권장합니다.
+
+```sql
+-- 서버: 로그인 (Windows 인증 계정이면 CREATE LOGIN [DOMAIN\account] FROM WINDOWS;)
+CREATE LOGIN pelly_prod_ro WITH PASSWORD = '<강한 비밀번호>', CHECK_POLICY = ON;
+
+-- 운영 DB: 사용자, 접속, 정의 보기
+USE [<운영 DB>];
+CREATE USER pelly_prod_ro FOR LOGIN pelly_prod_ro;
+GRANT CONNECT TO pelly_prod_ro;
+GRANT VIEW DEFINITION TO pelly_prod_ro;   -- 데이터베이스 범위 권한
+```
+
+* `db_datareader` 등 역할은 넣지 않습니다. 테이블 데이터는 읽을 수 없어야 합니다.
+* 비밀번호가 있는 로그인이면 연결 문자열은 환경 변수 `PELLY_SQL_PROD_CONNECTION`으로만 지정합니다(설정 파일에 비밀번호를 쓰면 설정 오류).
+* pelly 설정에서 `sql.production.allowedHosts`·`sql.production.allowedDatabases`로 운영 서버·DB를 허용합니다.
+* 확인: `pelly doctor`의 「SQL 운영(읽기 전용)」 행. 정상이면 Ok(`<서버>/<DB>, 읽기 전용`), 권한이 없으면 Fail(`VIEW DEFINITION 권한 필요` — 운영 DB에서 읽기 전용 계정에 GRANT VIEW DEFINITION 권한을 부여하라는 안내), 접속할 수 없으면 Fail이고 종료 코드 4입니다. 운영 연결을 설정하지 않았으면 Ok(`운영 연결 없음(선택)`)입니다.

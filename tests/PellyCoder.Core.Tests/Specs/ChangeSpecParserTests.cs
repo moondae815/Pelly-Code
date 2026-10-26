@@ -210,4 +210,85 @@ public sealed class ChangeSpecParserTests
 
         Assert.DoesNotContain(spec.Issues, i => i.Code == "InvalidTaskLine");
     }
+
+    private static ChangeSpec ParseAc(string criteria) => ChangeSpecParser.Parse(Spec("- [ ] T1 cs a.cs x (AC1)\n", criteria));
+
+    [Fact]
+    public void Parse_TestAndBreaks_AnyOrder()
+    {
+        var spec = ParseAc("- AC1: 하나\n  breaks: A.Old\n  test: A.New\n  breaks: A.Older\n");
+
+        Assert.Empty(spec.Issues);
+        Assert.Equal("A.New", spec.Criteria[0].Test);
+        Assert.Equal(["A.Old", "A.Older"], spec.Criteria[0].BreakNames);
+    }
+
+    [Fact]
+    public void Parse_TestOnly_Unchanged()
+    {
+        var spec = ParseAc("- AC1: 하나\n  test: A.New\n- AC2: 둘\n");
+
+        Assert.Empty(spec.Issues);
+        Assert.Equal("A.New", spec.Criteria[0].Test);
+        Assert.Empty(spec.Criteria[0].BreakNames);
+        Assert.Null(spec.Criteria[1].Test);
+    }
+
+    [Fact]
+    public void Parse_DuplicateTest_Error()
+    {
+        var spec = ParseAc("- AC1: 하나\n  test: A.One\n  test: A.Two\n");
+
+        var issue = Assert.Single(spec.Issues, i => i.Code == "DuplicateTest");
+        Assert.Equal(SpecIssueSeverity.Error, issue.Severity);
+        Assert.Equal(10, issue.Line); // front 6 lines, heading 7, AC1 8, first test 9, second test 10
+        Assert.Equal("수용 기준 AC1에 test:가 둘 이상입니다.", issue.Message);
+        Assert.Equal("A.One", spec.Criteria[0].Test);
+    }
+
+    [Fact]
+    public void Parse_InvalidTestName_Error()
+    {
+        var spec = ParseAc("- AC1: 하나\n  test: A.M(1)\n");
+
+        var issue = Assert.Single(spec.Issues, i => i.Code == "InvalidTestName");
+        Assert.Equal(SpecIssueSeverity.Error, issue.Severity);
+        Assert.Equal("수용 기준 AC1의 테스트 이름 형식이 아닙니다: A.M(1)", issue.Message);
+    }
+
+    [Fact]
+    public void Parse_InvalidBreaksName_Error()
+    {
+        var spec = ParseAc("- AC1: 하나\n  breaks: A M\n");
+
+        Assert.Single(spec.Issues, i => i.Code == "InvalidTestName");
+    }
+
+    [Fact]
+    public void Parse_BreaksSameAsTest_Error()
+    {
+        var spec = ParseAc("- AC1: 하나\n  breaks: A.New\n  test: A.New\n");
+
+        var issue = Assert.Single(spec.Issues, i => i.Code == "BreaksSameAsTest");
+        Assert.Equal("수용 기준 AC1: 같은 테스트를 test:와 breaks:에 함께 둘 수 없습니다: A.New", issue.Message);
+    }
+
+    [Fact]
+    public void Parse_DuplicateBreaks_KeptOnce()
+    {
+        var spec = ParseAc("- AC1: 하나\n  breaks: A.Old\n  breaks: A.Old\n");
+
+        Assert.Empty(spec.Issues);
+        Assert.Equal(["A.Old"], spec.Criteria[0].BreakNames);
+    }
+
+    [Fact]
+    public void Parse_UnindentedLineEndsCriterion()
+    {
+        var spec = ParseAc("- AC1: 하나\n  test: A.New\nbreaks: X\n  breaks: Y\n");
+
+        Assert.Empty(spec.Issues);
+        Assert.Equal("A.New", spec.Criteria[0].Test);
+        Assert.Empty(spec.Criteria[0].BreakNames);
+    }
 }

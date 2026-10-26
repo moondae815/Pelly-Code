@@ -9,7 +9,11 @@ public enum SpecIssueSeverity { Error, Warning }
 /// <summary>A problem found while parsing a change spec. <paramref name="Line"/> is 1-based.</summary>
 public sealed record SpecIssue(int Line, SpecIssueSeverity Severity, string Code, string Message);
 
-public sealed record AcceptanceCriterion(string Id, string Text, string? Test);
+public sealed record AcceptanceCriterion(string Id, string Text, string? Test, IReadOnlyList<string>? Breaks = null)
+{
+    /// <summary>Tests this criterion intentionally breaks (<c>breaks:</c> lines); empty when none.</summary>
+    public IReadOnlyList<string> BreakNames => Breaks ?? [];
+}
 
 public sealed record SpecTask(
     string Id,

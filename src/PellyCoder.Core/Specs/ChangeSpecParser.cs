@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using PellyCoder.Core.Testing;
 
 namespace PellyCoder.Core.Specs;
 
@@ -21,7 +22,7 @@ public static class ChangeSpecParser
         RegexOptions.CultureInvariant);
 
     private static readonly Regex CriterionLine = new(@"^- (AC\d+):\s*(.+?)\s*$", RegexOptions.CultureInvariant);
-    private static readonly Regex TestLine = new(@"^\s+test:\s*(.+?)\s*$", RegexOptions.CultureInvariant);
+    private static readonly Regex SubLine = new(@"^\s+(test|breaks):\s*(.+?)\s*$", RegexOptions.CultureInvariant);
 
     public static ChangeSpec Parse(string textLf)
     {
@@ -58,13 +59,36 @@ public static class ChangeSpecParser
                 var m = CriterionLine.Match(line);
                 if (m.Success)
                 {
+                    var acId = m.Groups[1].Value;
                     string? test = null;
-                    if (i + 1 < lines.Length && TestLine.Match(lines[i + 1]) is { Success: true } t)
+                    var breaks = new List<(string Name, int Line)>();
+                    // Indented test:/breaks: lines directly after the AC line, in any order; any other line ends them.
+                    while (i + 1 < lines.Length && SubLine.Match(lines[i + 1]) is { Success: true } sub)
                     {
-                        test = t.Groups[1].Value;
                         i++;
+                        var subNo = i + 1;
+                        var value = sub.Groups[2].Value;
+                        var isTest = sub.Groups[1].Value == "test";
+                        if (isTest && test is not null)
+                        {
+                            issues.Add(Error(subNo, "DuplicateTest", $"수용 기준 {acId}에 test:가 둘 이상입니다."));
+                            continue;
+                        }
+                        if (!TestNames.IsValid(value))
+                        {
+                            issues.Add(Error(subNo, "InvalidTestName", $"수용 기준 {acId}의 테스트 이름 형식이 아닙니다: {value}"));
+                            if (isTest) test = value;
+                            continue;
+                        }
+                        if (isTest) test = value;
+                        else if (!breaks.Exists(b => b.Name == value)) breaks.Add((value, subNo));
                     }
-                    criteria.Add(new AcceptanceCriterion(m.Groups[1].Value, m.Groups[2].Value, test));
+                    foreach (var (name, breakLine) in breaks)
+                        if (name == test)
+                            issues.Add(Error(breakLine, "BreaksSameAsTest",
+                                $"수용 기준 {acId}: 같은 테스트를 test:와 breaks:에 함께 둘 수 없습니다: {name}"));
+                    criteria.Add(new AcceptanceCriterion(acId, m.Groups[2].Value, test,
+                        breaks.Count > 0 ? breaks.Select(b => b.Name).ToArray() : null));
                 }
                 else if (TaskCheckbox.IsMatch(line))
                 {

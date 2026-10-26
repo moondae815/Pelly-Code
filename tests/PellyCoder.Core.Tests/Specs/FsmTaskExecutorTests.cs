@@ -1,6 +1,7 @@
 using PellyCoder.Core.Fsm;
 using PellyCoder.Core.Models;
 using PellyCoder.Core.Specs;
+using PellyCoder.Core.Testing;
 using PellyCoder.Core.Workspaces;
 
 namespace PellyCoder.Core.Tests.Specs;
@@ -67,5 +68,35 @@ public sealed class FsmTaskExecutorTests
         Assert.Equal(Path.Combine(Ws.Root, "src", "Sub", "A.cs"), r.FilePath);
         Assert.Equal(Ws, r.Host!.Workspace);
         Assert.Null(r.MethodName);
+    }
+
+    [Fact]
+    public async Task Executor_PutsTestsOnRequest()
+    {
+        var tests = new TaskTests(new Dictionary<string, TestCheck> { ["T.A"] = TestCheck.Red, ["T.B"] = TestCheck.Green }, ["T.Old"]);
+
+        var cs = await Run(Task(TaskKind.CSharp, "src/A.cs", "OrderService.Cancel"), Opts with { Tests = tests });
+        Assert.Equal(["T.A", "T.B"], cs.VerifyTests!.Order());
+        Assert.Same(tests.Checks, cs.TestChecks);
+        Assert.Equal(["T.Old"], cs.ExpectBreaks);
+
+        var sql = await Run(Task(TaskKind.Sql, "db/a.sql", "dbo.usp_X"), Opts with { Tests = tests });
+        Assert.Null(sql.VerifyTests);
+        Assert.Null(sql.TestChecks);
+        Assert.Null(sql.ExpectBreaks);
+    }
+
+    [Fact]
+    public async Task Executor_NoTests_NoBreaks_LeavesRequestPlain()
+    {
+        var plain = await Run(Task(TaskKind.CSharp, "src/A.cs", "OrderService.Cancel"));
+        Assert.Null(plain.VerifyTests);
+        Assert.Null(plain.TestChecks);
+        Assert.Null(plain.ExpectBreaks);
+
+        var noBreaks = await Run(Task(TaskKind.CSharp, "src/A.cs", "OrderService.Cancel"),
+            Opts with { Tests = new TaskTests(new Dictionary<string, TestCheck> { ["T.A"] = TestCheck.Red | TestCheck.Green }, []) });
+        Assert.Equal(["T.A"], noBreaks.VerifyTests);
+        Assert.Null(noBreaks.ExpectBreaks);
     }
 }

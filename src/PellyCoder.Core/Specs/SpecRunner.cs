@@ -13,6 +13,8 @@ using PellyCoder.Core.Impact;
 using PellyCoder.Core.Llm;
 using PellyCoder.Core.Logging;
 using PellyCoder.Core.Models;
+using PellyCoder.Core.Reporting;
+using PellyCoder.Core.Testing;
 using PellyCoder.Core.Workspaces;
 
 namespace PellyCoder.Core.Specs;
@@ -130,12 +132,23 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
         private SpecDocument _doc = null!;
         private bool _archived;
 
+        // Acceptance-criterion tests (design §6 test-first): the links, the tasks already done when the apply started (--resume),
+        // each task's first and last run in this apply, and how each task ended (a group task: its group's exit code).
+        private IReadOnlyList<AcLink> _links = [];
+        private HashSet<string> _doneAtStart = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, RunResult> _firstRuns = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, RunResult> _lastRuns = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, int> _ends = new(StringComparer.Ordinal);
+        private bool _rolledBack; // the whole apply was undone: end review rejected, or cancelled under --review-at-end
+
         public string? ApplyId { get; private set; }
 
         public async Task<int> ExecuteAsync(CancellationToken ct)
         {
             _doc = SpecDocument.Load(owner.Guard, specPath);
             var tasks = _doc.Spec.Tasks;
+            _links = TestFirstLinks.Build(_doc.Spec);
+            _doneAtStart = tasks.Where(t => t.Done).Select(t => t.Id).ToHashSet(StringComparer.Ordinal);
             if (!o.Resume && tasks.Any(t => t.Done))
             {
                 owner.Ui.Warn("이미 진행된 명세입니다. --resume을 쓰세요.");
@@ -173,6 +186,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                     var group = todo.Skip(i).TakeWhile(t => t.Group == groupId).ToList();
                     i += group.Count - 1;
                     var end = await RunGroupAsync(tx, group, ct);
+                    foreach (var t in group) _ends[t.Id] = end.ExitCode;
                     if (end.Terminal) return Finish(end.ExitCode);
                     if (end.ExitCode == 0) continue;
 
@@ -189,10 +203,12 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                     continue;
                 }
 
+                // Only a criterion's first linked task gets RED, so under --resume a criterion whose first linked task is
+                // already done has no RED role left (its result shows Skipped). Group tasks get none: group mode does not test.
                 RunResult? run;
                 try
                 {
-                    run = await ExecuteTaskAsync(tx, task, taskOptions, ct);
+                    run = await ExecuteTaskAsync(tx, task, taskOptions with { Tests = TestFirstLinks.For(_links, task.Id) }, ct);
                 }
                 catch (OperationCanceledException)
                 {
@@ -217,6 +233,8 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                 string kind = r.FailureKind ?? $"exit-{r.ExitCode}";
                 if (!await SpecWrittenAsync(_doc.MarkFailedAsync(task.Id, r.RunId, kind, CancellationToken.None))) return Finish(Unreviewed(tx, 4));
                 _marked.Add(task.Id);
+                // The user declined a test that already passes: the spec's criterion is wrong, so even --continue stops.
+                if (kind == FailureKinds.TestRedDeclined) { stopCode = 2; break; }
                 if (!o.Continue) { stopCode = r.ExitCode; break; }
             }
 
@@ -471,6 +489,9 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             }
 
             _results.Add(new ApplyTaskResult(task.Id, r.RunId, r.ExitCode, r.FailureKind, Seconds(started), task.Group));
+            _firstRuns.TryAdd(task.Id, r);
+            _lastRuns[task.Id] = r;
+            _ends[task.Id] = r.ExitCode;
             // A null Original means the run failed before reading the file, so it wrote nothing.
             if (r.Original is not null) tx.Record(r.Original, r.Final);
             if (r.ExitCode == 2 && ct.IsCancellationRequested) throw new OperationCanceledException(ct);
@@ -629,6 +650,9 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             var changes = tx.Changes();
             if (changes.Count == 0) return null;
             foreach (var (file, before, after) in changes) owner.Ui.ShowDiff(file, before, after);
+            // The FSM only recorded these under --review-at-end (it never asks then): the reviewer decides with them in view.
+            var passed = _links.Where(l => RedOf(l) == RedState.AlreadyPassed).Select(l => l.AcId).ToList();
+            if (passed.Count > 0) owner.Ui.Warn($"이미 통과한 테스트로 판정된 수용 기준: {string.Join(", ", passed)}");
 
             bool approved;
             try { approved = await owner.Ui.ConfirmAsync("모두 적용할까요?", false, ct); }
@@ -640,6 +664,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
         /// <summary>Undoes this apply (marks first, then files); 2 when everything was restored, otherwise 4.</summary>
         private async Task<int> RollBackApplyAsync(ApplyTransaction tx, string notApplied)
         {
+            _rolledBack = true;
             // Spec first: if the marks cannot be cleared, the files must stay too, or a rolled-back task would keep its [x].
             if (_marked.Count > 0 && !await SpecWrittenAsync(_doc.ClearMarksAsync(_marked, CancellationToken.None), notApplied)) return 4;
             // Tasks done in an earlier session (--resume) keep their marks, so the spec stays in progress.
@@ -692,6 +717,44 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
 
         private double Seconds(long started) => owner.Time.GetElapsedTime(started).TotalSeconds;
 
+        /// <summary>RED of a criterion: its first linked task's verdict for the test; not judged when absent (or never run).</summary>
+        private RedState RedOf(AcLink link)
+        {
+            if (link.LinkedTaskIds.Count == 0) return RedState.NotChecked;
+            var first = link.LinkedTaskIds[0];
+            if (_doneAtStart.Contains(first)) return RedState.Skipped;
+            return _firstRuns.TryGetValue(first, out var r) && r.TestFirst?.Red.TryGetValue(link.Test, out var state) == true
+                ? state
+                : RedState.NotChecked;
+        }
+
+        /// <summary>
+        /// A criterion's result. Its last linked task decides: exit 0 and kept → met; exit 2, or not run (stopped earlier,
+        /// review rejected, cancelled) → not run; otherwise not met. A group task ends with its group (Task 6 adds group tests).
+        /// </summary>
+        private AcResult CriterionResult(AcLink link)
+        {
+            var red = RedOf(link);
+            if (link.LinkedTaskIds.Count == 0) return new AcResult(link.AcId, red, AcOutcome.Unverified, null, 0);
+
+            var last = link.LinkedTaskIds[^1];
+            var run = _lastRuns.GetValueOrDefault(last);
+            var runId = run?.RunId;
+            var breaks = run?.TestFirst?.BreaksExcluded ?? 0;
+            AcOutcome outcome;
+            if (_rolledBack) outcome = AcOutcome.NotRun;
+            else if (_ends.TryGetValue(last, out var end))
+                outcome = end == 0 ? AcOutcome.Met : end == 2 || run is null ? AcOutcome.NotRun : AcOutcome.NotMet;
+            else if (_doneAtStart.Contains(last))
+            {
+                // Done in an earlier session (--resume): its GREEN passed then.
+                outcome = AcOutcome.Met;
+                runId = _doc.Spec.Tasks.FirstOrDefault(t => t.Id == last)?.RunId;
+            }
+            else outcome = AcOutcome.NotRun;
+            return new AcResult(link.AcId, red, outcome, runId, breaks);
+        }
+
         /// <summary>Writes <c>apply.json</c> (best effort) and returns <paramref name="exitCode"/>.</summary>
         private int Finish(int exitCode)
         {
@@ -701,7 +764,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                 owner.Fs.Directory.CreateDirectory(dir);
                 var summary = new ApplySummary(ApplyId!, SpecId, _results, exitCode, warnings, _archived,
                     impact is null ? null : impact.Mode == ImpactMode.Semantic ? "semantic" : "name", impact?.Fallback?.Kind.ToString(),
-                    _doc?.Spec.Tasks.Count ?? 0, o.Resume);
+                    _doc?.Spec.Tasks.Count ?? 0, o.Resume, _links.Count > 0 ? _links.Select(CriterionResult).ToList() : null);
                 owner.Fs.File.WriteAllText(owner.Fs.Path.Combine(dir, "apply.json"), JsonSerializer.Serialize(summary, SummaryJson));
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

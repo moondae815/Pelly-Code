@@ -160,6 +160,25 @@ public class KpiReportTests
         Assert.Contains("| Passed (판정 테스트 통과 1건, 수정 전 동작 테스트 실패 확인 1건) |", report, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Report_TestFirstRows_OnlyWhenPresent()
+    {
+        var plain = KpiReport.Render([Result("cs-modern-001", "cs", VerificationResult.Passed, 0, 0.3, 5)], "테스트");
+        Assert.DoesNotContain("수용 기준 충족률", plain, StringComparison.Ordinal);
+
+        var rows = new[]
+        {
+            TestFirstMetricsTests.Row("cs-modern-001", VerificationResult.Passed, 0, new("Red", "Passed", "Failed", 0, 0)),
+            TestFirstMetricsTests.Row("cs-modern-002", VerificationResult.Failed, 1, new("AlreadyPassed", "Failed", "Passed", 0, 0)),
+        };
+        var report = KpiReport.Render(rows, "테스트");
+        Assert.Contains("| 수용 기준 충족률 | 100.0% (1/1) |", report, StringComparison.Ordinal);
+        Assert.Contains("| RED 확인 경고율 | 50.0% (1/2) |", report, StringComparison.Ordinal);
+        Assert.Contains("| 막은 잘못된 패치 | 1건 |", report, StringComparison.Ordinal);
+        Assert.Contains("| 피드백으로 고친 비율 | 1/1 |", report, StringComparison.Ordinal);
+        Assert.Contains(TestFirstMetricsData.Notice, report, StringComparison.Ordinal);
+    }
+
     private static TaskResult Result(string id, string kind, string status, int exit, double ttft, double wall,
         string? failure = null, bool invariant = false, VerificationResult? independent = null) =>
         new(id, kind, status, exit, 1, [], independent ?? VerificationResult.Pass, (independent ?? VerificationResult.Pass).Status,

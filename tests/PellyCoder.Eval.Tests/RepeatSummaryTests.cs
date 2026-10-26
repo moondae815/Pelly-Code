@@ -168,6 +168,27 @@ public sealed class RepeatSummaryTests : IDisposable
         Assert.NotNull(EvalArguments.Parse(["--repeat"]).Error);
     }
 
+    [Fact]
+    public void Summary_TestFirstAggregated_AcrossRuns()
+    {
+        TaskResult Tf(string id, string first) => TestFirstMetricsTests.Row(id, VerificationResult.Passed, 0, new("Red", "Passed", first, 0, 0));
+        var data = RepeatSummary.Build([[Tf("cs-modern-001", "Failed")], [Tf("cs-modern-001", "Passed")]]);
+        Assert.Equal(new TestFirstMetricsData(2, 2, 2, 0, 2, 1, 1, 0), data.TestFirst);
+        var md = KpiReport.RenderRepeat(data, "h");
+        Assert.Contains("| 수용 기준 충족률 | 100.0% (2/2) |", md, StringComparison.Ordinal);
+        Assert.Equal(data.TestFirst, RepeatSummary.FromJson(RepeatSummary.ToJson(data)).TestFirst);
+    }
+
+    [Fact]
+    public void Summary_OldJsonWithoutTestFirst_Loads()
+    {
+        var data = RepeatSummary.Build([[Pass("cs-modern-001")]]);
+        var json = RepeatSummary.ToJson(data);
+        Assert.DoesNotContain("testFirst", json, StringComparison.Ordinal);
+        Assert.Null(RepeatSummary.FromJson(json).TestFirst);
+        Assert.DoesNotContain("수용 기준 충족률", KpiReport.RenderRepeat(data, "h"), StringComparison.Ordinal);
+    }
+
     private static TaskResult Pass(string id, double wall = 1) => Result(id, VerificationResult.Passed, null, false, wall);
 
     private static TaskResult Fail(string id, string failure, bool invariant = false, double wall = 1) =>

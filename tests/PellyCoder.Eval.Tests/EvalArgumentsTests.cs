@@ -66,6 +66,16 @@ public class EvalArgumentsTests
         Assert.Contains("모델 digest나 Ollama 버전이 다르면 판정 불가(4)", EvalArguments.Usage, StringComparison.Ordinal);
 
     [Fact]
+    public void Compare_TestFirstFlag_Parsed()
+    {
+        var a = EvalArguments.Parse(["compare", "--test-first", "b.json", "c.json"]);
+        Assert.Null(a.Error);
+        Assert.True(a.TestFirst);
+        Assert.Equal(["b.json", "c.json"], a.Positional);
+        Assert.False(EvalArguments.Parse(["compare", "b.json", "c.json"]).TestFirst);
+    }
+
+    [Fact]
     public void OfflineSelfTest_SameRowsAsPelly_AllOk_Exit0()
     {
         var output = new StringWriter();

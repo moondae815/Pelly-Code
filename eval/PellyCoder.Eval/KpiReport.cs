@@ -43,6 +43,7 @@ public static class KpiReport
         sb.AppendLine($"| 최종 작업 성공률 | ≥ 85% | {SuccessRates(ran)} (판정 도구 오류로 미판정 {tooling}건) |");
         sb.AppendLine($"| 단일 작업 완료 시간 | 중위값 < 15초 / P90 < 30초 | {MedianP90(wall, "초")} |");
         sb.AppendLine();
+        if (ran.Any(r => r.TestFirst is not null)) TestFirstMetrics.AppendSection(sb, TestFirstMetrics.Build(ran));
 
         sb.AppendLine("## 실패 유형 분포").AppendLine();
         var failures = ran.Where(r => r.Status == VerificationResult.Failed)
@@ -91,6 +92,8 @@ public static class KpiReport
         sb.AppendLine($"* 평균 성공 작업 수: {Num(s.MeanSuccesses)} (표본 표준편차 {Num(s.StdDevSuccesses)}; 회차별 {string.Join(", ", s.Runs.Select(r => r.Successes))})");
         sb.AppendLine($"* 작업 시간 중위값(전 회차): {Num(s.MedianWallSeconds)}초");
         sb.AppendLine($"* 검증 불변 조건 위반: 회차별 {string.Join(", ", s.Runs.Select(r => r.InvariantViolations))}건").AppendLine();
+
+        if (s.TestFirst is { Ran: > 0 } tf) TestFirstMetrics.AppendSection(sb, tf);
 
         sb.AppendLine("## 회차별").AppendLine();
         sb.AppendLine("| 회차 | 폴더 | 작업 | 실행 | 성공 | 불변 조건 위반 | 판정 실패(Judge) | 판정 도구 오류(JudgeTooling) | 시간 중위값(초) |");

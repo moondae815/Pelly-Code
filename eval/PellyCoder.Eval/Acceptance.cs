@@ -87,13 +87,7 @@ public static class Acceptance
             if (s.Groups.Count == 0) problems.Add($"{name}: 범주(groups)가 없습니다.");
         }
 
-        if (baseline.Conditions is { } bc && candidate.Conditions is { } cc)
-        {
-            if (bc.ModelDigest is { } bd && cc.ModelDigest is { } cd && bd != cd)
-                problems.Add($"모델 digest가 다릅니다 ({Head(bd)} ≠ {Head(cd)})");
-            if (bc.OllamaVersion is { } bo && cc.OllamaVersion is { } co && bo != co)
-                problems.Add($"Ollama 버전이 다릅니다 ({bo} ≠ {co})");
-        }
+        problems.AddRange(ModelIdentityProblems(baseline, candidate));
 
         if (baseline.RunCount != candidate.RunCount)
             problems.Add($"회차 수가 다릅니다: 기준선 {baseline.RunCount} · 후보 {candidate.RunCount}.");
@@ -111,6 +105,35 @@ public static class Acceptance
             if (other is not null && other.Ran != run.Ran)
                 problems.Add($"회차 {run.Run}에서 실행된 작업 수가 다릅니다: 기준선 {run.Ran} · 후보 {other.Ran}.");
         }
+        return problems;
+    }
+
+    private static IEnumerable<string> ModelIdentityProblems(RepeatSummaryData baseline, RepeatSummaryData candidate)
+    {
+        if (baseline.Conditions is not { } bc || candidate.Conditions is not { } cc) yield break;
+        if (bc.ModelDigest is { } bd && cc.ModelDigest is { } cd && bd != cd)
+            yield return $"모델 digest가 다릅니다 ({Head(bd)} ≠ {Head(cd)})";
+        if (bc.OllamaVersion is { } bo && cc.OllamaVersion is { } co && bo != co)
+            yield return $"Ollama 버전이 다릅니다 ({bo} ≠ {co})";
+    }
+
+    /// <summary>
+    /// Why a v1 baseline and a <c>run --test-first</c> candidate cannot be reported on together (empty when they can): the same
+    /// model identity rules as <see cref="Comparability"/>, a cancelled or empty summary, and the test-first flag (candidate must
+    /// be a test-first run, baseline must not). The task set and run count may differ: the candidate covers only tasks with judge tests.
+    /// </summary>
+    public static IReadOnlyList<string> TestFirstComparability(RepeatSummaryData baseline, RepeatSummaryData candidate)
+    {
+        var problems = new List<string>();
+        foreach (var (name, s) in new[] { ("기준선", baseline), ("후보", candidate) })
+        {
+            if (s.Cancelled) problems.Add($"{name}: 중단된 반복 실행입니다(cancelled).");
+            if (s.Conditions is null) problems.Add($"{name}: 실행 조건(conditions)이 없습니다.");
+            if (s.Runs.Count == 0) problems.Add($"{name}: 회차(runs)가 없습니다.");
+        }
+        problems.AddRange(ModelIdentityProblems(baseline, candidate));
+        if (candidate.Conditions is { } cc && cc.TestFirst != true) problems.Add("후보가 테스트 우선 실행(run --test-first)이 아닙니다.");
+        if (baseline.Conditions is { TestFirst: true }) problems.Add("기준선이 테스트 우선 실행입니다. v1 실행 요약이어야 합니다.");
         return problems;
     }
 
@@ -134,9 +157,11 @@ public static class Acceptance
 
     private static string Head(string digest) => digest.Length <= 12 ? digest : digest[..12];
 
-    internal static string F(double v) => v.ToString("0.00", CultureInfo.InvariantCulture);
+    internal static string S(double? v) => v is null ? "없음" : F(v.Value) + "초";
 
-    private static string S(double? v) => v is null ? "없음" : F(v.Value) + "초";
+    internal static string Sg(double v) => Signed(v);
+
+    internal static string F(double v) => v.ToString("0.00", CultureInfo.InvariantCulture);
 
     private static string Signed(double v) => double.IsNaN(v) ? "없음" : v < 0 ? "−" + F(-v) : "+" + F(v);
 }
@@ -147,6 +172,78 @@ public static class CompareCommand
 {
     public const string Usage = "사용법: dotnet run --project eval/PellyCoder.Eval -- compare <기준선 summary.json> <후보 summary.json>\n"
         + "  종료 코드: 0 채택 · 3 거절 · 4 판정 불가(인자·파일 오류, 비교할 수 없는 요약)";
+
+    private static RepeatSummaryData[]? Load(IReadOnlyList<string> paths, TextWriter output)
+    {
+        var loaded = new RepeatSummaryData[2];
+        for (var i = 0; i < 2; i++)
+        {
+            try
+            {
+                loaded[i] = RepeatSummary.FromJson(File.ReadAllText(paths[i]));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+            {
+                output.WriteLine($"판정하지 않습니다 — {paths[i]}을 읽을 수 없습니다: {ex.Message}");
+                return null;
+            }
+        }
+        return loaded;
+    }
+
+    /// <summary><c>compare --test-first</c>: a report, not a verdict. Exit 0 reported, 4 not judged.</summary>
+    public static int RunTestFirst(IReadOnlyList<string> paths, TextWriter output)
+    {
+        if (paths.Count != 2)
+        {
+            output.WriteLine(Usage);
+            return 4;
+        }
+        if (Load(paths, output) is not { } loaded) return 4;
+        var (baseline, candidate) = (loaded[0], loaded[1]);
+
+        output.WriteLine($"기준선: {paths[0]}");
+        output.WriteLine($"후보:   {paths[1]}");
+        var problems = Acceptance.TestFirstComparability(baseline, candidate);
+        if (problems.Count > 0)
+        {
+            output.WriteLine("판정하지 않습니다 — 두 요약을 비교할 수 없습니다:");
+            foreach (var p in problems) output.WriteLine("  * " + p);
+            return 4;
+        }
+
+        // Test-first target tasks = the candidate's tasks that ran in some run. The candidate summary records no per-task
+        // judge-test flag, but `run --test-first` skips every task without judge tests, so a task that never left Skipped
+        // (or "—") is not a target; the baseline average counts only these ids.
+        var targets = candidate.Tasks.Where(t => t.Outcomes.Any(o => o != VerificationResult.Skipped && o != "—"))
+            .Select(t => t.Id).ToHashSet(StringComparer.Ordinal);
+        double Mean(RepeatSummaryData s) =>
+            s.RunCount == 0 ? 0 : (double)s.Tasks.Where(t => targets.Contains(t.Id)).Sum(t => t.Successes) / s.RunCount;
+        var (bMean, cMean) = (Mean(baseline), Mean(candidate));
+
+        output.WriteLine();
+        output.WriteLine("보고 (판정이 아닙니다):");
+        output.WriteLine($"* 대상 작업: 테스트 우선 {targets.Count}건 (기준선은 이 작업만 셉니다)");
+        output.WriteLine($"* 평균 성공 수: 기준선 {Acceptance.F(bMean)} · 테스트 우선 {Acceptance.F(cMean)}");
+        output.WriteLine($"* 차이: {Acceptance.Sg(cMean - bMean)}");
+        var ratio = baseline.MedianWallSeconds is > 0 && candidate.MedianWallSeconds is not null
+            ? Acceptance.F(candidate.MedianWallSeconds.Value / baseline.MedianWallSeconds.Value) + "배" : "없음";
+        output.WriteLine($"* 시간 중위값 비율: {ratio} (기준선 {Acceptance.S(baseline.MedianWallSeconds)} · 테스트 우선 {Acceptance.S(candidate.MedianWallSeconds)})");
+        output.WriteLine($"* 검증 불변 조건 위반: 기준선 {baseline.Runs.Sum(r => r.InvariantViolations)}건 · 테스트 우선 {candidate.Runs.Sum(r => r.InvariantViolations)}건");
+        output.WriteLine();
+        if (candidate.TestFirst is { } tf)
+        {
+            var sb = new System.Text.StringBuilder();
+            TestFirstMetrics.AppendSection(sb, tf);
+            output.Write(sb.ToString());
+        }
+        else
+        {
+            output.WriteLine("테스트 우선 지표: 후보 요약에 없습니다.");
+            output.WriteLine(TestFirstMetricsData.Notice);
+        }
+        return 0;
+    }
 
     public static int Run(IReadOnlyList<string> paths, TextWriter output)
     {

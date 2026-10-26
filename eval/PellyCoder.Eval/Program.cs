@@ -27,7 +27,7 @@ if (parsed.Help || parsed.Error is not null)
 }
 // Hidden: the packaged single file's bundled components (pelly doctor --offline-selftest rows), before any config or HTTP client.
 if (parsed.OfflineSelfTest) return SelfTestCommand.Run(Console.Out); // 0 all Ok, 4 otherwise
-if (parsed.Command == EvalArguments.Compare) return CompareCommand.Run(parsed.Positional, Console.Out); // R4 verdict: 0 adopted, 3 rejected, 4 not judged
+if (parsed.Command == EvalArguments.Compare) return parsed.TestFirst ? CompareCommand.RunTestFirst(parsed.Positional, Console.Out) : CompareCommand.Run(parsed.Positional, Console.Out); // R4 verdict (--test-first: a report, 0 reported): 0 adopted, 3 rejected, 4 not judged
 if (parsed.Command == EvalArguments.Validate) return ValidateCommand.Run(parsed, Console.Out, Console.Error, processes: new SystemProcessRunner(TimeProvider.System)); // offline definition check: 0 no errors, 4 errors
 
 if (parsed.Command == EvalArguments.Export) return ExportCommand.Run(parsed, Console.Out); // sanitized carry-out copy: 0 done, 4 refused

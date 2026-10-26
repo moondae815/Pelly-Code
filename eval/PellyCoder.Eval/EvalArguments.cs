@@ -63,9 +63,11 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
           --deep            판정 테스트를 원본에서 실제로 실행합니다(tests는 실패, failingTests는 통과해야 함). 정적 검사에 오류가 없을 때만, 복원·빌드가 필요해 느립니다
           종료 코드 0 오류 없음(경고는 있어도 됨) · 4 오류 있음 또는 스위트를 읽을 수 없음
 
-        비교: dotnet run --project eval/PellyCoder.Eval -- compare <기준선 summary.json> <후보 summary.json>
+        비교: dotnet run --project eval/PellyCoder.Eval -- compare [--test-first] <기준선 summary.json> <후보 summary.json>
           R4 채택 규칙으로 판정합니다. 두 요약의 모델 digest나 Ollama 버전이 다르면 판정 불가(4)입니다.
           종료 코드 0 채택 · 3 거절 · 4 판정 불가
+          --test-first      판정이 아니라 보고입니다: 기준선(v1)과 테스트 우선(run --test-first) 요약의 평균 성공·차이·시간 비율·불변 조건 위반·테스트 우선 지표.
+                            종료 0 보고함 · 4 판정 불가(위 조건, 후보가 테스트 우선 실행이 아니거나 기준선이 테스트 우선 실행)
 
         기록: dotnet run --project eval/PellyCoder.Eval -- record --out <파일> [--gguf-sha256 <hex>] [--config <pelly.json>]
           서버의 Ollama 버전과 모델 식별 정보(digest·형식·양자화)를 JSON으로 씁니다. 접속 주소는 쓰지 않습니다.
@@ -96,7 +98,7 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
     {
         [Run] = ["--suite", "--tasks", "--kind", "--out", "--config", "--repeat", "--keep-work", "--offline-selftest", "--no-rules", "--test-first"],
         [Validate] = ["--suite", "--config", "--deep"],
-        [Compare] = [],
+        [Compare] = ["--test-first"],
         [Record] = ["--out", "--gguf-sha256", "--config"],
         [Export] = ["--out"],
         [Apply] = ["--cases", "--repeat", "--out", "--config"],

@@ -201,6 +201,80 @@ public sealed class AcceptanceTests : IDisposable
         Assert.Contains("modelDigest", output, StringComparison.Ordinal);
     }
 
+    private static RunConditions TfConditions(bool? testFirst, string? digest = null) =>
+        Baseline().Conditions! with { TestFirst = testFirst, ModelDigest = digest };
+
+    /// <summary>Baseline: 50 tasks as in Make. Candidate: cs-modern-001..004 only, all passing in both runs.</summary>
+    private static (RepeatSummaryData B, RepeatSummaryData C) TfPair()
+    {
+        var b = Make([18, 18], [4, 4], [20, 20]) with { Conditions = TfConditions(null) };
+        var tasks = Enumerable.Range(1, 4).Select(i => new TaskRepeatSummary($"cs-modern-{i:000}", "cs-modern", 2, 2, [VerificationResult.Passed, VerificationResult.Passed])).ToList();
+        tasks.Add(new TaskRepeatSummary("cs-modern-009", "cs-modern", 0, 2, [VerificationResult.Skipped, VerificationResult.Skipped]));
+        var c = new RepeatSummaryData(2, 5, 4, 0, 3.8, [new(1, 5, 4, 4, 0, 0, 0, 3.8, "run-1"), new(2, 5, 4, 4, 1, 0, 0, 3.8, "run-2")],
+            [new("cs-modern", 5, 4, 0, 4, 4, [4, 4])], tasks, TfConditions(true), false, new TestFirstMetricsData(8, 6, 7, 1, 8, 3, 2, 0));
+        return (b, c);
+    }
+
+    [Fact]
+    public void CompareTestFirst_Reports()
+    {
+        var (b, c) = TfPair();
+        var (code, output) = RunTf(Write("b.json", b), Write("c.json", c));
+        Assert.Equal(0, code);
+        Assert.Contains("대상 작업: 테스트 우선 4건", output, StringComparison.Ordinal);
+        Assert.Contains("평균 성공 수: 기준선 4.00 · 테스트 우선 4.00", output, StringComparison.Ordinal);
+        Assert.Contains("차이: +0.00", output, StringComparison.Ordinal);
+        Assert.Contains("시간 중위값 비율: 2.00배", output, StringComparison.Ordinal);
+        Assert.Contains("검증 불변 조건 위반: 기준선 0건 · 테스트 우선 1건", output, StringComparison.Ordinal);
+        Assert.Contains("| 수용 기준 충족률 | 85.7% (6/7) |", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("판정:", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CompareTestFirst_BaselineCountsOnlyTestFirstTasks()
+    {
+        var (b, c) = TfPair();
+        // Baseline has 50 tasks (Legacy/SQL included) that pass; only the four target ids may enter its average. The skipped
+        // candidate task cs-modern-009 is not a target either.
+        var (_, output) = RunTf(Write("b.json", b), Write("c.json", c));
+        Assert.Contains("기준선 4.00", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("42.00", output, StringComparison.Ordinal); // the whole-baseline mean (18 + 4 + 20)
+    }
+
+    [Fact]
+    public void CompareTestFirst_CandidateNotTestFirst_NotJudged()
+    {
+        var (b, c) = TfPair();
+        var (code, output) = RunTf(Write("b.json", b), Write("c.json", c with { Conditions = TfConditions(null) }));
+        Assert.Equal(4, code);
+        Assert.Contains("판정하지 않습니다", output, StringComparison.Ordinal);
+        var (code2, _) = RunTf(Write("b2.json", b with { Conditions = TfConditions(true) }), Write("c2.json", c));
+        Assert.Equal(4, code2);
+    }
+
+    [Fact]
+    public void CompareTestFirst_DifferentDigest_NotJudged()
+    {
+        var (b, c) = TfPair();
+        var (code, output) = RunTf(Write("b.json", b with { Conditions = TfConditions(null, "aaaa") }), Write("c.json", c with { Conditions = TfConditions(true, "bbbb") }));
+        Assert.Equal(4, code);
+        Assert.Contains("모델 digest가 다릅니다", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Compare_WithoutTestFirst_StillRejectsTestFirstSubset()
+    {
+        var (b, c) = TfPair();
+        Assert.Equal(4, Run(Write("b.json", b), Write("c.json", c)).Code); // task set differs: unchanged R4 behaviour
+    }
+
+    private (int Code, string Output) RunTf(params string[] paths)
+    {
+        var output = new StringWriter();
+        var code = CompareCommand.RunTestFirst(paths, output);
+        return (code, output.ToString());
+    }
+
     private (int Code, string Output) Run(params string[] paths)
     {
         var output = new StringWriter();

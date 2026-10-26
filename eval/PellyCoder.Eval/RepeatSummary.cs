@@ -56,7 +56,8 @@ public sealed record RunRepeatSummary(
 public sealed record RepeatSummaryData(
     int RunCount, int TaskCount, double MeanSuccesses, double StdDevSuccesses, double? MedianWallSeconds,
     IReadOnlyList<RunRepeatSummary> Runs, IReadOnlyList<GroupRepeatSummary> Groups, IReadOnlyList<TaskRepeatSummary> Tasks,
-    RunConditions? Conditions = null, bool Cancelled = false)
+    RunConditions? Conditions = null, bool Cancelled = false,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] TestFirstMetricsData? TestFirst = null)
 {
     /// <summary>The <c>summary.json</c> layout this code writes; <see cref="RepeatSummary.FromJson"/> also reads version 1.</summary>
     public const int CurrentFormatVersion = 2;
@@ -110,8 +111,13 @@ public static partial class RepeatSummary
         }).ToList();
 
         var successes = runSummaries.Select(r => r.Successes).ToList();
+        // Test-first counts are summed over the runs; null (left out of summary.json) when no row carries them.
+        var testFirst = runs.Any(r => r.Any(t => t.TestFirst is not null))
+            ? runs.Select(TestFirstMetrics.Build).Aggregate((a, b) => a + b)
+            : null;
         return new RepeatSummaryData(runs.Count, ids.Count, Mean(successes), StdDev(successes),
-            MedianWall(runs.SelectMany(r => r).Where(t => t.Status != VerificationResult.Skipped)), runSummaries, groups, tasks);
+            MedianWall(runs.SelectMany(r => r).Where(t => t.Status != VerificationResult.Skipped)), runSummaries, groups, tasks,
+            TestFirst: testFirst);
     }
 
     public static string ToJson(RepeatSummaryData data) => JsonSerializer.Serialize(data, Json);

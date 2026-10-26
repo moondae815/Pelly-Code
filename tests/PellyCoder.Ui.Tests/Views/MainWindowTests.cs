@@ -4,6 +4,7 @@ using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using Microsoft.Extensions.Time.Testing;
 using PellyCoder.Core.Abstractions;
 using PellyCoder.Core.Fsm;
 using PellyCoder.Ui.Session;
@@ -16,13 +17,15 @@ public sealed class MainWindowTests(HeadlessSession headless)
     private static readonly TimeSpan Limit = TimeSpan.FromSeconds(10);
     private const string RequestText = "배송 중인 주문은 취소할 수 없게 해줘";
 
-    private static (MainWindow Window, UiSession Session) Open(
+    private readonly FakeTimeProvider _time = new();
+
+    private (MainWindow Window, UiSession Session) Open(
         RunFunc run, bool dryRun = false, string? initialRequest = null, IReadOnlyList<string>? errors = null)
     {
         var ui = new GuiUserInteraction(new AvaloniaDispatcher());
         var session = new UiSession(run, ui, errors ?? [], CancellationToken.None);
         var launch = new UiLaunch("Pelly — OrderService.cs", "OrderService.cs 120번 줄", initialRequest, dryRun);
-        var window = new MainWindow(new MainWindowModel(launch, session, ui));
+        var window = new MainWindow(new MainWindowModel(launch, session, ui, _time));
         window.Show();
         Pump(window);
         return (window, session);
@@ -64,6 +67,27 @@ public sealed class MainWindowTests(HeadlessSession headless)
         Pump(window);
     }
 
+    /// <summary>Clicks a question button after the double-click guard has passed.</summary>
+    private void AnswerWith(Window window, string name)
+    {
+        _time.Advance(MainWindowModel.AnswerGuard + TimeSpan.FromMilliseconds(100));
+        Click(window, name);
+    }
+
+    private static Point CenterOf(Window window, string name)
+    {
+        var button = Find<Button>(window, name);
+        return button.TranslatePoint(new Point(button.Bounds.Width / 2, button.Bounds.Height / 2), window)
+               ?? throw new InvalidOperationException($"{name} is not in the window");
+    }
+
+    private static void ClickAt(Window window, Point point)
+    {
+        window.MouseDown(point, MouseButton.Left);
+        window.MouseUp(point, MouseButton.Left);
+        Pump(window);
+    }
+
     private static IReadOnlyList<string?> Texts(Window window, string container) =>
         Find<Control>(window, container).GetVisualDescendants().OfType<TextBlock>().Select(t => t.Text).ToList();
 
@@ -89,7 +113,7 @@ public sealed class MainWindowTests(HeadlessSession headless)
         await WaitUntil(window, () => Visible(window, "ApplyButton"));
         Assert.False(Find<Button>(window, "ApplyButton").IsDefault);
 
-        Click(window, "ApplyButton");
+        AnswerWith(window, "ApplyButton");
         await WaitUntil(window, () => session.State == SessionState.Finished);
         Assert.Equal(0, session.ExitCode);
         Assert.Equal(RequestText, received);
@@ -111,13 +135,13 @@ public sealed class MainWindowTests(HeadlessSession headless)
         Assert.False(Visible(window, "RejectButton"));
         Assert.Contains("경고가 있습니다. 그래도 계속할까요?", Texts(window, "QuestionPanel"));
 
-        Click(window, "ContinueButton");
+        AnswerWith(window, "ContinueButton");
         await WaitUntil(window, () => Visible(window, "ApplyButton"));
         Assert.True(Visible(window, "RejectButton"));
         Assert.False(Visible(window, "ContinueButton"));
         Assert.False(Visible(window, "StopButton"));
 
-        Click(window, "RejectButton");
+        AnswerWith(window, "RejectButton");
         await WaitUntil(window, () => session.State == SessionState.Finished);
         Assert.Equal(ExitCodes.UserCancelled, session.ExitCode);
         Assert.False(Visible(window, "ApplyButton"));
@@ -217,6 +241,63 @@ public sealed class MainWindowTests(HeadlessSession headless)
 
         rollback.SetResult();
         await WaitUntil(window, () => closed);
+        Assert.Equal(ExitCodes.UserCancelled, session.ExitCode);
+    });
+
+    [Fact]
+    public Task DoubleClickOnContinue_DoesNotApprove() => headless.Run(async () =>
+    {
+        var (window, session) = Open(async (_, ui, ct) =>
+        {
+            if (!await ui.ConfirmAsync("경고가 있습니다. 그래도 계속할까요?", false, ct)) return ExitCodes.UserCancelled;
+            return await ui.ApproveAsync("적용할까요?", ct) ? ExitCodes.Success : ExitCodes.UserCancelled;
+        }, initialRequest: RequestText);
+
+        Click(window, "RunButton");
+        await WaitUntil(window, () => Visible(window, "ContinueButton"));
+        _time.Advance(MainWindowModel.AnswerGuard + TimeSpan.FromMilliseconds(100));
+        var point = CenterOf(window, "ContinueButton");
+        ClickAt(window, point);
+        await WaitUntil(window, () => Visible(window, "ApplyButton"));
+
+        // The second click of the double click lands on 「거부」, never on 「적용」, and is ignored inside the guard.
+        Assert.NotEqual(point, CenterOf(window, "ApplyButton"));
+        Assert.Equal(point, CenterOf(window, "RejectButton"));
+        ClickAt(window, point);
+        Assert.Equal(SessionState.AwaitingAnswer, session.State);
+        Assert.True(Visible(window, "ApplyButton"));
+
+        // A deliberate-looking click on 「거부」 and on 「적용」 within the guard is ignored too.
+        _time.Advance(TimeSpan.FromMilliseconds(400));
+        Click(window, "RejectButton");
+        Click(window, "ApplyButton");
+        Assert.Equal(SessionState.AwaitingAnswer, session.State);
+
+        _time.Advance(TimeSpan.FromMilliseconds(200));
+        Click(window, "ApplyButton");
+        await WaitUntil(window, () => session.State == SessionState.Finished);
+        Assert.Equal(ExitCodes.Success, session.ExitCode);
+    });
+
+    [Fact]
+    public Task Escape_WithinGuard_IsIgnored() => headless.Run(async () =>
+    {
+        var (window, session) = Open(async (_, ui, ct) =>
+            await ui.ApproveAsync("적용할까요?", ct) ? ExitCodes.Success : ExitCodes.UserCancelled,
+            initialRequest: RequestText);
+
+        Click(window, "RunButton");
+        await WaitUntil(window, () => Visible(window, "ApplyButton"));
+        window.KeyPress(Key.Escape, RawInputModifiers.None, PhysicalKey.Escape, null);
+        window.KeyRelease(Key.Escape, RawInputModifiers.None, PhysicalKey.Escape, null);
+        Pump(window);
+        Assert.Equal(SessionState.AwaitingAnswer, session.State);
+        Assert.True(window.IsVisible);
+
+        _time.Advance(MainWindowModel.AnswerGuard + TimeSpan.FromMilliseconds(100));
+        window.KeyPress(Key.Escape, RawInputModifiers.None, PhysicalKey.Escape, null);
+        window.KeyRelease(Key.Escape, RawInputModifiers.None, PhysicalKey.Escape, null);
+        await WaitUntil(window, () => session.State == SessionState.Finished);
         Assert.Equal(ExitCodes.UserCancelled, session.ExitCode);
     });
 }

@@ -25,15 +25,21 @@ public sealed class MainWindowModel : INotifyPropertyChanged
     private static readonly IBrush WarningForeground = new ImmutableSolidColorBrush(Color.FromRgb(0x9A, 0x67, 0x00));
     private static readonly IBrush ErrorForeground = new ImmutableSolidColorBrush(Color.FromRgb(0xC4, 0x2B, 0x1C));
 
+    /// <summary>Question buttons and Esc are ignored this long after a new question is shown (double-click guard).</summary>
+    public static readonly TimeSpan AnswerGuard = TimeSpan.FromMilliseconds(500);
+
     private readonly UiLaunch _launch;
+    private readonly TimeProvider _time;
+    private DateTimeOffset _questionShownAt;
     private readonly UiSession _session;
     private readonly GuiUserInteraction _ui;
     private IReadOnlyList<(char Kind, string Text)>? _shownDiff;
     private PendingQuestion? _shownQuestion;
 
-    public MainWindowModel(UiLaunch launch, UiSession session, GuiUserInteraction ui)
+    public MainWindowModel(UiLaunch launch, UiSession session, GuiUserInteraction ui, TimeProvider? time = null)
     {
         _launch = launch;
+        _time = time ?? TimeProvider.System;
         _session = session;
         _ui = ui;
         if (launch.InitialRequest is { } request && session.State != SessionState.Invalid)
@@ -129,13 +135,16 @@ public sealed class MainWindowModel : INotifyPropertyChanged
     /// <summary>Approve/Confirm: true = 「적용」/「계속」, false = 「거부」/「중단」.</summary>
     public void Answer(bool yes)
     {
-        if (IsApproveQuestion || IsConfirmQuestion) _ui.Answer(yes ? 1 : 0);
+        if ((IsApproveQuestion || IsConfirmQuestion) && !IsAnswerGuarded) _ui.Answer(yes ? 1 : 0);
     }
 
     public void Select()
     {
-        if (CanSelect) _ui.Answer(SelectedChoice);
+        if (CanSelect && !IsAnswerGuarded) _ui.Answer(SelectedChoice);
     }
+
+    /// <summary>True within <see cref="AnswerGuard"/> after the shown question changed: the click or key was meant for the previous screen.</summary>
+    private bool IsAnswerGuarded => _time.GetUtcNow() - _questionShownAt < AnswerGuard;
 
     /// <summary>Esc: rejects or stops a pending yes/no question, cancels the run on a selection. False when nothing was pending (then Esc closes).</summary>
     public bool Escape()
@@ -147,7 +156,7 @@ public sealed class MainWindowModel : INotifyPropertyChanged
         }
         if (IsSelectQuestion)
         {
-            Cancel();
+            if (!IsAnswerGuarded) Cancel();
             return true;
         }
         return false;
@@ -179,6 +188,7 @@ public sealed class MainWindowModel : INotifyPropertyChanged
         if (!ReferenceEquals(_shownQuestion, question))
         {
             _shownQuestion = question;
+            _questionShownAt = _time.GetUtcNow();
             SelectChoices = isSelect ? question!.Choices : [];
             SelectedChoice = -1;
         }

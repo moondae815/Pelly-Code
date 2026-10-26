@@ -53,14 +53,24 @@
           </DataTemplate>
         </ListBox.ItemTemplate>
       </ListBox>
-      <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
-        <Button x:Name="ApplyButton" Content="적용" IsDefault="False" IsVisible="{Binding IsApproveQuestion}" Click="OnYesClick" />
-        <Button x:Name="RejectButton" Content="거부" IsVisible="{Binding IsApproveQuestion}" Click="OnNoClick" />
-        <Button x:Name="ContinueButton" Content="계속" IsVisible="{Binding IsConfirmQuestion}" Click="OnYesClick" />
-        <Button x:Name="StopButton" Content="중단" IsVisible="{Binding IsConfirmQuestion}" Click="OnNoClick" />
-        <Button x:Name="SelectButton" Content="선택" IsVisible="{Binding IsSelectQuestion}" IsEnabled="{Binding CanSelect}" Click="OnSelectClick" />
-        <Button x:Name="OkButton" Content="확인" IsVisible="{Binding ShowOk}" Click="OnCloseClick" />
-      </StackPanel>
+      <!-- Fixed slots so a double click cannot land on 「적용」: slot A holds 「계속」/「선택」/「거부」, slot B 「중단」/「확인」;
+           「적용」 sits apart on the left and never shares a position with another question button. -->
+      <DockPanel>
+        <Button x:Name="ApplyButton" DockPanel.Dock="Left" Content="적용" IsDefault="False" MinWidth="88"
+                HorizontalContentAlignment="Center" IsVisible="{Binding IsApproveQuestion}" Click="OnYesClick" />
+        <Grid ColumnDefinitions="88,8,88" HorizontalAlignment="Right">
+          <Button x:Name="ContinueButton" Grid.Column="0" Content="계속" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                  IsVisible="{Binding IsConfirmQuestion}" Click="OnYesClick" />
+          <Button x:Name="SelectButton" Grid.Column="0" Content="선택" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                  IsVisible="{Binding IsSelectQuestion}" IsEnabled="{Binding CanSelect}" Click="OnSelectClick" />
+          <Button x:Name="RejectButton" Grid.Column="0" Content="거부" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                  IsVisible="{Binding IsApproveQuestion}" Click="OnNoClick" />
+          <Button x:Name="StopButton" Grid.Column="2" Content="중단" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                  IsVisible="{Binding IsConfirmQuestion}" Click="OnNoClick" />
+          <Button x:Name="OkButton" Grid.Column="2" Content="확인" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                  IsVisible="{Binding ShowOk}" Click="OnCloseClick" />
+        </Grid>
+      </DockPanel>
     </StackPanel>
 
     <!-- Progress lines and diff -->

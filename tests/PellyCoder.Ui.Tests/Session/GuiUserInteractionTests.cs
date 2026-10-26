@@ -110,12 +110,13 @@ public sealed class GuiUserInteractionTests
         var script = Task.Run(async () =>
             await ui.ConfirmAsync("그래도 계속할까요?", false, ct) && await ui.ApproveAsync("적용할까요?", ct), ct);
 
-        while (dispatcher.Count < 1) await Task.Delay(10, ct);
+        await WaitForPosted(dispatcher, 1, ct);          // #1: publish q1
         dispatcher.Drain();
         Assert.Equal(QuestionKind.Confirm, ui.Question!.Kind);
 
-        ui.Answer(1);                                    // clear of q1 queued, script asks q2
-        while (dispatcher.Count < 2) await Task.Delay(10, ct);
+        ui.Answer(1);                                    // #2: clear q1 (posted synchronously)
+        await WaitForPosted(dispatcher, 3, ct);          // #3: publish q2, posted after q2 became pending
+        Assert.Equal(QuestionKind.Confirm, ui.Question!.Kind); // q1 still on screen
         ui.Answer(1);                                    // double click on the still-shown q1 buttons
 
         dispatcher.Drain();
@@ -126,5 +127,15 @@ public sealed class GuiUserInteractionTests
         dispatcher.Drain();
         Assert.False(await script.WaitAsync(TimeSpan.FromSeconds(10), ct));
         Assert.Null(ui.Question);
+    }
+
+    private static async Task WaitForPosted(QueuedDispatcher dispatcher, int count, CancellationToken ct)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (dispatcher.Posted < count)
+        {
+            if (DateTime.UtcNow > deadline) throw new TimeoutException($"expected {count} posts, got {dispatcher.Posted}");
+            await Task.Delay(10, ct);
+        }
     }
 }

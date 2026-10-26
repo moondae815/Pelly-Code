@@ -8,9 +8,16 @@ public sealed class QueuedDispatcher : IUiDispatcher
 {
     private readonly ConcurrentQueue<Action> _queue = new();
 
-    public int Count => _queue.Count;
+    private int _posted;
 
-    public void Post(Action action) => _queue.Enqueue(action);
+    /// <summary>Total number of actions ever posted (drained ones included).</summary>
+    public int Posted => Volatile.Read(ref _posted);
+
+    public void Post(Action action)
+    {
+        _queue.Enqueue(action);
+        Interlocked.Increment(ref _posted);
+    }
 
     public void Drain()
     {

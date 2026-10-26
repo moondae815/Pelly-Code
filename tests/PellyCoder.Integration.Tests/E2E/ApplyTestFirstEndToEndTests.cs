@@ -92,7 +92,9 @@ public sealed class ApplyTestFirstEndToEndTests(ITestOutputHelper output) : IDis
         var (exit, ui, apply) = await ApplyAsync(root, spec, ShippedOnlyLogs, maxRetries: 0);
 
         Assert.True(exit == ExitCodes.VerifyFailed, string.Join("\n", ui.Lines));
-        Assert.Equal("NotMet", apply.GetProperty("criteria")[0].GetProperty("outcome").GetString());
+        var ac = apply.GetProperty("criteria")[0];
+        Assert.Equal("Red", ac.GetProperty("red").GetString());
+        Assert.Equal("NotMet", ac.GetProperty("outcome").GetString());
         Assert.Equal(before, File.ReadAllBytes(file));
     }
 

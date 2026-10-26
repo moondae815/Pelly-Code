@@ -151,6 +151,14 @@ pelly sql pull <객체> [<객체> ...] [--from prod|dev] [--out <폴더>] [--for
   ```
   폴더가 무시되지 않으면(`git check-ignore`) 알림을 보입니다. git이 없으면 이 확인은 건너뜁니다.
 
+### `pelly sql check` — SSMS에서 운영에 실행하기 직전 확인
+```bash
+pelly sql check <파일.sql> [--object <이름>] [--config <경로>] [--pause-on-exit]
+```
+* 모델을 부르지 않고 파일을 바꾸지 않습니다. 운영(`sql.production`)에는 읽기 조회만 합니다. 대상은 파일에 객체가 하나면 자동, 여럿이면 `--object`로 지정합니다.
+* 종료 코드: 운영과 같음·받은 뒤 운영이 바뀌지 않음·운영에 없음(새 객체) → 0, 받은 뒤 운영이 바뀜(반영하면 그 변경을 덮어씀) → 1, 대상이 여럿인데 `--object`가 없음 → 3, 운영 연결 없음·접속 실패·받은 기록 없이 파일이 운영과 다름·파일 오류 → 4.
+* 받은 기록은 `pelly sql pull`이 파일 첫 줄에 남긴 주석입니다. 운영과 같다는 판정이 받은 기록보다 먼저입니다.
+
 ### `pelly spec`·`pelly apply` — 작업 명세 파일과 순차 실행 (V2-1a)
 ```bash
 pelly spec new <id> [--pause-on-exit]

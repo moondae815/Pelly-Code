@@ -105,7 +105,7 @@ public class SqlCommandTests
         var result = h.App.Run("sql", "check", File, "--object", "dbo.P");
 
         Assert.Equal(4, result.ExitCode);
-        Assert.Contains("아직 구현되지 않았습니다", result.Output);
+        Assert.Contains("sql.production", result.Output);
         Assert.Equal(0, h.Runner.Calls);
     }
 

@@ -47,6 +47,14 @@ public class TrxParserTests
     }
 
     [Fact]
+    public void ParseFull_ShortNameWithDottedArguments_UsesTestMethodClass()
+    {
+        // A short display name whose arguments contain a dot ("Refund(1.5)") is still unqualified.
+        var results = TrxParser.ParseFull(Fixture("short-names-dotted-args.trx")).Results;
+        Assert.Equal(["Shop.Tests.OrderTests.Refund (1)", "Shop.Tests.OrderTests.Refund(1.5)"], results.Select(r => r.FullName));
+    }
+
+    [Fact]
     public void Trx_ParsesPassFailAndMessages()
     {
         var pass = TrxParser.Parse(Fixture("modern-pass.trx"));

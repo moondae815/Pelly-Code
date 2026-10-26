@@ -166,4 +166,32 @@ public class TestFirstJudgeTests
             ["깨질 것으로 정한 테스트 T.Bad이(가) 원본 상태에서 통과하지 않습니다",
              "깨질 것으로 정한 테스트 T.Gone이(가) 원본 상태에서 통과하지 않습니다"], w);
     }
+
+    private static TestRun FromTrx(string fixture)
+    {
+        var report = TrxParser.ParseFull(TrxParserTests.Fixture(fixture));
+        return Run(report.Results, skipped: report.Skipped);
+    }
+
+    [Fact]
+    public void Green_ShortNameDottedArgumentRowFails_IsNotGreen()
+    {
+        // Baseline: both rows pass; after the change the dotted row fails and must count.
+        var baseline = Run([Fail("Shop.Tests.OrderTests.Refund (1)")]);
+        var red = Red(baseline, "OrderTests.Refund");
+        var test = Assert.Single(red.Tests);
+        var failure = Assert.Single(TestFirstJudge.Green([test], [FromTrx("short-names-dotted-args.trx")]));
+        Assert.Equal("Shop.Tests.OrderTests.Refund", failure.FullName);
+        Assert.Equal("Expected 1.5", failure.Detail);
+    }
+
+    [Fact]
+    public void Red_NestedClass_MatchesInnerName()
+    {
+        var r = Red(FromTrx("nested-class.trx"), "Inner.Cancel", "Outer.Inner.Refund");
+        Assert.Null(r.Unverifiable);
+        Assert.Equal(["Shop.Tests.Outer.Inner.Cancel", "Shop.Tests.Outer.Inner.Refund"], r.Tests.Select(t => t.FullName));
+        Assert.Equal([RedState.Red, RedState.AlreadyPassed], r.Tests.Select(t => t.State));
+        Assert.Empty(TestFirstJudge.Green([r.Tests[1]], [FromTrx("nested-class.trx")]));
+    }
 }

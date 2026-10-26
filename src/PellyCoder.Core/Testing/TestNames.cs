@@ -10,11 +10,14 @@ public static partial class TestNames
 
     public static bool IsValid(string name) => ValidName().IsMatch(name);
 
-    /// <summary>Cuts the data-row argument part from the first <c>(</c> and trims surrounding whitespace.</summary>
+    /// <summary>
+    /// Cuts the data-row argument part from the first <c>(</c>, trims surrounding whitespace and writes the nested-class
+    /// separator <c>+</c> (xUnit test names, MSTest/NUnit class names) as <c>.</c>, the way names are written in source.
+    /// </summary>
     public static string WithoutArguments(string fullName)
     {
         var open = fullName.IndexOf('(');
-        return (open < 0 ? fullName : fullName[..open]).Trim();
+        return (open < 0 ? fullName : fullName[..open]).Trim().Replace('+', '.');
     }
 
     /// <summary>True when the result name (arguments cut) equals the spec name or ends with a dot plus the spec name; ordinal.</summary>

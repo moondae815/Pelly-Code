@@ -48,4 +48,16 @@ public class TestNamesTests
         Assert.False(TestNames.IsValid("1A"));
         Assert.False(TestNames.IsValid(""));
     }
+
+    [Fact]
+    public void WithoutArguments_NestedClassPlusBecomesDot() =>
+        Assert.Equal("Ns.Outer.Inner.M", TestNames.WithoutArguments("Ns.Outer+Inner.M(a: \"x+y\")"));
+
+    [Fact]
+    public void Matches_NestedClassResultName() =>
+        Assert.True(TestNames.Matches("Inner.M", "Ns.Outer+Inner.M"));
+
+    [Fact]
+    public void IsValid_RejectsPlus() =>
+        Assert.False(TestNames.IsValid("Outer+Inner.M"));
 }

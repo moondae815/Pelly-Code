@@ -76,7 +76,8 @@ public static class TrxParser
             var name = (string?)e.Attribute("testName");
             if (name is null || outcome is null) continue;
 
-            if (!name.Contains('.'))
+            // Judge only the name part: short display names such as "Method(1.5)" carry dots in their arguments.
+            if (!TestNames.WithoutArguments(name).Contains('.'))
             {
                 var key = (string?)e.Attribute("testId") ?? (string?)e.Attribute("executionId");
                 if (key is not null && classes.TryGetValue(key, out var cls)) name = cls + "." + name;

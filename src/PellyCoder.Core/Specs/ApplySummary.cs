@@ -27,6 +27,7 @@ public sealed record AcResult(string AcId, RedState Red, AcOutcome Outcome, stri
 /// <param name="TaskCount">All tasks of the spec (done ones included); 0 in an older file.</param>
 /// <param name="Resumed">Whether the apply ran with <c>--resume</c>.</param>
 /// <param name="Criteria">Per-criterion results when any criterion has a <c>test:</c>; null (and absent from the file) otherwise.</param>
+/// <param name="SqlImpact">The start-of-apply SQL impact search; null (and absent from the file) when none ran.</param>
 public sealed record ApplySummary(
     string ApplyId,
     string SpecId,
@@ -38,7 +39,15 @@ public sealed record ApplySummary(
     string? ImpactFallback = null,
     int TaskCount = 0,
     bool Resumed = false,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<AcResult>? Criteria = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<AcResult>? Criteria = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SqlImpactSummary? SqlImpact = null);
+
+/// <summary>What the SQL impact search did (design §8).</summary>
+/// <param name="Basis"><c>prod</c> or <c>dev</c>: the database whose dependencies were read; null when none could be read or the search failed.</param>
+/// <param name="Seeds">The sql tasks the search started from.</param>
+/// <param name="Warnings">The warnings it added.</param>
+/// <param name="ListPath">Workspace-relative path (with '/') of the full list; null when none was written.</param>
+public sealed record SqlImpactSummary(string? Basis, int Seeds, int Warnings, string? ListPath);
 
 /// <summary>The failure kinds a task result carries when its whole group failed (see <c>SpecRunner</c>, <c>ApplyReport</c>).</summary>
 public static class GroupFailureKinds

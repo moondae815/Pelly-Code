@@ -4,6 +4,8 @@ using System.Xml;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using PellyCoder.Core.Abstractions;
+using PellyCoder.Core.Config;
 using PellyCoder.Core.CSharp;
 using PellyCoder.Core.Files;
 using PellyCoder.Core.Impact;
@@ -15,10 +17,24 @@ using Workspace = PellyCoder.Core.Workspaces.Workspace;
 namespace PellyCoder.Core.Specs;
 
 /// <param name="Impact">The impact search result; null when no search ran or it threw.</param>
-public sealed record SpecCheckResult(ChangeSpec Spec, Workspace Workspace, IReadOnlyList<SpecIssue> Issues, ImpactResult? Impact = null)
+/// <param name="SqlImpact">The SQL impact search result; null when none ran or it threw.</param>
+/// <param name="SqlImpactSummary">What the SQL impact search did, for <c>apply.json</c>; null when none ran.</param>
+public sealed record SpecCheckResult(ChangeSpec Spec, Workspace Workspace, IReadOnlyList<SpecIssue> Issues, ImpactResult? Impact = null,
+    SqlImpactResult? SqlImpact = null, SqlImpactSummary? SqlImpactSummary = null)
 {
     public bool HasErrors => Issues.Any(i => i.Severity == SpecIssueSeverity.Error);
 }
+
+/// <summary>What a SQL impact search needs before a database is chosen: the finder, the <c>sql</c> options and the reader factory.</summary>
+public sealed record SqlImpactSetup(ISqlImpactFinder Finder, SqlOptions Options, Func<string, ISqlDefinitionReader> Readers);
+
+/// <summary>One SQL impact search to run (design §7.1, §7.2).</summary>
+/// <param name="Db">The opened database; with a <c>Problem</c> the finder runs only the C# string search.</param>
+/// <param name="Basis">The database that was asked for (named in the warning when it cannot be read).</param>
+/// <param name="PullDirectory">The <c>sql.pullDirectory</c> named in a missing-SP warning.</param>
+/// <param name="ListPath">Full path of the full-list JSON, overwritten by each search.</param>
+public sealed record SqlImpactRequest(IFileSystem Fs, ISqlImpactFinder Finder, SqlReaderOpen Db, SqlImpactBasis Basis, int CompatLevel,
+    string PullDirectory, string ListPath);
 
 /// <summary>Static checks of a change spec against the workspace (no model, no DB): grammar, targets, AC tests, names.</summary>
 public static partial class SpecChecker
@@ -44,15 +60,104 @@ public static partial class SpecChecker
     /// added as warnings. A search that throws (anything but a cancellation) becomes the warning <c>ImpactFailed</c>:
     /// the warning feature never blocks a spec.
     /// </summary>
-    /// <param name="impactAllCsTasks">Seed every not-done cs task (<c>spec check --impact</c>), not just the grouped ones.</param>
-    public static Task<SpecCheckResult> CheckAsync(
-        IFileSystem fs, string specPath, int sqlCompatLevel, IImpactFinder? impact, bool impactAllCsTasks, CancellationToken ct) =>
-        AddImpactAsync(Check(fs, specPath, sqlCompatLevel), impact, impactAllCsTasks, ct);
-
-    /// <summary>The impact half of <see cref="CheckAsync"/>, for a caller that refuses cheaply between the static check and the search.</summary>
-    public static async Task<SpecCheckResult> AddImpactAsync(SpecCheckResult check, IImpactFinder? impact, bool impactAllCsTasks, CancellationToken ct)
+    /// <param name="impactAllCsTasks">
+    /// <c>spec check --impact</c>: seed every not-done cs task, not just the grouped ones, and — with <paramref name="sql"/> —
+    /// run the SQL search from every not-done sql task on the production database, or the development one when no
+    /// production connection is configured. Without it no database is touched.
+    /// </param>
+    public static async Task<SpecCheckResult> CheckAsync(
+        IFileSystem fs, string specPath, int sqlCompatLevel, IImpactFinder? impact, bool impactAllCsTasks, CancellationToken ct, SqlImpactSetup? sql = null)
     {
-        if (impact is null || check.HasErrors) return check;
+        var check = Check(fs, specPath, sqlCompatLevel);
+        var request = impactAllCsTasks && sql is not null && !check.HasErrors
+            ? SqlRequest(fs, sql, allowDev: true, SpecCheckListPath(fs, check, specPath))
+            : null;
+        return await AddImpactAsync(check, impact, impactAllCsTasks, ct, request);
+    }
+
+    /// <summary><c>.pelly/impact/&lt;spec id&gt;-sql.json</c>: the full list of a <c>spec check --impact</c>, overwritten by each run.</summary>
+    public static string SpecCheckListPath(IFileSystem fs, SpecCheckResult check, string specPath) =>
+        fs.Path.Combine(check.Workspace.PellyDir, "impact", (check.Spec.Id ?? fs.Path.GetFileNameWithoutExtension(specPath)) + "-sql.json");
+
+    /// <summary>
+    /// The SQL search to run (design §7.1, §7.2): on production when <c>sql.production</c> is configured — even when it
+    /// cannot be opened, so the search never silently turns to development; otherwise on development only when
+    /// <paramref name="allowDev"/> (<c>spec check --impact</c>), else null (no search). Creating a reader never connects.
+    /// </summary>
+    public static SqlImpactRequest? SqlRequest(IFileSystem fs, SqlImpactSetup setup, bool allowDev, string listPath)
+    {
+        var o = setup.Options;
+        var prod = SqlReaders.Production(o, setup.Readers);
+        if (prod.Reader is not null || prod.Problem is not null)
+            return new SqlImpactRequest(fs, setup.Finder, prod, SqlImpactBasis.Prod, o.CompatLevel, o.PullDirectory, listPath);
+        if (!allowDev) return null;
+        return new SqlImpactRequest(fs, setup.Finder, SqlReaders.Development(o, setup.Readers), SqlImpactBasis.Dev, o.CompatLevel, o.PullDirectory, listPath);
+    }
+
+    /// <summary>
+    /// The impact half of <see cref="CheckAsync"/>, for a caller that refuses cheaply between the static check and the search.
+    /// The C# search (<paramref name="impact"/>) and the SQL search (<paramref name="sql"/>) are independent; either may run.
+    /// </summary>
+    public static async Task<SpecCheckResult> AddImpactAsync(SpecCheckResult check, IImpactFinder? impact, bool impactAllCsTasks, CancellationToken ct,
+        SqlImpactRequest? sql = null)
+    {
+        if (check.HasErrors) return check;
+        check = await AddCsImpactAsync(check, impact, impactAllCsTasks, ct);
+        return sql is null ? check : await AddSqlImpactAsync(check, sql, ct);
+    }
+
+    private static async Task<SpecCheckResult> AddSqlImpactAsync(SpecCheckResult check, SqlImpactRequest sql, CancellationToken ct)
+    {
+        var (seeds, notFound) = ImpactCheck.SqlSeeds(sql.Fs, check.Workspace, check.Spec, sql.CompatLevel);
+        if (seeds.Count == 0 && notFound.Count == 0) return check;
+        var objects = ImpactCheck.SqlTaskObjects(sql.Fs, check.Workspace, check.Spec, sql.CompatLevel);
+
+        if (seeds.Count == 0)
+        {
+            var none = new SqlImpactResult(null, null, [], [], [], false, new Dictionary<string, IReadOnlyList<SqlImpactModuleRow>>());
+            var only = ImpactCheck.SqlIssues(check.Spec, seeds, notFound, none, objects, sql.PullDirectory, null, sql.Basis);
+            return check with { Issues = [.. check.Issues, .. only], SqlImpactSummary = new SqlImpactSummary(null, 0, only.Count, null) };
+        }
+
+        SqlImpactResult result;
+        try
+        {
+            result = await sql.Finder.FindAsync(check.Workspace, seeds, sql.Db, sql.Basis, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // A raw SqlException or anything else: the warning feature never blocks a spec.
+            var failed = new SpecIssue(0, SpecIssueSeverity.Warning, "ImpactFailed", $"영향 탐색(SQL)을 할 수 없습니다: {ex.Message}");
+            return check with { Issues = [.. check.Issues, failed], SqlImpactSummary = new SqlImpactSummary(null, seeds.Count, 1, null) };
+        }
+
+        string? shown = null;
+        try
+        {
+            SqlImpactList.Write(sql.Fs, sql.ListPath, check.Spec.Id, seeds, result);
+            shown = sql.Fs.Path.GetRelativePath(check.Workspace.Root, sql.ListPath).Replace('\\', '/');
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
+        {
+            // The warnings still say what was found; the list just says it was not saved.
+        }
+
+        // The C# search may already have said the walk was incomplete: say it once.
+        var issues = ImpactCheck.SqlIssues(check.Spec, seeds, notFound, result, objects, sql.PullDirectory, shown, sql.Basis)
+            .Where(i => !check.Issues.Contains(i))
+            .ToList();
+        var basis = result.Basis switch { SqlImpactBasis.Prod => "prod", SqlImpactBasis.Dev => "dev", _ => null };
+        return check with
+        {
+            Issues = [.. check.Issues, .. issues],
+            SqlImpact = result,
+            SqlImpactSummary = new SqlImpactSummary(basis, seeds.Count, issues.Count, shown),
+        };
+    }
+
+    private static async Task<SpecCheckResult> AddCsImpactAsync(SpecCheckResult check, IImpactFinder? impact, bool impactAllCsTasks, CancellationToken ct)
+    {
+        if (impact is null) return check;
         var seeds = ImpactCheck.Seeds(check.Spec, impactAllCsTasks);
         if (seeds.Count == 0) return check;
 

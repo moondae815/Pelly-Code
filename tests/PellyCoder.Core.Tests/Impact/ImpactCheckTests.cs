@@ -1,5 +1,8 @@
+using System.IO.Abstractions.TestingHelpers;
 using PellyCoder.Core.Impact;
 using PellyCoder.Core.Specs;
+using PellyCoder.Core.Sql;
+using PellyCoder.Core.Workspaces;
 
 namespace PellyCoder.Core.Tests.Impact;
 
@@ -138,5 +141,199 @@ public class ImpactCheckTests
             new SpecIssue(spec.Tasks[0].Line, SpecIssueSeverity.Warning, "ImpactMissing",
                 "작업 T1의 영향 대상이 명세에 없습니다: src/App/Other2.cs#Run (호출)"),
         ], issues);
+    }
+
+    // ── SQL impact (V2-1d) ──
+
+    private static readonly IReadOnlyDictionary<string, SqlObjectName> NoSqlObjects = new Dictionary<string, SqlObjectName>();
+
+    private static ImpactTarget SqlTarget(string seed, string name, string reason = "EXEC") => new(seed, "", name, reason, ImpactTargetKind.SqlObject);
+
+    private static SqlImpactResult SqlResult(SqlImpactBasis? basis = SqlImpactBasis.Prod, string? unavailable = null, IReadOnlyList<ImpactTarget>? targets = null,
+        IReadOnlyList<SqlTableShare>? tables = null, IReadOnlyList<string>? newObjects = null, bool incomplete = false) =>
+        new(basis, unavailable, targets ?? [], tables ?? [], newObjects ?? [], incomplete, new Dictionary<string, IReadOnlyList<SqlImpactModuleRow>>());
+
+    private static (MockFileSystem Fs, Workspace Ws) SqlWorkspace()
+    {
+        var fs = new MockFileSystem();
+        fs.AddFile("/ws/db/one.sql", "CREATE PROCEDURE dbo.usp_One AS SELECT 1;\n");
+        fs.AddFile("/ws/db/two.sql", "CREATE PROCEDURE dbo.usp_One AS SELECT 1;\nGO\nCREATE PROCEDURE dbo.usp_Two AS SELECT 2;\n");
+        return (fs, new Workspace(fs.Path.GetFullPath("/ws"), fs.Path.GetFullPath("/ws/.pelly")));
+    }
+
+    [Fact]
+    public void Covers_sql_object_ignores_case_brackets_and_default_schema()
+    {
+        var spec = Parse("- [ ] T1 sql db/a.sql#[dbo].[USP_Cancel] 바꾼다\n- [ ] T2 sql db/b.sql#usp_Cancel 바꾼다\n- [ ] T3 cs src/App/A.cs#A.Run 바꾼다\n");
+        var objects = new Dictionary<string, SqlObjectName>
+        {
+            ["T1"] = SqlObjectName.Parse("[dbo].[USP_Cancel]"),
+            ["T2"] = SqlObjectName.Parse("usp_Cancel"),
+        };
+        var target = SqlTarget("T9", "dbo.usp_Cancel");
+
+        Assert.True(ImpactCheck.Covers(spec.Tasks[0], target, objects));
+        Assert.True(ImpactCheck.Covers(spec.Tasks[1], target, objects));
+        Assert.False(ImpactCheck.Covers(spec.Tasks[2], target, objects));
+        Assert.False(ImpactCheck.Covers(spec.Tasks[0], SqlTarget("T9", "sales.usp_Cancel"), objects));
+    }
+
+    [Fact]
+    public void Covers_cs_target_keeps_the_cs_rule()
+    {
+        var spec = Parse("- [ ] T1 cs src/App/A.cs#A.Run 바꾼다\n- [ ] T2 sql db/one.sql 바꾼다\n");
+        var target = new ImpactTarget("T2", "src/App/A.cs", "Run", "이름 호출(문자열)");
+
+        Assert.True(ImpactCheck.Covers(spec.Tasks[0], target, NoSqlObjects));
+        Assert.False(ImpactCheck.Covers(spec.Tasks[1], target, NoSqlObjects));
+    }
+
+    [Fact]
+    public void Covers_sql_task_without_object_uses_file_single_object()
+    {
+        var (fs, ws) = SqlWorkspace();
+        var spec = Parse("- [x] T1 sql db/one.sql 바꾼다 <!-- run: R-1 -->\n- [ ] T2 sql db/two.sql 바꾼다\n- [ ] T3 sql db/two.sql#usp_Two 바꾼다\n");
+
+        var objects = ImpactCheck.SqlTaskObjects(fs, ws, spec, 160);
+
+        Assert.Equal(["T1", "T3"], objects.Keys.Order());
+        Assert.True(objects["T1"].SameAs(new SqlObjectName("dbo", "usp_One")));
+        Assert.True(ImpactCheck.Covers(spec.Tasks[0], SqlTarget("T3", "dbo.usp_One"), objects));
+        Assert.False(ImpactCheck.Covers(spec.Tasks[1], SqlTarget("T3", "dbo.usp_One"), objects));
+    }
+
+    [Fact]
+    public void SqlSeeds_are_not_done_sql_tasks_and_ambiguous_ones_are_not_found()
+    {
+        var (fs, ws) = SqlWorkspace();
+        var spec = Parse("- [x] T1 sql db/one.sql 바꾼다 <!-- run: R-1 -->\n- [ ] T2 sql db/one.sql 바꾼다\n- [ ] T3 sql db/two.sql 바꾼다\n" +
+                         "- [ ] T4 sql db/two.sql#usp_Two 바꾼다\n- [ ] T5 cs src/App/A.cs#A.Run 바꾼다\n");
+
+        var (seeds, notFound) = ImpactCheck.SqlSeeds(fs, ws, spec, 160);
+
+        Assert.Equal(["T2", "T4"], seeds.Select(s => s.TaskId));
+        Assert.Equal(spec.Tasks[1].Line, seeds[0].Line);
+        Assert.True(seeds[0].Object.SameAs(new SqlObjectName("dbo", "usp_One")));
+        Assert.True(seeds[1].Object.SameAs(new SqlObjectName(null, "usp_Two")));
+        Assert.Equal(["T3"], notFound);
+    }
+
+    private static readonly ChangeSpec SqlSpec = Parse("- [ ] T1 cs src/App/A.cs#A.Run 바꾼다\n- [ ] T2 sql db/a.sql#dbo.usp_X 바꾼다\n");
+
+    private static IReadOnlyList<SqlImpactSeed> SqlSpecSeeds => [new("T2", SqlSpec.Tasks[1].Line, new SqlObjectName("dbo", "usp_X"))];
+
+    private static IReadOnlyDictionary<string, SqlObjectName> SqlSpecObjects => new Dictionary<string, SqlObjectName> { ["T2"] = new("dbo", "usp_X") };
+
+    private static IReadOnlyList<SpecIssue> SqlIssues(SqlImpactResult result, IReadOnlyList<string>? notFound = null, string? listPath = ".pelly/impact/x-sql.json",
+        SqlImpactBasis basis = SqlImpactBasis.Prod) =>
+        ImpactCheck.SqlIssues(SqlSpec, SqlSpecSeeds, notFound ?? [], result, SqlSpecObjects, "db/pulled", listPath, basis);
+
+    [Fact]
+    public void SqlIssues_missing_sql_object_message()
+    {
+        var issues = SqlIssues(SqlResult(targets: [SqlTarget("T2", "dbo.usp_A"), SqlTarget("T2", "dbo.usp_X", "참조")]));
+
+        Assert.Equal(
+        [
+            new SpecIssue(SqlSpec.Tasks[1].Line, SpecIssueSeverity.Warning, "ImpactMissing",
+                "작업 T2의 영향 대상이 명세에 없습니다: dbo.usp_A (EXEC) — pelly sql pull dbo.usp_A 로 받아 작업 줄에 추가할 수 있습니다 (db/pulled/dbo.usp_A.sql)"),
+        ], issues);
+    }
+
+    [Fact]
+    public void SqlIssues_pull_directory_uses_forward_slashes()
+    {
+        var issue = Assert.Single(ImpactCheck.SqlIssues(SqlSpec, SqlSpecSeeds, [], SqlResult(targets: [SqlTarget("T2", "dbo.usp_A")]), SqlSpecObjects,
+            "db\\pulled\\", null, SqlImpactBasis.Prod));
+        Assert.EndsWith("(db/pulled/dbo.usp_A.sql)", issue.Message);
+    }
+
+    [Fact]
+    public void SqlIssues_cs_string_target_uses_cs_format_and_rule()
+    {
+        var issues = SqlIssues(SqlResult(targets:
+        [
+            new ImpactTarget("T2", "src/App/Repo.cs", "Load", "이름 호출(문자열)"),
+            new ImpactTarget("T2", "src/App/A.cs", "Run", "이름 호출(문자열)"),
+        ]));
+
+        Assert.Equal(
+        [
+            new SpecIssue(SqlSpec.Tasks[1].Line, SpecIssueSeverity.Warning, "ImpactMissing",
+                "작업 T2의 영향 대상이 명세에 없습니다: src/App/Repo.cs#Load (이름 호출(문자열))"),
+        ], issues);
+    }
+
+    [Fact]
+    public void SqlIssues_table_summary_line()
+    {
+        var table = new SqlTableShare("T2", new SqlObjectName(null, "Orders"), ["Status", "UpdatedAt"], 50, 7, 0, 2);
+
+        var issue = Assert.Single(SqlIssues(SqlResult(tables: [table]), listPath: ".pelly/runs/apply-1/impact-sql.json"));
+
+        Assert.Equal(new SpecIssue(SqlSpec.Tasks[1].Line, SpecIssueSeverity.Warning, "ImpactTableShared",
+            "작업 T2: dbo.Orders를 함께 쓰는 모듈 50개 — 쓰는 컬럼(Status, UpdatedAt)을 읽는 모듈 7개 경고, 외 0개 생략, 컬럼 확인 불가 2개. 전체 목록: .pelly/runs/apply-1/impact-sql.json"),
+            issue);
+    }
+
+    [Fact]
+    public void SqlIssues_table_summary_when_list_not_saved()
+    {
+        var table = new SqlTableShare("T2", new SqlObjectName("dbo", "Orders"), ["Status"], 3, 1, 0, 0);
+
+        var issue = Assert.Single(SqlIssues(SqlResult(tables: [table]), listPath: null));
+
+        Assert.EndsWith("전체 목록: (저장 실패)", issue.Message);
+    }
+
+    [Fact]
+    public void SqlIssues_dev_basis_warns_once()
+    {
+        var issues = SqlIssues(SqlResult(SqlImpactBasis.Dev, targets: [SqlTarget("T2", "dbo.usp_A"), SqlTarget("T2", "dbo.usp_B")]), basis: SqlImpactBasis.Dev);
+
+        var dev = Assert.Single(issues, i => i.Code == "ImpactSqlDevBased");
+        Assert.Equal(new SpecIssue(0, SpecIssueSeverity.Warning, "ImpactSqlDevBased", "영향 탐색: 운영 연결이 설정되지 않아 개발 DB 기준으로 찾았습니다"), dev);
+        Assert.Equal(2, issues.Count(i => i.Code == "ImpactMissing"));
+    }
+
+    [Fact]
+    public void SqlIssues_unavailable_names_db()
+    {
+        var prod = Assert.Single(SqlIssues(SqlResult(null, "로그인 실패")));
+        Assert.Equal(new SpecIssue(0, SpecIssueSeverity.Warning, "ImpactSqlUnavailable",
+            "영향 탐색(SQL): 운영 DB에 접속하지 못해 SP 쪽 영향을 찾지 못했습니다: 로그인 실패"), prod);
+
+        var dev = Assert.Single(SqlIssues(SqlResult(null, "연결 문자열 없음"), basis: SqlImpactBasis.Dev));
+        Assert.Equal("영향 탐색(SQL): 개발 DB에 접속하지 못해 SP 쪽 영향을 찾지 못했습니다: 연결 문자열 없음", dev.Message);
+    }
+
+    [Fact]
+    public void SqlIssues_new_object_seed()
+    {
+        var spec = Parse("- [ ] T1 cs src/App/A.cs#A.Run 바꾼다\n- [ ] T2 sql db/new.sql 만든다\n");
+        var seeds = new List<SqlImpactSeed> { new("T2", spec.Tasks[1].Line, new SqlObjectName(null, "usp_New")) };
+
+        var issue = Assert.Single(ImpactCheck.SqlIssues(spec, seeds, [], SqlResult(newObjects: ["T2"]), NoSqlObjects, "db/pulled", null, SqlImpactBasis.Prod));
+
+        Assert.Equal(new SpecIssue(spec.Tasks[1].Line, SpecIssueSeverity.Warning, "ImpactSeedNotFound",
+            "작업 T2: dbo.usp_New가 서버에 없어(새 객체) SP 쪽 영향을 찾지 않았습니다"), issue);
+    }
+
+    [Fact]
+    public void SqlIssues_ambiguous_seed_not_found()
+    {
+        var spec = Parse("- [ ] T1 sql db/two.sql 바꾼다\n");
+
+        var issue = Assert.Single(ImpactCheck.SqlIssues(spec, [], ["T1"], SqlResult(), NoSqlObjects, "db/pulled", null, SqlImpactBasis.Prod));
+
+        Assert.Equal(new SpecIssue(spec.Tasks[0].Line, SpecIssueSeverity.Warning, "ImpactSeedNotFound",
+            "작업 T1: 영향 탐색 시작점을 찾지 못했습니다: db/two.sql (#객체를 적으세요)"), issue);
+    }
+
+    [Fact]
+    public void SqlIssues_incomplete_string_walk()
+    {
+        var issue = Assert.Single(SqlIssues(SqlResult(incomplete: true)));
+        Assert.Equal("ImpactIncomplete", issue.Code);
     }
 }

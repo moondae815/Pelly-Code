@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.IO.Abstractions;
+using PellyCoder.Core.Abstractions;
 using PellyCoder.Core.Fsm;
 using PellyCoder.Core.Impact;
 using PellyCoder.Core.Specs;
@@ -19,7 +20,7 @@ public sealed class SpecCheckSettings : CommandSettings
     public string? Config { get; init; }
 
     [CommandOption("--impact")]
-    [Description("모든 cs 작업의 빠진 영향 대상을 찾음")]
+    [Description("모든 cs·sql 작업의 빠진 영향 대상을 찾음 (sql은 운영 DB 기준, 운영 연결이 없으면 개발 DB 기준)")]
     public bool Impact { get; init; }
 
     [CommandOption("--pause-on-exit")]
@@ -28,11 +29,14 @@ public sealed class SpecCheckSettings : CommandSettings
 }
 
 /// <summary>
-/// <c>pelly spec check</c>: static checks of a spec, plus the impact search of its grouped cs tasks (every cs task with
-/// <c>--impact</c>); exit 4 on any error, 0 with warnings only.
+/// <c>pelly spec check</c>: static checks of a spec, plus the impact search of its grouped cs tasks (every cs task, and
+/// the SQL search of every sql task, with <c>--impact</c>); exit 4 on any error, 0 with warnings only.
 /// </summary>
 /// <param name="impact">The impact search; null (not registered) uses <see cref="ImpactFinders.Default"/>.</param>
-public sealed class SpecCheckCommand(IFileSystem fs, OptionsResolver resolver, IAnsiConsole console, CancellationToken cancellation, IImpactFinder? impact = null)
+/// <param name="readerFactory">Opens the SQL catalog readers; null (not registered) runs no SQL search.</param>
+/// <param name="sqlImpact">The SQL impact search; null (not registered) uses <see cref="SqlImpactFinder"/>.</param>
+public sealed class SpecCheckCommand(IFileSystem fs, OptionsResolver resolver, IAnsiConsole console, CancellationToken cancellation, IImpactFinder? impact = null,
+    Func<string, ISqlDefinitionReader>? readerFactory = null, ISqlImpactFinder? sqlImpact = null)
     : AsyncCommand<SpecCheckSettings>
 {
     public override async Task<int> ExecuteAsync(CommandContext context, SpecCheckSettings settings, CancellationToken _)
@@ -47,7 +51,8 @@ public sealed class SpecCheckCommand(IFileSystem fs, OptionsResolver resolver, I
             return ExitCodes.EnvError;
         }
 
-        var result = await SpecChecker.CheckAsync(fs, spec, options.Sql.CompatLevel, impact ?? ImpactFinders.Default(fs), settings.Impact, cancellation);
+        var sql = readerFactory is null ? null : new SqlImpactSetup(sqlImpact ?? new SqlImpactFinder(fs, options.Sql.CompatLevel), options.Sql, readerFactory);
+        var result = await SpecChecker.CheckAsync(fs, spec, options.Sql.CompatLevel, impact ?? ImpactFinders.Default(fs), settings.Impact, cancellation, sql);
         foreach (var issue in result.Issues)
         {
             var where = issue.Line > 0 ? $"줄 {issue.Line}: " : "";

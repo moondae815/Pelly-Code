@@ -30,9 +30,12 @@ public sealed class ApplySettings : RunSettings
 
 /// <summary><c>pelly apply</c>: runs the tasks of a change spec in order through <see cref="SpecRunner"/>.</summary>
 /// <param name="impact">The impact search at the start of the apply; null (not registered) uses <see cref="ImpactFinders.Default"/>.</param>
+/// <param name="readerFactory">Opens the SQL catalog readers; null (not registered) runs no SQL search.</param>
+/// <param name="sqlImpact">The SQL impact search (only with <c>sql.production</c>); null (not registered) uses <see cref="SqlImpactFinder"/>.</param>
 public sealed class ApplyCommand(
     IFileSystem fs, OptionsResolver resolver, IRunner runner, IAnsiConsole console, IUserInteraction ui, TimeProvider time,
-    IProcessRunner processes, CancellationToken cancellation, IImpactFinder? impact = null)
+    IProcessRunner processes, CancellationToken cancellation, IImpactFinder? impact = null,
+    Func<string, ISqlDefinitionReader>? readerFactory = null, ISqlImpactFinder? sqlImpact = null)
     : AsyncCommand<ApplySettings>
 {
     public override async Task<int> ExecuteAsync(CommandContext context, ApplySettings settings, CancellationToken _)
@@ -50,8 +53,10 @@ public sealed class ApplyCommand(
             return ExitCodes.EnvError;
         }
 
+        var sql = readerFactory is null ? null : new SqlImpactSetup(sqlImpact ?? new SqlImpactFinder(fs, options.Sql.CompatLevel), options.Sql, readerFactory);
         var specRunner = SpecRunnerFactory.Create(
-            fs, options, ui, time, processes, (request, ct) => runner.RunDetailedAsync(request, options, ct), impact ?? ImpactFinders.Default(fs));
+            fs, options, ui, time, processes, (request, ct) => runner.RunDetailedAsync(request, options, ct), impact ?? ImpactFinders.Default(fs),
+            sqlImpact: sql);
         var apply = new ApplyOptions(
             settings.Continue, settings.Resume, settings.ReviewAtEnd, settings.Yes, settings.DryRun, settings.MaxRetries, settings.Verbose);
         try

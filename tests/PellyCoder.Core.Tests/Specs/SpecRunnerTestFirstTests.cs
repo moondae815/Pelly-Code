@@ -101,6 +101,21 @@ public sealed class SpecRunnerTestFirstTests : IDisposable
     }
 
     [Fact]
+    public async Task Apply_TwoCriteriaEndOnOneTask_EachCountsOnlyItsOwnBreaks()
+    {
+        Spec($"- AC1: 하나\n  test: {CancelTest}\n  breaks: OrderTests.Old_behavior\n- AC2: 둘\n  test: {ShipTest}\n  breaks: OrderTests.Pay_works\n",
+            Cs("T1", "Cancel", "(AC1, AC2)"));
+        _exec.TestFirst["T1"] = new TestFirstOutcome(new Dictionary<string, RedState> { [CancelTest] = RedState.Red, [ShipTest] = RedState.Red }, 2,
+            ["App.Tests.OrderTests.Old_behavior", "App.Tests.OrderTests.Pay_works"]);
+
+        Assert.Equal(0, await Run(Opts()));
+
+        Assert.All(Criteria(), ac => Assert.Equal(1, ac.GetProperty("breaksExcluded").GetInt32()));
+        var (applies, _) = PellyCoder.Core.Reporting.ApplyHistory.Load(_fs, new Workspace(_root, P(".pelly")), null);
+        Assert.Equal(2, PellyCoder.Core.Reporting.ApplyReport.Build(applies).Criteria!.BreaksExcluded);
+    }
+
+    [Fact]
     public async Task Apply_TaskLastForAc1FirstForAc2()
     {
         Spec($"- AC1: 하나\n  test: {CancelTest}\n- AC2: 둘\n  test: {ShipTest}\n",

@@ -152,6 +152,30 @@ public sealed class SpecRunnerGroupTestFirstTests : IDisposable
     }
 
     [Fact]
+    public async Task Group_TwoCriteria_EachCountsOnlyItsOwnBreaks()
+    {
+        Make("tests/App.Tests/MoreTests.cs", "namespace App.Tests;\n\npublic class MoreTests\n{\n    [Fact] public void A_works() { }\n    [Fact] public void B_old() { }\n}\n");
+        Spec(Criterion + "- AC2: 둘\n  test: MoreTests.A_works\n  breaks: MoreTests.B_old\n",
+            GroupTasks.Replace("(AC1)", "(AC1, AC2)"));
+        _tests.Baseline = new GroupTestBaseline([], [], new HashSet<int>(),
+            new Dictionary<string, RedState> { [Test] = RedState.Red, ["MoreTests.A_works"] = RedState.Red }, null)
+        {
+            Tests = [new RedTest(Test, FullName, 0, RedState.Red, null), new RedTest("MoreTests.A_works", "App.Tests.MoreTests.A_works", 0, RedState.Red, null)],
+        };
+        _tests.Fallback = new GroupTestVerdict(null, [], [], [], 2)
+        {
+            ExcludedNames = ["App.Tests.OrderTests.Old_behavior", "App.Tests.MoreTests.B_old"],
+        };
+
+        Assert.Equal(0, await Run(Opts()));
+
+        var dir = Assert.Single(Directory.GetDirectories(P(".pelly/runs"), "apply-*"));
+        var acs = JsonDocument.Parse(File.ReadAllText(Path.Combine(dir, "apply.json"))).RootElement.GetProperty("criteria").EnumerateArray().ToArray();
+        Assert.Equal(2, acs.Length);
+        Assert.All(acs, ac => Assert.Equal(1, ac.GetProperty("breaksExcluded").GetInt32()));
+    }
+
+    [Fact]
     public async Task Group_GreenNeverPasses_UndoneExit1()
     {
         Spec(Criterion, GroupTasks);

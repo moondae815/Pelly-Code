@@ -73,9 +73,10 @@ public sealed record RunResult(int ExitCode, string RunId, string? FilePath, Fil
 /// <summary>
 /// Test-first outcome handed back to the caller: <paramref name="Red"/> maps each named test with the RED role that RED judged
 /// to its baseline state (empty when RED was not judged or gave no verdict); <paramref name="BreaksExcluded"/> counts the
-/// expected breaks left out of the regressions.
+/// expected breaks left out of the regressions, and <paramref name="ExcludedNames"/> names them (full names without arguments;
+/// null when the producer did not report them).
 /// </summary>
-public sealed record TestFirstOutcome(IReadOnlyDictionary<string, RedState> Red, int BreaksExcluded);
+public sealed record TestFirstOutcome(IReadOnlyDictionary<string, RedState> Red, int BreaksExcluded, IReadOnlyList<string>? ExcludedNames = null);
 
 /// <summary>State of a <c>pelly sql</c> run (set by SQL LOCATE; null for C# runs).</summary>
 public sealed class SqlRunState(SqlScript originalScript, int targetIndex, SqlObjectName target, SqlObjectKind kind,
@@ -123,6 +124,9 @@ public sealed class TestFirstState(IReadOnlyList<string> names, IReadOnlyList<st
     public GreenState Green { get; set; } = GreenState.NotChecked;
     public int Regressions { get; set; }
     public int BreaksExcluded { get; set; }
+
+    /// <summary>Full names (without arguments) of the expected breaks left out of the regressions; <see cref="BreaksExcluded"/> counts them.</summary>
+    public IReadOnlyList<string> ExcludedNames { get; set; } = [];
 
     /// <summary>
     /// Hash recorded for a file declaring the named tests: the whole file, or, when it is <paramref name="targetFile"/> (which

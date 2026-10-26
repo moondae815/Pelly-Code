@@ -119,7 +119,7 @@ public sealed class FsmOrchestrator(
         foreach (var test in state.Red?.Tests ?? [])
             if (ctx.Request.CheckOf(test.Name).HasFlag(TestCheck.Red))
                 red[test.Name] = test.State;
-        return new TestFirstOutcome(red, state.BreaksExcluded);
+        return new TestFirstOutcome(red, state.BreaksExcluded, state.ExcludedNames);
     }
 
     /// <summary>

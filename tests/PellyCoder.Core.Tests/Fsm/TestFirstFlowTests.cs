@@ -785,6 +785,21 @@ public sealed class TestFirstFlowTests : IDisposable
     }
 
     [Fact]
+    public async Task RunResult_CarriesExcludedBreakNames()
+    {
+        EnqueueBaseline(Red());
+        EnqueueAttempt(Trx((FullName, true), (OtherTest, false)));   // only the expected break fails
+        _backend.Enqueue(Block(Original, Guarded));
+
+        var result = await RunDetailed(Req(CalcPath, [Name], breaks: ["Divide_Positive"]));
+
+        Assert.Equal(0, result.ExitCode);
+        var tf = Assert.IsType<TestFirstOutcome>(result.TestFirst);
+        Assert.Equal(1, tf.BreaksExcluded);
+        Assert.Equal([OtherTest], tf.ExcludedNames);
+    }
+
+    [Fact]
     public async Task RunResult_NotTestFirst_NoOutcome()
     {
         _processes.Enqueue(Ok());

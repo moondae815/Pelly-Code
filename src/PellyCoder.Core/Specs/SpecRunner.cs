@@ -581,8 +581,16 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
         {
             var ids = g.Tasks.Select(t => t.Id).ToHashSet(StringComparer.Ordinal);
             foreach (var link in _links)
-                if (link.LinkedTaskIds.Count > 0 && ids.Contains(link.LinkedTaskIds[^1])) _groupBreaks[link.AcId] = verdict.BreaksExcluded;
+                if (link.LinkedTaskIds.Count > 0 && ids.Contains(link.LinkedTaskIds[^1]))
+                    _groupBreaks[link.AcId] = OwnBreaks(link, verdict.ExcludedNames, verdict.BreaksExcluded);
         }
+
+        /// <summary>
+        /// The excluded breaks that are this criterion's own <c>breaks:</c> (criteria sharing a last task or group share one run);
+        /// the run's whole count when it did not name them.
+        /// </summary>
+        private static int OwnBreaks(AcLink link, IReadOnlyList<string>? excludedNames, int excludedCount) =>
+            excludedNames is null ? excludedCount : excludedNames.Count(n => link.Breaks.Any(b => TestNames.Matches(b, n)));
 
         /// <summary>
         /// GREEN failed (design §7.3): each failing test's feedback goes to its criterion's last linked task in the group (test
@@ -944,7 +952,8 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             var last = link.LinkedTaskIds[^1];
             var run = _lastRuns.GetValueOrDefault(last);
             var runId = run?.RunId;
-            var breaks = _groupBreaks.TryGetValue(link.AcId, out var excluded) ? excluded : run?.TestFirst?.BreaksExcluded ?? 0;
+            var breaks = _groupBreaks.TryGetValue(link.AcId, out var excluded) ? excluded
+                : run?.TestFirst is { } tf ? OwnBreaks(link, tf.ExcludedNames, tf.BreaksExcluded) : 0;
             AcOutcome outcome;
             if (_rolledBack || _restored.Contains(last)) outcome = AcOutcome.NotRun;
             else if (_ends.TryGetValue(last, out var end))

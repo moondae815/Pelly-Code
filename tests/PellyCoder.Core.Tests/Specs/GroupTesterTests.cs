@@ -289,6 +289,20 @@ public sealed class GroupTesterTests : IDisposable
     }
 
     [Fact]
+    public async Task Verify_BreaksExcluded_Names()
+    {
+        var tester = Tester();
+        var plan = Plan([Cancel], breaks: ["OrderTests.Old_behavior"]);
+        Script(Trx((CancelFull, false), (OtherFull, true), (OldFull, true)));
+        var baseline = await Baseline(tester, [AppTests], plan);
+        Script(Trx((CancelFull, true), (OtherFull, true), (OldFull, false)));
+
+        var verdict = await Verify(tester, baseline, plan);
+
+        Assert.Equal([OldFull], verdict.ExcludedNames);
+    }
+
+    [Fact]
     public async Task Verify_RedOnlyTestBreaking_IsRegression()
     {
         var tester = Tester();

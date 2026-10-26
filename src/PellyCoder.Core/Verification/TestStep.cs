@@ -134,6 +134,7 @@ public sealed class TestStep(TestRunner runner, FeedbackBuilder feedback, TestOp
             .DistinctBy(f => f.FullName).ToList();
         var green = TestFirstJudge.Green(greenTests, runs);
         state.BreaksExcluded = excluded.Count;
+        state.ExcludedNames = excluded.Order(StringComparer.Ordinal).ToList();
 
         // R8: code TEST; the test name stays in the message, which the de-identified report never prints.
         static Diagnostic Test(string message) => new("", 0, 0, "error", "TEST", message);

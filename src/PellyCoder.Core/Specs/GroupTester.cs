@@ -44,6 +44,9 @@ public sealed record GroupTestVerdict(string? Unverifiable, IReadOnlyList<GreenF
     IReadOnlyList<TestCaseResult> Regressions, int BreaksExcluded)
 {
     public IReadOnlyDictionary<string, IReadOnlyList<string>> Unbuilt { get; init; } = new Dictionary<string, IReadOnlyList<string>>();
+
+    /// <summary>Full names (without arguments) of the expected breaks left out; null when not reported (then only the count is known).</summary>
+    public IReadOnlyList<string>? ExcludedNames { get; init; }
 }
 
 /// <summary>Runs a task group's test projects before and after its edits (design §7.3).</summary>
@@ -213,10 +216,12 @@ public sealed class GroupTester(IFileSystem fs, TestRunner runner, BuildToolReso
             .Where(t => plan.GreenNames.Contains(t.Name, StringComparer.Ordinal) && !unbuilt.Contains(t.ProjectIndex)).ToList();
         var unbuiltTests = unbuilt.ToDictionary(i => Relative(ws, projects[i]),
             i => (IReadOnlyList<string>)baseline.Tests.Where(t => t.ProjectIndex == i).Select(t => t.Name).ToList());
+        var breakHits = hits.Where(h => plan.Breaks.Any(b => TestNames.Matches(b, h))).Order(StringComparer.Ordinal).ToList();
         return new GroupTestVerdict(null, TestFirstJudge.Green(green, runs), buildErrors.Distinct().ToList(),
-            regressions.DistinctBy(r => r.FullName).ToList(), hits.Count(h => plan.Breaks.Any(b => TestNames.Matches(b, h))))
+            regressions.DistinctBy(r => r.FullName).ToList(), breakHits.Count)
         {
             Unbuilt = unbuiltTests,
+            ExcludedNames = breakHits,
         };
     }
 

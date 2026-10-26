@@ -25,6 +25,7 @@
 | v1.14 | 2026-10-24 | V2-1a 구현: 명세 파일·spec new/check·순차 apply. 그룹·영향 탐색은 V2-1b·c |
 | v1.15 | 2026-10-25 | V2-1b 구현: 작업 그룹(시그니처·이름 변경, 영향 범위 빌드, 오류 귀속·재실행, 그룹 되돌리기). 영향 탐색·벤치마크는 V2-1c |
 | v1.16 | 2026-10-25 | V2-1c 구현: 영향 탐색(심볼·이름 대체 표시), BuildHost 배포, doctor 의미 분석 행, 명세 완료율 report, apply E2E 벤치마크 |
+| v1.17 | 2026-10-26 | V2-0 구현: `pelly ui cs`·`pelly ui sql` 승인 창(Avalonia 12.1.4, 요청 입력·진행·diff 승인·다시 실행, `--yes`·`--pause-on-exit` 불가), Avalonia 네이티브 DLL 셋을 `pelly.exe` 옆에 둠(반입 zip 고정 파일 17개, `pelly.exe` +9.3 MB), 두 번째 라이선스 예외(`Avalonia.Angle.Windows.Natives`, 2026-10-26 사람 승인)와 패키지별 예외 범위(`packages`), 빌드 시점 수집 끄기(`AVALONIA_TELEMETRY_OPTOUT=1`). Windows 실행은 미확인 |
 
 ---
 
@@ -161,6 +162,8 @@ Ollama에는 공개된 토큰화 전용 엔드포인트가 없으므로 다음�
   pelly sql    <file.sql> ["<요청>"] [--object <Name>] [--line <n>]
   pelly doctor [--project <csproj>] [--sanitize [--out <폴더>]]   # 환경 점검 (FR-08)
   pelly report [--since <yyyy-MM-dd>] [--sanitize [--out <폴더>]]   # 실행 기록 요약 (FR-09)
+  pelly ui cs  <file.cs>  ["<요청>"] [--class <Name>] [--method <Name>] [--line <n>]   # 승인 창 (V2-0)
+  pelly ui sql <file.sql> ["<요청>"] [--object <Name>] [--line <n>]   # 승인 창 (V2-0)
   ```
 * **대상 지정 (`pelly cs`):** `--method`(+선택 `--class`), `--line <n>`(커서 줄이 속한 멤버, `--class`/`--method`와 함께 쓸 수 없고 1 이상), 또는 둘 다 생략(요청문의 식별자 → 없으면 모델이 멤버 목록에서 선택, 최대 60개). `--method`와 요청문은 모두 선택입니다. 요청문을 생략하면 대화형 실행에서는 입력을 묻고 비대화형이면 종료 코드 4입니다.
 * **대상 지정 (`pelly sql`, M2b):** 파일에 프로시저·함수·뷰 정의가 하나면 자동으로 정하고, 여럿이면 `--object <이름>`(예: `dbo.MyProc`) 또는 `--line <n>`(그 줄을 포함하는 정의)으로 지정합니다. `--line`과 `--object`는 함께 쓸 수 없고(종료 4), 여러 객체에서 지정이 없으면 대화형은 선택 UI, 비대화형은 종료 코드 3입니다. SQL에는 모델이 대상을 고르는 단계가 없습니다. 편집은 대상 객체 배치 하나에만 적용되며 `--strict-baseline`·`--warn-as-error`는 없습니다(`pelly cs` 전용). 공통 옵션(`--yes`, `--dry-run`, `--max-retries`, `--config`, `--think`, `--model`, `--endpoint`)은 같습니다. 요청문 생략은 `pelly cs`와 같이 대화형에서만 허용됩니다.
@@ -169,6 +172,7 @@ Ollama에는 공개된 토큰화 전용 엔드포인트가 없으므로 다음�
 * **공통 옵션:** `--dry-run`(패치만 보여주고 적용 안 함), `--yes`(최종 승인 생략), `--max-retries <n>`(기본 3), `--verbose`(실행 후 단계별 타이밍·토큰·시도 요약과 실행 폴더·`prompt.txt` 경로 출력, 프롬프트 원문은 출력하지 않음), `--pause-on-exit`, `--config <path>`
 * **`pelly cs` 전용 옵션:** `--test`(검증 시 테스트 실행, FR-06 5번), `--verify-test <이름>`(패치 전 실패·패치 뒤 통과해야 하는 테스트, 여러 번 가능, V2-2a), `--expect-break <이름>`(이 변경으로 실패해도 되는 기존 테스트, `--verify-test`와 함께, V2-2a), `--warn-as-error`, `--strict-baseline`
 * **옵션 구현 상태 (M3a):** `--test`·`--verbose`·`--pause-on-exit`·`report`(`--since`·`--sanitize`·`--out`)는 M3a에서 구현했습니다. `--pause-on-exit`는 실행 결과를 보여준 뒤 키 입력을 기다리며, 입력이 리디렉션되면 기다리지 않고, Ctrl+C로 중단한 실행은 기다리지 않습니다(알려진 한계; 콘솔 키 대기는 Windows 미확인).
+* **승인 창 (`pelly ui`, V2-0):** `pelly cs`·`pelly sql`과 같은 실행(같은 FSM·검증·롤백)을 Avalonia 창에서 합니다. 요청 입력, 진행 줄, diff, 「적용」/「거부」가 창 안에 있어 표준 입력이 필요 없습니다. `--yes`와 `--pause-on-exit`는 종료 코드 4로 거부하고, `--dry-run`은 diff와 「확인」만 보이며, 끝난 뒤에도 창이 남아 요청을 고쳐 다시 실행할 수 있습니다. 종료 코드는 마지막 실행의 코드이고 한 번도 실행하지 않고 닫으면 2입니다. 실행 중 창 닫기는 Ctrl+C와 같아 원본 복원 뒤 2입니다. 명령 검증 오류는 창 안에, 명령줄 파싱 오류는 콘솔에 보이고 둘 다 종료 4입니다. 네이티브 DLL 셋이 `pelly.exe` 옆에 없으면 `pelly ui`만 종료 4입니다. 구현 상태는 §12.2의 V2-0 표시를 보십시오.
 * **IDE 연동:** 사용자는 Visual Studio와 JetBrains Rider를 혼용합니다. 두 IDE의 External Tools에 `pelly cs "<현재 파일>" --line <커서 줄>`을 등록해, 커서가 있는 메서드를 대상으로 실행합니다. 요청문을 생략하면 콘솔에서 입력받습니다. `--pause-on-exit`는 결과를 보여준 뒤 키 입력을 기다립니다(External Tools 콘솔 창이 바로 닫히지 않게). 설정 가이드는 반입 패키지 문서에 포함합니다.
 * **최종 승인 (REVIEW):** 검증을 통과하면 `Spectre.Console`로 컬러 diff를 표시하고 `[y/N]` 확인을 받습니다. 거부하면 원본으로 복구합니다.
 * **종료 코드:**
@@ -317,6 +321,7 @@ Ollama에는 공개된 토큰화 전용 엔드포인트가 없으므로 다음�
 
 ### 6.1 추천 NuGet 패키지
 * **CLI 프레임워크 & UI:** `Spectre.Console` / `Spectre.Console.Cli`
+* **GUI 승인 창 (V2-0):** `Avalonia` 12.1.4 (`Avalonia.Desktop`, `Avalonia.Themes.Fluent`; MIT). 그래픽 네이티브 `Avalonia.Angle.Windows.Natives`(ANGLE)는 BSD-3-Clause이며 nuspec이 라이선스를 파일로만 적어 게이트 예외로 승인했습니다(§11.1). `ReactiveUI`·MVVM 툴킷은 쓰지 않습니다. 테스트는 `Avalonia.Headless`를 쓰되 `Avalonia.Headless.XUnit` 12.1.4가 xunit.v3 4.0.2와 맞지 않아 `HeadlessUnitTestSession`으로 직접 띄웁니다.
 * **C# AST 코드 슬라이서:** `Microsoft.CodeAnalysis.CSharp` (Roslyn)
 * **SQL 파싱 및 안전 가드:** `Microsoft.SqlServer.TransactSql.ScriptDom`
 * **DB 스키마/구문 검증:** `Microsoft.Data.SqlClient` + `Dapper`
@@ -534,7 +539,7 @@ pelly가 요청마다 지정하는 값: `options.num_ctx = 8192`, `keep_alive = 
 ### 11.1 반입 패키지 구성
 | 항목 | 내용 |
 | :--- | :--- |
-| 실행 파일 | `dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true` 결과 `pelly.exe` (트리밍 사용 안 함). 단일 파일 모드에서 Roslyn·ScriptDom·토크나이저 리소스·SqlClient가 정상 동작함을 M3b에서 확인했다(S6 통과, M3b T7, CI `publish-check` 녹색) |
+| 실행 파일 | `dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true` 결과 `pelly.exe` (트리밍 사용 안 함). V2-0부터 그래픽 네이티브 DLL 셋(`av_libglesv2.dll`, `libHarfBuzzSharp.dll`, `libSkiaSharp.dll`)은 단일 파일에 묶지 않고 `pelly.exe` 옆에 둡니다. 단일 파일 모드에서 Roslyn·ScriptDom·토크나이저 리소스·SqlClient가 정상 동작함을 M3b에서 확인했다(S6 통과, M3b T7, CI `publish-check` 녹색) |
 | 기본 설정 | `pelly.json` 템플릿 (Ollama 주소·모델명·SQL 화이트리스트 자리 표시) |
 | 문서 | 설치 가이드, 사용 가이드, `server-checklist.md`(서버 관리자용) |
 | 무결성 | 모든 파일의 SHA-256 체크섬 목록 |
@@ -542,19 +547,21 @@ pelly가 요청마다 지정하는 값: `options.num_ctx = 8192`, `keep_alive = 
 | 버전 기록 | `version-record.json`(`pellyVersion`, `ollamaVersion`, `model`, `modelDigest`, `modelFormat`, `modelQuantization`, `modelGgufSha256`(현장에서 `record --gguf-sha256`으로 채움), `recordedAt`)과 벤치마크 결과 요약. 모델 GGUF SHA-256은 M4에서 현장 모델로 기록 |
 | 현장 키트 | 둘째 zip `pelly-field-kit-<버전>-win-x64.zip`(아래 M4 준비 구성) |
 
-**M3b 실제 구성 (M3b T9·T10, 첫 반입본 `0.9.0`, 현재 `0.9.1`, M4 현장 확인 뒤 `1.0.0`):** CI `package` 잡이 `pelly-0.9.1-win-x64.zip`을 만들고, 들어가는 파일은 `deploy/package-files.txt`의 허용 목록 14개뿐입니다(`LICENSE` 포함).
+**M3b 실제 구성 (M3b T9·T10, 첫 반입본 `0.9.0`, 현재 `0.9.1`, M4 현장 확인 뒤 `1.0.0`):** CI `package` 잡이 `pelly-0.9.1-win-x64.zip`을 만들고, 들어가는 파일은 `deploy/package-files.txt`의 허용 목록뿐입니다(`LICENSE` 포함). V2-0 기준 20줄이며, 고정 파일 17개(`SHA256SUMS.txt` 제외)에 `SHA256SUMS.txt`와 BuildHost 폴더 둘(줄 하나가 폴더 전체)입니다.
 
 | 구분 | 파일 |
 | :--- | :--- |
-| 실행·설정 | `pelly.exe`(단일 파일, 트리밍·압축 없음), `LICENSE`, `pelly.json.template` |
+| 실행·설정 | `pelly.exe`(단일 파일, 트리밍·압축 없음), `av_libglesv2.dll`·`libHarfBuzzSharp.dll`·`libSkiaSharp.dll`(`pelly ui`용 네이티브, `pelly.exe` 옆, V2-0), `BuildHost-net472/`·`BuildHost-netcore/`(의미 분석 보조 프로세스, V2-1c), `LICENSE`, `pelly.json.template` |
 | 문서 | `docs/install.md`, `docs/usage.md`, `docs/ide-external-tools.md`, `docs/server-checklist.md`, `docs/no-network.md` |
-| 무결성·심사 | `SHA256SUMS.txt`, `sbom.cdx.json`(CycloneDX .NET 도구 6.3.1을 `.config/dotnet-tools.json`에 정확히 고정), `THIRD-PARTY-NOTICES.md`, `licenses/Microsoft.Data.SqlClient.SNI.runtime.LICENSE.txt` |
+| 무결성·심사 | `SHA256SUMS.txt`, `sbom.cdx.json`(CycloneDX .NET 도구 6.3.1을 `.config/dotnet-tools.json`에 정확히 고정), `THIRD-PARTY-NOTICES.md`, `licenses/Microsoft.Data.SqlClient.SNI.runtime.LICENSE.txt`, `licenses/Avalonia.Angle.Windows.Natives.LICENSE.txt` |
 | 버전·결과 | `version-record.json`, `benchmark-summary.md` |
 
-* **라이선스 게이트:** MIT·Apache-2.0·BSD 계열이 아닌 패키지가 나오면 패키지 스크립트가 실패합니다. 예외는 `deploy/license-exceptions.json`에 패키지 id·버전·라이선스 파일 SHA-256·승인자를 적은 것만 허용합니다. **현재 예외는 하나**(`Microsoft.Data.SqlClient.SNI.runtime` 7.1.0, 네이티브 SNI의 Microsoft 재배포 라이선스)이며 **사람이 승인했습니다**(2026-10-19). `approvedBy`에 「잠정」이 든 예외로는 `1.0.0` 이상 패키지가 만들어지지 않으며, CI가 잠정으로 바꾼 사본으로 이 거부를 시험합니다.
+* **라이선스 게이트:** MIT·Apache-2.0·BSD 계열이 아닌 패키지가 나오면 패키지 스크립트가 실패합니다. 예외는 `deploy/license-exceptions.json`에 패키지 id·버전·라이선스 파일 SHA-256·승인자를 적은 것만 허용합니다. **현재 예외는 둘**이며 모두 **사람이 승인했습니다.** ① `Microsoft.Data.SqlClient.SNI.runtime` 7.1.0(네이티브 SNI의 Microsoft 재배포 라이선스, 2026-10-19). ② `Avalonia.Angle.Windows.Natives` 2.1.27548.20260419(`av_libglesv2.dll`, nuspec이 라이선스를 파일로만 적어 게이트에 걸리나 내용은 BSD-3-Clause, 2026-10-26 V2-0 반입 전 결정). 예외에 `"packages": [...]`를 적으면 그 패키지(zip) 만들 때만 적용되고 다른 zip에서는 일치도 미사용 보고도 하지 않습니다. ②는 `["pelly"]`라 현장 키트에는 적용되지 않습니다. `approvedBy`에 「잠정」이 든 예외로는 `1.0.0` 이상 패키지가 만들어지지 않으며, CI가 잠정으로 바꾼 사본으로 이 거부를 시험합니다.
 * **버전 기록 (R8 대체):** Ollama 버전과 모델 태그, 모델 digest·형식·양자화(`modelDigest`·`modelFormat`·`modelQuantization`)를 담습니다. 개발 PC 모델은 GGUF가 아닌 safetensors `nvfp4`라 GGUF SHA-256을 읽을 수 없고, 벤치마크하지 않은 20GB 모델을 따로 받아 해시하는 것은 의미가 없어서, **현장 모델의 GGUF SHA-256은 M4에서 기록합니다.** 지금은 패키지가 현장 모델 파일의 동일성을 증명하지 못합니다.
-**M4 준비 구성 (현장 키트, 버전 `0.9.1`):** 같은 `package` 잡이 둘째 zip `pelly-field-kit-0.9.1-win-x64.zip`을 만듭니다(`build-package.ps1 -Package field-kit`). 허용 목록은 `deploy/field-kit-files.txt`이며 `pelly-eval.exe`(단일 파일), 현장 절차 문서(`docs/field-guide.md`, `field-benchmark.md`, `field-results.md`), 스위트·작업·판정 프로젝트 템플릿(`templates/`), `sbom.cdx.json`, `THIRD-PARTY-NOTICES.md`, 예외 승인 라이선스 전문, `SHA256SUMS.txt`가 들어갑니다. `pelly.exe`와 설치 문서는 첫 zip에만 있습니다. `pelly-eval --offline-selftest`(숨은 옵션)는 `pelly doctor --offline-selftest`와 같은 여섯 행으로 단일 파일의 실행 경로를 확인하며, CI `publish-check`와 `package` 테스트가 실행합니다. `pelly-eval.exe`는 개발자 도구가 아니라 현장에서 기준선을 재는 반입 대상이며, 그래서 `NetworkPolicyTests`가 `eval/PellyCoder.Eval/`도 훑습니다.
+**M4 준비 구성 (현장 키트, 버전 `0.9.1`):** 같은 `package` 잡이 둘째 zip `pelly-field-kit-0.9.1-win-x64.zip`을 만듭니다(`build-package.ps1 -Package field-kit`). 허용 목록은 `deploy/field-kit-files.txt`이며 `pelly-eval.exe`(단일 파일), 현장 절차 문서(`docs/field-guide.md`, `field-benchmark.md`, `field-results.md`), 스위트·작업·판정 프로젝트 템플릿(`templates/`), `sbom.cdx.json`, `THIRD-PARTY-NOTICES.md`, 예외 승인 라이선스 전문, `SHA256SUMS.txt`가 들어갑니다. `pelly.exe`, 그 옆 GUI DLL 셋과 설치 문서는 첫 zip에만 있습니다. `pelly-eval --offline-selftest`(숨은 옵션)는 `pelly doctor --offline-selftest`와 같은 여섯 행으로 단일 파일의 실행 경로를 확인하며, CI `publish-check`와 `package` 테스트가 실행합니다. `pelly-eval.exe`는 개발자 도구가 아니라 현장에서 기준선을 재는 반입 대상이며, 그래서 `NetworkPolicyTests`가 `eval/PellyCoder.Eval/`도 훑습니다.
 
+* **GUI 크기 (V2-0):** 네이티브 DLL 셋은 `av_libglesv2.dll` 5,394,096바이트, `libHarfBuzzSharp.dll` 1,816,088바이트, `libSkiaSharp.dll` 11,628,896바이트(합 18,839,080바이트)입니다. 관리 어셈블리가 들어가 `pelly.exe`는 127,059,367 → 136,359,551바이트(+9.3 MB)가 됐습니다. 이 수치는 macOS에서 한 교차 publish 측정이며 Windows 값은 CI `publish-check`가 출력합니다(Windows 미확인). 네이티브를 단일 파일에 묶지 않은 이유는 `pelly cs`만 쓰는 사람도 첫 실행에 수십 MB를 임시 폴더에 풀지 않게 하고 AppLocker·WDAC 노출을 줄이기 위해서입니다. DLL이 없으면 `pelly ui`만 종료 코드 4이고 다른 명령은 영향이 없습니다.
+* **GUI 빌드 시점 수집:** Avalonia 빌드 도구의 익명 사용 정보 수집은 환경 변수 `AVALONIA_TELEMETRY_OPTOUT=1`로 끕니다(CI 전체, 개발자는 직접 설정). 실행 중에는 외부 통신이 없습니다(`deploy/no-network.md`).
 * **`LICENSE`:** pelly 자체의 라이선스는 **Payletter 사내 전용**(All rights reserved, 2026-10-19 사람 결정)입니다. 저장소 맨 위 `LICENSE`가 두 zip의 맨 위에 그대로 들어갑니다.
 * 개발자 PC의 설정 파일·경로·연결 문자열은 zip에 들어가면 안 되며 패키지 테스트가 검사합니다.
 
@@ -584,12 +591,14 @@ v2는 Superpowers, OpenSpec 같은 개발 하네스의 아이디어를 가져오
 
   | 단계 | 기능 | 예상 기간 | 의존성 |
   | :--- | :--- | :--- | :--- |
-  | V2-0 | GUI 승인 창 (`pelly ui`, Avalonia): External Tools에서 띄우는 작은 창으로 요청 입력·진행 표시·diff 승인 | 1~2주 | v1 (진입 조건과 무관하게 v1 직후 착수 가능) |
+  | V2-0 | GUI 승인 창 (`pelly ui`, Avalonia): External Tools에서 띄우는 작은 창으로 요청 입력·진행 표시·diff 승인. **구현됨(2026-10-26)** | 1~2주 | v1 (진입 조건과 무관하게 v1 직후 착수 가능) |
   | V2-1 | 작업 명세 파일과 순차 실행 | 2주 | v1 |
   | V2-2 | 테스트 우선 검증 | 2주 | V2-1 (수용 기준 ↔ 테스트 연결) |
   | V2-3 | 프로젝트 규칙 파일 | 1주 | v1 (다른 단계와 독립적이라 앞당길 수 있음) |
 
 * 각 단계가 끝날 때마다 폐쇄망으로 반입해 검증합니다(§11.3).
+
+> **구현(V2-0): 2026-10-26.** `pelly ui cs`·`pelly ui sql` 승인 창이 구현됐습니다(FR-00 「승인 창」). 같은 FSM·롤백을 쓰고 `GuiUserInteraction`만 새로 만들었으며, 창은 요청 입력, 진행 줄, diff, 「적용」/「거부」, 다시 실행을 제공합니다. 네이티브 DLL 셋을 `pelly.exe` 옆에 두는 배치와 크기는 §11.1, 설계는 `docs/superpowers/specs/2026-10-26-v2-0-gui-design.md`입니다. CI와 헤드리스 테스트가 확인하지 못하는 네 가지(한글 IME 입력, Visual Studio External Tools 동작, 고해상도 표시, 폐쇄망 PC 적재)는 **Windows 미확인**이며 사람이 `deploy/field-results.md` 9절에 적습니다.
 
 ### 12.3 V2-1. 작업 명세 파일과 순차 실행 (`pelly apply`)
 > **구현(V2-1c): 2026-10-25.** 영향 탐색(심볼 기준, 의미 분석이 안 되면 「이름 기준(부정확)」으로 대체하고 표시), BuildHost 배포, `pelly doctor` 의미 분석 행, `pelly report`의 명세 완료율·그룹 빌드 통과율, E2E 벤치마크 `pelly-eval apply`(승인된 S6 정답 명세 12건, `eval/benchmark/apply/`)가 구현됐습니다. 현장 모델 실측(`--repeat N`)과 레거시 사례의 Windows 실측은 사람이 합니다(`deploy/field-results.md`).

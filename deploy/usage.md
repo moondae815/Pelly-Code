@@ -119,6 +119,29 @@ pelly rules check [--config <경로>] [--pause-on-exit]
 * `pelly rules init`은 모델 없이 `.cs`·`.sql`을 분석해 초안을 보여 주고 승인을 받아 씁니다. 초안은 반드시 검토하십시오. 이미 절이 있으면 `--force` 없이는 종료 코드 4입니다. 거부하면 종료 코드 2, `--yes` 없는 비대화형 실행은 종료 코드 4입니다.
 * `--verbose`는 포함·제외된 규칙을 보여 줍니다.
 
+## `pelly ui` — 승인 창 (V2-0)
+
+`pelly cs`·`pelly sql`을 작은 창에서 실행합니다. 요청 입력, 진행 표시, diff 확인, 승인·거부가 모두 창 안에서 됩니다. 콘솔 입력이 안 되는 IDE에서 씁니다. 창이 실제 Windows에서 뜨는지는 **Windows 미확인**입니다.
+
+```powershell
+pelly ui cs  C:\src\OrderService.cs "배송 중인 주문은 취소할 수 없게 해줘" --line 120
+pelly ui sql C:\db\usp_Cancel.sql --object dbo.usp_Cancel
+pelly ui                  # 사용법 출력
+```
+
+* 대상 지정(`--class`·`--method`·`--line`·`--object`)과 `--dry-run`·`--verbose`·`--think`·`--model`·`--endpoint`·`--config`·`--max-retries`는 `cs`·`sql`과 같습니다. `--test`·`--verify-test`·`--expect-break`·`--strict-baseline`·`--warn-as-error`는 `ui cs`에서만 씁니다.
+* 요청문은 생략해도 됩니다. 창의 요청 칸에 입력합니다. 인수로 주면 미리 채워지며, **「실행」을 눌러야 시작합니다.**
+* 쓸 수 없는 옵션: `--yes`(승인은 창에서 합니다), `--pause-on-exit`(창이 남습니다). 주면 종료 코드 4입니다.
+* 검증을 통과하면 diff가 보이고 「적용」/「거부」를 누릅니다. 이때 파일은 이미 바뀐 상태이며 거부하면 원래대로 되돌립니다. `--dry-run`이면 diff와 「확인」만 있고 파일은 바뀌지 않습니다. `--verbose`면 끝난 뒤 접힌 「실행 요약」이 생깁니다.
+* 끝나도 창은 남습니다. 결과를 보고 요청문을 고쳐 다시 실행할 수 있습니다.
+* 키: **Ctrl+Enter** 실행, **Esc** 거부·중단(질문이 없으면 닫기). 새 질문이 뜬 뒤 0.5초 동안은 단추를 눌러도 무시합니다(더블클릭 방지). 「적용」은 기본 단추가 아니며 다른 단추와 떨어져 있습니다.
+* 실행 중에 「취소」를 누르거나 창을 닫으면 Ctrl+C와 같습니다. 원본 복원이 끝날 때까지 「되돌리는 중…」이 보이고 그 뒤 종료 코드 2입니다. 그 사이 창 닫기를 또 눌러도 복원은 끝까지 합니다.
+* **종료 코드**는 마지막 실행의 코드입니다. 한 번도 실행하지 않고 닫으면 2입니다.
+* 오류: 파일 없음·옵션 충돌·설정 오류는 창 안에 빨갛게 보이고 「실행」이 잠깁니다(종료 4). 모르는 옵션·형식 오류(`--line abc`)·값 빠진 옵션은 창 없이 콘솔에 출력하고 종료 4이니, External Tools 항목을 처음 등록할 때 출력 창을 확인하십시오.
+* **`pelly.exe` 옆에 `av_libglesv2.dll`, `libHarfBuzzSharp.dll`, `libSkiaSharp.dll`이 있어야 합니다.** 없으면 「GUI 구성 요소를 불러오지 못했습니다: <파일>. pelly.exe 옆의 DLL을 함께 두십시오.」를 내고 종료 코드 4입니다. 다른 명령은 영향이 없습니다.
+* 한글 IME 입력, 고해상도(125%·150%) 표시, 폐쇄망 PC에서 창이 뜨는지는 모두 **Windows 미확인**입니다. 현장에서 확인한 결과는 `field-results.md`에 적습니다.
+* IDE 등록: [ide-external-tools.md](ide-external-tools.md)의 「GUI 항목」.
+
 ## 자주 쓰는 옵션
 
 | 옵션 | 동작 |
@@ -207,6 +230,6 @@ pelly doctor --sanitize --out C:\export
 ## 관련 문서
 
 * 설치: [install.md](install.md)
-* IDE 연동: [ide-external-tools.md](ide-external-tools.md)
+* IDE 연동(콘솔·GUI 항목): [ide-external-tools.md](ide-external-tools.md)
 * 서버 관리자용 확인 사항: [server-checklist.md](server-checklist.md)
 * 실행 중 외부 통신 없음: [no-network.md](no-network.md)

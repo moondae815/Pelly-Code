@@ -48,6 +48,10 @@ public class SqlCommandTests
         services.AddSingleton<IRunner>(runner);
         services.AddSingleton<IUserInteraction>(new FakeUi(interactive));
         services.AddSingleton<IDoctorRunner>(new FakeDoctor());
+        services.AddSingleton<IProcessRunner>(new NoProcessRunner());
+        services.AddSingleton(TimeProvider.System);
+        Func<string, ISqlDefinitionReader> noReader = _ => throw new InvalidOperationException("no connection expected");
+        services.AddSingleton(noReader);
         services.AddSingleton(new ConfigSources(null, new Dictionary<string, string?>()));
         services.AddSingleton(typeof(CancellationToken), CancellationToken.None);
         var app = new CommandAppTester(new DiTypeRegistrar(services));
@@ -89,7 +93,7 @@ public class SqlCommandTests
         var result = h.App.Run("sql", "pull", "dbo.X", "--from", "prod", "--out", "/w/out", "--force");
 
         Assert.Equal(4, result.ExitCode);
-        Assert.Contains("아직 구현되지 않았습니다", result.Output);
+        Assert.Contains("sql.production", result.Output);
         Assert.Equal(0, h.Runner.Calls);
     }
 

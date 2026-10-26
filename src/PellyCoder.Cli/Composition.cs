@@ -26,6 +26,8 @@ public static class Composition
         services.AddSingleton(console);
         services.AddSingleton(typeof(CancellationToken), ct);
         services.AddSingleton(ConfigSources.FromProcess());
+        Func<string, ISqlDefinitionReader> readerFactory = cs => new SqlDefinitionReader(cs);
+        services.AddSingleton(readerFactory);
         services.AddSingleton<HttpClientHolder>();
         services.AddSingleton<OptionsResolver>();
         services.AddSingleton<IRunner, OrchestratorRunner>();

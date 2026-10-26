@@ -137,6 +137,20 @@ pelly sql Settlement_All.sql "조건 추가" --line 120
 * 연결 문자열에 서버나 데이터베이스 키가 둘 이상 있거나 `Failover Partner`가 있으면 거부합니다(종료 코드 5).
 * **검증 계정 권한:** DB 수준 **`VIEW DEFINITION`** 하나면 됩니다(`ALTER`·`SHOWPLAN` 불필요). 없으면 객체 존재 검사와 스키마 요약이 동작하지 않으므로 종료 코드 4와 안내 메시지로 멈춥니다. `pelly doctor`가 접속·허용 목록·권한을 점검합니다.
 
+### `pelly sql pull` — 서버의 프로시저·함수·뷰를 SSMS 모양의 ALTER 스크립트로 받기
+```bash
+pelly sql pull <객체> [<객체> ...] [--from prod|dev] [--out <폴더>] [--force] [--config <경로>] [--pause-on-exit]
+```
+* 기본은 운영(`sql.production`, 읽기 조회만)에서 받고, 운영 연결이 없으면 종료 코드 4와 설정 안내로 멈춥니다. 개발 DB에서 받으려면 `--from dev`를 명시합니다.
+* `<객체>`는 `dbo.usp_X`, `usp_X`(스키마 생략 시 `dbo`), `[dbo].[usp_X]`. 프로시저·함수·뷰만 받습니다. 그 밖의 종류, 없는 객체, 암호화된 객체, 이미 있는 파일(`--force`로 덮어씀)은 그 객체만 실패로 알리고 나머지는 계속 받으며, 하나라도 실패하면 종료 코드 4입니다.
+* 파일은 작업 공간의 `db/pulled/<스키마>.<이름>.sql`(`sql.pullDirectory`·`--out`으로 변경, 작업 공간 밖이면 종료 코드 4)에 UTF-8(BOM)로 씁니다. 첫 줄 주석(받은 기록)에 출처·서버·DB·객체·정의 해시·받은 시각(UTC)이 남습니다.
+* 운영에서 받을 때 개발 연결이 설정되어 있으면 개발 정의와 비교해, 다르거나 개발 DB에 없으면 경고를 보이고(파일은 씁니다) 다를 때는 둘째 줄에 `-- pelly pull: dev differs (sha256=...)`를 남깁니다.
+* 받은 파일은 커밋하지 않습니다. pelly는 `.gitignore`를 고치지 않으므로 저장소 `.gitignore`에 직접 한 줄을 넣으십시오.
+  ```
+  db/pulled/
+  ```
+  폴더가 무시되지 않으면(`git check-ignore`) 알림을 보입니다. git이 없으면 이 확인은 건너뜁니다.
+
 ### `pelly spec`·`pelly apply` — 작업 명세 파일과 순차 실행 (V2-1a)
 ```bash
 pelly spec new <id> [--pause-on-exit]

@@ -224,8 +224,8 @@ public sealed class AcceptanceTests : IDisposable
         Assert.Contains("대상 작업: 테스트 우선 4건", output, StringComparison.Ordinal);
         Assert.Contains("평균 성공 수: 기준선 4.00 · 테스트 우선 4.00", output, StringComparison.Ordinal);
         Assert.Contains("차이: +0.00", output, StringComparison.Ordinal);
-        Assert.Contains("시간 중위값 비율: 2.00배", output, StringComparison.Ordinal);
-        Assert.Contains("검증 불변 조건 위반: 기준선 0건 · 테스트 우선 1건", output, StringComparison.Ordinal);
+        Assert.Contains("시간 중위값 비율(전체 작업 기준 — 요약에 작업별 시간이 없음): 2.00배", output, StringComparison.Ordinal);
+        Assert.Contains("검증 불변 조건 위반(전체 작업 기준 — 요약에 작업별 위반이 없음): 기준선 0건 · 테스트 우선 1건", output, StringComparison.Ordinal);
         Assert.Contains("| 수용 기준 충족률 | 85.7% (6/7) |", output, StringComparison.Ordinal);
         Assert.DoesNotContain("판정:", output, StringComparison.Ordinal);
     }
@@ -266,6 +266,53 @@ public sealed class AcceptanceTests : IDisposable
     {
         var (b, c) = TfPair();
         Assert.Equal(4, Run(Write("b.json", b), Write("c.json", c)).Code); // task set differs: unchanged R4 behaviour
+    }
+
+    [Fact]
+    public void CompareTestFirst_TargetMissingFromBaseline_NotJudged()
+    {
+        var (b, c) = TfPair();
+        var bb = b with { Tasks = b.Tasks.Where(t => t.Id != "cs-modern-003").ToList() };
+        var (code, output) = RunTf(Write("b.json", bb), Write("c.json", c));
+        Assert.Equal(4, code);
+        Assert.Contains("기준선에 없는 작업: cs-modern-003", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CompareTestFirst_NoTargets_NotJudged()
+    {
+        var (b, c) = TfPair();
+        var cc = c with { Tasks = [new TaskRepeatSummary("cs-modern-009", "cs-modern", 0, 2, [VerificationResult.Skipped, VerificationResult.Skipped])] };
+        var (code, output) = RunTf(Write("b.json", b), Write("c.json", cc));
+        Assert.Equal(4, code);
+        Assert.Contains("테스트 우선 대상 작업이 없습니다", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CompareTestFirst_DifferentOllamaVersion_NotJudged()
+    {
+        var (b, c) = TfPair();
+        var (code, output) = RunTf(Write("b.json", b with { Conditions = TfConditions(null) with { OllamaVersion = "0.9.0" } }),
+            Write("c.json", c with { Conditions = TfConditions(true) with { OllamaVersion = "0.9.1" } }));
+        Assert.Equal(4, code);
+        Assert.Contains("Ollama 버전이 다릅니다", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CompareTestFirst_CancelledSummary_NotJudged()
+    {
+        var (b, c) = TfPair();
+        var (code, output) = RunTf(Write("b.json", b), Write("c.json", c with { Cancelled = true }));
+        Assert.Equal(4, code);
+        Assert.Contains("중단된 반복 실행", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CompareTestFirst_WrongPathCount_Usage()
+    {
+        var (code, output) = RunTf("only-one.json");
+        Assert.Equal(4, code);
+        Assert.Contains("사용법", output, StringComparison.Ordinal);
     }
 
     private (int Code, string Output) RunTf(params string[] paths)

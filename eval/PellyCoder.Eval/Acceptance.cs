@@ -217,6 +217,18 @@ public static class CompareCommand
         // (or "—") is not a target; the baseline average counts only these ids.
         var targets = candidate.Tasks.Where(t => t.Outcomes.Any(o => o != VerificationResult.Skipped && o != "—"))
             .Select(t => t.Id).ToHashSet(StringComparer.Ordinal);
+        if (targets.Count == 0)
+        {
+            output.WriteLine("판정하지 않습니다 — 테스트 우선 대상 작업이 없습니다.");
+            return 4;
+        }
+        var inBaseline = baseline.Tasks.Select(t => t.Id).ToHashSet(StringComparer.Ordinal);
+        var missing = targets.Where(id => !inBaseline.Contains(id)).Order(StringComparer.Ordinal).ToList();
+        if (missing.Count > 0)
+        {
+            output.WriteLine($"판정하지 않습니다 — 기준선에 없는 작업: {string.Join(", ", missing)}");
+            return 4;
+        }
         double Mean(RepeatSummaryData s) =>
             s.RunCount == 0 ? 0 : (double)s.Tasks.Where(t => targets.Contains(t.Id)).Sum(t => t.Successes) / s.RunCount;
         var (bMean, cMean) = (Mean(baseline), Mean(candidate));
@@ -228,8 +240,8 @@ public static class CompareCommand
         output.WriteLine($"* 차이: {Acceptance.Sg(cMean - bMean)}");
         var ratio = baseline.MedianWallSeconds is > 0 && candidate.MedianWallSeconds is not null
             ? Acceptance.F(candidate.MedianWallSeconds.Value / baseline.MedianWallSeconds.Value) + "배" : "없음";
-        output.WriteLine($"* 시간 중위값 비율: {ratio} (기준선 {Acceptance.S(baseline.MedianWallSeconds)} · 테스트 우선 {Acceptance.S(candidate.MedianWallSeconds)})");
-        output.WriteLine($"* 검증 불변 조건 위반: 기준선 {baseline.Runs.Sum(r => r.InvariantViolations)}건 · 테스트 우선 {candidate.Runs.Sum(r => r.InvariantViolations)}건");
+        output.WriteLine($"* 시간 중위값 비율(전체 작업 기준 — 요약에 작업별 시간이 없음): {ratio} (기준선 {Acceptance.S(baseline.MedianWallSeconds)} · 테스트 우선 {Acceptance.S(candidate.MedianWallSeconds)})");
+        output.WriteLine($"* 검증 불변 조건 위반(전체 작업 기준 — 요약에 작업별 위반이 없음): 기준선 {baseline.Runs.Sum(r => r.InvariantViolations)}건 · 테스트 우선 {candidate.Runs.Sum(r => r.InvariantViolations)}건");
         output.WriteLine();
         if (candidate.TestFirst is { } tf)
         {
@@ -253,19 +265,7 @@ public static class CompareCommand
             return 4;
         }
 
-        var loaded = new RepeatSummaryData[2];
-        for (var i = 0; i < 2; i++)
-        {
-            try
-            {
-                loaded[i] = RepeatSummary.FromJson(File.ReadAllText(paths[i]));
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
-            {
-                output.WriteLine($"판정하지 않습니다 — {paths[i]}을 읽을 수 없습니다: {ex.Message}");
-                return 4;
-            }
-        }
+        if (Load(paths, output) is not { } loaded) return 4;
         var (baseline, candidate) = (loaded[0], loaded[1]);
 
         output.WriteLine($"기준선: {paths[0]}");

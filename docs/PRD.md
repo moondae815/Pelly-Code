@@ -642,7 +642,8 @@ OpenSpec의 "변경 제안 → 작업 목록 → 적용 → 보관" 흐름에서
   * 작업 그룹(V2-1b): `Specs/ApplyTransaction.cs`(apply·그룹 백업과 되돌리기), `Specs/GroupVerifier.cs`(영향 범위 기준·검증 빌드), `Specs/GroupErrorAttribution.cs`(새 오류의 작업 귀속), `Builds/ProjectReferenceGraph.cs`(영향 범위 탐색), `Files/BoundedWalker.cs`(작업 공간 폴더 탐색), `CSharp/MemberShapeGuard.cs`의 그룹 허용(`ShapeAllowance.TargetSignatureAndName`)
 
 ### 12.4 V2-2. 테스트 우선 검증 (Test-First Verification)
-> **구현(V2-2a): 2026-10-26.** 단독 실행 `pelly cs --verify-test`(RED 확인 → 패치 → GREEN·회귀 확인)와 `--expect-break`, 테스트 우선 `summary.json`(`testFirst`)·`pelly report`의 수용 기준 충족률과 RED 확인 경고율이 구현됐습니다. 아래 도구 항목과 달리 **`--filter` 실행 대신 테스트 프로젝트 전체를 한 번 돌려** 지정 테스트의 결과를 읽고, 레거시는 `vstest.console.exe` 탐색 대신 설정 `test.command`(`{trx}` 필요)로 돌립니다. 명세의 `test:`·`breaks:`와 `pelly apply` 연동은 V2-2b이며 아직 없습니다. 설계는 `docs/superpowers/specs/2026-10-26-v2-2-test-first-design.md`, 사용법은 README `pelly cs` 절을 보십시오.
+> **구현(V2-2a): 2026-10-26.** 단독 실행 `pelly cs --verify-test`(RED 확인 → 패치 → GREEN·회귀 확인)와 `--expect-break`, 테스트 우선 `summary.json`(`testFirst`)·`pelly report`의 수용 기준 충족률과 RED 확인 경고율이 구현됐습니다. 아래 도구 항목과 달리 **`--filter` 실행 대신 테스트 프로젝트 전체를 한 번 돌려** 지정 테스트의 결과를 읽고, 레거시는 `vstest.console.exe` 탐색 대신 설정 `test.command`(`{trx}` 필요)로 돌립니다. 명세의 `test:`·`breaks:`와 `pelly apply` 연동은 아래 V2-2b 줄을 보십시오. 설계는 `docs/superpowers/specs/2026-10-26-v2-2-test-first-design.md`, 사용법은 README `pelly cs` 절을 보십시오.
+> **구현(V2-2b): 2026-10-26.** 명세의 수용 기준에 `test:`·`breaks:`를 적고 `pelly apply`가 연결 작업(첫 작업 RED, 마지막 작업 GREEN, 모든 연결 작업 회귀)으로 판정합니다. 작업 그룹은 그룹 기준 테스트의 컴파일 RED·GREEN·엄격 회귀를 보고(`GroupTestGreenFailed`·`GroupTestRegression`·`GroupTestUnverifiable`), `spec check`는 테스트 이름 오류·경고를 내며, `apply.json`의 `criteria`와 `pelly report`의 미검증·breaks 줄이 더해졌습니다. 사용법은 README `pelly spec`·`pelly apply` 절을 보십시오.
 
 Superpowers의 TDD(Red → Green) 원칙에서 착안했습니다. v1 검증은 "컴파일이 되는가"까지만 확인합니다. 이 기능은 "요청한 동작을 하는가"까지 결정론적으로 확인합니다.
 

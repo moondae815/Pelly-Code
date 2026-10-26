@@ -142,6 +142,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
         private readonly Dictionary<string, RunResult> _lastRuns = new(StringComparer.Ordinal);
         private readonly Dictionary<string, int> _ends = new(StringComparer.Ordinal);
         private bool _rolledBack; // the whole apply was fully undone: end review rejected, or cancelled under --review-at-end
+        private readonly HashSet<string> _restored = new(StringComparer.Ordinal); // tasks undone by a partial apply rollback
 
         // Group test-first (design §7.3): RED of the criteria whose first linked task is in a group, from the group's baseline,
         // and the expected breaks of the criteria whose last linked task is in a group, from the group's last verdict.
@@ -876,6 +877,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
 
             // A file changed outside pelly keeps the tasks' edits, so those tasks keep their [x].
             var kept = _done.Where(d => notRestored.Contains(d.Value.Path)).Select(d => d.Key).ToList();
+            _restored.UnionWith(_marked.Where(id => _done.ContainsKey(id) && !kept.Contains(id)));
             foreach (var id in kept)
                 if (!await SpecWrittenAsync(_doc.MarkDoneAsync(id, _done[id].RunId, CancellationToken.None),
                         $"작업 {id}의 체크 표시를 되살리지 못했습니다 — --resume 전에 직접 [x]로 표시하세요."))
@@ -931,7 +933,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
 
         /// <summary>
         /// A criterion's result. Its last linked task decides: exit 0 and kept → met; exit 2, or not run in this apply (stopped
-        /// earlier, done in an earlier session, review rejected, cancelled) → not run; otherwise not met. A group task ends with its
+        /// earlier, done in an earlier session, review rejected, cancelled, restored by a partial rollback) → not run; otherwise not met. A group task ends with its
         /// group, and its expected breaks are the group's last test verdict's.
         /// </summary>
         private AcResult CriterionResult(AcLink link)
@@ -944,7 +946,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             var runId = run?.RunId;
             var breaks = _groupBreaks.TryGetValue(link.AcId, out var excluded) ? excluded : run?.TestFirst?.BreaksExcluded ?? 0;
             AcOutcome outcome;
-            if (_rolledBack) outcome = AcOutcome.NotRun;
+            if (_rolledBack || _restored.Contains(last)) outcome = AcOutcome.NotRun;
             else if (_ends.TryGetValue(last, out var end))
                 outcome = end == 0 ? AcOutcome.Met : end == 2 || run is null ? AcOutcome.NotRun : AcOutcome.NotMet;
             // Not run in this apply, including a last linked task done in an earlier session (--resume): that apply's

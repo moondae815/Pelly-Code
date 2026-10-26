@@ -282,6 +282,27 @@ public sealed class SpecRunnerTestFirstTests : IDisposable
         Assert.Equal("Met", Assert.Single(Criteria()).GetProperty("outcome").GetString());
     }
 
+    [Fact]
+    public async Task Apply_ReviewAtEnd_Rejected_PartialRollback_RestoredTaskCriterionNotRun()
+    {
+        Make("src/App/Billing.cs", "namespace App;\n\npublic class Billing\n{\n    public void Charge() { }\n}\n");
+        Spec($"- AC1: 하나\n  test: {CancelTest}\n- AC2: 둘\n  test: {ShipTest}\n",
+            Cs("T1", "Cancel", "(AC1)") + "- [ ] T2 cs src/App/Billing.cs#Billing.Charge 요청 (AC2)\n");
+        _ui.ConfirmAnswers.Enqueue(false);
+        // Only T1's file changes outside pelly: T1 keeps its edit and [x], T2 is restored and loses its [x].
+        var ui = new ConfirmHookUi(_ui, () => File.AppendAllText(P("src/App/OrderService.cs"), "// outside\n"));
+        var runner = new SpecRunner(_fs, _guard, _exec, ui, _time, 160, groups: new PassingGroups());
+
+        Assert.Equal(4, await runner.RunAsync(SpecPath, Opts(reviewAtEnd: true, yes: false), TestContext.Current.CancellationToken));
+
+        var spec = File.ReadAllText(SpecPath);
+        Assert.Contains("- [x] T1", spec);
+        Assert.Contains("- [ ] T2", spec);
+        var acs = Criteria();
+        Assert.Equal("Met", acs[0].GetProperty("outcome").GetString());
+        Assert.Equal("NotRun", acs[1].GetProperty("outcome").GetString());
+    }
+
     /// <summary>Delegates to the scripted UI and runs <paramref name="onConfirm"/> just before each confirm.</summary>
     private sealed class ConfirmHookUi(ScriptedUserInteraction inner, Action onConfirm) : IUserInteraction
     {

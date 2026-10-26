@@ -8,6 +8,8 @@ on:
 env:
   DOTNET_NOLOGO: "1"
   DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  # Avalonia.BuildServices build-time usage collection: honours only this environment variable
+  AVALONIA_TELEMETRY_OPTOUT: "1"
 
 jobs:
   unit:

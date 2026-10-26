@@ -13,6 +13,7 @@
 
 ## 빌드·테스트
 ```bash
+export AVALONIA_TELEMETRY_OPTOUT=1   # Avalonia 빌드 시점 사용 정보 수집 끄기 (PowerShell: $env:AVALONIA_TELEMETRY_OPTOUT = "1")
 dotnet build -warnaserror
 dotnet test
 dotnet run --project src/PellyCoder.Cli -- --version

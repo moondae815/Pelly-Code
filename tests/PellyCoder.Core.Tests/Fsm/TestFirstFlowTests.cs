@@ -158,6 +158,21 @@ public sealed class TestFirstFlowTests : IDisposable
     private string? FailureKind() => Summary().GetProperty("failureKind").GetString();
 
     [Fact]
+    public async Task VerifyTest_Summary_HasTestFirst()
+    {
+        EnqueueBaseline(Red());
+        EnqueueAttempt(Green());
+        _backend.Enqueue(Block(Original, Guarded));
+
+        var exit = await Run(Req(CalcPath, [Name]));
+
+        Assert.Equal(0, exit);
+        var tf = Summary().GetProperty("testFirst");
+        Assert.Equal("Passed", tf.GetProperty("green").GetString());
+        Assert.Equal("Red", tf.GetProperty("red").GetString());
+    }
+
+    [Fact]
     public async Task VerifyTest_Red_ProceedsToEdit()
     {
         _processes.Enqueue(Ok());   // baseline build

@@ -6,6 +6,7 @@ using System.Text.RegularExpressions;
 using PellyCoder.Core.Fsm;
 using PellyCoder.Core.Logging;
 using PellyCoder.Core.Models;
+using PellyCoder.Core.Testing;
 
 namespace PellyCoder.Core.Reporting;
 
@@ -15,7 +16,8 @@ public sealed record SanitizedRun(
     string ThinkMode, int ThinkTokens, bool ThinkTruncated,
     int InputTokensLocal, int? InputTokensServer, int? InputTokensCached,
     IReadOnlyList<string> MatchStages, IReadOnlyList<string> ErrorCodes, int DroppedErrorCodes, int FormatErrors,
-    string? FailureKind, string PellyVersion, string? OllamaVersion, string PromptVersion);
+    string? FailureKind, string PellyVersion, string? OllamaVersion, string PromptVersion,
+    string? Red = null, string? Green = null, int? TestRegressions = null);
 
 /// <summary>The spec KPI as six plain numbers: completed/total, completed/total for 3 to 8 tasks, groups passed/total.</summary>
 public sealed record ApplyCounts(int Completed, int CompletionTotal, int Completed3To8, int Completion3To8Total, int GroupPassed, int GroupTotal);
@@ -29,7 +31,7 @@ public sealed record SanitizedAggregate(
     IReadOnlyDictionary<string, int> FailureKinds,
     IReadOnlyDictionary<string, double> MeanPhaseSeconds,
     IReadOnlyDictionary<string, int> AttemptDistribution,
-    ApplyCounts? Apply = null);
+    ApplyCounts? Apply = null, TestFirstCounts? TestFirst = null);
 
 /// <summary>
 /// Report that can leave a closed network (D11, design §8.12). Whitelist only: every string in it is a fixed literal,
@@ -68,6 +70,14 @@ public sealed record SanitizedReport(SanitizedAggregate Aggregate, IReadOnlyList
             sb.AppendLine($"| 명세 완료율 | {Ratio(ap.Completed, ap.CompletionTotal)} ({N(ap.Completed)}/{N(ap.CompletionTotal)}건) |");
             sb.AppendLine($"| 명세 완료율(작업 3~8개) | {Ratio(ap.Completed3To8, ap.Completion3To8Total)} ({N(ap.Completed3To8)}/{N(ap.Completion3To8Total)}건) |");
             sb.AppendLine($"| 그룹 빌드 통과율 | {Ratio(ap.GroupPassed, ap.GroupTotal)} ({N(ap.GroupPassed)}/{N(ap.GroupTotal)}그룹) |");
+            sb.AppendLine();
+        }
+        if (a.TestFirst is { } tf)
+        {
+            sb.AppendLine("## 테스트 우선").AppendLine();
+            sb.AppendLine("| 지표 | 값 |").AppendLine("| --- | --- |");
+            sb.AppendLine($"| 수용 기준 충족률 | {Ratio(tf.Met, tf.Judged)} ({N(tf.Met)}/{N(tf.Judged)}) |");
+            sb.AppendLine($"| RED 확인 경고율 | {Ratio(tf.RedWarned, tf.RedChecked)} ({N(tf.RedWarned)}/{N(tf.RedChecked)}) |");
             sb.AppendLine();
         }
         Table(sb, "종류", a.RunsByKind);
@@ -159,7 +169,10 @@ public static partial class ReportSanitizer
             s.FailureKind is null ? null : FailureKinds.IsKnown(s.FailureKind) ? s.FailureKind : "Other",
             Version(s.PellyVersion),
             s.OllamaVersion is null ? null : Version(s.OllamaVersion),
-            PromptVersion(s.PromptVersion));
+            PromptVersion(s.PromptVersion),
+            s.TestFirst is { } tf ? EnumName(tf.Red) : null,
+            s.TestFirst is { } tg ? EnumName(tg.Green) : null,
+            s.TestFirst?.Regressions);
     }
 
     private static SanitizedAggregate SanitizeAggregate(RunReportData d)
@@ -181,7 +194,8 @@ public static partial class ReportSanitizer
             d.ThinkMax, d.ThinkTruncatedCount,
             failures,
             PhaseMap(d.MeanPhaseSeconds),
-            d.AttemptDistribution.ToDictionary(k => k.Key.ToString(CultureInfo.InvariantCulture), k => k.Value));
+            d.AttemptDistribution.ToDictionary(k => k.Key.ToString(CultureInfo.InvariantCulture), k => k.Value),
+            TestFirst: d.TestFirst);
     }
 
     private static Spread? Clean(Spread? s) => s is null ? null : new Spread(Num(s.Median), Num(s.P90));

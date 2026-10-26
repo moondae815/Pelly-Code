@@ -5,6 +5,7 @@ using System.Text.Json.Serialization;
 using PellyCoder.Core.Fsm;
 using PellyCoder.Core.Llm;
 using PellyCoder.Core.Models;
+using PellyCoder.Core.Testing;
 using PellyCoder.Core.Workspaces;
 
 namespace PellyCoder.Core.Logging;
@@ -17,7 +18,11 @@ public sealed record RunSummary(
     string ThinkMode, int ThinkTokens, bool ThinkTruncated,
     int InputTokensLocal, int? InputTokensServer, int? InputTokensCached,
     IReadOnlyList<MatchStage> MatchStages, IReadOnlyList<string> ErrorCodes, int FormatErrors, string? FailureKind,
-    IReadOnlyList<string>? RulesIncluded = null, IReadOnlyList<string>? RulesDropped = null);
+    IReadOnlyList<string>? RulesIncluded = null, IReadOnlyList<string>? RulesDropped = null,
+    TestFirstSummary? TestFirst = null);
+
+/// <summary>Test-first outcome of a run: counts and enum states only, never test names (they stay out of the sanitized report).</summary>
+public sealed record TestFirstSummary(int Tests, RedState Red, GreenState Green, int Regressions, int BreaksExcluded);
 
 /// <summary>
 /// Writes <c>.pelly/runs/&lt;runId&gt;/</c>: <c>events.jsonl</c>, <c>attempt-&lt;n&gt;/*.txt</c>, <c>summary.json</c>.
@@ -122,7 +127,19 @@ public sealed class RunLogger(IFileSystem fs, TimeProvider time)
             ctx.Prompt?.Tokens ?? 0, gen?.CodeUsage.PromptEvalCount, gen?.CodeUsage.PromptEvalCachedCount,
             [.. ctx.MatchStages], [.. ctx.ErrorCodes], ctx.FormatErrors, ctx.FailureKind,
             ctx.Prompt?.Rules is { } sel ? [.. sel.Included.Select(r => r.Text)] : null,
-            ctx.Prompt?.Rules is { } sel2 ? [.. sel2.Dropped.Select(r => r.Text)] : null);
+            ctx.Prompt?.Rules is { } sel2 ? [.. sel2.Dropped.Select(r => r.Text)] : null,
+            SummarizeTestFirst(ctx.TestFirst));
+    }
+
+    private static TestFirstSummary? SummarizeTestFirst(TestFirstState? s)
+    {
+        if (s is null) return null;
+        // AlreadyPassed wins; Red only when the baseline was actually judged (no unverifiable/failure verdict).
+        var red = s.Red is null ? RedState.NotChecked
+            : s.Red.Tests.Any(t => t.State == RedState.AlreadyPassed) ? RedState.AlreadyPassed
+            : s.Red.Unverifiable is null && s.Red.FailureKind is null && s.Red.Tests.Any(t => t.State == RedState.Red) ? RedState.Red
+            : RedState.NotChecked;
+        return new TestFirstSummary(s.Names.Count, red, s.Green, s.Regressions, s.BreaksExcluded);
     }
 
     private string RunsDir(RunContext ctx) => fs.Path.Combine(ctx.Workspace!.PellyDir, "runs");

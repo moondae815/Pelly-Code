@@ -7,6 +7,7 @@ using PellyCoder.Core.Fsm;
 using PellyCoder.Core.Logging;
 using PellyCoder.Core.Models;
 using PellyCoder.Core.Specs;
+using PellyCoder.Core.Testing;
 using Spectre.Console;
 using Spectre.Console.Cli.Testing;
 using Spectre.Console.Testing;
@@ -40,6 +41,40 @@ public class ReportCommandTests
         var s = new RunSummary(id, "1.0", null, "m", "cs-v1", EditKind.CSharp, "Sdk", exit, attempts,
             new Dictionary<RunPhase, double> { [RunPhase.Edit] = 2 }, 0.8, 0.1, "Retry", 100, false, 10, null, null, [], [], 0, failure);
         fs.AddFile($"/w/.pelly/runs/{id}/summary.json", new MockFileData(JsonSerializer.Serialize(s, Json)));
+    }
+
+    private static void AddTestFirstRun(MockFileSystem fs, string id, int exit, RedState red, GreenState green, int regressions)
+    {
+        var s = new RunSummary(id, "1.0", null, "m", "cs-v1", EditKind.CSharp, "Sdk", exit, 1,
+            new Dictionary<RunPhase, double> { [RunPhase.Edit] = 2 }, 0.8, 0.1, "Retry", 100, false, 10, null, null, [], [], 0, null,
+            TestFirst: new TestFirstSummary(1, red, green, regressions, 0));
+        fs.AddFile($"/w/.pelly/runs/{id}/summary.json", new MockFileData(JsonSerializer.Serialize(s, Json)));
+    }
+
+    [Fact]
+    public void ReportCommand_ShowsAcceptanceRate()
+    {
+        var (app, _, fs) = Build();
+        AddTestFirstRun(fs, "20261001-101010-aaaa", 0, RedState.Red, GreenState.Passed, 0);
+        AddTestFirstRun(fs, "20261002-101010-bbbb", 1, RedState.Red, GreenState.Failed, 0);
+        AddTestFirstRun(fs, "20261003-101010-cccc", 0, RedState.AlreadyPassed, GreenState.Passed, 0);
+
+        var result = app.Run("report");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("수용 기준 충족률", result.Output);
+        Assert.Contains("50.0% (1/2)", result.Output);
+        Assert.Contains("RED 확인 경고율", result.Output);
+        Assert.Contains("33.3% (1/3)", result.Output);
+    }
+
+    [Fact]
+    public void Report_WithoutTestFirstRuns_HasNoAcceptanceRows()
+    {
+        var (app, _, fs) = Build();
+        AddRun(fs, "20261001-101010-aaaa", 0);
+
+        Assert.DoesNotContain("수용 기준 충족률", app.Run("report").Output);
     }
 
     [Fact]

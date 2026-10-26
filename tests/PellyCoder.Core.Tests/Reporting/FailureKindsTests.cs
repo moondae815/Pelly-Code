@@ -21,6 +21,16 @@ public sealed partial class FailureKindsTests
         throw new DirectoryNotFoundException("PellyCoder.sln not found above the test binaries.");
     }
 
+    [Theory]
+    [InlineData("TestGreenFailed")]
+    [InlineData("TestRegression")]
+    [InlineData("TestNotFound")]
+    [InlineData("TestAmbiguous")]
+    [InlineData("TestUnverifiable")]
+    [InlineData("TestRedDeclined")]
+    [InlineData("TestFileChanged")]
+    public void FailureKinds_IncludesTestFirstKinds(string kind) => Assert.True(FailureKinds.IsKnown(kind));
+
     [Fact]
     public void EveryFailureKindLiteralInSource_IsKnown()
     {

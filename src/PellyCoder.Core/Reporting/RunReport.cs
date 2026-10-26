@@ -1,5 +1,7 @@
 using PellyCoder.Core.Fsm;
+using PellyCoder.Core.Logging;
 using PellyCoder.Core.Models;
+using PellyCoder.Core.Testing;
 
 namespace PellyCoder.Core.Reporting;
 
@@ -26,7 +28,11 @@ public sealed record RunReportData(
     int ThinkTruncatedCount,
     IReadOnlyDictionary<string, int> FailureKinds,
     IReadOnlyDictionary<RunPhase, double> MeanPhaseSeconds,
-    IReadOnlyDictionary<int, int> AttemptDistribution);
+    IReadOnlyDictionary<int, int> AttemptDistribution,
+    TestFirstCounts? TestFirst = null);
+
+/// <summary>Test-first KPIs per run: Met of Judged (acceptance criteria met), RedWarned of RedChecked (baseline already green).</summary>
+public sealed record TestFirstCounts(int Met, int Judged, int RedWarned, int RedChecked);
 
 public static class RunReport
 {
@@ -62,7 +68,20 @@ public static class RunReport
             s.Count(x => x.ThinkTruncated),
             failures,
             phases,
-            s.GroupBy(x => x.Attempts).OrderBy(g => g.Key).ToDictionary(g => g.Key, g => g.Count()));
+            s.GroupBy(x => x.Attempts).OrderBy(g => g.Key).ToDictionary(g => g.Key, g => g.Count()),
+            CountTestFirst(s));
+    }
+
+    private static TestFirstCounts? CountTestFirst(List<RunSummary> s)
+    {
+        var tf = s.Where(x => x.TestFirst is not null).ToList();
+        if (tf.Count == 0) return null;
+        // Judged: passed RED and not declined by the human, so a run that never reached GREEN still counts in the denominator.
+        var judged = tf.Where(x => x.TestFirst!.Red == RedState.Red && x.ExitCode != ExitCodes.UserCancelled).ToList();
+        // ExitCode 0 also excludes a run whose test file changed mid-run (exit 4) even though Green/Regressions look fine.
+        var met = judged.Count(x => x.TestFirst!.Green == GreenState.Passed && x.TestFirst.Regressions == 0 && x.ExitCode == ExitCodes.Success);
+        return new TestFirstCounts(met, judged.Count,
+            tf.Count(x => x.TestFirst!.Red == RedState.AlreadyPassed), tf.Count(x => x.TestFirst!.Red != RedState.NotChecked));
     }
 
     private static Spread? SpreadOf(IEnumerable<double> values)

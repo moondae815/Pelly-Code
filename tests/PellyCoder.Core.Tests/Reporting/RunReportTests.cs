@@ -1,5 +1,7 @@
 using PellyCoder.Core.Fsm;
+using PellyCoder.Core.Logging;
 using PellyCoder.Core.Models;
+using PellyCoder.Core.Testing;
 using PellyCoder.Core.Reporting;
 
 namespace PellyCoder.Core.Tests.Reporting;
@@ -10,6 +12,38 @@ public sealed class RunReportTests
         string? failure = null, int think = 0, bool truncated = false, EditKind kind = EditKind.CSharp, double editSeconds = 2) =>
         new(RunHistoryTests.Summary($"20261001-10101{i}-aaaa", exit, attempts, formatErrors, ttft, queue, failure, think, truncated, kind, editSeconds),
             DateTimeOffset.UnixEpoch);
+
+    private static RunRecord TfRec(int i, int exit, RedState red, GreenState green, int regressions)
+    {
+        var s = RunHistoryTests.Summary($"20261001-10101{i}-aaaa", exit) with { TestFirst = new TestFirstSummary(1, red, green, regressions, 0) };
+        return new RunRecord(s, DateTimeOffset.UnixEpoch);
+    }
+
+    [Fact]
+    public void Build_TestFirstCounts()
+    {
+        var d = RunReport.Build(
+        [
+            TfRec(1, 0, RedState.Red, GreenState.Passed, 0),
+            TfRec(2, 1, RedState.Red, GreenState.Failed, 0),
+            TfRec(3, 1, RedState.Red, GreenState.NotChecked, 0),
+            TfRec(4, 0, RedState.AlreadyPassed, GreenState.Passed, 0),
+            TfRec(5, 1, RedState.Red, GreenState.Passed, 1),
+        ]);
+
+        Assert.Equal(new TestFirstCounts(Met: 1, Judged: 4, RedWarned: 1, RedChecked: 5), d.TestFirst);
+    }
+
+    [Fact]
+    public void Build_TestFileChangedRun_NotMet()
+    {
+        var d = RunReport.Build([TfRec(1, 4, RedState.Red, GreenState.Passed, 0)]);
+
+        Assert.Equal(new TestFirstCounts(0, 1, 0, 1), d.TestFirst);
+    }
+
+    [Fact]
+    public void Build_NoTestFirstRuns_Null() => Assert.Null(RunReport.Build([Rec(1), Rec(2, exit: 1)]).TestFirst);
 
     [Fact]
     public void Build_RatesAndPercentiles()

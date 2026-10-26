@@ -3,6 +3,7 @@ using PellyCoder.Core.Fsm;
 using PellyCoder.Core.Logging;
 using PellyCoder.Core.Models;
 using PellyCoder.Core.Reporting;
+using PellyCoder.Core.Testing;
 using PellyCoder.Core.Workspaces;
 
 namespace PellyCoder.Core.Tests.Reporting;
@@ -31,6 +32,34 @@ public sealed class ReportSanitizerTests
             foreach (var kept in new[] { "CS0103", "TEST", "0.40.0", "Other", "invalid" })
                 Assert.Contains(kept, text);
         }
+    }
+
+    [Fact]
+    public void Sanitize_TestFirstHasNoNames()
+    {
+        // The raw summary carries a test name in a free-text field (failure kind); only enum names and numbers may survive.
+        var s = Injected() with
+        {
+            ExitCode = 0,
+            FailureKind = "Calculator.Add_Returns_Sum",
+            TestFirst = new TestFirstSummary(1, RedState.Red, GreenState.Passed, 0, 0),
+        };
+        var runs = new[] { Rec(s) };
+        var report = ReportSanitizer.Sanitize(runs, RunReport.Build(runs));
+
+        foreach (var text in new[] { report.ToJson(), report.ToMarkdown() })
+        {
+            Assert.DoesNotContain("Add_Returns_Sum", text);
+            Assert.DoesNotContain("Calculator", text);
+        }
+        var run = Assert.Single(report.Runs);
+        Assert.Equal("Red", run.Red);
+        Assert.Equal("Passed", run.Green);
+        Assert.Equal(0, run.TestRegressions);
+        Assert.Contains("\"red\": \"Red\"", report.ToJson());
+        Assert.Contains("\"green\": \"Passed\"", report.ToJson());
+        Assert.Contains("| 수용 기준 충족률 | 100.0% (1/1) |", report.ToMarkdown());
+        Assert.Contains("| RED 확인 경고율 | 0.0% (0/1) |", report.ToMarkdown());
     }
 
     [Fact]

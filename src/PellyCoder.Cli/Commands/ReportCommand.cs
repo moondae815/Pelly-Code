@@ -80,6 +80,11 @@ public sealed class ReportCommand(IFileSystem fs, IAnsiConsole console) : Comman
         kpi.AddRow("패치 포맷 파싱 성공률", d.Parse.Rate is { } r ? $"{r:P1} ({d.Parse.Ok}/{d.Parse.Total} 시도)" : "-");
         kpi.AddRow("최종 작업 성공률", $"{d.SuccessRate:P1} ({d.SuccessCount}/{d.RunCount}건, 종료 코드 0)");
         kpi.AddRow("단일 작업 완료 시간", Describe(d.TaskSeconds, " (단계 합)"));
+        if (d.TestFirst is { } tf)
+        {
+            kpi.AddRow("수용 기준 충족률", Markup.Escape(RatioText(tf.Met, tf.Judged)));
+            kpi.AddRow("RED 확인 경고율", Markup.Escape(RatioText(tf.RedWarned, tf.RedChecked)));
+        }
         console.Write(kpi);
 
         Distribution("종료 코드", d.ExitCodes.Select(e => ($"{e.Key}", e.Value)));
@@ -101,6 +106,9 @@ public sealed class ReportCommand(IFileSystem fs, IAnsiConsole console) : Comman
         table.AddRow("그룹 빌드 통과율", Markup.Escape(RatioText(a.GroupBuild, $"그룹, 검증 불가 {a.GroupsUnverifiable}그룹 제외")));
         console.Write(table);
     }
+
+    private static string RatioText(int ok, int total) =>
+        total == 0 ? "-" : $"{(100.0 * ok / total).ToString("F1", CultureInfo.InvariantCulture)}% ({ok}/{total})";
 
     private static string RatioText(Ratio r, string unit) =>
         r.Rate is { } rate ? $"{(rate * 100).ToString("F1", CultureInfo.InvariantCulture)}% ({r.Ok}/{r.Total}{unit})" : "-";

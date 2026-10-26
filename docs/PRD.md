@@ -644,6 +644,7 @@ OpenSpec의 "변경 제안 → 작업 목록 → 적용 → 보관" 흐름에서
 ### 12.4 V2-2. 테스트 우선 검증 (Test-First Verification)
 > **구현(V2-2a): 2026-10-26.** 단독 실행 `pelly cs --verify-test`(RED 확인 → 패치 → GREEN·회귀 확인)와 `--expect-break`, 테스트 우선 `summary.json`(`testFirst`)·`pelly report`의 수용 기준 충족률과 RED 확인 경고율이 구현됐습니다. 아래 도구 항목과 달리 **`--filter` 실행 대신 테스트 프로젝트 전체를 한 번 돌려** 지정 테스트의 결과를 읽고, 레거시는 `vstest.console.exe` 탐색 대신 설정 `test.command`(`{trx}` 필요)로 돌립니다. 명세의 `test:`·`breaks:`와 `pelly apply` 연동은 아래 V2-2b 줄을 보십시오. 설계는 `docs/superpowers/specs/2026-10-26-v2-2-test-first-design.md`, 사용법은 README `pelly cs` 절을 보십시오.
 > **구현(V2-2b): 2026-10-26.** 명세의 수용 기준에 `test:`·`breaks:`를 적고 `pelly apply`가 연결 작업(첫 작업 RED, 마지막 작업 GREEN, 모든 연결 작업 회귀)으로 판정합니다. 작업 그룹은 그룹 기준 테스트의 컴파일 RED·GREEN·엄격 회귀를 보고(`GroupTestGreenFailed`·`GroupTestRegression`·`GroupTestUnverifiable`), `spec check`는 테스트 이름 오류·경고를 내며, `apply.json`의 `criteria`와 `pelly report`의 미검증·breaks 줄이 더해졌습니다. 사용법은 README `pelly spec`·`pelly apply` 절을 보십시오.
+> **구현(V2-2c): 2026-10-26.** 벤치마크 러너에 `pelly-eval run --test-first`(판정 테스트로 `--verify-test` 실행)와 `compare --test-first`(판정이 아닌 보고), 테스트 우선 apply 사례 `eval/benchmark/apply-test-first/t1`~`t8`이 더해졌고, 남은 가드(`GroupTestFileChanged`, 교차 작업 `TestFileChanged`)가 구현됐습니다. 예비 측정(외부 개발 PC, 사례 승인 전)은 `docs/v2-2c-test-first-benchmark.md`입니다.
 
 Superpowers의 TDD(Red → Green) 원칙에서 착안했습니다. v1 검증은 "컴파일이 되는가"까지만 확인합니다. 이 기능은 "요청한 동작을 하는가"까지 결정론적으로 확인합니다.
 
@@ -684,8 +685,8 @@ Claude Code의 `CLAUDE.md`, OpenSpec의 프로젝트 문서에서 착안했습�
 | 지표 | 목표 (잠정) | 측정 기준 |
 | :--- | :--- | :--- |
 | **명세 완료율** | ≥ 70% | 명세 하나의 모든 작업이 사람 개입 없이 성공한 비율 (작업 3~8개 규모 벤치마크 명세 기준) |
-| **수용 기준 충족률** | ≥ 80% | 테스트가 연결된 작업 중 GREEN·회귀 없음까지 통과한 비율 |
-| **RED 확인 경고율** | 기록만 함 | 이미 통과하는 테스트가 지정된 비율. 높으면 명세 작성 가이드 보완 |
+| **수용 기준 충족률** | ≥ 80% | 테스트가 연결된 작업 중 GREEN·회귀 없음까지 통과한 비율. 예비 측정: `docs/v2-2c-test-first-benchmark.md` |
+| **RED 확인 경고율** | 기록만 함 | 이미 통과하는 테스트가 지정된 비율. 높으면 명세 작성 가이드 보완. 예비 측정: `docs/v2-2c-test-first-benchmark.md` |
 | **규칙 위반 잔존율** | 0% | 최종 승인된 패치에 `forbid` 패턴이 남은 비율 (불변 조건) |
 | **규칙 도입 효과** | 성공률 +5%p 이상 | 규칙 파일 유무에 따른 v1 최종 작업 성공률 차이 |
 

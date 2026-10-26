@@ -22,7 +22,8 @@ public sealed record TestRun(
     bool PerTestResults,
     string? Error,
     bool ReportMissing = false,
-    bool RunAborted = false);
+    bool RunAborted = false,
+    IReadOnlyList<string>? Skipped = null);
 
 /// <summary>
 /// Builds a test project and runs it: SDK projects through <c>dotnet test</c> with a TRX report, legacy projects
@@ -104,8 +105,8 @@ public sealed class TestRunner(IProcessRunner processes, BuildOptions build, Tes
                 ReportMissing: result.ExitCode != 0);
         try
         {
-            var (results, aborted) = TrxParser.ParseReport(File.ReadAllText(trxPath));
-            return new TestRun(results, [], result.ExitCode, false, true, null, RunAborted: aborted);
+            var report = TrxParser.ParseFull(File.ReadAllText(trxPath));
+            return new TestRun(report.Results, [], result.ExitCode, false, true, null, RunAborted: report.RunAborted, Skipped: report.Skipped);
         }
         catch (Exception ex) when (ex is XmlException or IOException or UnauthorizedAccessException)
         {

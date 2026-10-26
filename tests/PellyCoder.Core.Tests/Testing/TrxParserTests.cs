@@ -15,6 +15,38 @@ public class TrxParserTests
     }
 
     [Fact]
+    public void ParseFull_KeepsSkippedNames()
+    {
+        var report = TrxParser.ParseFull(Fixture("skipped-and-stack.trx"));
+        Assert.Equal(["Shop.Tests.A.Skipped"], report.Skipped);
+        Assert.DoesNotContain(report.Results, r => r.FullName == "Shop.Tests.A.Skipped");
+        Assert.False(report.RunAborted);
+    }
+
+    [Fact]
+    public void ParseFull_ReadsDetailAndStack()
+    {
+        var bad = Assert.Single(TrxParser.ParseFull(Fixture("skipped-and-stack.trx")).Results, r => !r.Passed);
+        Assert.Equal("Assert.Equal() Failure: Values differ", bad.Message);
+        Assert.Equal("Assert.Equal() Failure: Values differ\nExpected: 28000\nActual:   27000", bad.Detail);
+        Assert.Contains("at Shop.Api.Services.OrderService.CalculateRefundAsync(Int32 orderId) in /work/Shop.Api/Services/OrderService.cs:line 42", bad.StackTrace);
+    }
+
+    [Fact]
+    public void ParseFull_ShortTestName_UsesTestMethodClass()
+    {
+        var results = TrxParser.ParseFull(Fixture("mstest-short-names.trx")).Results;
+        Assert.Contains(results, r => r.FullName == "Shop.Tests.OrderTests.Cancel_Throws");
+    }
+
+    [Fact]
+    public void ParseFull_DottedTestName_Unchanged()
+    {
+        var results = TrxParser.ParseFull(Fixture("mstest-short-names.trx")).Results;
+        Assert.Contains(results, r => r.FullName == "Shop.Tests.Other.Dotted");
+    }
+
+    [Fact]
     public void Trx_ParsesPassFailAndMessages()
     {
         var pass = TrxParser.Parse(Fixture("modern-pass.trx"));

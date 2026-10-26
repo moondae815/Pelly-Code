@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TestRun id="11111111-0000-0000-0000-000000000001" name="user@unknown" runUser="user" xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010"><Results><UnitTestResult testName="Shop.Tests.A.Passes" outcome="Passed" testId="00000000-0000-0000-0000-000000000001" executionId="00000000-0000-0000-0000-000000000001" /><UnitTestResult testName="Shop.Tests.A.Skipped" outcome="NotExecuted" testId="00000000-0000-0000-0000-000000000002" executionId="00000000-0000-0000-0000-000000000002" /><UnitTestResult testName="Shop.Tests.A.Fails" outcome="Failed" testId="00000000-0000-0000-0000-000000000003" executionId="00000000-0000-0000-0000-000000000003"><Output><ErrorInfo><Message>Assert.Equal() Failure: Values differ
+Expected: 28000
+Actual:   27000</Message><StackTrace>   at Shop.Api.Services.OrderService.CalculateRefundAsync(Int32 orderId) in /work/Shop.Api/Services/OrderService.cs:line 42
+   at Shop.Tests.A.Fails() in /work/Shop.Tests/A.cs:line 10</StackTrace></ErrorInfo></Output></UnitTestResult></Results><ResultSummary outcome="Failed"><Counters total="3" executed="2" passed="1" failed="1" /></ResultSummary></TestRun>

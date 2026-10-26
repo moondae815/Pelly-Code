@@ -75,6 +75,17 @@ public sealed class SqlOptions
     public List<string> AllowedDatabases { get; set; } = new();
     public int CompatLevel { get; set; } = 160;
     public string? ConnectionString { get; set; }
+    /// <summary>Read-only production connection used for SQL impact checks and pulls (V2-1d).</summary>
+    public SqlProductionOptions Production { get; set; } = new();
+    /// <summary>Workspace-relative directory that pulled stored procedures are written to.</summary>
+    public string PullDirectory { get; set; } = "db/pulled";
+}
+
+public sealed class SqlProductionOptions
+{
+    public List<string> AllowedHosts { get; set; } = new();
+    public List<string> AllowedDatabases { get; set; } = new();
+    public string? ConnectionString { get; set; }
 }
 
 public sealed class TestOptions

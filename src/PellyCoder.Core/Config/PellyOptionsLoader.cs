@@ -62,6 +62,14 @@ public static class PellyOptionsLoader
             errors.Add("sql:connectionString에 비밀번호가 있습니다 — 비밀번호가 있는 연결은 환경 변수 PELLY_SQL_CONNECTION으로만 지정하세요");
         if (environment.TryGetValue("PELLY_SQL_CONNECTION", out var envConn) && !string.IsNullOrWhiteSpace(envConn))
             options.Sql.ConnectionString = envConn;
+        var prod = options.Sql.Production;
+        if (!string.IsNullOrEmpty(prod.ConnectionString) && SqlConnectionText.HasPassword(prod.ConnectionString))
+            errors.Add("sql:production:connectionString에 비밀번호가 있습니다 — 비밀번호가 있는 운영 연결은 환경 변수 PELLY_SQL_PROD_CONNECTION으로만 지정하세요");
+        if (environment.TryGetValue("PELLY_SQL_PROD_CONNECTION", out var envProd) && !string.IsNullOrWhiteSpace(envProd))
+            prod.ConnectionString = envProd;
+        if (!string.IsNullOrWhiteSpace(prod.ConnectionString) && !string.IsNullOrWhiteSpace(options.Sql.ConnectionString)
+            && SqlTargetPolicy.SameTarget(SqlConnectionText.Endpoint(prod.ConnectionString), SqlConnectionText.Endpoint(options.Sql.ConnectionString)))
+            errors.Add("sql.production이 개발 연결(sql.connectionString)과 같은 서버·DB를 가리킵니다");
         Validate(options, errors);
 
         return errors.Count == 0 ? new OptionsLoadResult(options, errors) : new OptionsLoadResult(null, errors);
@@ -108,6 +116,9 @@ public static class PellyOptionsLoader
             foreach (var p in type.GetProperties())
                 keys.Add($"{section}:{p.Name}");
         }
+        keys.Add("sql:Production:AllowedHosts");
+        keys.Add("sql:Production:AllowedDatabases");
+        keys.Add("sql:Production:ConnectionString");
         foreach (var set in new[] { "think", "code" })
             foreach (var p in typeof(SamplingOptions).GetProperties().Where(p => p.CanRead && p.DeclaringType == typeof(SamplingOptions) && p.Name != "EqualityContract"))
                 keys.Add($"sampling:{set}:{p.Name}");
@@ -127,7 +138,8 @@ public static class PellyOptionsLoader
     }
 
     private static bool IsOpenEnded(string known) =>
-        known is "llm:Headers" or "test:Projects" or "sql:AllowedHosts" or "sql:AllowedDatabases";
+        known is "llm:Headers" or "test:Projects" or "sql:AllowedHosts" or "sql:AllowedDatabases"
+        or "sql:Production:AllowedHosts" or "sql:Production:AllowedDatabases";
 
     private static void Bind(IConfigurationRoot config, PellyOptions options, List<string> errors)
     {
@@ -140,6 +152,8 @@ public static class PellyOptionsLoader
             config.GetSection("build").Bind(options.Build);
             options.Sql.AllowedHosts.Clear();
             options.Sql.AllowedDatabases.Clear();
+            options.Sql.Production.AllowedHosts.Clear();
+            options.Sql.Production.AllowedDatabases.Clear();
             config.GetSection("sql").Bind(options.Sql);
             options.Test.Projects.Clear();
             config.GetSection("test").Bind(options.Test);

@@ -139,4 +139,25 @@ public class SqlConnectionTextTests
     {
         Assert.True(SqlConnectionText.HasPassword(cs));
     }
+
+    [Fact]
+    public void CheckProduction_names_production_keys()
+    {
+        var o = new SqlProductionOptions { AllowedHosts = { "p1" }, AllowedDatabases = { "Shop" } };
+        var host = SqlTargetPolicy.CheckProduction(new SqlEndpoint("other", "other", "Shop"), o);
+        Assert.False(host.Allowed);
+        Assert.Contains("sql.production.allowedHosts", host.Message);
+        var db = SqlTargetPolicy.CheckProduction(new SqlEndpoint("p1", "p1", "x"), o);
+        Assert.False(db.Allowed);
+        Assert.Contains("sql.production.allowedDatabases", db.Message);
+        Assert.True(SqlTargetPolicy.CheckProduction(new SqlEndpoint("P1", "P1", "shop"), o).Allowed);
+    }
+
+    [Fact]
+    public void SameTarget_compares_source_and_database_ignoring_case()
+    {
+        Assert.True(SqlTargetPolicy.SameTarget(new SqlEndpoint("DB1", "DB1", "Shop"), new SqlEndpoint("db1", "db1", "shop")));
+        Assert.False(SqlTargetPolicy.SameTarget(new SqlEndpoint("db1", "db1", "a"), new SqlEndpoint("db1", "db1", "b")));
+        Assert.False(SqlTargetPolicy.SameTarget(new SqlEndpoint("db1", "db1", "a"), new SqlEndpoint("db2", "db2", "a")));
+    }
 }

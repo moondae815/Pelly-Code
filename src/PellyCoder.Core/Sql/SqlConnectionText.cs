@@ -100,19 +100,30 @@ public static class SqlConnectionText
 
 public static class SqlTargetPolicy
 {
-    public static SqlTargetCheck Check(SqlEndpoint endpoint, SqlOptions options)
+    public static SqlTargetCheck Check(SqlEndpoint endpoint, SqlOptions options) =>
+        Check(endpoint, options.AllowedHosts, options.AllowedDatabases, "sql.allowedHosts", "sql.allowedDatabases");
+
+    public static SqlTargetCheck CheckProduction(SqlEndpoint endpoint, SqlProductionOptions options) =>
+        Check(endpoint, options.AllowedHosts, options.AllowedDatabases, "sql.production.allowedHosts", "sql.production.allowedDatabases");
+
+    /// <summary>True when both endpoints name the same server (DataSource, instance included) and database, ignoring case.</summary>
+    public static bool SameTarget(SqlEndpoint a, SqlEndpoint b) =>
+        string.Equals(a.DataSource, b.DataSource, StringComparison.OrdinalIgnoreCase)
+        && string.Equals(a.Database, b.Database, StringComparison.OrdinalIgnoreCase);
+
+    private static SqlTargetCheck Check(SqlEndpoint endpoint, List<string> allowedHosts, List<string> allowedDatabases, string hostsKey, string databasesKey)
     {
         if (endpoint.Problem is not null) return new(false, endpoint.Problem);
-        var hostOk = options.AllowedHosts.Where(h => !string.IsNullOrWhiteSpace(h)).Any(h =>
+        var hostOk = allowedHosts.Where(h => !string.IsNullOrWhiteSpace(h)).Any(h =>
             string.Equals(h, endpoint.DataSource, StringComparison.OrdinalIgnoreCase)
             || string.Equals(h, endpoint.Host, StringComparison.OrdinalIgnoreCase));
         if (!hostOk)
-            return new(false, $"SQL 서버 '{endpoint.DataSource}'이(가) sql.allowedHosts에 없습니다 — 접속을 허용하려면 sql.allowedHosts에 추가하세요");
+            return new(false, $"SQL 서버 '{endpoint.DataSource}'이(가) {hostsKey}에 없습니다 — 접속을 허용하려면 {hostsKey}에 추가하세요");
 
         var dbOk = endpoint.Database is not null
-            && options.AllowedDatabases.Where(d => !string.IsNullOrWhiteSpace(d)).Any(d => string.Equals(d, endpoint.Database, StringComparison.OrdinalIgnoreCase));
+            && allowedDatabases.Where(d => !string.IsNullOrWhiteSpace(d)).Any(d => string.Equals(d, endpoint.Database, StringComparison.OrdinalIgnoreCase));
         if (!dbOk)
-            return new(false, $"데이터베이스 '{endpoint.Database}'이(가) sql.allowedDatabases에 없습니다 — 접속을 허용하려면 sql.allowedDatabases에 추가하세요");
+            return new(false, $"데이터베이스 '{endpoint.Database}'이(가) {databasesKey}에 없습니다 — 접속을 허용하려면 {databasesKey}에 추가하세요");
 
         return new(true, null);
     }

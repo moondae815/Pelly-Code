@@ -500,8 +500,10 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                     }
                     RecordBreaks(g, verdict);
                     // A compile-RED project with no GREEN test in this group is fixed by a later task outside it, whose own
-                    // baseline would then not build: no re-run here can help, and the spec has to group that task too.
-                    if (verdict.Unbuilt.FirstOrDefault(u => !u.Value.Any(n => testing.Plan.GreenNames.Contains(n, StringComparer.Ordinal)))
+                    // baseline would then not build: no re-run here can help, and the spec has to group that task too. A project
+                    // that built in the baseline was broken by this group's edits, which the build feedback re-run can fix.
+                    if (verdict.Unbuilt.FirstOrDefault(u => IsCompileRed(testing.Baseline, u.Key, u.Value)
+                            && !u.Value.Any(n => testing.Plan.GreenNames.Contains(n, StringComparer.Ordinal)))
                         is { Key: { } unbuiltProject })
                     {
                         owner.Ui.Warn($"그룹 {g.Id}: 테스트 프로젝트가 그룹 뒤에도 빌드되지 않습니다 — 수용 기준의 마지막 연결 작업까지 같은 그룹에 넣으세요: {unbuiltProject}");
@@ -575,6 +577,15 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             }
             return new GroupEnd(0, false);
         }
+
+        /// <summary>
+        /// Whether an unbuilt test project (workspace-relative) did not compile in the baseline either: one of the baseline's
+        /// compile-RED projects, or declaring a plan test the baseline judged compile RED.
+        /// </summary>
+        private bool IsCompileRed(GroupTestBaseline baseline, string project, IReadOnlyList<string> tests) =>
+            baseline.CompileRed.Any(i => i < baseline.Projects.Count && string.Equals(
+                owner.Fs.Path.GetRelativePath(ws.Root, baseline.Projects[i]).Replace('\\', '/'), project, StringComparison.Ordinal))
+            || tests.Any(n => baseline.Red.TryGetValue(n, out var state) && state == RedState.RedCompile);
 
         /// <summary>Records the expected breaks the verdict left out for every criterion whose last linked task is in the group.</summary>
         private void RecordBreaks(GroupState g, GroupTestVerdict verdict)

@@ -361,6 +361,25 @@ public sealed class SpecRunnerGroupTestFirstTests : IDisposable
     }
 
     [Fact]
+    public async Task Group_UnbuiltProjectNotCompileRed_RerunWithBuildFeedback()
+    {
+        // The test project built in the baseline (RED, not compile RED): the group's edit broke it, which a re-run can fix.
+        Spec(Criterion, GroupTasks + "- [ ] T3 cs src/App/OrderService.cs#OrderService.Cancel 마무리 (AC1)\n");
+        _exec.Display["T3"] = "OrderService.Cancel()";
+        _tests.Baseline = Baseline(RedState.Red);
+        _tests.Verdicts.Enqueue(new GroupTestVerdict(null, [], [Error("tests/App.Tests/OrderTests.cs", 5, "CS1501")], [], 0)
+        {
+            Unbuilt = new Dictionary<string, IReadOnlyList<string>> { ["tests/App.Tests/App.Tests.csproj"] = [Test] },
+        });
+
+        Assert.Equal(0, await Run(Opts(maxRetries: 3)));
+
+        Assert.Equal(["T1", "T2", "T2", "T3"], _exec.Calls);
+        Assert.Contains("BUILD FAILED", _exec.Options[2].Group!.InitialFeedback!.Text);
+        Assert.DoesNotContain(_ui.Warnings, w => w.Contains("그룹 뒤에도 빌드되지 않습니다", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task Group_TestFailureWithoutOwner_FailsAtOnce()
     {
         Spec(Criterion, GroupTasks);

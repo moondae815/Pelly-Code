@@ -72,7 +72,7 @@ public static partial class SpecChecker
 
     /// <summary>
     /// Acceptance-criterion tests: an AC with a not-done linked cs task is judged (test and breaks must resolve exactly,
-    /// else errors); other ACs only warn. Also flags an AC without linked cs tasks and a task that edits its own test.
+    /// else errors); other ACs only warn. Also flags an AC without linked cs tasks, and any not-done cs task that edits the test of a judged AC.
     /// </summary>
     private static void CheckAcTests(IFileSystem fs, Workspace ws, ChangeSpec spec, List<SpecIssue> issues)
     {
@@ -102,8 +102,10 @@ public static partial class SpecChecker
                 continue;
             }
 
+            // Any not-done cs task, linked or not, would change the test between its RED and GREEN (design §5.6).
+            if (!judged) continue;
             var decls = Find(link.Test);
-            foreach (var task in linked.Where(t => !t.Done && t.Symbol is not null))
+            foreach (var task in spec.Tasks.Where(t => t.Kind == TaskKind.CSharp && !t.Done && t.Symbol is not null))
             {
                 var taskFile = SpecTaskPaths.FullPath(fs.Path, ws.Root, task.Path);
                 var member = SpecSymbol.Split(task.Symbol!).Member;

@@ -188,6 +188,26 @@ public sealed class SpecCheckerTests
     }
 
     [Fact]
+    public void Check_UnlinkedTaskTargetsAcTest_TestIsTarget()
+    {
+        // T2 is linked to no criterion, yet it would edit AC1's test between T1's RED and a later GREEN.
+        var r = Check(Fs(CsTask + "- [ ] T2 cs src/Tests/OrderTests.cs#OrderTests.Cancel_works 요청\n", Ac("OrderTests.Cancel_works")));
+        var issue = Assert.Single(r.Issues);
+        Assert.Equal("TestIsTarget", issue.Code);
+        Assert.Equal(SpecIssueSeverity.Error, issue.Severity);
+        Assert.Equal("작업 T2: 수용 기준 AC1의 테스트 메서드를 고치는 작업입니다. 테스트는 사람이 씁니다.", issue.Message);
+    }
+
+    [Fact]
+    public void Check_TaskOfOtherAcTargetsAcTest_TestIsTarget()
+    {
+        var r = Check(Fs(CsTask + "- [ ] T2 cs src/Tests/OrderTests.cs#OrderTests.Cancel_works 요청 (AC2)\n",
+            Ac("OrderTests.Cancel_works") + "- AC2: 둘\n"));
+        var issue = Assert.Single(r.Issues, i => i.Code == "TestIsTarget");
+        Assert.Equal("작업 T2: 수용 기준 AC1의 테스트 메서드를 고치는 작업입니다. 테스트는 사람이 씁니다.", issue.Message);
+    }
+
+    [Fact]
     public void Check_LinkedBreaksMissing_IsError()
     {
         var r = Check(Fs(CsTask, Ac("OrderTests.Cancel_works", "  breaks: OrderTests.Gone\n")));

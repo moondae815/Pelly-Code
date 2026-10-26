@@ -28,6 +28,7 @@ public static partial class DoctorSanitizer
         [DoctorFacts.ServerSettings] = [],
         [DoctorFacts.SemanticAnalysis] = [DoctorFacts.BuildHost, DoctorFacts.Semantic, DoctorFacts.Failure],
         [DoctorFacts.Sql] = [DoctorFacts.CanViewDefinition, DoctorFacts.ServerMajor, DoctorFacts.AuthMode],
+        [DoctorFacts.SqlProduction] = [],
     };
 
     /// <summary>Version-valued facts follow the run report's version rule: a value outside it is written as <c>invalid</c>.</summary>

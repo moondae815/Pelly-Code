@@ -16,6 +16,7 @@ public static class DoctorFacts
     public const string TargetingPack = "타겟팅 팩";
     public const string ServerSettings = "서버 설정 확인 필요";
     public const string Sql = "SQL 연결";
+    public const string SqlProduction = "SQL 운영(읽기 전용)";
     public const string SemanticAnalysis = SemanticCheck.Name;
 
     public const string OllamaVersion = "ollamaVersion";

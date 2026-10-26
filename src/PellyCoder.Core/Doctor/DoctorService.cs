@@ -30,7 +30,8 @@ public sealed class DoctorService(
     Func<bool>? isWindows = null,
     ISqlExecutor? sql = null,
     DoctorContext? context = null,
-    ISemanticLoader? semantic = null)
+    ISemanticLoader? semantic = null,
+    SqlReaderOpen? prodSql = null)
 {
     private static readonly TimeSpan DotnetTimeout = TimeSpan.FromSeconds(10);
     private readonly Func<bool> _isWindows = isWindows ?? OperatingSystem.IsWindows;
@@ -106,6 +107,7 @@ public sealed class DoctorService(
             "서버에서 직접 확인할 수 없음: OLLAMA_FLASH_ATTENTION, OLLAMA_KV_CACHE_TYPE, OLLAMA_NUM_PARALLEL, OLLAMA_KEEP_ALIVE. 아래 체크리스트를 서버 관리자와 확인하세요",
             "서버 관리자에게 PRD §7.1 값을 확인하세요"));
         checks.Add(await CheckSqlAsync(ct));
+        checks.Add(await CheckSqlProductionAsync(ct));
         return checks;
     }
 
@@ -140,6 +142,8 @@ public sealed class DoctorService(
         lines.Add($"budget.inputTotal={options.Budget.InputTotal}, retry.max={options.Retry.Max}, " +
                   $"build.timeoutSeconds={options.Build.TimeoutSeconds}, test.timeoutSeconds={options.Test.TimeoutSeconds}");
         lines.Add($"sql.compatLevel={options.Sql.CompatLevel}, sql.connectionString={(string.IsNullOrWhiteSpace(cs) ? "(없음)" : SqlConnectionText.Mask(cs))}");
+        var prodCs = options.Sql.Production.ConnectionString;
+        lines.Add($"sql.production.connectionString={(string.IsNullOrWhiteSpace(prodCs) ? "(없음)" : SqlConnectionText.Mask(prodCs))}");
         return new(DoctorFacts.Settings, DoctorStatus.Ok, string.Join('\n', lines), null);
     }
 
@@ -177,6 +181,32 @@ public sealed class DoctorService(
             var text = SqlConnectionText.MaskInText(ex.Message, cs);
             return new(name, DoctorStatus.Fail, $"{endpoint.DataSource}/{endpoint.Database} 에 연결할 수 없음: {text}",
                 "연결 문자열과 서버 상태를 확인하세요");
+        }
+    }
+
+    private async Task<DoctorCheck> CheckSqlProductionAsync(CancellationToken ct)
+    {
+        const string name = DoctorFacts.SqlProduction;
+        if (prodSql is null || (prodSql.Reader is null && prodSql.Problem is null))
+            return new(name, DoctorStatus.Ok, "운영 연결 없음(선택)", null);
+        if (prodSql.Reader is not { } reader)
+            return new(name, DoctorStatus.Fail, prodSql.Problem!, "sql.production.allowedHosts·sql.production.allowedDatabases 설정을 확인하세요");
+
+        var cs = options.Sql.Production.ConnectionString ?? "";
+        var endpoint = prodSql.Endpoint;
+        var target = endpoint is null ? "" : $"{endpoint.DataSource}/{endpoint.Database}";
+        try
+        {
+            var probe = await reader.ProbeAsync(ct);
+            if (!probe.CanViewDefinition)
+                return new(name, DoctorStatus.Fail, "VIEW DEFINITION 권한 필요",
+                    "운영 DB에서 읽기 전용 계정에 GRANT VIEW DEFINITION 권한을 부여하세요");
+            return new(name, DoctorStatus.Ok, $"{target}, 읽기 전용", null);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return new(name, DoctorStatus.Fail, $"{target} 에 연결할 수 없음: {SqlConnectionText.MaskInText(ex.Message, cs)}",
+                "운영 연결 문자열과 서버 상태를 확인하세요");
         }
     }
 

@@ -65,7 +65,8 @@ public static class Composition
         }
     }
 
-    private sealed class DoctorRunner(IFileSystem fs, TimeProvider time, HttpClientHolder http, IProcessRunner processes) : IDoctorRunner
+    private sealed class DoctorRunner(IFileSystem fs, TimeProvider time, HttpClientHolder http, IProcessRunner processes,
+        Func<string, ISqlDefinitionReader> readerFactory) : IDoctorRunner
     {
         public Task<IReadOnlyList<DoctorCheck>> RunAsync(PellyOptions options, DoctorContext context, CancellationToken ct)
         {
@@ -75,7 +76,7 @@ public static class Composition
                 ? null
                 : new SqlServerExecutor(options.Sql.ConnectionString);
             return new DoctorService(backend, backend, template, QwenTokenCounter.Shared, options, time, fs, processes, sql: sql, context: context with { BaseDirectory = AppContext.BaseDirectory },
-                semantic: new MsBuildSemanticLoader(fs)).RunAsync(ct);
+                semantic: new MsBuildSemanticLoader(fs), prodSql: SqlReaders.Production(options.Sql, readerFactory)).RunAsync(ct);
         }
     }
 }

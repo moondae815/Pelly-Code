@@ -29,13 +29,14 @@ public sealed class DoctorServiceTests
     private bool _windows;
 
     private FakeSqlExecutor? _sql;
+    private SqlReaderOpen? _prod;
     private DoctorContext? _context;
 
     private DoctorService Create(int localCount = 12)
     {
         if (_processes.Calls.Count == 0 && !_dotnetQueued)
             _processes.Enqueue(Proc(0, "10.0.100\n"));
-        return new(_backend, _diag, _template, new FixedCounter(localCount), _options, _time, _fs, _processes, () => _windows, _sql, _context);
+        return new(_backend, _diag, _template, new FixedCounter(localCount), _options, _time, _fs, _processes, () => _windows, _sql, _context, prodSql: _prod);
     }
 
     private bool _dotnetQueued;
@@ -62,7 +63,7 @@ public sealed class DoctorServiceTests
         var checks = await Create().RunAsync(CancellationToken.None);
 
         Assert.Equal(
-            ["Ollama 서버", "모델", "렌더러", "템플릿 일치", "토크나이저 일치", "응답 시간", "pelly", "설정", ".NET SDK", "MSBuild (레거시)", "서버 설정 확인 필요", "SQL 연결"],
+            ["Ollama 서버", "모델", "렌더러", "템플릿 일치", "토크나이저 일치", "응답 시간", "pelly", "설정", ".NET SDK", "MSBuild (레거시)", "서버 설정 확인 필요", "SQL 연결", "SQL 운영(읽기 전용)"],
             checks.Select(c => c.Name));
         Assert.All(checks.Take(9), c => Assert.Equal(DoctorStatus.Ok, c.Status));
         Assert.Equal(DoctorStatus.Warn, checks[9].Status);
@@ -344,6 +345,113 @@ public sealed class DoctorServiceTests
         Assert.Contains("password=***", c.Detail, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("Secret", c.Detail);
         Assert.DoesNotContain("hdr-token-xyz", c.Detail);
+    }
+
+    private const string ProdCs = "Server=prodhost;Database=ProdDb;User Id=ro;Password=ProdSecret!9";
+
+    private sealed class ProdReader(Func<SqlServerProbe> probe) : ISqlDefinitionReader
+    {
+        public Task<SqlServerProbe> ProbeAsync(CancellationToken ct) => Task.FromResult(probe());
+        public Task<SqlModuleDefinition?> GetDefinitionAsync(SqlObjectName name, CancellationToken ct) => throw new NotSupportedException();
+        public Task<IReadOnlyList<SqlModuleRef>> GetReferencingModulesAsync(SqlObjectName name, CancellationToken ct) => throw new NotSupportedException();
+        public Task<IReadOnlyList<SqlColumnUse>?> GetColumnUsesAsync(SqlObjectName module, CancellationToken ct) => throw new NotSupportedException();
+        public Task<IReadOnlyList<string>> GetColumnsAsync(SqlObjectName table, CancellationToken ct) => throw new NotSupportedException();
+    }
+
+    private void ProdConfigured(Func<SqlServerProbe> probe)
+    {
+        _options.Sql.Production.ConnectionString = ProdCs;
+        _prod = new SqlReaderOpen(new ProdReader(probe), SqlConnectionText.Endpoint(ProdCs), null);
+    }
+
+    [Fact]
+    public async Task Production_not_configured_is_ok_optional()
+    {
+        EnqueueProbes();
+        _prod = new SqlReaderOpen(null, null, null);
+
+        var checks = await Create().RunAsync(CancellationToken.None);
+        var c = Get(checks, DoctorFacts.SqlProduction);
+
+        Assert.Equal(DoctorStatus.Ok, c.Status);
+        Assert.Equal("운영 연결 없음(선택)", c.Detail);
+        var names = checks.Select(x => x.Name).ToList();
+        Assert.Equal(names.IndexOf(DoctorFacts.Sql) + 1, names.IndexOf(DoctorFacts.SqlProduction));
+    }
+
+    [Fact]
+    public async Task Production_outside_allow_list_fails()
+    {
+        EnqueueProbes();
+        _options.Sql.Production.ConnectionString = ProdCs;
+        _prod = new SqlReaderOpen(null, SqlConnectionText.Endpoint(ProdCs), "sql.production.allowedHosts·sql.production.allowedDatabases 에 없는 대상입니다");
+
+        var c = Get(await Create().RunAsync(CancellationToken.None), DoctorFacts.SqlProduction);
+
+        Assert.Equal(DoctorStatus.Fail, c.Status);
+        Assert.Contains("sql.production.allowedHosts", c.Detail);
+    }
+
+    [Fact]
+    public async Task Production_unreachable_fails()
+    {
+        EnqueueProbes();
+        ProdConfigured(() => throw new SqlUnavailableException("login failed for Password=ProdSecret!9;"));
+
+        var c = Get(await Create().RunAsync(CancellationToken.None), DoctorFacts.SqlProduction);
+
+        Assert.Equal(DoctorStatus.Fail, c.Status);
+        Assert.Contains("prodhost/ProdDb", c.Detail);
+        Assert.DoesNotContain("ProdSecret", c.Detail);
+    }
+
+    [Fact]
+    public async Task Production_without_view_definition_fails()
+    {
+        EnqueueProbes();
+        ProdConfigured(() => new SqlServerProbe("Microsoft SQL Server 2022\nx", "ProdDb", false));
+
+        var c = Get(await Create().RunAsync(CancellationToken.None), DoctorFacts.SqlProduction);
+
+        Assert.Equal(DoctorStatus.Fail, c.Status);
+        Assert.Contains("GRANT VIEW DEFINITION", c.Action);
+    }
+
+    [Fact]
+    public async Task Production_ok_shows_server_and_database()
+    {
+        EnqueueProbes();
+        ProdConfigured(() => new SqlServerProbe("Microsoft SQL Server 2022\nx", "ProdDb", true));
+
+        var c = Get(await Create().RunAsync(CancellationToken.None), DoctorFacts.SqlProduction);
+
+        Assert.Equal(DoctorStatus.Ok, c.Status);
+        Assert.Contains("prodhost", c.Detail);
+        Assert.Contains("ProdDb", c.Detail);
+        Assert.DoesNotContain("ProdSecret", c.Detail);
+    }
+
+    [Fact]
+    public async Task Settings_line_masks_production_connection()
+    {
+        EnqueueProbes();
+        ProdConfigured(() => new SqlServerProbe("v", "ProdDb", true));
+
+        var c = Get(await Create().RunAsync(CancellationToken.None), "설정");
+
+        Assert.Contains("sql.production.connectionString=", c.Detail);
+        Assert.Contains(SqlConnectionText.Mask(ProdCs), c.Detail);
+        Assert.DoesNotContain("ProdSecret", c.Detail);
+    }
+
+    [Fact]
+    public async Task Settings_line_shows_none_without_production_connection()
+    {
+        EnqueueProbes();
+
+        var c = Get(await Create().RunAsync(CancellationToken.None), "설정");
+
+        Assert.Contains("sql.production.connectionString=(없음)", c.Detail);
     }
 
     private const string SdkProject = "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>";

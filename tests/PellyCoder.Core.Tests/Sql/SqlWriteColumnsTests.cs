@@ -73,13 +73,48 @@ public sealed class SqlWriteColumnsTests
         Assert.Empty(w.Columns!);
     }
 
+    [Theory]
+    [InlineData("DECLARE @t TABLE (Id int); INSERT INTO @t (Id) VALUES (1)")]
+    [InlineData("DECLARE @t TABLE (Id int); UPDATE @t SET Id = 2")]
+    [InlineData("INSERT INTO #tmp (Id) VALUES (1)")]
+    [InlineData("UPDATE #tmp SET Id = 2")]
+    [InlineData("DELETE FROM #tmp")]
+    public void Temp_table_and_table_variable_are_skipped(string sql) => Assert.Empty(Collect(sql));
+
     [Fact]
-    public void Temp_table_and_table_variable_are_skipped()
+    public void Cte_update_resolves_to_base_table()
     {
-        Assert.Empty(Collect(
-            "DECLARE @t TABLE (Id int); INSERT INTO @t (Id) VALUES (1); UPDATE @t SET Id = 2; " +
-            "INSERT INTO #tmp (Id) VALUES (1); UPDATE #tmp SET Id = 2; DELETE FROM #tmp;"));
+        var w = Assert.Single(Collect("WITH c AS (SELECT * FROM dbo.Orders) UPDATE c SET Status=1"));
+        Assert.True(w.Table.SameAs(new SqlObjectName("dbo", "Orders")));
+        Assert.Equal(["Status"], w.Columns);
     }
+
+    [Fact]
+    public void Cte_over_join_is_skipped() =>
+        Assert.Empty(Collect("WITH c AS (SELECT o.Id FROM dbo.Orders o JOIN dbo.Items i ON i.OrderId=o.Id) UPDATE c SET Id=1"));
+
+    [Fact]
+    public void Alias_of_table_variable_is_skipped() =>
+        Assert.Empty(Collect("DECLARE @tv TABLE (Id int); UPDATE x SET Id = 1 FROM @tv x"));
+
+    [Fact]
+    public void Alias_of_derived_table_is_skipped() =>
+        Assert.Empty(Collect("UPDATE x SET Id = 1 FROM (SELECT Id FROM dbo.Orders) x"));
+
+    [Fact]
+    public void Output_into_records_insert()
+    {
+        var ws = Collect("UPDATE dbo.Orders SET Status = 1 OUTPUT inserted.Id INTO dbo.Audit (OrderId)");
+        Assert.Equal(2, ws.Count);
+        var a = Assert.Single(ws, w => w.Kind == SqlWriteKind.Insert);
+        Assert.True(a.Table.SameAs(new SqlObjectName("dbo", "Audit")));
+        Assert.Equal(["OrderId"], a.Columns);
+        Assert.DoesNotContain(Collect("DELETE FROM dbo.Orders OUTPUT deleted.Id INTO #t"), w => w.Kind == SqlWriteKind.Insert);
+    }
+
+    [Fact]
+    public void Variable_assignment_only_update_is_skipped() =>
+        Assert.Empty(Collect("DECLARE @x int; UPDATE dbo.Orders SET @x = Total"));
 
     [Fact]
     public void Three_part_name_is_skipped()
@@ -99,6 +134,7 @@ public sealed class SqlWriteColumnsTests
     public void Bad_sql_never_throws()
     {
         Assert.Empty(Collect("this is not sql @@@"));
-        _ = Collect("UPDATE dbo.Orders SET Status = 1 WHERE (");
+        var partial = Collect("UPDATE dbo.Orders SET Status = 1; SELECT (");
+        Assert.All(partial, w => Assert.Equal("Orders", w.Table.Name));
     }
 }

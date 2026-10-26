@@ -45,10 +45,12 @@ public static class SqlWriteColumns
             return merged.Select(m => new SqlWrite(m.Table, m.Columns, m.Kind)).ToList();
         }
 
+        private Dictionary<string, QueryExpression> _ctes = new(StringComparer.OrdinalIgnoreCase);
+
         private void Record(TableReference? target, FromClause? from, SqlWriteKind kind, IEnumerable<string?>? columns, bool allColumns = false)
         {
             if (target is not NamedTableReference named) return;
-            var so = ResolveAlias(named, from);
+            var so = Resolve(named.SchemaObject, from, 0);
             if (so?.BaseIdentifier is null || so.Identifiers.Count > 2) return;
             var baseName = so.BaseIdentifier.Value;
             if (baseName.StartsWith('#') || baseName.StartsWith('@')) return;
@@ -57,33 +59,78 @@ public static class SqlWriteColumns
             if (list is not null && columns is not null)
                 foreach (var c in columns)
                     if (c is not null && !list.Contains(c, StringComparer.OrdinalIgnoreCase)) list.Add(c);
+            if (list is { Count: 0 } && kind == SqlWriteKind.Update) return; // SET @x = col writes no column
             _writes.Add((name, kind, list));
         }
 
-        /// <summary>UPDATE o ... FROM dbo.Orders o: a one-part target equal to a FROM alias is that aliased table.</summary>
-        private static SchemaObjectName? ResolveAlias(NamedTableReference target, FromClause? from)
+        /// <summary>OUTPUT ... INTO table [(cols)] is an insert into that table.</summary>
+        private void RecordOutputInto(DataModificationSpecification spec)
         {
-            var so = target.SchemaObject;
-            if (from is not null && so?.Identifiers.Count == 1)
+            var into = spec.OutputIntoClause;
+            if (into is null) return;
+            var cols = into.IntoTableColumns?.Select(ColumnName).ToList();
+            Record(into.IntoTable, null, SqlWriteKind.Insert, cols, allColumns: cols is null or { Count: 0 });
+        }
+
+        /// <summary>
+        /// Resolves a write target to its base table: a one-part name is first a FROM alias (top level only), then a CTE
+        /// over a single base table. Returns null when it cannot be resolved to a base table (derived table, variable, join CTE).
+        /// </summary>
+        private SchemaObjectName? Resolve(SchemaObjectName? so, FromClause? from, int depth)
+        {
+            if (so is null || depth > 8) return null;
+            if (so.Identifiers.Count != 1) return so;
+            var name = so.BaseIdentifier.Value;
+            if (depth == 0 && from is not null)
             {
-                var finder = new AliasFinder(so.BaseIdentifier.Value);
-                from.Accept(finder);
-                if (finder.Found is not null) return finder.Found;
+                var aliased = FindAlias(from.TableReferences, name);
+                if (aliased is not null)
+                    return aliased is NamedTableReference n ? Resolve(n.SchemaObject, null, depth + 1) : null;
+            }
+            if (_ctes.TryGetValue(name, out var body))
+            {
+                if (body is QuerySpecification { FromClause.TableReferences: [NamedTableReference only] })
+                    return Resolve(only.SchemaObject, null, depth + 1);
+                return null;
             }
             return so;
         }
 
-        private sealed class AliasFinder(string alias) : TSqlFragmentVisitor
+        private static TableReference? FindAlias(IEnumerable<TableReference> refs, string alias)
         {
-            public SchemaObjectName? Found { get; private set; }
-
-            public override void ExplicitVisit(NamedTableReference node)
+            foreach (var r in refs)
             {
-                if (Found is null && node.Alias is not null && node.Alias.Value.Equals(alias, StringComparison.OrdinalIgnoreCase))
-                    Found = node.SchemaObject;
-                base.ExplicitVisit(node);
+                switch (r)
+                {
+                    case QualifiedJoin j:
+                        if (FindAlias([j.FirstTableReference, j.SecondTableReference], alias) is { } f1) return f1;
+                        break;
+                    case UnqualifiedJoin j:
+                        if (FindAlias([j.FirstTableReference, j.SecondTableReference], alias) is { } f2) return f2;
+                        break;
+                    case JoinParenthesisTableReference p:
+                        if (p.Join is not null && FindAlias([p.Join], alias) is { } f3) return f3;
+                        break;
+                    case TableReferenceWithAlias { Alias: not null } t when t.Alias.Value.Equals(alias, StringComparison.OrdinalIgnoreCase):
+                        return t;
+                }
             }
+            return null;
         }
+
+        private void WithCtes(WithCtesAndXmlNamespaces? with, Action visit)
+        {
+            var saved = _ctes;
+            _ctes = new Dictionary<string, QueryExpression>(saved, StringComparer.OrdinalIgnoreCase);
+            foreach (var c in with?.CommonTableExpressions ?? [])
+                if (c.ExpressionName is not null && c.QueryExpression is not null) _ctes[c.ExpressionName.Value] = c.QueryExpression;
+            try { visit(); } finally { _ctes = saved; }
+        }
+
+        public override void ExplicitVisit(InsertStatement node) => WithCtes(node.WithCtesAndXmlNamespaces, () => base.ExplicitVisit(node));
+        public override void ExplicitVisit(UpdateStatement node) => WithCtes(node.WithCtesAndXmlNamespaces, () => base.ExplicitVisit(node));
+        public override void ExplicitVisit(DeleteStatement node) => WithCtes(node.WithCtesAndXmlNamespaces, () => base.ExplicitVisit(node));
+        public override void ExplicitVisit(MergeStatement node) => WithCtes(node.WithCtesAndXmlNamespaces, () => base.ExplicitVisit(node));
 
         private static string? ColumnName(ColumnReferenceExpression? c) =>
             c?.MultiPartIdentifier?.Identifiers is { Count: > 0 } ids ? ids[^1].Value : null;
@@ -92,6 +139,7 @@ public static class SqlWriteColumns
         {
             var cols = node.Columns?.Select(ColumnName).ToList();
             Record(node.Target, null, SqlWriteKind.Insert, cols, allColumns: cols is null or { Count: 0 });
+            RecordOutputInto(node);
             base.ExplicitVisit(node);
         }
 
@@ -99,12 +147,14 @@ public static class SqlWriteColumns
         {
             var cols = node.SetClauses.OfType<AssignmentSetClause>().Select(s => ColumnName(s.Column)).ToList();
             Record(node.Target, node.FromClause, SqlWriteKind.Update, cols);
+            RecordOutputInto(node);
             base.ExplicitVisit(node);
         }
 
         public override void ExplicitVisit(DeleteSpecification node)
         {
             Record(node.Target, node.FromClause, SqlWriteKind.Delete, null);
+            RecordOutputInto(node);
             base.ExplicitVisit(node);
         }
 
@@ -126,6 +176,7 @@ public static class SqlWriteColumns
                 }
             }
             Record(node.Target, null, SqlWriteKind.Merge, cols, all);
+            RecordOutputInto(node);
             base.ExplicitVisit(node);
         }
     }

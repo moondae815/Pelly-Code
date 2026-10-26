@@ -30,7 +30,7 @@ public static class TestFirstJudge
             if (run is null)
                 return Unverifiable("기준 테스트를 실행하지 못해 지정한 테스트를 판정할 수 없습니다", "TestUnverifiable");
             if (run.BuildErrors.Count > 0)
-                return Unverifiable("테스트 프로젝트가 원본 상태에서 빌드되지 않습니다 — 시그니처를 바꾸는 작업은 V2-2b의 그룹 지원을 기다려야 합니다", "TestUnverifiable");
+                return Unverifiable("테스트 프로젝트가 원본 상태에서 빌드되지 않습니다 — 새 시그니처로 쓴 테스트는 pelly apply의 작업 그룹에서만 받습니다", "TestUnverifiable");
             if (!run.PerTestResults)
                 return Unverifiable("테스트별 결과가 없어 지정한 테스트를 판정할 수 없습니다 (레거시는 test.command에 {trx}를 넣으세요)", "TestUnverifiable");
         }

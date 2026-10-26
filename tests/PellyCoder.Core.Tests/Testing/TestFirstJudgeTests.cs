@@ -27,7 +27,7 @@ public class TestFirstJudgeTests
     public void Red_BuildErrors_Unverifiable()
     {
         var r = Red(Run([], errors: [new Diagnostic("f.cs", 1, 1, "error", "CS1", "x")]), "A.B");
-        Assert.Equal("테스트 프로젝트가 원본 상태에서 빌드되지 않습니다 — 시그니처를 바꾸는 작업은 V2-2b의 그룹 지원을 기다려야 합니다", r.Unverifiable);
+        Assert.Equal("테스트 프로젝트가 원본 상태에서 빌드되지 않습니다 — 새 시그니처로 쓴 테스트는 pelly apply의 작업 그룹에서만 받습니다", r.Unverifiable);
         Assert.Equal("TestUnverifiable", r.FailureKind);
     }
 

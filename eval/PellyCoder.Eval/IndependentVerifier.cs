@@ -120,7 +120,11 @@ public sealed class IndependentVerifier(IFileSystem fs, IProcessRunner processes
         var suiteRoot = tests.Count > 0 ? suite?.Roots.FirstOrDefault(r => r.Name == Path.GetFileName(root)) : null;
         var judgeDir = suiteRoot is null ? null : WorkCopy.CopyJudges(suite!, suiteRoot, workRoot);
         var judgeProjects = judgeDir is null ? [] : Directory.GetFiles(judgeDir, "*.csproj", SearchOption.AllDirectories);
-        var corpusProjects = Directory.GetFiles(root, "*.csproj", SearchOption.AllDirectories);
+        // A test-first run's judge copies inside the workspace (<root>/JudgeTests/) are never corpus projects.
+        var workspaceJudges = Path.Combine(root, WorkCopy.WorkspaceJudgesFolder) + Path.DirectorySeparatorChar;
+        var corpusProjects = Directory.GetFiles(root, "*.csproj", SearchOption.AllDirectories)
+            .Where(p => !p.StartsWith(workspaceJudges, StringComparison.Ordinal))
+            .ToArray();
 
         var projects = new List<string>();
         foreach (var (name, candidates) in tests.Select(n => (n, judgeProjects.Concat(corpusProjects)))
@@ -143,8 +147,7 @@ public sealed class IndependentVerifier(IFileSystem fs, IProcessRunner processes
             if (judgeProjects.Contains(project))
             {
                 properties = new Dictionary<string, string> { [JudgeTargetRootProperty] = root };
-                var restore = await processes.RunAsync(new ProcessSpec("dotnet",
-                    ["restore", project, "--nologo", $"-p:{JudgeTargetRootProperty}={root}"], Path.GetDirectoryName(project)!, RestoreTimeout), ct);
+                var restore = await processes.RunAsync(JudgeRestoreSpec(project, root), ct);
                 if (restore.TimedOut || restore.ExitCode != 0)
                     return new JudgeTestRun(results, $"판정 프로젝트 복원 실패(종료 {restore.ExitCode}): {name}", ToolingError: true);
             }
@@ -165,6 +168,10 @@ public sealed class IndependentVerifier(IFileSystem fs, IProcessRunner processes
         }
         return new JudgeTestRun(results, null);
     }
+
+    /// <summary>Restore of a judge project built against <paramref name="corpusRoot"/> (here and in a <c>run --test-first</c> workspace).</summary>
+    public static ProcessSpec JudgeRestoreSpec(string project, string corpusRoot) =>
+        new("dotnet", ["restore", project, "--nologo", $"-p:{JudgeTargetRootProperty}={corpusRoot}"], Path.GetDirectoryName(project)!, RestoreTimeout);
 
     /// <summary>The test process ran but left no TRX (<see cref="TestRunner"/>'s missing-report error, whatever the exit code).</summary>
     private static bool RunWroteNoReport(TestRun run) =>

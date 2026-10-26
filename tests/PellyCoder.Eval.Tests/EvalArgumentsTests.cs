@@ -102,4 +102,15 @@ public class EvalArgumentsTests
         Assert.True(EvalArguments.Parse(["apply", "--help"]).Help);
         Assert.Contains("pelly-eval apply", EvalArguments.Usage, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void Args_TestFirst_RunOnly()
+    {
+        Assert.True(EvalArguments.Parse(["--test-first"]).TestFirst);
+        Assert.True(EvalArguments.Parse(["run", "--tasks", "cs-modern", "--test-first", "--repeat", "3"]).TestFirst);
+        Assert.False(EvalArguments.Parse([]).TestFirst);
+        Assert.Equal("알 수 없는 인자: --test-first", EvalArguments.Parse(["apply", "--test-first"]).Error);
+        Assert.Equal("알 수 없는 인자: --test-first", EvalArguments.Parse(["validate", "--test-first"]).Error);
+        Assert.Contains("--test-first", EvalArguments.Usage, StringComparison.Ordinal);
+    }
 }

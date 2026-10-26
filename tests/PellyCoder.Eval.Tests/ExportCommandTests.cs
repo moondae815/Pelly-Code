@@ -252,13 +252,15 @@ public sealed class ExportCommandTests : IDisposable
         string[] Props(Type t) => t.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance).Select(p => p.Name).Where(n => n != "EqualityContract").Order(StringComparer.Ordinal).ToArray();
         string[] Sorted(params string[] n) => n.Order(StringComparer.Ordinal).ToArray();
         var keptTask = new[] { "Id", "Kind", "Status", "ExitCode", "Attempts", "Independent", "BuildCheck", "InvariantViolated", "FailureType",
-            "WallSeconds", "TtftSeconds", "ThinkTokens", "ThinkTruncated", "EditOutcomes", "IsLegacy", "FormatErrors" };
+            "WallSeconds", "TtftSeconds", "ThinkTokens", "ThinkTruncated", "EditOutcomes", "IsLegacy", "FormatErrors", "TestFirst" };
         var droppedTask = new[] { "Reasons", "SkipReason" };
         Assert.Equal(Sorted([.. keptTask, .. droppedTask]), Props(typeof(TaskResult)));
         // BuildStatus is derived from Status/Build.
         var keptVerification = new[] { "Status", "Build", "BuildStatus" };
         var droppedVerification = new[] { "Detail" };
         Assert.Equal(Sorted([.. keptVerification, .. droppedVerification]), Props(typeof(VerificationResult)));
+        // Test-first outcomes are enum states and counts only, never test names: kept whole.
+        Assert.Equal(Sorted("Red", "Green", "FirstAttemptGreen", "Regressions", "BreaksExcluded"), Props(typeof(TestFirstResult)));
     }
 
     [Fact]

@@ -142,6 +142,31 @@ public sealed class IndependentVerifierJudgeTests : IDisposable
         Assert.DoesNotContain(_procs.Calls, c => c.Arguments.Any(a => a.StartsWith(Path.Combine(_evalRoot, "benchmark"), StringComparison.Ordinal)));
     }
 
+    // A test-first run leaves the judge projects it used inside the workspace (<root>/JudgeTests/): they are never corpus
+    // projects, whatever their names or order. The independent judge uses its own fresh copy in <work>/judges/.
+    [Fact]
+    public async Task TestFirst_IndependentVerifierIgnoresWorkspaceJudgeCopy()
+    {
+        var inWorkspace = Path.Combine(_corpusRoot, "JudgeTests", "Shop.Api.JudgeTests", "Shop.Api.JudgeTests.csproj");
+        Write(inWorkspace, XunitV3);
+        Write(Path.Combine(_corpusRoot, "JudgeTests", "Other.JudgeTests", "Other.JudgeTests.csproj"), XunitV3);
+        _procs.Outcomes["Shop.Api.JudgeTests"] = [(JudgeTest, "Passed")];
+        _procs.Outcomes["Other.JudgeTests"] = [("Other.JudgeTests.T.X", "Passed")];
+
+        var passed = await VerifyAsync(Task([JudgeTest], null));
+        // A project found only inside the workspace copy is not a candidate.
+        var extra = await VerifyAsync(Task(["Other.JudgeTests.T.X"], null));
+        // failingTests are looked up in the corpus only: the workspace copy is not part of it (the name falls back to Shop.Api).
+        await VerifyAsync(Task(null, ["Shop.Api.JudgeTests.OrderServiceJudgeTests.Old"]));
+
+        Assert.Equal(VerificationResult.Passed, passed.Status);
+        Assert.Equal(VerificationResult.Skipped, extra.Status);
+        Assert.Contains("테스트 프로젝트를 찾지 못함", extra.Detail);
+        var workspaceJudges = Path.Combine(_corpusRoot, "JudgeTests") + Path.DirectorySeparatorChar;
+        Assert.DoesNotContain(_procs.Calls, c => c.Arguments.Any(a => a.StartsWith(workspaceJudges, StringComparison.Ordinal)));
+        Assert.Contains(_procs.Calls, c => c.Arguments.Contains(Path.Combine(_workRoot, "judges", "Modern", "Shop.Api.JudgeTests", "Shop.Api.JudgeTests.csproj")));
+    }
+
     [Fact]
     public async Task Judge_NoTestsListed_DoesNotCopyOrRun()
     {

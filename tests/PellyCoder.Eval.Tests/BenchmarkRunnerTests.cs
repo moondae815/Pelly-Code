@@ -1,8 +1,11 @@
 using System.IO.Abstractions;
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using PellyCoder.Core.Abstractions;
 using PellyCoder.Core.Config;
+using PellyCoder.Core.Fsm;
 using PellyCoder.Core.Processes;
+using PellyCoder.Core.Workspaces;
 using PellyCoder.Eval;
 
 namespace PellyCoder.Eval.Tests;
@@ -139,6 +142,225 @@ public sealed class BenchmarkRunnerTests : IDisposable
         Assert.Equal(["restore", Path.Combine(_root, "out", "work", "cs-modern-901", "Plain", "Plain.sln")], procs.Calls.Single().Arguments.Take(2));
     }
 
+    [Fact]
+    public async Task TestFirst_SkipsTasksWithoutJudgeTests()
+    {
+        var suite = PlainSuite();
+        var task = new BenchmarkTask
+        {
+            Id = "cs-modern-901", Kind = "cs", File = "Plain/Calc.cs", Method = "Add", Request = "오버플로를 검사해줘",
+            Judge = new BenchmarkJudge { Build = true, MustContain = ["checked("] },
+        };
+        var fs = new FileSystem();
+        var runs = new List<RunRequest>();
+        var runner = new BenchmarkRunner(new RunnerSetup(fs, new RecordingProcesses(), new OneShotBackend(Edit), Options(fs),
+            TimeProvider.System, suite, null, "no SQL", _ => { }, Verifier: new FixedVerifier(VerificationResult.Pass),
+            TestFirst: true, Orchestrate: (r, _) => { runs.Add(r); return Task.FromResult(0); }));
+        var outDir = Path.Combine(_root, "out");
+
+        var result = await runner.RunAsync(Resolve(suite, task, fs), outDir, TestContext.Current.CancellationToken);
+
+        Assert.Equal(VerificationResult.Skipped, result.Status);
+        Assert.Equal("테스트 우선 대상 아님", result.SkipReason);
+        Assert.Empty(runs);
+        Assert.False(Directory.Exists(Path.Combine(outDir, "work", "cs-modern-901")));
+    }
+
+    // The request names the judge's tests (and its pinned old-behaviour tests as breaks); the judge projects are copied
+    // inside the workspace and restored after the solution, with the same command the independent judge uses.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task TestFirst_RequestCarriesVerifyTestsAndBreaks(bool withBreaks)
+    {
+        var suite = JudgeSuite();
+        var task = new BenchmarkTask
+        {
+            Id = "cs-modern-901", Kind = "cs", File = "Modern/App/Calc.cs", Method = "Add", Request = "오버플로를 검사해줘",
+            Judge = new BenchmarkJudge
+            {
+                Build = true, Tests = ["App.JudgeTests.CalcJudgeTests.Add_Overflow_Throws"],
+                FailingTests = withBreaks ? ["App.Tests.CalcTests.Add_Overflow_Wraps"] : [],
+            },
+        };
+        var fs = new FileSystem();
+        var procs = new RecordingProcesses();
+        var runs = new List<RunRequest>();
+        var runner = new BenchmarkRunner(new RunnerSetup(fs, procs, new OneShotBackend(Edit), Options(fs), TimeProvider.System, suite,
+            null, "no SQL", _ => { }, Verifier: new FixedVerifier(VerificationResult.Pass), TestFirst: true,
+            Orchestrate: (r, _) =>
+            {
+                runs.Add(r);
+                WriteSummary(fs, r.FilePath, """{ "attempts": 2, "testFirst": { "tests": 1, "red": "Red", "green": "Passed", "regressions": 1, "breaksExcluded": 3, "inApply": false, "firstAttemptGreen": "Failed" } }""");
+                return Task.FromResult(0);
+            }));
+        var outDir = Path.Combine(_root, "out");
+
+        var result = await runner.RunAsync(Resolve(suite, task, fs), outDir, TestContext.Current.CancellationToken);
+
+        var request = Assert.Single(runs);
+        Assert.Equal(["App.JudgeTests.CalcJudgeTests.Add_Overflow_Throws"], request.VerifyTests);
+        if (withBreaks) Assert.Equal(["App.Tests.CalcTests.Add_Overflow_Wraps"], request.ExpectBreaks);
+        else Assert.Null(request.ExpectBreaks);
+        Assert.True(request.Yes);
+
+        var rootCopy = Path.Combine(outDir, "work", "cs-modern-901", "Modern");
+        var copied = Path.Combine(rootCopy, "JudgeTests", "App.JudgeTests", "App.JudgeTests.csproj");
+        Assert.True(File.Exists(copied));
+        Assert.Equal(2, procs.Calls.Count);
+        Assert.Equal(["restore", Path.Combine(rootCopy, "Modern.sln")], procs.Calls[0].Arguments.Take(2));
+        Assert.Equal(["restore", copied, "--nologo", $"-p:{IndependentVerifier.JudgeTargetRootProperty}={Path.GetFullPath(rootCopy)}"], procs.Calls[1].Arguments);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(2, result.Attempts);
+        Assert.Equal(new TestFirstResult("Red", "Passed", "Failed", 1, 3), result.TestFirst);
+    }
+
+    [Fact]
+    public async Task TestFirst_JudgeRestoreFails_EnvironmentSkipped()
+    {
+        var suite = JudgeSuite();
+        var task = new BenchmarkTask
+        {
+            Id = "cs-modern-901", Kind = "cs", File = "Modern/App/Calc.cs", Method = "Add", Request = "오버플로를 검사해줘",
+            Judge = new BenchmarkJudge { Build = true, Tests = ["App.JudgeTests.CalcJudgeTests.Add_Overflow_Throws"] },
+        };
+        var fs = new FileSystem();
+        var procs = new RecordingProcesses { FailWhen = spec => spec.Arguments[1].EndsWith("App.JudgeTests.csproj", StringComparison.Ordinal) };
+        var runs = new List<RunRequest>();
+        var runner = new BenchmarkRunner(new RunnerSetup(fs, procs, new OneShotBackend(Edit), Options(fs), TimeProvider.System, suite,
+            null, "no SQL", _ => { }, Verifier: new FixedVerifier(VerificationResult.Pass), TestFirst: true,
+            Orchestrate: (r, _) => { runs.Add(r); return Task.FromResult(0); }));
+
+        var result = await runner.RunAsync(Resolve(suite, task, fs), Path.Combine(_root, "out"), TestContext.Current.CancellationToken);
+
+        Assert.Equal(VerificationResult.Skipped, result.Status);
+        Assert.Equal("환경 오류(복원 실패): dotnet restore App.JudgeTests.csproj 종료 1: error NU1301: offline", result.SkipReason);
+        Assert.Empty(runs);
+    }
+
+    // The default run's rows keep exactly their keys: testFirst appears only when a test-first run set it, and the run
+    // conditions of a summary gain testFirst only with --test-first.
+    [Fact]
+    public async Task Run_WithoutTestFirst_ResultsJsonUnchanged()
+    {
+        var suite = PlainSuite();
+        var fs = new FileSystem();
+        var row = await RunWithAsync(suite, fs, KeepWork.All, "cs-modern-901", VerificationResult.Pass, Path.Combine(_root, "out"));
+        Assert.Null(row.TestFirst);
+
+        string[] keys =
+        [
+            "id", "kind", "status", "exitCode", "attempts", "reasons", "independent", "buildCheck", "invariantViolated", "failureType",
+            "wallSeconds", "ttftSeconds", "thinkTokens", "thinkTruncated", "editOutcomes", "skipReason", "isLegacy", "formatErrors",
+        ];
+        Assert.Equal(keys, Keys(JsonSerializer.Serialize(row, ResultsJson.Options)));
+        var withTestFirst = row with { TestFirst = new TestFirstResult("Red", "Passed", "Passed", 0, 0) };
+        Assert.Equal([.. keys, "testFirst"], Keys(JsonSerializer.Serialize(withTestFirst, ResultsJson.Options)));
+        Assert.Contains("\"testFirst\": {\n    \"red\": \"Red\",", JsonSerializer.Serialize(withTestFirst, ResultsJson.Options).ReplaceLineEndings("\n"), StringComparison.Ordinal);
+
+        var conditions = new RunConditions("m", "c", "s", "Auto", 1, new SamplingOptions(0.6, 0.95, 20, 1.0, 0.0), new SamplingOptions(0.1, 0.9, 20, 1.05, 0.0), "v", null, null);
+        Assert.DoesNotContain("testFirst", RepeatSummary.ToJson(Summary(conditions)), StringComparison.Ordinal);
+        Assert.Contains("\"testFirst\": true", RepeatSummary.ToJson(Summary(conditions with { TestFirst = true })), StringComparison.Ordinal);
+        Assert.True(RepeatSummary.FromJson(RepeatSummary.ToJson(Summary(conditions with { TestFirst = true }))).Conditions!.TestFirst);
+        Assert.Null(RepeatSummary.FromJson(RepeatSummary.ToJson(Summary(conditions))).Conditions!.TestFirst);
+
+        static string[] Keys(string json)
+        {
+            using var doc = JsonDocument.Parse(json);
+            return [.. doc.RootElement.EnumerateObject().Select(p => p.Name)];
+        }
+
+        static RepeatSummaryData Summary(RunConditions c) => RepeatSummary.Build([[]]) with { Conditions = c };
+    }
+
+    // Real dotnet end to end: a Data task whose judge project compiles the corpus sources (Compile Include, no project
+    // reference) is found by pelly inside the workspace, built against the edited copy and turns GREEN.
+    [Fact]
+    public async Task TestFirst_DataJudgeCompilesEditedSource()
+    {
+        const string giftLast = "ORDER BY OrderItemId\";\n=======\nORDER BY IsGiftItem, OrderItemId\";\n>>>>>>> REPLACE\n";
+        var suite = TestPaths.Suite;
+        var fs = new FileSystem();
+        var log = new List<string>();
+        var runner = new BenchmarkRunner(new RunnerSetup(fs, new SystemProcessRunner(TimeProvider.System), new OneShotBackend(giftLast),
+            Options(fs), TimeProvider.System, suite, null, "no SQL", log.Add, TestFirst: true));
+        // Link-free root: through the macOS /var -> /private/var link the restore skips the transitive ProjectReference.
+        Directory.CreateDirectory(_root);
+        var outDir = Path.Combine(RealPath(_root), "out");
+
+        var result = await runner.RunAsync(TestPaths.Resolve("cs-modern-003"), outDir, TestContext.Current.CancellationToken);
+
+        var detail = string.Join("\n", log) + "\n" + string.Join("; ", result.Reasons) + " / " + result.Independent + " / " + result.SkipReason;
+        Assert.True(result.Status == VerificationResult.Passed, detail);
+        Assert.Equal(0, result.ExitCode);
+        Assert.NotNull(result.TestFirst);
+        Assert.Equal("Red", result.TestFirst!.Red);
+        Assert.Equal("Passed", result.TestFirst.Green);
+        Assert.Equal("Passed", result.TestFirst.FirstAttemptGreen);
+        Assert.Equal(0, result.TestFirst.Regressions);
+        Assert.Equal(VerificationResult.Passed, result.Independent!.Status);
+    }
+
+    /// <summary><paramref name="path"/> with every symbolic link resolved (macOS temp folders live behind <c>/var</c>).</summary>
+    private static string RealPath(string path)
+    {
+        var current = Path.GetPathRoot(path)!;
+        foreach (var segment in path[current.Length..].Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))
+        {
+            current = Path.Combine(current, segment);
+            if (new DirectoryInfo(current).ResolveLinkTarget(returnFinalTarget: true) is { } target) current = target.FullName;
+        }
+        return current;
+    }
+
+    private static PellyOptions Options(IFileSystem fs) => Assert.IsType<PellyOptions>(
+        PellyOptionsLoader.Load(fs, null, null, new Dictionary<string, string?>(), new Dictionary<string, string?>()).Options);
+
+    /// <summary>Writes a run's <c>summary.json</c> where pelly would for <paramref name="file"/>.</summary>
+    private static void WriteSummary(IFileSystem fs, string file, string json)
+    {
+        var dir = Path.Combine(WorkspaceLocator.Resolve(fs, file).PellyDir, "runs", "20261026-000000-0000");
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "summary.json"), json);
+    }
+
+    /// <summary>A suite with one root <c>Modern</c> (<c>Modern.sln</c>, <c>App/Calc.cs</c>) and one judge project <c>App.JudgeTests</c>.</summary>
+    private BenchmarkSuite JudgeSuite()
+    {
+        var dir = Path.Combine(_root, "suite");
+        foreach (var (f, text) in new[]
+                 {
+                     ("Modern/App/Calc.cs", Source), ("Modern/Modern.sln", ""),
+                     ("judges/Modern/App.JudgeTests/App.JudgeTests.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\" />"),
+                     ("judges/Modern/App.JudgeTests/Directory.Build.props", "<Project>\n</Project>\n"),
+                 })
+        {
+            var path = Path.Combine(dir, f.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, text);
+        }
+        File.WriteAllText(Path.Combine(dir, BenchmarkSuite.FileName),
+            """{ "formatVersion": 1, "name": "judged", "roots": [ { "name": "Modern", "path": "Modern" } ] }""");
+        var load = BenchmarkSuite.Load(dir);
+        return load.Suite ?? throw new InvalidDataException(string.Join("; ", load.Errors));
+    }
+
+    /// <summary>Records every process; succeeds unless <see cref="FailWhen"/> matches (then exit 1 with a NuGet error).</summary>
+    private sealed class RecordingProcesses : IProcessRunner
+    {
+        public List<ProcessSpec> Calls { get; } = [];
+        public Func<ProcessSpec, bool> FailWhen { get; init; } = _ => false;
+
+        public Task<ProcessResult> RunAsync(ProcessSpec spec, CancellationToken ct)
+        {
+            Calls.Add(spec);
+            return Task.FromResult(FailWhen(spec)
+                ? new ProcessResult(1, "", "error NU1301: offline\n", [], TimeSpan.Zero, false)
+                : new ProcessResult(0, "", "", [], TimeSpan.Zero, false));
+        }
+    }
+
     private sealed class FailingRestore(string stdErr) : IProcessRunner
     {
         public List<ProcessSpec> Calls { get; } = [];
@@ -157,10 +379,8 @@ public sealed class BenchmarkRunnerTests : IDisposable
             Id = id, Kind = "cs", File = "Plain/Calc.cs", Method = "Add", Request = "오버플로를 검사해줘",
             Judge = new BenchmarkJudge { Build = true, MustContain = ["checked("] },
         };
-        var options = Assert.IsType<PellyOptions>(
-            PellyOptionsLoader.Load(fs, null, null, new Dictionary<string, string?>(), new Dictionary<string, string?>()).Options);
         var runner = new BenchmarkRunner(new RunnerSetup(fs, new SystemProcessRunner(TimeProvider.System), new OneShotBackend(Edit),
-            options, TimeProvider.System, suite, null, "no SQL", _ => { }, Verifier: new FixedVerifier(verdict), KeepWork: keep));
+            Options(fs), TimeProvider.System, suite, null, "no SQL", _ => { }, Verifier: new FixedVerifier(verdict), KeepWork: keep));
         return await runner.RunAsync(Resolve(suite, task, fs), outDir, TestContext.Current.CancellationToken);
     }
 

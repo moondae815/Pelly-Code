@@ -113,6 +113,47 @@ public sealed class WorkCopyTests : IDisposable
         Assert.Null(WorkCopy.CopyJudges(suite, suite.Roots.Single(r => r.Name == "Sql"), work));
     }
 
+    // Test-first: the judge projects are copied inside the workspace (<work>/<root>/JudgeTests/<project>/) and their
+    // JudgeTargetRoot is pinned to the work copy of the root, so pelly builds them against the edited sources.
+    [Fact]
+    public void CopyJudgesIntoWorkspace_FixesJudgeTargetRoot()
+    {
+        var suite = TestPaths.Suite;
+        var work = Path.Combine(_root, "work");
+        WorkCopy.Prepare(suite, TestPaths.Resolve("cs-modern-003"), work);
+        var rootCopy = Path.Combine(work, "Modern");
+
+        var copied = WorkCopy.CopyJudgesIntoWorkspace(suite, suite.Roots.Single(r => r.Name == "Modern"), work);
+
+        Assert.Equal([Path.Combine(rootCopy, "JudgeTests", "Shop.Api.JudgeTests"), Path.Combine(rootCopy, "JudgeTests", "Shop.Data.JudgeTests")],
+            copied.Order(StringComparer.Ordinal));
+        foreach (var dir in copied)
+        {
+            var project = Path.Combine(dir, Path.GetFileName(dir) + ".csproj");
+            Assert.True(File.Exists(project), project);
+            // Read without MSBuild: the props (imported before the project body) set the property, so the project's own
+            // fallback (../../../../corpus/Modern, wrong from here) never applies.
+            var props = System.Xml.Linq.XDocument.Load(Path.Combine(dir, "Directory.Build.props"));
+            var target = props.Descendants(IndependentVerifier.JudgeTargetRootProperty).Single().Value;
+            Assert.Equal(Path.GetFullPath(rootCopy), Path.GetFullPath(target));
+            Assert.Contains(props.Descendants("NuGetAudit"), e => e.Value == "false"); // the judge's own props are kept
+
+            var csproj = System.Xml.Linq.XDocument.Load(project);
+            var paths = csproj.Descendants("ProjectReference").Concat(csproj.Descendants("Compile"))
+                .Select(e => e.Attribute("Include")!.Value.Replace("$(JudgeTargetRoot)", target, StringComparison.Ordinal))
+                .ToList();
+            Assert.NotEmpty(paths);
+            foreach (var path in paths)
+            {
+                var folder = Path.GetDirectoryName(path)!;
+                var pattern = Path.GetFileName(path);
+                Assert.True(Directory.Exists(folder) && Directory.GetFiles(folder, pattern).Length > 0, $"{project}: {path}");
+                Assert.StartsWith(Path.GetFullPath(rootCopy), Path.GetFullPath(folder), StringComparison.Ordinal);
+            }
+        }
+        Assert.Empty(WorkCopy.CopyJudgesIntoWorkspace(suite, suite.Roots.Single(r => r.Name == "Sql"), work));
+    }
+
     private (BenchmarkSuite Suite, SuiteTask Task) OverlaySuite(string rootJsonExtra = "", string support = "")
     {
         var suiteDir = Path.Combine(_root, "suite");

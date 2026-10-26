@@ -11,17 +11,21 @@ namespace PellyCoder.Eval;
 
 /// <summary>What a runner needs besides the task: the real (or canned) model, options and the SQL connection, if any.</summary>
 /// <param name="SqlSkipReason">Non-null when SQL tasks cannot run (no connection, or the target is not allow-listed).</param>
+/// <param name="TestFirst"><c>run --test-first</c>: only tasks with judge tests run, verified by them through <c>--verify-test</c>.</param>
+/// <param name="Orchestrate">Runs the request instead of the FSM orchestrator (tests); returns the exit code.</param>
 public sealed record RunnerSetup(
     IFileSystem Fs, IProcessRunner Processes, ILlmBackend Backend, PellyOptions Options, TimeProvider Time, BenchmarkSuite Suite,
     ISqlExecutor? Sql, string? SqlSkipReason, Action<string> Log, Func<bool>? IsWindows = null,
-    IIndependentVerifier? Verifier = null, KeepWork KeepWork = KeepWork.All, bool RemoveRules = false);
+    IIndependentVerifier? Verifier = null, KeepWork KeepWork = KeepWork.All, bool RemoveRules = false,
+    bool TestFirst = false, Func<RunRequest, CancellationToken, Task<int>>? Orchestrate = null);
 
 /// <summary>Which task work copies (<c>work/&lt;id&gt;</c>) survive the run.</summary>
 public enum KeepWork { All, Failed, None }
 
 /// <summary>
 /// Runs one benchmark task end to end (design §10.6): copy the task's suite root into <c>&lt;out&gt;/work/&lt;id&gt;/</c>, restore
-/// (SDK-style roots: the solution <see cref="SolutionRestore.Pick"/> chooses, not timed), run the orchestrator with <c>--yes</c> (timed), read the run's logs, re-verify independently, judge.
+/// (SDK-style roots: the solution <see cref="SolutionRestore.Pick"/> chooses, and with <c>--test-first</c> the judge projects
+/// copied into the workspace; not timed), run the orchestrator with <c>--yes</c> (timed), read the run's logs, re-verify independently, judge.
 /// </summary>
 public sealed class BenchmarkRunner(RunnerSetup setup)
 {
@@ -59,6 +63,9 @@ public sealed class BenchmarkRunner(RunnerSetup setup)
         var task = suiteTask.Task;
         var isLegacy = suiteTask.IsLegacy;
         var isSql = task.Kind == "sql";
+        var judgeTests = task.Judge?.Tests ?? [];
+        if (setup.TestFirst && judgeTests.Count == 0)
+            return TaskResult.Skipped(task, isLegacy, "테스트 우선 대상 아님");
         if (isSql && setup.SqlSkipReason is not null)
             return TaskResult.Skipped(task, isLegacy, setup.SqlSkipReason);
 
@@ -67,6 +74,8 @@ public sealed class BenchmarkRunner(RunnerSetup setup)
             return TaskResult.Skipped(task, isLegacy, $"작업 폴더가 이미 있습니다: {workRoot}");
         var file = WorkCopy.Prepare(setup.Suite, suiteTask, workRoot, setup.RemoveRules);
         var corpusRoot = Path.Combine(workRoot, suiteTask.Root.Name);
+        // Test-first: pelly finds the judge tests through its test index, which sees the workspace only.
+        var judgeProjects = setup.TestFirst ? WorkCopy.CopyJudgesIntoWorkspace(setup.Suite, suiteTask.Root, workRoot) : [];
 
         var originalText = TextFileCodec.Read(setup.Fs, file).Text;
         var display = !isSql && task.Method is null && task.Line is { } line ? TargetText.DisplayAtLine(originalText, line) : null;
@@ -80,17 +89,29 @@ public sealed class BenchmarkRunner(RunnerSetup setup)
             if (restore.ExitCode != 0 || restore.TimedOut)
                 return TaskResult.EnvironmentSkipped(task, isLegacy, "복원 실패", SolutionRestore.WithTail($"dotnet restore {SolutionRestore.Head(restore)}", restore));
         }
+        foreach (var project in judgeProjects.SelectMany(dir => Directory.GetFiles(dir, "*.csproj")).Order(StringComparer.Ordinal))
+        {
+            var restore = await setup.Processes.RunAsync(IndependentVerifier.JudgeRestoreSpec(project, Path.GetFullPath(corpusRoot)), ct);
+            if (restore.ExitCode != 0 || restore.TimedOut)
+                return TaskResult.EnvironmentSkipped(task, isLegacy, "복원 실패",
+                    SolutionRestore.WithTail($"dotnet restore {Path.GetFileName(project)} {SolutionRestore.Head(restore)}", restore));
+        }
 
         var ui = new EvalUserInteraction(task.Id, setup.Log);
         var request = new RunRequest(file, null, task.Method, task.Line, task.Request, Yes: true, DryRun: false, MaxRetries: null,
             ObjectName: task.Object, Kind: isSql ? EditKind.Sql : EditKind.CSharp);
-        var orchestrator = isSql
-            ? FsmOrchestratorFactory.CreateSql(setup.Fs, setup.Backend, ui, setup.Options, setup.Time, setup.Sql!)
-            : FsmOrchestratorFactory.Create(setup.Fs, setup.Backend, ui, setup.Options, setup.Time, setup.Processes, setup.IsWindows);
+        if (setup.TestFirst)
+        {
+            var breaks = task.Judge?.FailingTests ?? [];
+            request = request with { VerifyTests = judgeTests, ExpectBreaks = breaks.Count > 0 ? breaks : null };
+        }
+        var run = setup.Orchestrate ?? (isSql
+            ? FsmOrchestratorFactory.CreateSql(setup.Fs, setup.Backend, ui, setup.Options, setup.Time, setup.Sql!).RunAsync
+            : FsmOrchestratorFactory.Create(setup.Fs, setup.Backend, ui, setup.Options, setup.Time, setup.Processes, setup.IsWindows).RunAsync);
 
         setup.Log($"[{task.Id}] 실행: {task.Request}");
         var watch = Stopwatch.StartNew();
-        var exit = await orchestrator.RunAsync(request, ct);
+        var exit = await run(request, ct);
         var wall = watch.Elapsed.TotalSeconds;
 
         var artifacts = RunArtifacts.Read(WorkspaceLocator.Resolve(setup.Fs, file).PellyDir);
@@ -113,7 +134,8 @@ public sealed class BenchmarkRunner(RunnerSetup setup)
 
         var result = new TaskResult(task.Id, task.Kind, passed ? VerificationResult.Passed : VerificationResult.Failed, exit,
             artifacts.Attempts, reasons, independent, outcome.BuildCheck, outcome.InvariantViolated, failureType,
-            wall, artifacts.TtftSeconds, artifacts.ThinkTokens, artifacts.ThinkTruncated, artifacts.EditOutcomes, null, isLegacy, artifacts.FormatErrors);
+            wall, artifacts.TtftSeconds, artifacts.ThinkTokens, artifacts.ThinkTruncated, artifacts.EditOutcomes, null, isLegacy, artifacts.FormatErrors,
+            setup.TestFirst ? artifacts.TestFirst : null);
         setup.Log($"[{task.Id}] {result.Status} (종료 {exit}, 시도 {result.Attempts}, {wall:0.0}초, 독립 검증 {independent.Status})"
             + (reasons.Count > 0 ? " — " + string.Join("; ", reasons) : ""));
         return result;

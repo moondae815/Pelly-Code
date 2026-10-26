@@ -11,10 +11,12 @@ namespace PellyCoder.Eval;
 /// The settings a repeated run was measured under, so a comparison (Task 6 <c>compare</c>) can see whether two summaries
 /// are comparable. <paramref name="CsPromptVersion"/>/<paramref name="SqlPromptVersion"/> are the embedded edit prompts.
 /// </summary>
+/// <param name="TestFirst"><c>run --test-first</c>: true; null (and left out of <c>summary.json</c>) for any other run.</param>
 public sealed record RunConditions(
     string Model, string CsPromptVersion, string SqlPromptVersion, string ThinkMode, int BudgetThink,
     SamplingOptions SamplingThink, SamplingOptions SamplingCode, string? PellyVersion, string? Tasks, string? Kind,
-    string? OllamaVersion = null, string? ModelDigest = null, bool? RulesRemoved = null);
+    string? OllamaVersion = null, string? ModelDigest = null, bool? RulesRemoved = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? TestFirst = null);
 
 /// <summary>One task across the runs.</summary>
 /// <param name="Group">Id prefix group (<c>cs-legacy</c>, <c>cs-modern</c>, <c>sql</c>): the R4 category.</param>

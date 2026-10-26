@@ -41,6 +41,9 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
     /// <summary><c>run --no-rules</c>: delete every <c>AGENTS.md</c> from the work copies (the project rules' control run).</summary>
     public bool NoRules { get; init; }
 
+    /// <summary><c>run --test-first</c>: verify each task that has judge tests with them through <c>--verify-test</c>; the others are skipped.</summary>
+    public bool TestFirst { get; init; }
+
     public const string Usage = """
         사용법: dotnet run --project eval/PellyCoder.Eval -- [옵션]
 
@@ -52,6 +55,7 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
           --repeat <N>      같은 작업 집합을 N회 실행 (기본 1). N>1이면 회차별 결과는 run-<k>/, 상위에 summary.md·summary.json
           --keep-work <all|failed|none>  작업 복사본 보존 (기본 all; 현장 실제 코드에서는 failed 권장)
           --no-rules                     작업 복사본에서 AGENTS.md를 모두 지움 (규칙 없이 재는 대조 실행)
+          --test-first                   판정 테스트(judge.tests)가 있는 작업만, 그 테스트로 --verify-test 실행 (판정 프로젝트는 작업 공간의 <루트>/JudgeTests/에 복사)
           --help            이 도움말
 
         검사: dotnet run --project eval/PellyCoder.Eval -- validate [--suite <폴더>] [--config <pelly.json>]
@@ -90,7 +94,7 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
     /// <summary>Options each subcommand accepts (<c>--help</c> is accepted everywhere); <see cref="Flags"/> take no value.</summary>
     private static readonly Dictionary<string, string[]> Options = new(StringComparer.Ordinal)
     {
-        [Run] = ["--suite", "--tasks", "--kind", "--out", "--config", "--repeat", "--keep-work", "--offline-selftest", "--no-rules"],
+        [Run] = ["--suite", "--tasks", "--kind", "--out", "--config", "--repeat", "--keep-work", "--offline-selftest", "--no-rules", "--test-first"],
         [Validate] = ["--suite", "--config", "--deep"],
         [Compare] = [],
         [Record] = ["--out", "--gguf-sha256", "--config"],
@@ -98,7 +102,7 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
         [Apply] = ["--cases", "--repeat", "--out", "--config"],
     };
 
-    private static readonly string[] Flags = ["--deep", "--offline-selftest", "--no-rules"];
+    private static readonly string[] Flags = ["--deep", "--offline-selftest", "--no-rules", "--test-first"];
 
     /// <summary>Positional arguments each subcommand requires.</summary>
     private static readonly Dictionary<string, int> PositionalCount = new(StringComparer.Ordinal)
@@ -120,6 +124,7 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
         var deep = false;
         var selfTest = false;
         var noRules = false;
+        var testFirst = false;
         var repeat = 1;
         var keepWork = KeepWork.All;
         var positional = new List<string>();
@@ -141,6 +146,7 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
             {
                 if (a == "--deep") deep = true;
                 else if (a == "--no-rules") noRules = true;
+                else if (a == "--test-first") testFirst = true;
                 else selfTest = true;
                 continue;
             }
@@ -182,6 +188,6 @@ public sealed record EvalArguments(string? Tasks, string? Kind, string? Out, str
                 ? "compare에는 <기준선 summary.json> <후보 summary.json> 두 개가 필요합니다"
                 : command == Export ? "export에는 <결과 폴더> 하나가 필요합니다"
                 : $"{command}: 인자 {PositionalCount[command]}개가 필요합니다");
-        return new(tasks, kind, outDir, config, false, null, repeat) { Command = command, Suite = suite, Deep = deep, OfflineSelfTest = selfTest, NoRules = noRules, GgufSha256 = gguf, KeepWork = keepWork, Positional = positional, Cases = cases };
+        return new(tasks, kind, outDir, config, false, null, repeat) { Command = command, Suite = suite, Deep = deep, OfflineSelfTest = selfTest, NoRules = noRules, TestFirst = testFirst, GgufSha256 = gguf, KeepWork = keepWork, Positional = positional, Cases = cases };
     }
 }

@@ -70,7 +70,7 @@ public sealed class UiCommandTests
             Task.FromResult<IReadOnlyList<DoctorCheck>>([]);
     }
 
-    private sealed record Harness(CommandAppTester App, FakeLauncher Launcher, FakeRunnerFactory Factory);
+    private sealed record Harness(CommandAppTester App, FakeLauncher Launcher, FakeRunnerFactory Factory, MockFileSystem Fs);
 
     private static Harness Build(Func<UiSession, int>? script = null, int runExit = 0)
     {
@@ -94,7 +94,7 @@ public sealed class UiCommandTests
 
         var app = new CommandAppTester(new DiTypeRegistrar(services));
         app.Configure(CliApp.Configure);
-        return new Harness(app, launcher, factory);
+        return new Harness(app, launcher, factory, fs);
     }
 
     /// <summary>What the window does with "실행": takes the initial request and runs it to the end.</summary>
@@ -248,7 +248,8 @@ public sealed class UiCommandTests
         Assert.Equal("M", request.MethodName);
         Assert.Equal(1, request.MaxRetries);
         Assert.False(request.Yes);
-        Assert.Equal(CsFile, request.FilePath);
+        // The mock file system roots the path per OS (C:\w\src\A.cs on Windows), as the command's GetFullPath does.
+        Assert.Equal(h.Fs.Path.GetFullPath(CsFile), request.FilePath);
     }
 
     [Fact]

@@ -245,8 +245,21 @@ public sealed class RunContext(string runId, RunRequest request, PellyOptions op
     /// <summary>Label of the last failure (null on success).</summary>
     public string? FailureKind { get; set; }
 
-    /// <summary>Messages for the user; the orchestrator shows each one once through <see cref="IUserInteraction.Warn"/>.</summary>
+    /// <summary>
+    /// Messages for the user, all written to the run record (<c>messages.txt</c>); the orchestrator shows each one once
+    /// through <see cref="IUserInteraction.Warn"/> unless <see cref="Record"/> added it.
+    /// </summary>
     public List<string> Messages { get; } = [];
+
+    /// <summary>Indexes in <see cref="Messages"/> that are recorded but not shown.</summary>
+    public HashSet<int> RecordOnlyMessages { get; } = [];
+
+    /// <summary>Adds a message to the run record without showing it (it is not wanted on screen, or was already shown).</summary>
+    public void Record(string message)
+    {
+        RecordOnlyMessages.Add(Messages.Count);
+        Messages.Add(message);
+    }
 
     public Dictionary<RunPhase, double> PhaseSeconds { get; } = [];
 }

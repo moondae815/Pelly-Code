@@ -230,6 +230,7 @@ public sealed class ApplyPhase(FileGuard fileGuard, FeedbackBuilder feedback, IU
             {
                 // Shown before the question (run messages are shown only after the phase), like REVIEW's notices.
                 ui.Warn(warning);
+                ctx.Record(warning);
                 if (!await ui.ConfirmAsync("그래도 계속할까요?", false, ct))
                 {
                     ctx.FailureKind = "TestRedDeclined";
@@ -243,10 +244,12 @@ public sealed class ApplyPhase(FileGuard fileGuard, FeedbackBuilder feedback, IU
         }
 
         ctx.Messages.AddRange(TestFirstJudge.BreakWarnings(baselines, state.Breaks));
-        if (ctx.Request.Verbose)
+        // Design §5.3: the baseline failure's first line always goes to the run record, on screen only with --verbose.
+        foreach (var test in red.Tests.Where(t => t.State == RedState.Red))
         {
-            foreach (var test in red.Tests.Where(t => t.State == RedState.Red))
-                ctx.Messages.Add($"RED 확인: {test.FullName} 실패 — {test.FirstMessage}");
+            var line = $"RED 확인: {test.FullName} 실패 — {test.FirstMessage}";
+            if (ctx.Request.Verbose) ctx.Messages.Add(line);
+            else ctx.Record(line);
         }
         return null;
     }

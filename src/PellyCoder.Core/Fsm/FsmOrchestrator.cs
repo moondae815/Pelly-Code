@@ -285,7 +285,7 @@ public sealed class FsmOrchestrator(
     }
 
     /// <summary>
-    /// Shows each run message once. Once <see cref="IUserInteraction.Warn"/> throws, display stops for this run
+    /// Shows each run message once, skipping record-only ones (<see cref="RunContext.Record"/>). Once <see cref="IUserInteraction.Warn"/> throws, display stops for this run
     /// (retrying would throw again) and the failure is kept in the messages for <c>messages.txt</c>.
     /// </summary>
     private sealed class MessageSink(IUserInteraction ui, RunContext ctx)
@@ -297,7 +297,9 @@ public sealed class FsmOrchestrator(
         {
             while (!_broken && _shown < ctx.Messages.Count)
             {
-                var message = ctx.Messages[_shown++];
+                var index = _shown++;
+                if (ctx.RecordOnlyMessages.Contains(index)) continue;
+                var message = ctx.Messages[index];
                 try
                 {
                     ui.Warn(message);

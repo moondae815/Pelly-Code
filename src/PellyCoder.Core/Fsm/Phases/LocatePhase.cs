@@ -170,6 +170,9 @@ public sealed class LocatePhase(
             return null;
         }
 
+        // Without a test runner the run would go on without baseline tests: a test-first run never downgrades.
+        if (tests is null)
+            return Fail("테스트 실행기가 없어 테스트 우선 검증을 할 수 없습니다", "TestUnverifiable");
         if (style == ProjectStyle.None || csproj is null)
             return Fail("csproj가 없어 테스트 우선 검증을 할 수 없습니다", "TestUnverifiable");
         if (style == ProjectStyle.Legacy && !_isWindows())
@@ -192,7 +195,7 @@ public sealed class LocatePhase(
 
             var fullNames = found.Select(d => d.FullName).Distinct(StringComparer.Ordinal).ToList();
             if (fullNames.Count == 0)
-                return Fail($"테스트 {name}을(를) 테스트 실행 결과에서 찾지 못했습니다 (test.projects 설정을 확인하세요)", "TestNotFound");
+                return Fail($"테스트 {name}을(를) 작업 공간에서 찾지 못했습니다 (테스트 특성 Fact·Theory·Test·TestCase·TestMethod·DataTestMethod가 붙은 메서드만 찾습니다)", "TestNotFound");
             if (fullNames.Count > 1)
                 return Fail($"테스트 이름 {name}이(가) 여러 테스트와 맞습니다: {string.Join(", ", fullNames)}", "TestAmbiguous");
             foreach (var decl in found)

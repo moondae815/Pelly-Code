@@ -3,10 +3,15 @@ using System.Security;
 using System.Text;
 using System.Text.Json;
 using PellyCoder.Core.Abstractions;
+using PellyCoder.Core.Builds;
 using PellyCoder.Core.Config;
+using PellyCoder.Core.Files;
 using PellyCoder.Core.Fsm;
+using PellyCoder.Core.Fsm.Phases;
+using PellyCoder.Core.Llm;
 using PellyCoder.Core.Testing;
 using PellyCoder.Core.Tests.Fakes;
+using PellyCoder.Core.Workspaces;
 
 namespace PellyCoder.Core.Tests.Fsm;
 
@@ -157,6 +162,12 @@ public sealed class TestFirstFlowTests : IDisposable
 
     private string? FailureKind() => Summary().GetProperty("failureKind").GetString();
 
+    private string[] RecordedMessages()
+    {
+        var file = Assert.Single(Directory.GetFiles(Path.Combine(_root, ".pelly", "runs"), "messages.txt", SearchOption.AllDirectories));
+        return File.ReadAllLines(file);
+    }
+
     [Fact]
     public async Task VerifyTest_Summary_HasTestFirst()
     {
@@ -191,6 +202,8 @@ public sealed class TestFirstFlowTests : IDisposable
         Assert.Equal(6, _processes.Calls.Count);
         Assert.DoesNotContain(_ui.Warnings, w => w.StartsWith("이 테스트는 변경을 검증하지 못합니다", StringComparison.Ordinal));
         Assert.DoesNotContain(_ui.Warnings, w => w.StartsWith("RED 확인", StringComparison.Ordinal));
+        // Design §5.3: the baseline failure's first line is always in the run record, on screen only with --verbose.
+        Assert.Contains($"RED 확인: {FullName} 실패 — Assert.Throws() Failure: No exception was thrown", RecordedMessages());
     }
 
     [Fact]
@@ -207,7 +220,8 @@ public sealed class TestFirstFlowTests : IDisposable
         var exit = await Run(Req(CalcPath, [Name], verbose: true));
 
         Assert.Equal(0, exit);
-        Assert.Contains($"RED 확인: {FullName} 실패 — Assert.Throws() Failure: No exception was thrown", _ui.Warnings);
+        Assert.Single(_ui.Warnings, $"RED 확인: {FullName} 실패 — Assert.Throws() Failure: No exception was thrown");
+        Assert.Contains($"RED 확인: {FullName} 실패 — Assert.Throws() Failure: No exception was thrown", RecordedMessages());
     }
 
     [Fact]
@@ -246,6 +260,10 @@ public sealed class TestFirstFlowTests : IDisposable
         Assert.Equal(["그래도 계속할까요?"], _ui.ConfirmMessages);
         Assert.Equal(originalBytes, File.ReadAllBytes(CalcPath));
         Assert.Equal("TestRedDeclined", FailureKind());
+        // Shown once before the question, and kept in the run record.
+        var warning = $"이 테스트는 변경을 검증하지 못합니다 (원본 상태에서 이미 통과): {Name}";
+        Assert.Single(_ui.Warnings, warning);
+        Assert.Contains(warning, RecordedMessages());
     }
 
     [Fact]
@@ -274,8 +292,32 @@ public sealed class TestFirstFlowTests : IDisposable
         Assert.Equal(4, exit);
         Assert.Empty(_backend.Requests);
         Assert.Empty(_processes.Calls);
-        Assert.Contains("테스트 Missing_Test을(를) 테스트 실행 결과에서 찾지 못했습니다 (test.projects 설정을 확인하세요)", _ui.Warnings);
+        Assert.Contains("테스트 Missing_Test을(를) 작업 공간에서 찾지 못했습니다 (테스트 특성 Fact·Theory·Test·TestCase·TestMethod·DataTestMethod가 붙은 메서드만 찾습니다)", _ui.Warnings);
         Assert.Equal("TestNotFound", FailureKind());
+    }
+
+    [Fact]
+    public async Task VerifyTest_NoTestRunner_Unverifiable_NothingStarted()
+    {
+        // A LOCATE wired without a test runner must not fall back to a run without baseline tests.
+        var guard = new FileGuard(_fs, TimeProvider.System);
+        var snapshot = guard.Read(CalcPath);
+        var ws = WorkspaceLocator.Resolve(_fs, CalcPath);
+        var ctx = new RunContext("run", Req(CalcPath, [Name]), _options)
+        {
+            FilePath = CalcPath, Original = snapshot, Current = snapshot, Workspace = ws,
+        };
+        var phase = new LocatePhase(_fs, _ui, new BuildToolResolver(_fs, _processes, _options.Build, () => false),
+            new BuildVerifier(_processes, _options.Build),
+            new ModelMemberPicker(_backend, QwenChatTemplate.LoadDefault(), PromptResources.LoadDefault(), _options.Llm, _options.Sampling),
+            () => false, tests: null);
+
+        var outcome = await phase.ExecuteAsync(ctx, TestContext.Current.CancellationToken);
+
+        Assert.Equal(PhaseOutcome.EnvError, outcome);
+        Assert.Equal("TestUnverifiable", ctx.FailureKind);
+        Assert.Null(ctx.Baseline);
+        Assert.Empty(_processes.Calls);
     }
 
     [Fact]

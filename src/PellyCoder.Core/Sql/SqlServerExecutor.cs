@@ -8,7 +8,7 @@ namespace PellyCoder.Core.Sql;
 public sealed class SqlServerExecutor(string? connectionString) : ISqlExecutor
 {
     public const int CommandTimeoutSeconds = 30;
-    private const int TimeoutErrorNumber = -2;
+    private const int TimeoutErrorNumber = SqlCalls.TimeoutErrorNumber;
 
     /// <summary>
     /// Local named pipe that never exists: opening it loads the native SNI layer without touching the network. No pooling: with
@@ -115,7 +115,7 @@ public sealed class SqlServerExecutor(string? connectionString) : ISqlExecutor
                     "AND referenced_entity_name IS NOT NULL", new { name }, ct));
                 return rows.Select(r => new SqlObjectName(r.Schema, r.Name)).ToList();
             }
-            catch (SqlException ex) when (!IsConnectionLevel(ex, conn) && !ct.IsCancellationRequested)
+            catch (SqlException ex) when (!SqlCalls.IsConnectionLevel(ex, conn) && !ct.IsCancellationRequested)
             {
                 // A deployed object that no longer compiles (dropped column, Msg 207) makes the DMF fail with the connection intact.
                 // The caller still has the references the collector found in the batch text.
@@ -155,44 +155,8 @@ public sealed class SqlServerExecutor(string? connectionString) : ISqlExecutor
         }, ct);
 
     /// <summary>Shared execution path; internal so integration tests can run a slow command through the same cancellation mapping.</summary>
-    internal async Task<T> RunAsync<T>(Func<SqlConnection, Task<T>> body, CancellationToken ct)
-    {
-        if (connectionString is null)
-            throw new SqlUnavailableException("SQL 연결 문자열이 설정되지 않았습니다.");
-
-        SqlConnection conn;
-        try
-        {
-            conn = new SqlConnection(connectionString);
-        }
-        catch (ArgumentException)
-        {
-            throw new SqlUnavailableException($"SQL 연결 문자열을 해석할 수 없습니다: {SqlConnectionText.Mask(connectionString)}");
-        }
-
-        await using (conn)
-        {
-            try
-            {
-                await conn.OpenAsync(ct);
-                return await body(conn);
-            }
-            catch (SqlException ex) when (ct.IsCancellationRequested)
-            {
-                // SqlClient reports a cancelled running command as SqlException ("Operation cancelled by user", Number 0)
-                // with the connection still open; surface it as cancellation so the run ends with exit 2 (M3a T13, M2b M-1).
-                throw new OperationCanceledException(ex.Message, ex, ct);
-            }
-            catch (SqlException ex) when (IsConnectionLevel(ex, conn))
-            {
-                throw new SqlUnavailableException(
-                    $"SQL Server에 연결할 수 없습니다 ({SqlConnectionText.Mask(connectionString)}): {ex.Message.Replace(connectionString, SqlConnectionText.Mask(connectionString))}", ex);
-            }
-        }
-    }
-
-    private static bool IsConnectionLevel(SqlException ex, SqlConnection conn)
-        => conn.State != System.Data.ConnectionState.Open || ex.Number == TimeoutErrorNumber;
+    internal Task<T> RunAsync<T>(Func<SqlConnection, Task<T>> body, CancellationToken ct)
+        => SqlCalls.RunAsync(connectionString, body, ct);
 
     private static CommandDefinition Cmd(string sql, object? parameters = null, CancellationToken ct = default)
         => new(sql, parameters, commandTimeout: CommandTimeoutSeconds, cancellationToken: ct);

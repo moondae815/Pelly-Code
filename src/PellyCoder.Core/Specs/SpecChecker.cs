@@ -22,9 +22,6 @@ public sealed record SpecCheckResult(ChangeSpec Spec, Workspace Workspace, IRead
 /// <summary>Static checks of a change spec against the workspace (no model, no DB): grammar, targets, AC tests, names.</summary>
 public static partial class SpecChecker
 {
-    private const int MaxDirectories = 2000;
-    private const int MaxFiles = 5000;
-    private const int MaxFileBytes = 512 * 1024;
 
     public static SpecCheckResult Check(IFileSystem fs, string specPath, int sqlCompatLevel)
     {
@@ -202,20 +199,8 @@ public static partial class SpecChecker
             return set;
         }
 
-        private IEnumerable<string> Read(string dir, string pattern)
-        {
-            foreach (var path in BoundedWalker.Files(fs, dir, pattern, MaxDirectories).Take(MaxFiles))
-            {
-                string text;
-                try
-                {
-                    if (fs.FileInfo.New(path).Length > MaxFileBytes) continue;
-                    text = TextFileCodec.Read(fs, path).Text;
-                }
-                catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException) { continue; }
-                yield return text;
-            }
-        }
+        private IEnumerable<string> Read(string dir, string pattern) =>
+            BoundedSources.Read(fs, dir, pattern).Select(f => f.Text);
 
         [GeneratedRegex("[A-Za-z_][A-Za-z0-9_]*")]
         private static partial Regex SqlWord();

@@ -1,3 +1,4 @@
+using Spectre.Console.Cli;
 using System.IO.Abstractions;
 using System.IO.Abstractions.TestingHelpers;
 using Microsoft.Extensions.DependencyInjection;
@@ -42,6 +43,13 @@ public class ExitCodeMappingTests
 
     private static CommandAppTester Build(CancellationToken ct, IRunner? runner = null)
     {
+        var app = new CommandAppTester(new DiTypeRegistrar(Services(ct, runner)));
+        app.Configure(CliApp.Configure);
+        return app;
+    }
+
+    private static ServiceCollection Services(CancellationToken ct, IRunner? runner)
+    {
         var fs = new MockFileSystem();
         fs.AddFile(File, new MockFileData("class A { void M() {} }"));
         fs.AddFile("/w/src/A.sql", new MockFileData("CREATE PROCEDURE dbo.P AS SELECT 1;"));
@@ -60,10 +68,7 @@ public class ExitCodeMappingTests
         services.AddSingleton(new ConfigSources(null, new Dictionary<string, string?>()));
         services.AddSingleton<IProcessRunner>(new NoProcessRunner()); // apply builds groups only; these specs have none
         services.AddSingleton(typeof(CancellationToken), ct);
-
-        var app = new CommandAppTester(new DiTypeRegistrar(services));
-        app.Configure(CliApp.Configure);
-        return app;
+        return services;
     }
 
     private static CancellationToken Cancelled() => new(canceled: true);
@@ -142,22 +147,45 @@ public class ExitCodeMappingTests
         Assert.Contains($"Unknown option '{bad[2..]}'", result.Output);
     }
 
-    /// <summary>
-    /// Spectre reports any parse failure on the <c>sql</c> branch default command as <c>Unknown command '&lt;FILE&gt;'</c>
-    /// (exit 4, nothing runs); the option name comes from <see cref="CliApp.RejectUnknownSqlOption"/>, which Program runs first.
-    /// </summary>
-    [Fact]
-    public void Sql_UnknownOption_Exit4_NothingRuns_AndNamed()
+    private sealed class CountingRunner : IRunner
     {
-        var args = new[] { "sql", "/w/src/A.sql", "do it", "--dry-rum" };
-        var result = Build(CancellationToken.None).Run(args);
-        Assert.Equal(4, result.ExitCode);
+        public int Calls;
 
+        public Task<RunResult> RunDetailedAsync(RunRequest request, PellyOptions options, CancellationToken ct)
+        {
+            Calls++;
+            return Task.FromResult(new RunResult(0, "run-fake", request.FilePath, null, null, null));
+        }
+    }
+
+    /// <summary>
+    /// Spectre reports any parse failure on the <c>sql</c> branch default command as <c>Unknown command '&lt;FILE&gt;'</c>,
+    /// hiding a mistyped option. The full line goes through <see cref="CliApp.RunAsync"/>, the entry point Program uses.
+    /// </summary>
+    [Theory]
+    [InlineData("sql", "/w/src/A.sql", "do it", "--dry-rum")]
+    [InlineData("sql", "--dry-rum", "/w/src/A.sql", "do it")]
+    [InlineData("sql", "pull", "dbo.X", "--bogus")]
+    [InlineData("sql", "check", "/w/src/A.sql", "--bogus")]
+    public async Task Sql_UnknownOption_Exit4_NothingRuns_AndNamed(params string[] args)
+    {
+        var runner = new CountingRunner();
+        var app = new CommandApp(new DiTypeRegistrar(Services(CancellationToken.None, runner)));
+        app.Configure(CliApp.Configure);
         var console = new Spectre.Console.Testing.TestConsole();
-        Assert.Equal(4, CliApp.RejectUnknownSqlOption(args, console));
-        Assert.Contains("Unknown option 'dry-rum'", console.Output);
+
+        var code = await CliApp.RunAsync(app, args, console);
+
+        Assert.Equal(4, code);
+        Assert.Equal(0, runner.Calls);
+        var bad = args.Single(a => a.StartsWith("--", StringComparison.Ordinal))[2..];
+        Assert.Contains($"Unknown option '{bad}'", console.Output);
+    }
+
+    [Fact]
+    public void Sql_FindUnknownOption_Cases()
+    {
         Assert.Null(CliApp.FindUnknownSqlOption(["sql", "A.sql", "x", "--dry-run", "--object", "dbo.P"]));
-        Assert.Equal("bogus", CliApp.FindUnknownSqlOption(["sql", "pull", "dbo.X", "--bogus"]));
         Assert.Null(CliApp.FindUnknownSqlOption(["sql", "pull", "dbo.X", "--from", "prod", "--force"]));
         Assert.Null(CliApp.FindUnknownSqlOption(["cs", "A.cs", "--bogus"]));
     }

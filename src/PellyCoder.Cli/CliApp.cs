@@ -24,6 +24,9 @@ public static class CliApp
         {
             b.SetDescription("SQL 저장 프로시저·함수·뷰 하나를 요청대로 수정합니다.");
             b.SetDefaultCommand<SqlCommand>();
+            // Spectre's branch help shows no arguments of the default command, so the edit usage is given as examples.
+            b.AddExample("sql", "<FILE>", "[요청문]", "[--object <이름>]", "[--line <N>]", "[--dry-run]", "[--yes]");
+            b.AddExample("sql", "db/usp_X.sql", "\"요청문\"", "--object", "dbo.usp_X");
             b.AddCommand<SqlPullCommand>("pull").WithDescription("서버의 객체 정의를 파일로 가져옵니다.");
             b.AddCommand<SqlCheckCommand>("check").WithDescription("SQL 파일의 객체를 서버와 대조합니다.");
         });
@@ -89,12 +92,7 @@ public static class CliApp
         var first = isBranch ? 2 : 1;
         var key = isBranch ? (args.Count >= 2 ? args[0] + " " + args[1] : null) : args[0];
         if (key is null || !CommandSettings.TryGetValue(key, out var settingsType)) return null;
-        var valueOptions = settingsType.GetProperties(BindingFlags.Public | BindingFlags.Instance)
-            .Select(p => p.GetCustomAttribute<CommandOptionAttribute>())
-            .Where(a => a is { ValueName: not null, ValueIsOptional: false })
-            .SelectMany(a => a!.LongNames)
-            .Select(n => "--" + n)
-            .ToHashSet(StringComparer.Ordinal);
+        var valueOptions = OptionNames(settingsType, valueOnly: true).Select(n => "--" + n).ToHashSet(StringComparer.Ordinal);
 
         for (var i = first; i < args.Count; i++)
         {
@@ -138,6 +136,24 @@ public static class CliApp
         return ExitCodes.EnvError;
     }
 
+    /// <summary>Long option names (without <c>--</c>) of a settings type; with <paramref name="valueOnly"/>, only those that require a value.</summary>
+    private static IEnumerable<string> OptionNames(Type settingsType, bool valueOnly) =>
+        settingsType.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Select(p => p.GetCustomAttribute<CommandOptionAttribute>())
+            .Where(a => a is not null && (!valueOnly || a is { ValueName: not null, ValueIsOptional: false }))
+            .SelectMany(a => a!.LongNames);
+
+    /// <summary>
+    /// The checks Program runs on the raw arguments before Spectre parses them (a value option without its value, an
+    /// unknown <c>sql</c> option): the exit code to stop with, or null to let Spectre run.
+    /// </summary>
+    public static int? PreParseReject(IReadOnlyList<string> args, IAnsiConsole console) =>
+        RejectOptionWithoutValue(args, console) ?? RejectUnknownSqlOption(args, console);
+
+    /// <summary>The whole command line as Program runs it: pre-parse checks, then Spectre, then <see cref="NormalizeExitCode"/>.</summary>
+    public static async Task<int> RunAsync(CommandApp app, string[] args, IAnsiConsole console) =>
+        PreParseReject(args, console) ?? NormalizeExitCode(await app.RunAsync(args));
+
     /// <summary>
     /// The first <c>--option</c> of a <c>sql</c> command line that the command does not have, or null. Spectre parses
     /// the branch default command (<c>pelly sql &lt;FILE&gt;</c>) in two steps and reports any failure there as
@@ -147,12 +163,7 @@ public static class CliApp
     {
         if (args.Count == 0 || args[0] != "sql") return null;
         var settingsType = args.Count >= 2 && args[1] is "pull" or "check" ? CommandSettings["sql " + args[1]] : typeof(SqlSettings);
-        var known = settingsType.GetProperties(BindingFlags.Public | BindingFlags.Instance)
-            .Select(p => p.GetCustomAttribute<CommandOptionAttribute>())
-            .Where(a => a is not null)
-            .SelectMany(a => a!.LongNames)
-            .Append("help")
-            .ToHashSet(StringComparer.Ordinal);
+        var known = OptionNames(settingsType, valueOnly: false).Append("help").ToHashSet(StringComparer.Ordinal);
         foreach (var token in args.Skip(1))
         {
             if (token == "--") break;

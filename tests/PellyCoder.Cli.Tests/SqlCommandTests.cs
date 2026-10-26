@@ -70,6 +70,18 @@ public class SqlCommandTests
     }
 
     [Fact]
+    public void Sql_help_shows_edit_usage()
+    {
+        var h = Build();
+
+        var result = h.App.Run("sql", "--help");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("<FILE>", result.Output);
+        Assert.Contains("--object", result.Output);
+    }
+
+    [Fact]
     public void Sql_pull_routes_to_pull_command()
     {
         var h = Build();

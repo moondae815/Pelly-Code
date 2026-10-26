@@ -30,9 +30,10 @@ namespace PellyCoder.Core.Specs;
 /// <param name="groupFeedback">Writes a group re-run's build feedback; defaults to the default feedback budget.</param>
 /// <param name="groupRetryMax">Group re-runs when the apply has no <c>--max-retries</c> (<c>retry.max</c>); defaults to its default.</param>
 /// <param name="impact">Searches the grouped cs tasks' impact at the start (warnings only); no search without it.</param>
+/// <param name="groupTests">Runs a group's acceptance-criterion tests; a group with linked tests exits 4 without it.</param>
 public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor executor, IUserInteraction ui, TimeProvider time, int sqlCompatLevel,
     Action<Workspace, string>? pruneRuns = null, IGroupVerifier? groups = null, FeedbackBuilder? groupFeedback = null, int? groupRetryMax = null,
-    IImpactFinder? impact = null)
+    IImpactFinder? impact = null, IGroupTester? groupTests = null)
 {
     private static readonly JsonSerializerOptions SummaryJson = new()
     {
@@ -47,6 +48,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
     private IUserInteraction Ui => ui;
     private TimeProvider Time => time;
     private IGroupVerifier? Groups => groups;
+    private IGroupTester? GroupTests => groupTests;
     private int GroupRetryMax => groupRetryMax ?? new RetryOptions().Max;
 
     private FeedbackBuilder? _defaultFeedback;
@@ -141,6 +143,11 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
         private readonly Dictionary<string, int> _ends = new(StringComparer.Ordinal);
         private bool _rolledBack; // the whole apply was fully undone: end review rejected, or cancelled under --review-at-end
 
+        // Group test-first (design §7.3): RED of the criteria whose first linked task is in a group, from the group's baseline,
+        // and the expected breaks of the criteria whose last linked task is in a group, from the group's last verdict.
+        private readonly Dictionary<string, RedState> _groupRed = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, int> _groupBreaks = new(StringComparer.Ordinal);
+
         public string? ApplyId { get; private set; }
 
         public async Task<int> ExecuteAsync(CancellationToken ct)
@@ -164,6 +171,11 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             if (owner.Groups is null && todo.Any(t => t.Group is not null))
             {
                 owner.Ui.Warn("그룹 빌드 검증기를 사용할 수 없습니다.");
+                return 4;
+            }
+            if (owner.GroupTests is null && todo.Any(t => t.Group is not null && TestFirstLinks.For(_links, t.Id) is not null))
+            {
+                owner.Ui.Warn("그룹 테스트 실행기를 사용할 수 없습니다.");
                 return 4;
             }
 
@@ -191,7 +203,8 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                     if (end.ExitCode == 0) continue;
 
                     anyFailed = true;
-                    if (!o.Continue || end.ExitCode == 4) { stopCode = end.ExitCode; break; }
+                    // A declined test that already passes means the spec's criterion is wrong: even --continue stops.
+                    if (!o.Continue || end.ExitCode == 4 || end.Declined) { stopCode = end.ExitCode; break; }
                     // The group is rolled back, so a later task on one of its files would edit code the spec assumed changed.
                     var files = new HashSet<string>(group.Select(FullPath), SpecTaskPaths.Comparer);
                     if (todo.Skip(i + 1).FirstOrDefault(t => files.Contains(FullPath(t))) is { } blocked)
@@ -204,7 +217,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                 }
 
                 // Only a criterion's first linked task gets RED, so under --resume a criterion whose first linked task is
-                // already done has no RED role left (its result shows Skipped). Group tasks get none: group mode does not test.
+                // already done has no RED role left (its result shows Skipped). Group tasks get none: the group tests them.
                 RunResult? run;
                 try
                 {
@@ -270,8 +283,14 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             }
         }
 
-        /// <summary>How a group ended: its exit code, and whether the apply ends now with that code.</summary>
-        private readonly record struct GroupEnd(int ExitCode, bool Terminal);
+        /// <summary>
+        /// How a group ended: its exit code, whether the apply ends now with that code, and whether the user declined a test
+        /// that already passes (the apply stops even under --continue).
+        /// </summary>
+        private readonly record struct GroupEnd(int ExitCode, bool Terminal, bool Declined = false);
+
+        /// <summary>A group's test plan and its baseline (design §7.3); null for a group without linked tests.</summary>
+        private sealed record GroupTesting(GroupTestPlan Plan, GroupTestBaseline Baseline);
 
         /// <summary>One group's tasks and what their runs left.</summary>
         private sealed class GroupState(IReadOnlyList<SpecTask> tasks)
@@ -321,10 +340,22 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             if (!baseline.Verifiable) return await UnverifiableBeforeEditAsync(tx, g, baseline.Reason!);
             if (BaselineHidesDependents(scope, baseline) is { } hidden) return await UnverifiableBeforeEditAsync(tx, g, hidden);
 
+            GroupTesting? testing = null;
+            if (Plan(g) is { } plan)
+            {
+                GroupTestBaseline tests;
+                try { tests = await owner.GroupTests!.BaselineAsync(ws, scope, plan, ct); }
+                catch (OperationCanceledException) { return new GroupEnd(await CancelledAsync(tx), true); }
+                if (tests.Unverifiable is { } reason)
+                    return await UnverifiableBeforeEditAsync(tx, g, $"그룹 {g.Id}: {reason}", GroupFailureKinds.TestUnverifiable);
+                if (await JudgeGroupRedAsync(tx, g, plan, tests, ct) is { } declined) return declined;
+                testing = new GroupTesting(plan, tests);
+            }
+
             tx.BeginGroup(g.Id);
             try
             {
-                return await RunGroupTasksAsync(tx, g, scope, baseline, ct);
+                return await RunGroupTasksAsync(tx, g, scope, baseline, testing, ct);
             }
             catch (OperationCanceledException)
             {
@@ -375,8 +406,69 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             return null;
         }
 
-        private async Task<GroupEnd> RunGroupTasksAsync(ApplyTransaction tx, GroupState g, IReadOnlyList<string> scope, GroupBuild baseline,
+        /// <summary>
+        /// The group's test plan from its tasks' criterion tests (design §7.3): RED for a test whose criterion's first linked task
+        /// is in the group, GREEN for one whose last linked task is; null when no criterion test links a group task.
+        /// </summary>
+        private GroupTestPlan? Plan(GroupState g)
+        {
+            var tests = new List<string>();
+            var red = new List<string>();
+            var green = new List<string>();
+            var breaks = new List<string>();
+            static void Add(List<string> list, string name)
+            {
+                if (!list.Contains(name, StringComparer.Ordinal)) list.Add(name);
+            }
+            foreach (var task in g.Tasks)
+            {
+                if (TestFirstLinks.For(_links, task.Id) is not { } checks) continue;
+                foreach (var (name, check) in checks.Checks)
+                {
+                    Add(tests, name);
+                    if (check.HasFlag(TestCheck.Red)) Add(red, name);
+                    if (check.HasFlag(TestCheck.Green)) Add(green, name);
+                }
+                foreach (var b in checks.Breaks) Add(breaks, b);
+            }
+            if (tests.Count == 0) return null;
+            var prefix = owner.Fs.Path.Combine(ws.PellyDir, "runs", ApplyId!, "group-tests", g.Id);
+            return new GroupTestPlan(tests, red, green, breaks) { ReportPrefix = prefix };
+        }
+
+        /// <summary>
+        /// RED of the group's baseline: records each criterion's state, shows the notices and, for a test with the RED role that
+        /// already passes, warns and (interactive, without --yes or --review-at-end) asks. Null to go on; otherwise the group's
+        /// end after the user declined: no edit, every task marked <c>TestRedDeclined</c>, exit 2.
+        /// </summary>
+        private async Task<GroupEnd?> JudgeGroupRedAsync(ApplyTransaction tx, GroupState g, GroupTestPlan plan, GroupTestBaseline tests,
             CancellationToken ct)
+        {
+            var ids = g.Tasks.Select(t => t.Id).ToHashSet(StringComparer.Ordinal);
+            foreach (var link in _links)
+                if (link.LinkedTaskIds.Count > 0 && ids.Contains(link.LinkedTaskIds[0]) && tests.Red.TryGetValue(link.Test, out var state))
+                    _groupRed[link.AcId] = state;
+            foreach (var notice in tests.Notices) owner.Ui.Warn(notice);
+
+            var passed = plan.RedNames.Where(n => tests.Red.GetValueOrDefault(n) == RedState.AlreadyPassed).ToList();
+            if (passed.Count == 0) return null;
+            owner.Ui.Warn($"이 테스트는 변경을 검증하지 못합니다 (원본 상태에서 이미 통과): {string.Join(", ", passed)}");
+            if (!owner.Ui.IsInteractive || o.Yes || o.ReviewAtEnd) return null;
+
+            bool go;
+            try { go = await owner.Ui.ConfirmAsync("그래도 계속할까요?", false, ct); }
+            catch (OperationCanceledException) { return new GroupEnd(await CancelledAsync(tx), true); }
+            if (go) return null;
+
+            foreach (var t in g.Tasks) _results.Add(new ApplyTaskResult(t.Id, null, 2, FailureKinds.TestRedDeclined, 0, g.Id));
+            var marks = g.Tasks.Select(t => new SpecMark(t.Id, ApplyId!, FailureKinds.TestRedDeclined)).ToList();
+            if (!await SpecWrittenAsync(_doc.MarkAsync(marks, CancellationToken.None))) return new GroupEnd(Unreviewed(tx, 4), true);
+            _marked.AddRange(g.Tasks.Select(t => t.Id));
+            return new GroupEnd(2, false, Declined: true);
+        }
+
+        private async Task<GroupEnd> RunGroupTasksAsync(ApplyTransaction tx, GroupState g, IReadOnlyList<string> scope, GroupBuild baseline,
+            GroupTesting? testing, CancellationToken ct)
         {
             foreach (var task in g.Tasks)
             {
@@ -396,7 +488,32 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                 }
 
                 var newErrors = GroupVerifier.NewErrors(baseline, build);
-                if (newErrors.Count == 0) break;
+                if (newErrors.Count == 0)
+                {
+                    if (testing is null) break;
+                    var verdict = await owner.GroupTests!.VerifyAsync(ws, testing.Baseline, testing.Plan, ct);
+                    if (verdict.Unverifiable is { } reason)
+                    {
+                        owner.Ui.Warn($"그룹 {g.Id}: {reason}");
+                        return await UndoGroupAsync(tx, g, GroupFailureKinds.TestUnverifiable, 4);
+                    }
+                    RecordBreaks(g, verdict);
+                    if (verdict.Green.Count == 0 && verdict.TestBuildErrors.Count == 0)
+                    {
+                        if (verdict.Regressions.Count == 0) break;
+                        // A newly failing test belongs to no task: the group cannot be fixed by a re-run (design §7.3).
+                        owner.Ui.Warn($"그룹 {g.Id}: 테스트 회귀: {string.Join(", ", verdict.Regressions.Select(r => r.FullName).Distinct())}");
+                        return await UndoGroupAsync(tx, g, GroupFailureKinds.TestRegression, 1);
+                    }
+                    if (reruns >= max)
+                    {
+                        var failing = verdict.Green.Select(f => f.FullName).Concat(verdict.UnbuiltTests).Distinct();
+                        owner.Ui.Warn($"그룹 {g.Id}: 재실행 {max}번 뒤에도 테스트가 통과하지 않습니다: {string.Join(", ", failing)}");
+                        return await UndoGroupAsync(tx, g, GroupFailureKinds.TestGreenFailed, 1);
+                    }
+                    if (await RerunForTestsAsync(tx, g, testing, verdict, ct) is { } failed) return failed;
+                    continue;
+                }
 
                 var members = g.Tasks.Select(t => new GroupMember(t.Id, FullPath(t), g.Succeeded[t.Id].Display ?? "", g.Succeeded[t.Id].Helpers)).ToList();
                 var attribution = GroupErrorAttribution.Attribute(owner.Fs, ws, newErrors, members, LanguageVersion.Latest);
@@ -448,6 +565,65 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                 _done[task.Id] = (g.Succeeded[task.Id].RunId, g.Succeeded[task.Id].Path);
             }
             return new GroupEnd(0, false);
+        }
+
+        /// <summary>Records the expected breaks the verdict left out for every criterion whose last linked task is in the group.</summary>
+        private void RecordBreaks(GroupState g, GroupTestVerdict verdict)
+        {
+            var ids = g.Tasks.Select(t => t.Id).ToHashSet(StringComparer.Ordinal);
+            foreach (var link in _links)
+                if (link.LinkedTaskIds.Count > 0 && ids.Contains(link.LinkedTaskIds[^1])) _groupBreaks[link.AcId] = verdict.BreaksExcluded;
+        }
+
+        /// <summary>
+        /// GREEN failed (design §7.3): each failing test's feedback goes to its criterion's last linked task in the group (test
+        /// feedback, or the test project's build errors when it still does not build), and only those tasks run again. Null to
+        /// build again; otherwise the group's end when a re-run failed or its file could not be backed up.
+        /// </summary>
+        private async Task<GroupEnd?> RerunForTestsAsync(ApplyTransaction tx, GroupState g, GroupTesting testing, GroupTestVerdict verdict,
+            CancellationToken ct)
+        {
+            var ids = g.Tasks.Select(t => t.Id).ToHashSet(StringComparer.Ordinal);
+            string? Owner(string name) => _links.Where(l => l.Test == name)
+                .Select(l => l.LinkedTaskIds.LastOrDefault(ids.Contains)).FirstOrDefault(id => id is not null);
+            var byName = testing.Baseline.Tests.ToDictionary(t => t.FullName, t => t.Name, StringComparer.Ordinal);
+
+            var green = new Dictionary<string, List<GreenFailure>>(StringComparer.Ordinal);
+            foreach (var failure in verdict.Green)
+                if (byName.TryGetValue(failure.FullName, out var name) && Owner(name) is { } id)
+                    (green.TryGetValue(id, out var list) ? list : green[id] = []).Add(failure);
+            var unbuilt = verdict.UnbuiltTests.Select(Owner).OfType<string>().ToHashSet(StringComparer.Ordinal);
+
+            // Built before any re-run against the files as they are now, like the build re-runs' feedback.
+            var feedbacks = new Dictionary<string, Feedback>(StringComparer.Ordinal);
+            foreach (var task in g.Tasks)
+            {
+                var full = FullPath(task);
+                var relative = owner.Fs.Path.GetRelativePath(ws.Root, full).Replace('\\', '/');
+                if (unbuilt.Contains(task.Id))
+                    feedbacks[task.Id] = owner.GroupFeedback.ForBuild(verdict.TestBuildErrors, relative, ReadText(full));
+                else if (green.TryGetValue(task.Id, out var failures))
+                    feedbacks[task.Id] = owner.GroupFeedback.ForGreen(failures, verdict.Regressions, relative);
+            }
+
+            foreach (var task in g.Tasks.Where(t => feedbacks.ContainsKey(t.Id)))
+            {
+                var display = g.Succeeded[task.Id].Display;
+                var member = display is null ? null : MemberLocator.NameOf(display);
+                var rerun = new GroupRun(feedbacks[task.Id], g.Succeeded[task.Id].Helpers);
+                if (await RunGroupTaskAsync(tx, g, task, rerun, member, ct) is not { } r) return await GroupAbortedAsync(tx, g);
+                if (r.ExitCode != 0) return await UndoGroupAsync(tx, g, r.FailureKind ?? $"exit-{r.ExitCode}", r.ExitCode);
+            }
+            return null;
+        }
+
+        private string ReadText(string full)
+        {
+            try { return owner.Guard.Read(full).Text; }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
+            {
+                return ""; // the errors still list; the re-run reports the unreadable file itself
+            }
         }
 
         /// <summary>
@@ -524,13 +700,17 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             return feedbacks;
         }
 
-        /// <summary>Nothing changed yet: every group task is marked <c>GroupUnverifiable</c> under the apply ID, exit 4.</summary>
-        private async Task<GroupEnd> UnverifiableBeforeEditAsync(ApplyTransaction tx, GroupState g, string reason)
+        /// <summary>
+        /// Nothing changed yet: every group task is marked <paramref name="kind"/> (default <c>GroupUnverifiable</c>) under the
+        /// apply ID, exit 4.
+        /// </summary>
+        private async Task<GroupEnd> UnverifiableBeforeEditAsync(ApplyTransaction tx, GroupState g, string reason,
+            string kind = GroupVerifier.UnverifiableKind)
         {
             owner.Ui.Warn(reason);
             // No task ran, so the report would not see the group otherwise.
-            foreach (var t in g.Tasks) _results.Add(new ApplyTaskResult(t.Id, null, 4, GroupVerifier.UnverifiableKind, 0, g.Id));
-            var marks = g.Tasks.Select(t => new SpecMark(t.Id, ApplyId!, GroupVerifier.UnverifiableKind)).ToList();
+            foreach (var t in g.Tasks) _results.Add(new ApplyTaskResult(t.Id, null, 4, kind, 0, g.Id));
+            var marks = g.Tasks.Select(t => new SpecMark(t.Id, ApplyId!, kind)).ToList();
             if (!await SpecWrittenAsync(_doc.MarkAsync(marks, CancellationToken.None))) return new GroupEnd(Unreviewed(tx, 4), true);
             _marked.AddRange(g.Tasks.Select(t => t.Id));
             return new GroupEnd(4, false);
@@ -726,6 +906,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             if (link.LinkedTaskIds.Count == 0) return RedState.NotChecked;
             var first = link.LinkedTaskIds[0];
             if (_doneAtStart.Contains(first)) return RedState.Skipped;
+            if (_groupRed.TryGetValue(link.AcId, out var group)) return group;
             return _firstRuns.TryGetValue(first, out var r) && r.TestFirst?.Red.TryGetValue(link.Test, out var state) == true
                 ? state
                 : RedState.NotChecked;
@@ -733,7 +914,8 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
 
         /// <summary>
         /// A criterion's result. Its last linked task decides: exit 0 and kept → met; exit 2, or not run in this apply (stopped
-        /// earlier, done in an earlier session, review rejected, cancelled) → not run; otherwise not met. A group task ends with its group (Task 6 adds group tests).
+        /// earlier, done in an earlier session, review rejected, cancelled) → not run; otherwise not met. A group task ends with its
+        /// group, and its expected breaks are the group's last test verdict's.
         /// </summary>
         private AcResult CriterionResult(AcLink link)
         {
@@ -743,7 +925,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             var last = link.LinkedTaskIds[^1];
             var run = _lastRuns.GetValueOrDefault(last);
             var runId = run?.RunId;
-            var breaks = run?.TestFirst?.BreaksExcluded ?? 0;
+            var breaks = _groupBreaks.TryGetValue(link.AcId, out var excluded) ? excluded : run?.TestFirst?.BreaksExcluded ?? 0;
             AcOutcome outcome;
             if (_rolledBack) outcome = AcOutcome.NotRun;
             else if (_ends.TryGetValue(last, out var end))

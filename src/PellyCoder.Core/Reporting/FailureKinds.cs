@@ -47,6 +47,11 @@ public static class FailureKinds
     public const string TestRedDeclined = "TestRedDeclined";
     public const string TestFileChanged = "TestFileChanged";
 
+    // Group test-first verification (pelly apply, V2-2 §7.3): a group task result carries these when its whole group failed.
+    public const string GroupTestGreenFailed = "GroupTestGreenFailed";
+    public const string GroupTestRegression = "GroupTestRegression";
+    public const string GroupTestUnverifiable = "GroupTestUnverifiable";
+
     public const string RulesInvalid = "RulesInvalid";
     public const string RulesErrors = "RulesErrors";
 
@@ -63,6 +68,7 @@ public static class FailureKinds
         TargetAmbiguous, TargetNotFound,
         SyntaxErrors, BuildErrors, SqlObjectsErrors, SqlCompileErrors, TestErrors,
         TestGreenFailed, TestRegression, TestNotFound, TestAmbiguous, TestUnverifiable, TestRedDeclined, TestFileChanged,
+        GroupTestGreenFailed, GroupTestRegression, GroupTestUnverifiable,
         RulesInvalid, RulesErrors,
         EnvError, BudgetExceeded, Rejected, Cancelled,
     };

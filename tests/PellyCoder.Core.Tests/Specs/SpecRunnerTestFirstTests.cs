@@ -66,7 +66,7 @@ public sealed class SpecRunnerTestFirstTests : IDisposable
     private static ApplyOptions Opts(bool cont = false, bool resume = false, bool reviewAtEnd = false, bool yes = true) =>
         new(cont, resume, reviewAtEnd, yes, false, null, false);
 
-    private SpecRunner Runner() => new(_fs, _guard, _exec, _ui, _time, 160, groups: new PassingGroups());
+    private SpecRunner Runner() => new(_fs, _guard, _exec, _ui, _time, 160, groups: new PassingGroups(), groupTests: new PassingGroupTests());
 
     private Task<int> Run(ApplyOptions o) => Runner().RunAsync(SpecPath, o, TestContext.Current.CancellationToken);
 
@@ -249,8 +249,9 @@ public sealed class SpecRunnerTestFirstTests : IDisposable
 
         Assert.Equal(0, await Run(Opts()));
 
-        Assert.All(_exec.Options, o => Assert.Null(o.Tests)); // the FSM does not test in group mode
+        Assert.All(_exec.Options, o => Assert.Null(o.Tests)); // the FSM does not test in group mode: the group does
         var ac = Assert.Single(Criteria());
+        Assert.Equal("Red", ac.GetProperty("red").GetString());
         Assert.Equal("Met", ac.GetProperty("outcome").GetString());
         Assert.Equal("R-T2", ac.GetProperty("greenRunId").GetString());
     }
@@ -306,6 +307,17 @@ public sealed class SpecRunnerTestFirstTests : IDisposable
     {
         public Task<GroupBuild> BuildAsync(Workspace ws, IReadOnlyList<string> projects, CancellationToken ct) =>
             System.Threading.Tasks.Task.FromResult(new GroupBuild(true, null, null, []));
+    }
+
+    /// <summary>Every group test baseline is RED for every plan test and every verdict passes.</summary>
+    private sealed class PassingGroupTests : IGroupTester
+    {
+        public Task<GroupTestBaseline> BaselineAsync(Workspace ws, IReadOnlyList<string> scope, GroupTestPlan plan, CancellationToken ct) =>
+            System.Threading.Tasks.Task.FromResult(new GroupTestBaseline([], [], new HashSet<int>(),
+                plan.Tests.ToDictionary(t => t, _ => RedState.Red), null));
+
+        public Task<GroupTestVerdict> VerifyAsync(Workspace ws, GroupTestBaseline baseline, GroupTestPlan plan, CancellationToken ct) =>
+            System.Threading.Tasks.Task.FromResult(new GroupTestVerdict(null, [], [], [], 0));
     }
 
     /// <summary>Appends a comment to the task's file through FileGuard and reports a scripted exit, kind and test-first outcome.</summary>

@@ -48,6 +48,10 @@ public static class GroupFailureKinds
     public const string BuildFailed = "GroupBuildFailed";
     public const string MissingTarget = "GroupMissingTarget";
     public const string Rejected = "GroupRejected";
+    public const string TestGreenFailed = Reporting.FailureKinds.GroupTestGreenFailed;
+    public const string TestRegression = Reporting.FailureKinds.GroupTestRegression;
+    public const string TestUnverifiable = Reporting.FailureKinds.GroupTestUnverifiable;
 
-    public static bool IsGroupKind(string? kind) => kind is Unverifiable or BuildFailed or MissingTarget or Rejected;
+    public static bool IsGroupKind(string? kind) =>
+        kind is Unverifiable or BuildFailed or MissingTarget or Rejected or TestGreenFailed or TestRegression or TestUnverifiable;
 }

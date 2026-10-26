@@ -8,12 +8,13 @@ using PellyCoder.Core.Fsm;
 using PellyCoder.Core.Impact;
 using PellyCoder.Core.Llm;
 using PellyCoder.Core.Logging;
+using PellyCoder.Core.Testing;
 
 namespace PellyCoder.Core.Specs;
 
 /// <summary>
 /// Assembles the <see cref="SpecRunner"/> of one <c>pelly apply</c> from the resolved options: the one composition shared by
-/// the CLI and the eval benchmark, so both run a spec with the same group build, feedback, retry and retention wiring.
+/// the CLI and the eval benchmark, so both run a spec with the same group build, group tests, feedback, retry and retention wiring.
 /// </summary>
 public static class SpecRunnerFactory
 {
@@ -24,11 +25,13 @@ public static class SpecRunnerFactory
         Func<RunRequest, CancellationToken, Task<RunResult>> run, IImpactFinder? impact, Func<bool>? isWindows = null)
     {
         var executor = new FsmTaskExecutor(run);
-        var groups = new GroupVerifier(
-            fs, new BuildVerifier(processes, options.Build), new BuildToolResolver(fs, processes, options.Build), isWindows ?? OperatingSystem.IsWindows);
+        var windows = isWindows ?? OperatingSystem.IsWindows;
+        var tools = new BuildToolResolver(fs, processes, options.Build);
+        var groups = new GroupVerifier(fs, new BuildVerifier(processes, options.Build), tools, windows);
+        var groupTests = new GroupTester(fs, new TestRunner(processes, options.Build, options.Test), tools, options.Test, windows);
         return new SpecRunner(
             fs, new FileGuard(fs, time), executor, ui, time, options.Sql.CompatLevel,
             (ws, id) => new RunLogger(fs, time).Prune(ws, options.Log.RetentionDays, id),
-            groups, new FeedbackBuilder(QwenTokenCounter.Shared, options.Budget.Feedback), options.Retry.Max, impact);
+            groups, new FeedbackBuilder(QwenTokenCounter.Shared, options.Budget.Feedback), options.Retry.Max, impact, groupTests);
     }
 }

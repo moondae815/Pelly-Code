@@ -38,6 +38,15 @@ public static class FailureKinds
     public const string SqlCompileErrors = "SqlCompileErrors";
     public const string TestErrors = "TestErrors";
 
+    // Test-first verification (--verify-test, design §9).
+    public const string TestGreenFailed = "TestGreenFailed";
+    public const string TestRegression = "TestRegression";
+    public const string TestNotFound = "TestNotFound";
+    public const string TestAmbiguous = "TestAmbiguous";
+    public const string TestUnverifiable = "TestUnverifiable";
+    public const string TestRedDeclined = "TestRedDeclined";
+    public const string TestFileChanged = "TestFileChanged";
+
     public const string RulesInvalid = "RulesInvalid";
     public const string RulesErrors = "RulesErrors";
 
@@ -53,6 +62,7 @@ public static class FailureKinds
         SqlForbiddenInOriginal, SqlParseErrors, SqlPermission, SqlSafetyRejected, SqlTargetNotAllowed,
         TargetAmbiguous, TargetNotFound,
         SyntaxErrors, BuildErrors, SqlObjectsErrors, SqlCompileErrors, TestErrors,
+        TestGreenFailed, TestRegression, TestNotFound, TestAmbiguous, TestUnverifiable, TestRedDeclined, TestFileChanged,
         RulesInvalid, RulesErrors,
         EnvError, BudgetExceeded, Rejected, Cancelled,
     };

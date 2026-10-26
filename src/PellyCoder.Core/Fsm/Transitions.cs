@@ -35,6 +35,8 @@ public static class Transitions
             (RunPhase.Apply, PhaseOutcome.NotFound) => Fail(ExitCodes.LocateFailed),
             (RunPhase.Apply, PhaseOutcome.FileChangedExternally) => Fail(ExitCodes.EnvError),
             (RunPhase.Apply, PhaseOutcome.DryRunCompleted) => new(RunPhase.Done, ExitCodes.Success),
+            // --verify-test: the named test already passes on the original code and the user chose not to go on.
+            (RunPhase.Apply, PhaseOutcome.Rejected) => Fail(ExitCodes.UserCancelled),
             (RunPhase.Verify, PhaseOutcome.Ok) => new(RunPhase.Review, null),
             (RunPhase.Verify, PhaseOutcome.NewErrors) => Retry(ExitCodes.VerifyFailed),
             (RunPhase.Review, PhaseOutcome.Approved) => new(RunPhase.Done, ExitCodes.Success),

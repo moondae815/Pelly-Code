@@ -3,6 +3,7 @@ using System.Xml;
 using PellyCoder.Core.Abstractions;
 using PellyCoder.Core.Builds;
 using PellyCoder.Core.CSharp;
+using PellyCoder.Core.Files;
 using PellyCoder.Core.Llm;
 using PellyCoder.Core.Models;
 using PellyCoder.Core.Testing;
@@ -74,6 +75,20 @@ public sealed class LocatePhase(
     private async Task<PhaseOutcome> StartBaselineAsync(RunContext ctx, string? csproj, CancellationToken ct)
     {
         var style = Enum.Parse<ProjectStyle>(ctx.ProjectStyle);
+        IReadOnlyList<string> declaredProjects = [];
+        if (ctx.Request.TestFirst)
+        {
+            if (ctx.Request.DryRun)
+            {
+                ctx.Messages.Add($"테스트 우선 검증: {string.Join(", ", ctx.Request.VerifyTests!)} (dry-run에서는 실행하지 않음)");
+                ctx.TestFirst = new TestFirstState(ctx.Request.VerifyTests!, ctx.Request.ExpectBreaks ?? [], new Dictionary<string, string>());
+            }
+            else if (TestFirstPreconditions(ctx, style, csproj) is { } projects)
+                declaredProjects = projects;
+            else
+                return PhaseOutcome.EnvError;
+        }
+
         if (style == ProjectStyle.None || csproj is null)
         {
             ctx.Messages.Add("csproj가 없어 빌드 검증을 건너뜁니다 (구문 검사만 합니다)");
@@ -98,7 +113,8 @@ public sealed class LocatePhase(
         ctx.BuildTool = tool;
         if (ctx.Request.DryRun) return PhaseOutcome.Ok; // a dry run never builds or tests
 
-        if (ctx.Request.RunTests && tests is not null && FindTestProjects(ctx, csproj) is { } failed)
+        // A test-first run always tests, even without --test.
+        if ((ctx.Request.RunTests || ctx.Request.TestFirst) && tests is not null && FindTestProjects(ctx, csproj!, declaredProjects) is { } failed)
             return failed;
 
         var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -115,12 +131,16 @@ public sealed class LocatePhase(
         return PhaseOutcome.Ok;
     }
 
-    /// <summary>Sets <see cref="RunContext.TestProjects"/>; null to go on, or the outcome when the configured list is wrong.</summary>
-    private PhaseOutcome? FindTestProjects(RunContext ctx, string csproj)
+    /// <summary>
+    /// Sets <see cref="RunContext.TestProjects"/>: the target's test projects, then the projects declaring the named tests that
+    /// are not among them (design §5.2a). Null to go on, or the outcome when the configured list is wrong.
+    /// </summary>
+    private PhaseOutcome? FindTestProjects(RunContext ctx, string csproj, IReadOnlyList<string> declaredProjects)
     {
         try
         {
-            ctx.TestProjects = TestProjectLocator.Find(fs, ctx.Workspace!.Root, csproj, ctx.Options.Test);
+            var found = TestProjectLocator.Find(fs, ctx.Workspace!.Root, csproj, ctx.Options.Test);
+            ctx.TestProjects = found.Concat(declaredProjects.Select(fs.Path.GetFullPath)).Distinct(PathComparers.ForOs).ToList();
         }
         catch (FileNotFoundException ex)
         {
@@ -135,6 +155,72 @@ public sealed class LocatePhase(
         if (ctx.TestProjects.Count == 0)
             ctx.Messages.Add("테스트 프로젝트를 찾지 못해 테스트를 건너뜁니다 (빌드 결과로만 판정)");
         return null;
+    }
+
+    /// <summary>
+    /// Checks a test-first run before anything starts (design §6) and records its <see cref="TestFirstState"/>. Returns the
+    /// projects declaring the named tests, or null after adding the message and failure kind (the run ends with exit 4).
+    /// </summary>
+    private IReadOnlyList<string>? TestFirstPreconditions(RunContext ctx, ProjectStyle style, string? csproj)
+    {
+        IReadOnlyList<string>? Fail(string message, string kind)
+        {
+            ctx.Messages.Add(message);
+            ctx.FailureKind = kind;
+            return null;
+        }
+
+        if (style == ProjectStyle.None || csproj is null)
+            return Fail("csproj가 없어 테스트 우선 검증을 할 수 없습니다", "TestUnverifiable");
+        if (style == ProjectStyle.Legacy && !_isWindows())
+            return Fail("레거시 테스트는 Windows에서만 실행합니다 — 테스트 우선 검증을 할 수 없습니다", "TestUnverifiable");
+
+        var targetName = MemberLocator.NameOf(ctx.Candidate!.Display);
+        var declarations = new List<TestMethodDecl>();
+        foreach (var name in ctx.Request.VerifyTests!)
+        {
+            IReadOnlyList<TestMethodDecl> found;
+            try
+            {
+                found = TestMethodIndex.Find(fs, ctx.Workspace!.Root, name);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                ctx.Messages.Add($"테스트 메서드를 찾는 중 파일을 읽을 수 없습니다 ({ex.Message})");
+                return null;
+            }
+
+            var fullNames = found.Select(d => d.FullName).Distinct(StringComparer.Ordinal).ToList();
+            if (fullNames.Count == 0)
+                return Fail($"테스트 {name}을(를) 테스트 실행 결과에서 찾지 못했습니다 (test.projects 설정을 확인하세요)", "TestNotFound");
+            if (fullNames.Count > 1)
+                return Fail($"테스트 이름 {name}이(가) 여러 테스트와 맞습니다: {string.Join(", ", fullNames)}", "TestAmbiguous");
+            foreach (var decl in found)
+            {
+                var method = decl.FullName[(decl.FullName.LastIndexOf('.') + 1)..];
+                if (PathComparers.ForOs.Equals(fs.Path.GetFullPath(decl.File), ctx.FilePath) && method == targetName)
+                    return Fail("--verify-test가 수정 대상 멤버 자신을 가리킵니다", "TestUnverifiable");
+                if (decl.Csproj is null)
+                    return Fail($"테스트 {name}이(가) 어떤 테스트 프로젝트에도 속하지 않습니다", "TestUnverifiable");
+            }
+            declarations.AddRange(found);
+        }
+
+        // Hashed now, before the first write, so the end of the run can tell whether the tests changed (design §5.6).
+        var hashes = new Dictionary<string, string>(PathComparers.ForOs);
+        try
+        {
+            foreach (var file in declarations.GroupBy(d => fs.Path.GetFullPath(d.File), PathComparers.ForOs))
+                hashes[file.Key] = TestFirstState.HashOf(fs, file.Key, ctx.FilePath, file.Select(d => d.FullName).ToHashSet(StringComparer.Ordinal));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            ctx.Messages.Add($"테스트 파일을 읽을 수 없습니다 ({ex.Message})");
+            return null;
+        }
+
+        ctx.TestFirst = new TestFirstState(ctx.Request.VerifyTests!, ctx.Request.ExpectBreaks ?? [], hashes);
+        return declarations.Select(d => d.Csproj!).ToList();
     }
 
     private static async Task<IReadOnlyList<TestRun>> RunBaselineTestsAsync(RunContext ctx, TestRunner runner, BuildTool tool,

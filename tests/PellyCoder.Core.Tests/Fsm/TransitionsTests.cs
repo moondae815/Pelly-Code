@@ -27,6 +27,7 @@ public class TransitionsTests
     [InlineData(RunPhase.Apply, PhaseOutcome.FileChangedExternally, 1, RunPhase.Failed, 4)]
     [InlineData(RunPhase.Apply, PhaseOutcome.EnvError, 1, RunPhase.Failed, 4)]
     [InlineData(RunPhase.Apply, PhaseOutcome.DryRunCompleted, 1, RunPhase.Done, 0)]
+    [InlineData(RunPhase.Apply, PhaseOutcome.Rejected, 1, RunPhase.Failed, 2)] // --verify-test: RED already passed, user declined
     [InlineData(RunPhase.Verify, PhaseOutcome.Ok, 1, RunPhase.Review, null)]
     [InlineData(RunPhase.Verify, PhaseOutcome.NewErrors, 2, RunPhase.Slice, null)]
     [InlineData(RunPhase.Verify, PhaseOutcome.NewErrors, 4, RunPhase.Failed, 1)]

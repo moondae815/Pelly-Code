@@ -34,6 +34,13 @@ public static class TestMethodIndex
         return found.OrderBy(d => d.FullName, StringComparer.Ordinal).ThenBy(d => d.File, StringComparer.Ordinal).ToList();
     }
 
+    /// <summary>Texts (without trivia) of the attributed test methods in <paramref name="source"/> whose full name is listed, in source order.</summary>
+    public static IReadOnlyList<string> DeclarationTexts(string source, IReadOnlyCollection<string> fullNames) =>
+        CSharpSyntaxTree.ParseText(source).GetRoot().DescendantNodes().OfType<MethodDeclarationSyntax>()
+            .Where(m => m.AttributeLists.SelectMany(l => l.Attributes).Any(IsTestAttribute) && fullNames.Contains(FullName(m)))
+            .Select(m => m.ToString())
+            .ToList();
+
     private static bool IsTestAttribute(AttributeSyntax a)
     {
         var last = a.Name switch

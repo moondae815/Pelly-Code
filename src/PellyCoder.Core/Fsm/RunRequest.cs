@@ -1,3 +1,5 @@
+using System.IO.Abstractions;
+using System.Text;
 using PellyCoder.Core.Abstractions;
 using PellyCoder.Core.Builds;
 using PellyCoder.Core.Config;
@@ -16,12 +18,19 @@ namespace PellyCoder.Core.Fsm;
 /// <paramref name="MethodName"/>, else found from the request text (design 8.4). <paramref name="MaxRetries"/> null means
 /// <c>retry.max</c> from the options. <paramref name="RunTests"/> (<c>--test</c>) adds the test step to VERIFY.
 /// <paramref name="Host"/> is set when <c>pelly apply</c> runs this request as one of its tasks; <paramref name="Group"/>
-/// when that task belongs to a task group.
+/// when that task belongs to a task group. <paramref name="VerifyTests"/> (<c>--verify-test</c>) names the tests that must
+/// fail before the edit and pass after it (design §6); <paramref name="ExpectBreaks"/> (<c>--expect-break</c>) the tests the
+/// change may break (design §5.2b).
 /// </summary>
 public sealed record RunRequest(
     string FilePath, string? ClassName, string? MethodName, int? Line, string Request, bool Yes, bool DryRun, int? MaxRetries,
     string? ObjectName = null, EditKind Kind = EditKind.CSharp, bool Verbose = false, bool RunTests = false,
-    ApplyHost? Host = null, GroupRun? Group = null);
+    ApplyHost? Host = null, GroupRun? Group = null,
+    IReadOnlyList<string>? VerifyTests = null, IReadOnlyList<string>? ExpectBreaks = null)
+{
+    /// <summary>A test-first run: it always runs the tests and judges RED before the first write and GREEN after it.</summary>
+    public bool TestFirst => VerifyTests is { Count: > 0 };
+}
 
 /// <summary>
 /// The request is one task of a task group (design §6). The group verifies with one build of the affected projects at its
@@ -76,6 +85,37 @@ public sealed class SqlRunState(SqlScript originalScript, int targetIndex, SqlOb
     public IReadOnlyList<Diagnostic>? OriginalCompileErrors { get; set; }
 
     public bool NoticesShown { get; set; }
+}
+
+/// <summary>
+/// State of a test-first run (set by LOCATE; null when the run is not test-first or LOCATE did not reach it). A dry run
+/// records no hashes.
+/// <see cref="TestFileHashes"/> maps each declaring file's full path to the SHA-256 hex of what pelly must not change there.
+/// </summary>
+public sealed class TestFirstState(IReadOnlyList<string> names, IReadOnlyList<string> breaks, IReadOnlyDictionary<string, string> testFileHashes)
+{
+    public IReadOnlyList<string> Names { get; } = names;
+    public IReadOnlyList<string> Breaks { get; } = breaks;
+    public IReadOnlyDictionary<string, string> TestFileHashes { get; } = testFileHashes;
+
+    /// <summary>The RED verdict (set by the first APPLY that awaited the baseline tests).</summary>
+    public RedResult? Red { get; set; }
+
+    public GreenState Green { get; set; } = GreenState.NotChecked;
+    public int Regressions { get; set; }
+    public int BreaksExcluded { get; set; }
+
+    /// <summary>
+    /// Hash recorded for a file declaring the named tests: the whole file, or, when it is <paramref name="targetFile"/> (which
+    /// pelly edits), only the declarations of <paramref name="testFullNames"/> in it.
+    /// </summary>
+    public static string HashOf(IFileSystem fs, string file, string targetFile, IReadOnlyCollection<string> testFullNames)
+    {
+        if (!PathComparers.ForOs.Equals(fs.Path.GetFullPath(file), fs.Path.GetFullPath(targetFile)))
+            return TextFileCodec.HashHex(fs.File.ReadAllBytes(file));
+        var declarations = TestMethodIndex.DeclarationTexts(fs.File.ReadAllText(file), testFullNames);
+        return TextFileCodec.HashHex(Encoding.UTF8.GetBytes(string.Join("\n", declarations)));
+    }
 }
 
 /// <summary>
@@ -173,6 +213,9 @@ public sealed class RunContext(string runId, RunRequest request, PellyOptions op
 
     /// <summary>The "cannot compare" notice of an exit-code-only test project was shown (once per run).</summary>
     public bool TestNotComparableShown { get; set; }
+
+    /// <summary>Set by LOCATE in a test-first run (in a dry run without hashes); null otherwise.</summary>
+    public TestFirstState? TestFirst { get; set; }
 
     public SliceResult SliceResult { get; set; } = null!;
     public PromptBuildResult? Prompt { get; set; }

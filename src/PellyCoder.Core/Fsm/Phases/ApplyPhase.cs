@@ -71,7 +71,8 @@ public sealed class ApplyPhase(FileGuard fileGuard, FeedbackBuilder feedback, IU
         // The baseline build and tests must describe the untouched project, so they have to finish before the first write.
         if (await AwaitBaselineAsync(ctx, ct) is { } failed)
             return failed;
-        await AwaitBaselineTestsAsync(ctx, ct);
+        if (await AwaitBaselineTestsAsync(ctx, ct) is { } red)
+            return red;
 
         var written = await PatchWriter.WriteAsync(ctx, fileGuard, feedback, patch, ct);
         if (written == PhaseOutcome.Ok && group) FollowTarget(ctx, shape.NewTargetDisplay!);
@@ -151,10 +152,13 @@ public sealed class ApplyPhase(FileGuard fileGuard, FeedbackBuilder feedback, IU
     /// <summary>
     /// Waits for the baseline tests once per run. Tests that could not run are announced and skipped by the test step (the
     /// build still verifies the edit): failing the run here would keep <c>--test</c> from ever editing such a project.
+    /// A test-first run then judges RED (design §5.3) and returns the outcome to end the run with; a <c>--test</c> run
+    /// always returns null.
     /// </summary>
-    private async Task AwaitBaselineTestsAsync(RunContext ctx, CancellationToken ct)
+    private async Task<PhaseOutcome?> AwaitBaselineTestsAsync(RunContext ctx, CancellationToken ct)
     {
-        if (ctx.BaselineTests is null || ctx.BaselineTestRuns is not null) return;
+        if (ctx.BaselineTests is null || ctx.BaselineTestRuns is not null) return null;
+        var testFirst = ctx.TestFirst;
 
         var usable = new TestRun?[ctx.TestProjects.Count];
         IReadOnlyList<TestRun> runs;
@@ -169,9 +173,10 @@ public sealed class ApplyPhase(FileGuard fileGuard, FeedbackBuilder feedback, IU
         }
         catch (Exception ex)
         {
-            ctx.Messages.Add($"{CannotRunBaselineTests}: {ex.GetType().Name}: {ex.Message}");
+            // A test-first run cannot judge without them: RED reports that, and the cause follows its message.
+            if (testFirst is null) ctx.Messages.Add($"{CannotRunBaselineTests}: {ex.GetType().Name}: {ex.Message}");
             ctx.BaselineTestRuns = usable;
-            return;
+            return testFirst is null ? null : await JudgeRedAsync(ctx, testFirst, [$"{ex.GetType().Name}: {ex.Message}"], ct);
         }
 
         var reasons = new List<string>();
@@ -186,6 +191,9 @@ public sealed class ApplyPhase(FileGuard fileGuard, FeedbackBuilder feedback, IU
             if (reason is null) usable[i] = runs[i];
             else if (!reasons.Contains(reason)) reasons.Add(reason);
         }
+        ctx.BaselineTestRuns = usable;
+        if (testFirst is not null) return await JudgeRedAsync(ctx, testFirst, reasons, ct);
+
         foreach (var reason in reasons) ctx.Messages.Add($"{CannotRunBaselineTests}: {reason}");
         // Still run at VERIFY (a new compile error in the test project is feedback), but never compared: say so once.
         for (var i = 0; i < usable.Length; i++)
@@ -193,7 +201,54 @@ public sealed class ApplyPhase(FileGuard fileGuard, FeedbackBuilder feedback, IU
             if (usable[i] is { BuildErrors.Count: > 0 })
                 ctx.Messages.Add($"{TestStep.BaselineNotBuilt}: {Path.GetFileName(ctx.TestProjects[i])}");
         }
-        ctx.BaselineTestRuns = usable;
+        return null;
+    }
+
+    /// <summary>
+    /// RED check of a test-first run (design §5.3): null to write, otherwise the outcome to end the run with. The v1 notices
+    /// for baseline tests that could not run are not shown: an unverifiable verdict says the same, followed by
+    /// <paramref name="reasons"/> (why runs could not be used).
+    /// </summary>
+    private async Task<PhaseOutcome?> JudgeRedAsync(RunContext ctx, TestFirstState state, IReadOnlyList<string> reasons, CancellationToken ct)
+    {
+        var baselines = ctx.BaselineTestRuns!;
+        var red = TestFirstJudge.Red(ctx.TestProjects, baselines, state.Names);
+        state.Red = red;
+        if (red.Unverifiable is { } message)
+        {
+            ctx.Messages.Add(message);
+            foreach (var reason in reasons) ctx.Messages.Add(reason);
+            ctx.FailureKind = red.FailureKind;
+            return PhaseOutcome.EnvError;
+        }
+
+        var passed = red.Tests.Where(t => t.State == RedState.AlreadyPassed).Select(t => t.Name).ToList();
+        if (passed.Count > 0)
+        {
+            var warning = $"이 테스트는 변경을 검증하지 못합니다 (원본 상태에서 이미 통과): {string.Join(", ", passed)}";
+            if (ui.IsInteractive && !ctx.Request.Yes)
+            {
+                // Shown before the question (run messages are shown only after the phase), like REVIEW's notices.
+                ui.Warn(warning);
+                if (!await ui.ConfirmAsync("그래도 계속할까요?", false, ct))
+                {
+                    ctx.FailureKind = "TestRedDeclined";
+                    return PhaseOutcome.Rejected;
+                }
+            }
+            else
+            {
+                ctx.Messages.Add(warning);
+            }
+        }
+
+        ctx.Messages.AddRange(TestFirstJudge.BreakWarnings(baselines, state.Breaks));
+        if (ctx.Request.Verbose)
+        {
+            foreach (var test in red.Tests.Where(t => t.State == RedState.Red))
+                ctx.Messages.Add($"RED 확인: {test.FullName} 실패 — {test.FirstMessage}");
+        }
+        return null;
     }
 
     /// <summary>A status line is cosmetic: a console that cannot show it never fails the run.</summary>

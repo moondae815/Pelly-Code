@@ -327,7 +327,7 @@ public sealed class ApplyBenchmarkTests : IDisposable
         Assert.All(LoadSet("test-first"), c => Assert.False(c.Approved));
 
         File.WriteAllText(Path.Combine(TestFirstDir, "APPROVED.json"),
-            "{ \"approvedBy\": \"someone\", \"approvedAt\": \"2026-10-26\", \"cases\": [\"t1\"] }\n");
+            "{ \"approvedBy\": \"someone\", \"approvedAt\": \"2026-10-26\", \"commit\": \"abc1234\", \"cases\": [\"t1\"] }\n");
         var approved = ApplyBenchmark.LoadApproved(TestFirstDir);
         Assert.Equal(["t1"], approved.Order(StringComparer.Ordinal));
         Assert.Equal([("t1", true), ("t2", false)],

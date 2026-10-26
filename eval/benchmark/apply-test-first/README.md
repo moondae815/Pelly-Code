@@ -37,7 +37,8 @@
 ## 승인
 * 사람이 사례를 검토한 뒤 `APPROVED.json`을 이 폴더에 만듭니다. 구현자는 만들지 않습니다.
   ```json
-  { "approvedBy": "<이름>", "approvedAt": "<yyyy-MM-dd>", "cases": ["t1", "t2", "t3", "t4", "t5", "t6", "t7", "t8"] }
+  { "approvedBy": "<이름>", "approvedAt": "<yyyy-MM-dd>", "commit": "<검토한 커밋>", "cases": ["t1", "t2", "t3", "t4", "t5", "t6", "t7", "t8"] }
   ```
+* `commit`은 검토한 사례가 들어 있던 커밋(기록용)입니다. 실행기는 `cases`만 읽고 `approvedBy`·`approvedAt`·`commit`은 읽지 않습니다.
 * `cases`에 없는 사례가 실행 집합에 하나라도 있으면 `apply-summary.md` 제목에 「예비(사람 승인 전)」가 붙습니다.
-* 사례를 고치면(명세·`files/`·`expected.json`) 그 사례를 다시 승인받습니다.
+* 승인 뒤에 사례를 고치면(명세·`files/`·`expected.json`·`pelly.json`) 그 사례를 다시 승인받아야 합니다: 사람이 다시 검토한 뒤 `APPROVED.json`의 `approvedAt`·`commit`을 새로 적습니다. 실행기는 내용이 바뀐 것을 알아채지 못하므로, 다시 승인받기 전까지는 `cases`에서 그 사례를 빼 두어 요약이 「예비(사람 승인 전)」로 나오게 합니다.

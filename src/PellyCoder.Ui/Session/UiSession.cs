@@ -14,6 +14,7 @@ public sealed class UiSession
     private readonly GuiUserInteraction _ui;
     private readonly CancellationToken _shutdown;
     private CancellationTokenSource? _cts;
+    private Task<int>? _runTask;
     private bool _closeRequested;
     private bool _closeReadyRaised;
     private string _request = "";
@@ -75,10 +76,12 @@ public sealed class UiSession
         _ui.ClearForNewRun();
         SetState(SessionState.Running);
 
+        var runTask = Task.Run(() => _run(request, _ui, cts.Token), CancellationToken.None);
+        _runTask = runTask;
         int code;
         try
         {
-            code = await Task.Run(() => _run(request, _ui, cts.Token), CancellationToken.None).ConfigureAwait(false);
+            code = await runTask.ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -94,18 +97,53 @@ public sealed class UiSession
         var finished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         _ui.Dispatcher.Post(() =>
         {
-            ExitCode = code;
-            _cts = null;
-            cts.Dispose();
-            SetState(SessionState.Finished);
-            if (_closeRequested)
+            try
             {
-                _closeRequested = false;
-                RaiseCloseReady();
+                ExitCode = code;
+                _cts = null;
+                cts.Dispose();
+                SetState(SessionState.Finished);
+                if (_closeRequested)
+                {
+                    _closeRequested = false;
+                    RaiseCloseReady();
+                }
             }
-            finished.SetResult();
+            finally
+            {
+                // A throwing Changed/CloseReady handler faults the UI loop, not this run.
+                finished.SetResult();
+            }
         });
         await finished.Task.ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The UI loop died (an exception on the UI thread) while a run may be active: cancels the run and blocks until it has
+    /// ended, so the FSM's rollback has run. True when no run is active or it ended within <paramref name="timeout"/>.
+    /// The rollback does not need the UI thread: posts are fire-and-forget and a cancelled question completes directly.
+    /// Call on the (former) UI thread; the session's state is not updated, since nothing shows it any more.
+    /// </summary>
+    internal bool AbortRun(TimeSpan timeout)
+    {
+        var run = _runTask;
+        if (run is null || run.IsCompleted) return true;
+        try
+        {
+            _cts?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // The run ended and its token was disposed in the meantime.
+        }
+        try
+        {
+            return run.Wait(timeout);
+        }
+        catch (AggregateException)
+        {
+            return true; // ended cancelled or failed: the FSM's finally has run
+        }
     }
 
     /// <summary>Running/AwaitingAnswer → Cancelling. The FSM rolls back and the run ends with 2.</summary>

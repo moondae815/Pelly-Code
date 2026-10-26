@@ -70,9 +70,12 @@ public static class Composition
         public void Dispose() => _client?.Dispose();
     }
 
-    private sealed class OrchestratorRunner(
+    internal sealed class OrchestratorRunner(
         IFileSystem fs, IUserInteraction ui, TimeProvider time, HttpClientHolder http, IProcessRunner processes) : IRunner
     {
+        /// <summary>Where this runner asks its questions (tests: <c>pelly ui</c> must get the window's interaction).</summary>
+        internal IUserInteraction Interaction => ui;
+
         public Task<RunResult> RunDetailedAsync(RunRequest request, PellyOptions options, CancellationToken ct)
         {
             var backend = new OllamaBackend(http.Get(options.Llm), options.Llm, time);

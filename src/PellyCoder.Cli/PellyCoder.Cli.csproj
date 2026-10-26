@@ -27,6 +27,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="PellyCoder.Cli.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <EmbeddedResource Include="../../deploy/server-checklist.md" LogicalName="PellyCoder.Cli.server-checklist.md" />
   </ItemGroup>
 

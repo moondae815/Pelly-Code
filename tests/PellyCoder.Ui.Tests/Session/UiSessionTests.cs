@@ -349,4 +349,76 @@ public sealed class UiSessionTests : IDisposable
 
         Assert.Equal(new StatusLine(null, 0, "종료 코드 0: 성공 (패치 적용)", StatusLineKind.Result), _ui.Lines[^1]);
     }
+
+    [Fact]
+    public async Task AbortRun_WhileAwaitingApproval_CancelsAndWaitsForRollback()
+    {
+        var rolledBack = false;
+        var session = NewSession(async (request, ui, ct) =>
+        {
+            try { return await ApproveScript(request, ui, ct); }
+            catch (OperationCanceledException)
+            {
+                await Task.Delay(100, CancellationToken.None); // rollback takes a moment
+                rolledBack = true;
+                throw;
+            }
+        });
+        await StartAndWaitForQuestion(session);
+
+        Assert.True(session.AbortRun(Limit));
+
+        Assert.True(rolledBack);
+    }
+
+    [Fact]
+    public void AbortRun_WithoutRun_ReturnsTrue()
+    {
+        var session = NewSession(ApproveScript);
+
+        Assert.True(session.AbortRun(Limit));
+    }
+
+    [Fact]
+    public async Task AbortRun_RunIgnoresCancellation_ReturnsFalseAfterTimeout()
+    {
+        var release = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var session = NewSession((_, _, _) =>
+        {
+            started.SetResult();
+            return release.Task; // a rollback that does not finish in time
+        });
+        var run = session.RunAsync();
+        await started.Task.WaitAsync(Limit, TestContext.Current.CancellationToken);
+
+        Assert.False(session.AbortRun(TimeSpan.FromMilliseconds(100)));
+
+        release.SetResult(ExitCodes.UserCancelled);
+        await run.WaitAsync(Limit, TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task FinishHandlerThrows_RunAsyncStillCompletes()
+    {
+        var dispatcher = new QueuedDispatcher();
+        var ui = new GuiUserInteraction(dispatcher);
+        var session = new UiSession((_, _, _) => Task.FromResult(0), ui, [], _shutdown.Token) { Request = "요청" };
+        session.Changed += () =>
+        {
+            if (session.State == SessionState.Finished) throw new InvalidOperationException("handler failed");
+        };
+
+        var run = session.RunAsync();
+        var deadline = DateTime.UtcNow + Limit;
+        while (!run.IsCompleted && DateTime.UtcNow < deadline)
+        {
+            try { dispatcher.Drain(); }
+            catch (InvalidOperationException) { } // the UI thread's fault; the run must still complete
+            await Task.Delay(10, TestContext.Current.CancellationToken);
+        }
+
+        Assert.True(run.IsCompleted, "RunAsync did not complete");
+        Assert.Equal(SessionState.Finished, session.State);
+    }
 }

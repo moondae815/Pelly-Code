@@ -104,4 +104,21 @@ public sealed class SelfTestTests(HeadlessSession headless)
         Assert.Equal("GUI 구성 요소를 불러오지 못했습니다: libHarfBuzzSharp. pelly.exe 옆의 DLL을 함께 두십시오." + Environment.NewLine,
             error.ToString());
     }
+
+    [Fact]
+    public void Run_OtherSetupFailure_Exit4WithReasonOnStderr()
+    {
+        var error = new StringWriter();
+        var sessions = 0;
+
+        var exit = UiHost.Run(Launch, _ =>
+        {
+            sessions++;
+            throw new InvalidOperationException("no session expected");
+        }, error, setup: () => throw new InvalidOperationException("no display"));
+
+        Assert.Equal(4, exit);
+        Assert.Equal(0, sessions);
+        Assert.Equal("GUI 창을 만들지 못했습니다: InvalidOperationException: no display" + Environment.NewLine, error.ToString());
+    }
 }

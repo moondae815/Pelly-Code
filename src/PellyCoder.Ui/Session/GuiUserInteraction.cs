@@ -134,8 +134,15 @@ public sealed class GuiUserInteraction(IUiDispatcher dispatcher) : IUserInteract
                 if (!ReferenceEquals(_pending, pending)) return;
                 _pending = null;
             }
-            ClearQuestion(question);
-            pending.Completion.TrySetCanceled(ct);
+            try
+            {
+                ClearQuestion(question);
+            }
+            finally
+            {
+                // The run (and its rollback) must not depend on the UI thread, which may be gone (UiHost.RunLoop).
+                pending.Completion.TrySetCanceled(ct);
+            }
         });
         return await pending.Completion.Task.ConfigureAwait(false);
     }

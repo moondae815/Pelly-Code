@@ -498,6 +498,14 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                         return await UndoGroupAsync(tx, g, GroupFailureKinds.TestUnverifiable, 4);
                     }
                     RecordBreaks(g, verdict);
+                    // A compile-RED project with no GREEN test in this group is fixed by a later task outside it, whose own
+                    // baseline would then not build: no re-run here can help, and the spec has to group that task too.
+                    if (verdict.Unbuilt.FirstOrDefault(u => !u.Value.Any(n => testing.Plan.GreenNames.Contains(n, StringComparer.Ordinal)))
+                        is { Key: { } unbuiltProject })
+                    {
+                        owner.Ui.Warn($"그룹 {g.Id}: 테스트 프로젝트가 그룹 뒤에도 빌드되지 않습니다 — 수용 기준의 마지막 연결 작업까지 같은 그룹에 넣으세요: {unbuiltProject}");
+                        return await UndoGroupAsync(tx, g, GroupFailureKinds.TestUnverifiable, 4);
+                    }
                     if (verdict.Green.Count == 0 && verdict.TestBuildErrors.Count == 0)
                     {
                         if (verdict.Regressions.Count == 0) break;
@@ -505,13 +513,13 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                         owner.Ui.Warn($"그룹 {g.Id}: 테스트 회귀: {string.Join(", ", verdict.Regressions.Select(r => r.FullName).Distinct())}");
                         return await UndoGroupAsync(tx, g, GroupFailureKinds.TestRegression, 1);
                     }
+                    var failing = string.Join(", ", verdict.Green.Select(f => f.FullName).Concat(verdict.Unbuilt.Values.SelectMany(v => v)).Distinct());
                     if (reruns >= max)
                     {
-                        var failing = verdict.Green.Select(f => f.FullName).Concat(verdict.UnbuiltTests).Distinct();
-                        owner.Ui.Warn($"그룹 {g.Id}: 재실행 {max}번 뒤에도 테스트가 통과하지 않습니다: {string.Join(", ", failing)}");
+                        owner.Ui.Warn($"그룹 {g.Id}: 재실행 {max}번 뒤에도 테스트가 통과하지 않습니다: {failing}");
                         return await UndoGroupAsync(tx, g, GroupFailureKinds.TestGreenFailed, 1);
                     }
-                    if (await RerunForTestsAsync(tx, g, testing, verdict, ct) is { } failed) return failed;
+                    if (await RerunForTestsAsync(tx, g, testing, verdict, failing, ct) is { } failed) return failed;
                     continue;
                 }
 
@@ -578,21 +586,24 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
         /// <summary>
         /// GREEN failed (design §7.3): each failing test's feedback goes to its criterion's last linked task in the group (test
         /// feedback, or the test project's build errors when it still does not build), and only those tasks run again. Null to
-        /// build again; otherwise the group's end when a re-run failed or its file could not be backed up.
+        /// build again; otherwise the group's end when a re-run failed or its file could not be backed up, or at once with
+        /// <c>GroupTestGreenFailed</c> when no failing test belongs to a group task (no re-run could change the verdict).
         /// </summary>
         private async Task<GroupEnd?> RerunForTestsAsync(ApplyTransaction tx, GroupState g, GroupTesting testing, GroupTestVerdict verdict,
-            CancellationToken ct)
+            string failing, CancellationToken ct)
         {
             var ids = g.Tasks.Select(t => t.Id).ToHashSet(StringComparer.Ordinal);
-            string? Owner(string name) => _links.Where(l => l.Test == name)
-                .Select(l => l.LinkedTaskIds.LastOrDefault(ids.Contains)).FirstOrDefault(id => id is not null);
-            var byName = testing.Baseline.Tests.ToDictionary(t => t.FullName, t => t.Name, StringComparer.Ordinal);
+            // Each criterion naming the test (two may spell it differently) owns it through its last linked task in the group.
+            IEnumerable<string> Owners(string name) => _links.Where(l => l.Test == name)
+                .Select(l => l.LinkedTaskIds.LastOrDefault(ids.Contains)).OfType<string>();
+            var names = testing.Baseline.Tests.GroupBy(t => t.FullName, StringComparer.Ordinal)
+                .ToDictionary(t => t.Key, t => t.Select(x => x.Name).Distinct(StringComparer.Ordinal).ToList(), StringComparer.Ordinal);
 
             var green = new Dictionary<string, List<GreenFailure>>(StringComparer.Ordinal);
             foreach (var failure in verdict.Green)
-                if (byName.TryGetValue(failure.FullName, out var name) && Owner(name) is { } id)
+                foreach (var id in names.GetValueOrDefault(failure.FullName, []).SelectMany(Owners).Distinct(StringComparer.Ordinal))
                     (green.TryGetValue(id, out var list) ? list : green[id] = []).Add(failure);
-            var unbuilt = verdict.UnbuiltTests.Select(Owner).OfType<string>().ToHashSet(StringComparer.Ordinal);
+            var unbuilt = verdict.Unbuilt.Values.SelectMany(v => v).SelectMany(Owners).ToHashSet(StringComparer.Ordinal);
 
             // Built before any re-run against the files as they are now, like the build re-runs' feedback.
             var feedbacks = new Dictionary<string, Feedback>(StringComparer.Ordinal);
@@ -604,6 +615,12 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                     feedbacks[task.Id] = owner.GroupFeedback.ForBuild(verdict.TestBuildErrors, relative, ReadText(full));
                 else if (green.TryGetValue(task.Id, out var failures))
                     feedbacks[task.Id] = owner.GroupFeedback.ForGreen(failures, verdict.Regressions, relative);
+            }
+
+            if (feedbacks.Count == 0)
+            {
+                owner.Ui.Warn($"그룹 {g.Id}: 그룹 작업으로 고칠 수 없는 테스트가 통과하지 않습니다: {failing}");
+                return await UndoGroupAsync(tx, g, GroupFailureKinds.TestGreenFailed, 1);
             }
 
             foreach (var task in g.Tasks.Where(t => feedbacks.ContainsKey(t.Id)))

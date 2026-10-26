@@ -301,7 +301,10 @@ public sealed class SpecRunnerGroupTestFirstTests : IDisposable
     {
         Spec(Criterion, GroupTasks);
         _tests.Baseline = Baseline(RedState.RedCompile);
-        _tests.Verdicts.Enqueue(new GroupTestVerdict(null, [], [Error("tests/App.Tests/OrderTests.cs", 5, "CS1501")], [], 0) { UnbuiltTests = [Test] });
+        _tests.Verdicts.Enqueue(new GroupTestVerdict(null, [], [Error("tests/App.Tests/OrderTests.cs", 5, "CS1501")], [], 0) 
+        {
+            Unbuilt = new Dictionary<string, IReadOnlyList<string>> { ["tests/App.Tests/App.Tests.csproj"] = [Test] },
+        });
 
         Assert.Equal(0, await Run(Opts()));
 
@@ -309,6 +312,62 @@ public sealed class SpecRunnerGroupTestFirstTests : IDisposable
         var feedback = _exec.Options[2].Group!.InitialFeedback!.Text;
         Assert.Contains("BUILD FAILED", feedback);
         Assert.Contains("CS1501", feedback);
+    }
+
+    [Fact]
+    public async Task Group_CompileRedTestGreenAfterGroup_UnverifiableExit4()
+    {
+        Spec(Criterion, GroupTasks + "- [ ] T3 cs src/App/OrderService.cs#OrderService.Cancel 마무리 (AC1)\n");
+        _exec.Display["T3"] = "OrderService.Cancel()";
+        _tests.Baseline = Baseline(RedState.RedCompile);
+        _tests.Fallback = new GroupTestVerdict(null, [], [Error("tests/App.Tests/OrderTests.cs", 5, "CS1501")], [], 0)
+        {
+            Unbuilt = new Dictionary<string, IReadOnlyList<string>> { ["tests/App.Tests/App.Tests.csproj"] = [Test] },
+        };
+
+        Assert.Equal(4, await Run(Opts(maxRetries: 3)));
+
+        Assert.Empty(Assert.Single(_tests.Plans).GreenNames);
+        Assert.Equal(["T1", "T2"], _exec.Calls); // no re-run, and T3 never runs
+        Assert.Equal(1, _tests.Verifies);
+        AssertGroupFilesUntouched();
+        Assert.Contains("그룹 G1: 테스트 프로젝트가 그룹 뒤에도 빌드되지 않습니다 — 수용 기준의 마지막 연결 작업까지 같은 그룹에 넣으세요: "
+            + "tests/App.Tests/App.Tests.csproj", _ui.Warnings);
+        Assert.Contains("<!-- failed: R-T2 GroupTestUnverifiable -->", Read("changes/x.md"));
+    }
+
+    [Fact]
+    public async Task Group_TestFailureWithoutOwner_FailsAtOnce()
+    {
+        Spec(Criterion, GroupTasks);
+        _tests.Fallback = new GroupTestVerdict(null, [new GreenFailure("App.Tests.Elsewhere.Unknown", "boom", null)], [], [], 0);
+
+        Assert.Equal(1, await Run(Opts(maxRetries: 3)));
+
+        Assert.Equal(["T1", "T2"], _exec.Calls); // nothing to re-run: no build or test again
+        Assert.Equal(1, _tests.Verifies);
+        Assert.Equal(2, _builds.Calls);
+        AssertGroupFilesUntouched();
+        Assert.Contains("<!-- failed: R-T2 GroupTestGreenFailed -->", Read("changes/x.md"));
+    }
+
+    [Fact]
+    public async Task Group_SameTestTwoSpellings_NoCrash()
+    {
+        Spec($"- AC1: 하나\n  test: {Test}\n- AC2: 둘\n  test: {FullName}\n",
+            "- [ ] T1 cs src/App/OrderService.cs#OrderService.GetOrder 반환 형식을 바꾼다 (AC1, AC2) [G1]\n" +
+            "- [ ] T2 cs src/App/Repo.cs#Repo.Find 이름을 바꾼다 (AC1, AC2) [G1]\n");
+        _tests.Baseline = new GroupTestBaseline([], [], new HashSet<int>(),
+            new Dictionary<string, RedState> { [Test] = RedState.Red, [FullName] = RedState.Red }, null)
+        {
+            Tests = [new RedTest(Test, FullName, 0, RedState.Red, null), new RedTest(FullName, FullName, 0, RedState.Red, null)],
+        };
+        _tests.Verdicts.Enqueue(GreenFails());
+
+        Assert.Equal(0, await Run(Opts()));
+
+        Assert.Equal(["T1", "T2", "T2"], _exec.Calls);
+        Assert.Contains("TEST NOT PASSING: " + FullName, _exec.Options[2].Group!.InitialFeedback!.Text);
     }
 
     [Fact]

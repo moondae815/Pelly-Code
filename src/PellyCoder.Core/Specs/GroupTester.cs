@@ -37,13 +37,13 @@ public sealed record GroupTestBaseline(IReadOnlyList<string> Projects, IReadOnly
 
 /// <summary>
 /// The group's test verdict after its build passed. <see cref="Green"/> and <see cref="TestBuildErrors"/> (a compile-RED project
-/// that still does not build; <see cref="UnbuiltTests"/> are the plan tests declared there) are GREEN failures; <see cref="Regressions"/>
+/// that still does not build; <see cref="Unbuilt"/> maps each such project, workspace-relative, to the plan tests declared there); <see cref="Regressions"/>
 /// are newly failing tests. <see cref="Unverifiable"/> (a Korean user message) means no verdict is possible.
 /// </summary>
 public sealed record GroupTestVerdict(string? Unverifiable, IReadOnlyList<GreenFailure> Green, IReadOnlyList<Diagnostic> TestBuildErrors,
     IReadOnlyList<TestCaseResult> Regressions, int BreaksExcluded)
 {
-    public IReadOnlyList<string> UnbuiltTests { get; init; } = [];
+    public IReadOnlyDictionary<string, IReadOnlyList<string>> Unbuilt { get; init; } = new Dictionary<string, IReadOnlyList<string>>();
 }
 
 /// <summary>Runs a task group's test projects before and after its edits (design §7.3).</summary>
@@ -156,7 +156,9 @@ public sealed class GroupTester(IFileSystem fs, TestRunner runner, BuildToolReso
 
         int verify = Interlocked.Increment(ref _verifies);
         // Every named test fails in the baseline or is judged by GREEN: none of them is a regression.
-        var excluded = plan.Breaks.Concat(plan.Tests).Distinct(StringComparer.Ordinal).ToList();
+        // As in TestStep: the expected breaks, and the tests GREEN judges. A test with another role that passed before and fails
+        // now is a regression; one failing before never counts (in a compile-RED project nothing ran, so its named tests count as failing).
+        var excluded = plan.Breaks.Concat(plan.GreenNames).Distinct(StringComparer.Ordinal).ToList();
         var hits = new HashSet<string>(StringComparer.Ordinal); // excluded results, by name without arguments
         var runs = new TestRun?[projects.Count];
         var unbuilt = new HashSet<int>();
@@ -191,7 +193,8 @@ public sealed class GroupTester(IFileSystem fs, TestRunner runner, BuildToolReso
             {
                 if (!run.PerTestResults)
                     return Unverifiable("테스트별 결과가 없어 지정한 테스트를 판정할 수 없습니다 (레거시는 test.command에 {trx}를 넣으세요)");
-                regressions.AddRange(TestRegressions.Strict(run, excluded));
+                var strictExcluded = excluded.Concat(baseline.Tests.Where(t => t.ProjectIndex == i).Select(t => t.FullName)).ToList();
+                regressions.AddRange(TestRegressions.Strict(run, strictExcluded));
                 foreach (var r in run.Results.Where(r => !r.Passed && plan.Breaks.Any(b => TestNames.Matches(b, r.FullName))))
                     hits.Add(TestNames.WithoutArguments(r.FullName));
                 continue;
@@ -208,11 +211,12 @@ public sealed class GroupTester(IFileSystem fs, TestRunner runner, BuildToolReso
 
         var green = baseline.Tests
             .Where(t => plan.GreenNames.Contains(t.Name, StringComparer.Ordinal) && !unbuilt.Contains(t.ProjectIndex)).ToList();
-        var unbuiltTests = baseline.Tests.Where(t => unbuilt.Contains(t.ProjectIndex)).Select(t => t.Name).ToList();
+        var unbuiltTests = unbuilt.ToDictionary(i => Relative(ws, projects[i]),
+            i => (IReadOnlyList<string>)baseline.Tests.Where(t => t.ProjectIndex == i).Select(t => t.Name).ToList());
         return new GroupTestVerdict(null, TestFirstJudge.Green(green, runs), buildErrors.Distinct().ToList(),
             regressions.DistinctBy(r => r.FullName).ToList(), hits.Count(h => plan.Breaks.Any(b => TestNames.Matches(b, h))))
         {
-            UnbuiltTests = unbuiltTests,
+            Unbuilt = unbuiltTests,
         };
     }
 

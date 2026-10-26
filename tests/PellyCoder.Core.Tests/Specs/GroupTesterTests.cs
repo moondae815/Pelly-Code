@@ -229,7 +229,9 @@ public sealed class GroupTesterTests : IDisposable
 
         Assert.Null(verdict.Unverifiable);
         Assert.Equal("CS1501", Assert.Single(verdict.TestBuildErrors).Code);
-        Assert.Equal([Cancel], verdict.UnbuiltTests);
+        var (project, tests) = Assert.Single(verdict.Unbuilt);
+        Assert.EndsWith("App.Tests.csproj", project);
+        Assert.Equal([Cancel], tests);
         Assert.Empty(verdict.Green);
         Assert.Empty(verdict.Regressions);
     }
@@ -284,6 +286,22 @@ public sealed class GroupTesterTests : IDisposable
         Assert.Empty(verdict.Green);
         Assert.Empty(verdict.Regressions);
         Assert.Equal(1, verdict.BreaksExcluded);
+    }
+
+    [Fact]
+    public async Task Verify_RedOnlyTestBreaking_IsRegression()
+    {
+        var tester = Tester();
+        // Other_works has the RED role only here (its criterion's GREEN comes in a later task): passing before, failing now is a regression.
+        var plan = Plan([Cancel, "OrderTests.Other_works"], red: [Cancel, "OrderTests.Other_works"], green: [Cancel]);
+        Script(Trx((CancelFull, false), (OtherFull, true)));
+        var baseline = await Baseline(tester, [AppTests], plan);
+        Script(Trx((CancelFull, true), (OtherFull, false)));
+
+        var verdict = await Verify(tester, baseline, plan);
+
+        Assert.Empty(verdict.Green);
+        Assert.Equal(OtherFull, Assert.Single(verdict.Regressions).FullName);
     }
 
     [Fact]

@@ -23,11 +23,11 @@ pelly-eval compare --test-first A/summary.json B/summary.json           # 보고
 pelly-eval apply --set test-first --repeat 1                  --out C   # apply 사례 8건
 ```
 
-결과 폴더(git 추적 제외, 이 PC에만 있음): `/private/tmp/claude-501/-Users-payletter-git-root-Pelly-Code/3abc0ce1-02eb-4de6-bf81-edc41e404ce3/scratchpad/v22c/{A,B,C}`.
+저장소에 남긴 원본 출력과 검토용 diff: `docs/v2-2c-prelim/`(`A-summary.*`, `B-summary.*`, `compare.txt`, `C-apply-summary.md`, `patches/`). 원본 결과 폴더(이 세션 임시, 사라질 수 있음): `/private/tmp/claude-501/-Users-payletter-git-root-Pelly-Code/3abc0ce1-02eb-4de6-bf81-edc41e404ce3/scratchpad/v22c/{A,B,C}`.
 
 **시간 수치 주의.** 측정 중 일부 구간에 같은 기기에서 병렬 수정 브랜치의 전체 `dotnet test`가 함께 돌았습니다. 시간(특히 초 단위 값과 비율)은 부풀었을 수 있고, 시간 목표 판정에 쓰면 안 됩니다. 성공·실패 수는 영향이 없다고 보지만 확인하지 않았습니다.
 
-## 2. cs-modern 12건 × 3회: v1 대 테스트 우선
+## 2. cs-modern 12건 × 3회: v1 대 테스트 우선 (예비)
 
 대상 작업은 12건 전부입니다(compare 보고도 「대상 작업: 테스트 우선 12건」). 아래 성공·시간·위반 수치는 compare의 줄(전체 작업 기준이라고 스스로 표시함)을 그대로 옮기지 않고, 각 회차 `results.json` 행(36행씩)에서 다시 센 값입니다. 이번에는 대상이 전체와 같아 두 방식의 성공 수는 일치합니다.
 
@@ -42,7 +42,7 @@ pelly-eval apply --set test-first --repeat 1                  --out C   # apply 
 
 * compare 보고의 시간 비율은 3.87배(1.68초 대 6.50초)로, `summary.json`의 중위값을 쓴 값이라 위 3.70배와 조금 다릅니다. 같은 자료의 다른 집계이며, 어느 쪽도 부풀림 가능성(§1)을 벗어나지 않습니다.
 * 테스트 우선은 매번 판정 테스트를 두 번(RED, GREEN) 돌리고, 피드백 재시도가 있으면 더 걸립니다. 첫 시도에 통과한 24행은 중위값 6.4초(6.1~9.6초), 재시도한 12행은 12.6~26.2초입니다(`wallSeconds`).
-* 판정 테스트가 GREEN 판정과 독립 판정에 함께 쓰입니다. 그래서 차이(+3.67)에는 GREEN 피드백으로 고친 효과와 회귀 확인 효과가 섞여 있고, 독립 판정이 판정 테스트를 재사용하므로 「판정 테스트에 맞춘 패치」를 따로 걸러내지 못합니다. 아래 §4 사람 검토가 그 빈틈을 메웁니다.
+* v1(A) 실행도 독립 판정에 같은 판정 테스트를 썼습니다. B에서 새로 더해진 것은 GREEN 피드백 재시도와 회귀 확인이며, 차이(+3.67)에는 둘의 효과가 섞여 있습니다. 판정 테스트가 독립 판정과 같으므로 「판정 테스트에 맞춘 패치」(하드코딩)는 자동으로 걸러지지 않고, §4 사람 검토가 그 빈틈을 메웁니다.
 
 ### 테스트 우선 지표(B)
 
@@ -66,7 +66,7 @@ pelly-eval apply --set test-first --repeat 1                  --out C   # apply 
 
 나머지 8개 작업(001, 004, 005, 006, 009~012)은 양쪽 모두 3/3이고 테스트 우선에서도 첫 시도에 통과했습니다.
 
-## 3. apply 사례 8건 (`--set test-first --repeat 1`)
+## 3. apply 사례 8건 (`--set test-first --repeat 1`) (예비)
 
 요약 제목에 「예비(사람 승인 전)」가 붙었습니다. `apply-test-first/APPROVED.json`이 아직 없습니다.
 
@@ -104,22 +104,22 @@ pelly-eval apply --set test-first --repeat 1                  --out C   # apply 
 
 | 작업 | 회차 | 상태 | 시도 | 패치 위치 |
 | :--- | ---: | :--- | ---: | :--- |
-| cs-modern-002 | 1 | Passed | 2 | `B/run-1/work/cs-modern-002/Modern/` |
-| cs-modern-003 | 1 | Passed | 2 | `B/run-1/work/cs-modern-003/Modern/` |
-| cs-modern-007 | 1 | Passed | 3 | `B/run-1/work/cs-modern-007/Modern/` |
-| cs-modern-008 | 1 | Passed | 2 | `B/run-1/work/cs-modern-008/Modern/` |
-| cs-modern-002 | 2 | Passed | 2 | `B/run-2/work/cs-modern-002/Modern/` |
-| cs-modern-003 | 2 | Passed | 2 | `B/run-2/work/cs-modern-003/Modern/` |
-| cs-modern-007 | 2 | Passed | 2 | `B/run-2/work/cs-modern-007/Modern/` |
-| cs-modern-008 | 2 | Passed | 2 | `B/run-2/work/cs-modern-008/Modern/` |
-| cs-modern-002 | 3 | Passed | 2 | `B/run-3/work/cs-modern-002/Modern/` |
-| cs-modern-003 | 3 | Passed | 2 | `B/run-3/work/cs-modern-003/Modern/` |
-| cs-modern-007 | 3 | Passed | 3 | `B/run-3/work/cs-modern-007/Modern/` |
-| cs-modern-008 | 3 | Passed | 2 | `B/run-3/work/cs-modern-008/Modern/` |
+| cs-modern-002 | 1 | Passed | 2 | `docs/v2-2c-prelim/patches/cs-modern-002-run1.diff` (v1: `cs-modern-002-run1-v1.diff`) |
+| cs-modern-003 | 1 | Passed | 2 | `docs/v2-2c-prelim/patches/cs-modern-003-run1.diff` (v1: `cs-modern-003-run1-v1.diff`) |
+| cs-modern-007 | 1 | Passed | 3 | `docs/v2-2c-prelim/patches/cs-modern-007-run1.diff` (v1: `cs-modern-007-run1-v1.diff`) |
+| cs-modern-008 | 1 | Passed | 2 | `docs/v2-2c-prelim/patches/cs-modern-008-run1.diff` (v1: `cs-modern-008-run1-v1.diff`) |
+| cs-modern-002 | 2 | Passed | 2 | `docs/v2-2c-prelim/patches/cs-modern-002-run2.diff` (v1: `cs-modern-002-run2-v1.diff`) |
+| cs-modern-003 | 2 | Passed | 2 | `docs/v2-2c-prelim/patches/cs-modern-003-run2.diff` (v1: `cs-modern-003-run2-v1.diff`) |
+| cs-modern-007 | 2 | Passed | 2 | `docs/v2-2c-prelim/patches/cs-modern-007-run2.diff` (v1: `cs-modern-007-run2-v1.diff`) |
+| cs-modern-008 | 2 | Passed | 2 | `docs/v2-2c-prelim/patches/cs-modern-008-run2.diff` (v1: `cs-modern-008-run2-v1.diff`) |
+| cs-modern-002 | 3 | Passed | 2 | `docs/v2-2c-prelim/patches/cs-modern-002-run3.diff` (v1: `cs-modern-002-run3-v1.diff`) |
+| cs-modern-003 | 3 | Passed | 2 | `docs/v2-2c-prelim/patches/cs-modern-003-run3.diff` (v1: `cs-modern-003-run3-v1.diff`) |
+| cs-modern-007 | 3 | Passed | 3 | `docs/v2-2c-prelim/patches/cs-modern-007-run3.diff` (v1: `cs-modern-007-run3-v1.diff`) |
+| cs-modern-008 | 3 | Passed | 2 | `docs/v2-2c-prelim/patches/cs-modern-008-run3.diff` (v1: `cs-modern-008-run3-v1.diff`) |
 
-* 경로 앞의 `B`는 `/private/tmp/claude-501/-Users-payletter-git-root-Pelly-Code/3abc0ce1-02eb-4de6-bf81-edc41e404ce3/scratchpad/v22c/B`입니다. 변경 전 원본은 `eval/corpus/Modern/`이므로 같은 파일끼리 `diff -r`로 비교하십시오(`JudgeTests/`, `obj/`, `bin/`, `.pelly/`는 제외).
-* 시도별 기록은 각 `Modern/.pelly/runs/` 아래에 있습니다.
-* apply 사례(C)의 작업 복사본은 `C/work/<id>-1/corpus/`입니다. 6건 모두 독립 테스트를 통과했으나 같은 방식으로 훑을 수 있습니다.
+* diff는 코퍼스 프로젝트의 `.cs` 파일만 원본 `eval/corpus/Modern/`과 비교한 것입니다(`JudgeTests/`·`bin/`·`obj/`·`.pelly/` 제외). 같은 작업·회차의 v1(A) 결과 diff가 `-v1.diff`입니다. 작업 복사본 전체는 세션 임시 폴더 `B/run-N/work/<id>/Modern/`에만 있습니다.
+* 시도별 기록은 세션 임시 폴더의 각 `Modern/.pelly/runs/` 아래에만 있습니다(저장소에는 없음).
+* apply 사례(C)의 작업 복사본은 `C/work/<id>-1/corpus/`(세션 임시)입니다. 6건 모두 독립 테스트를 통과했으나 같은 방식으로 훑을 수 있습니다.
 * 검토 결과는 이 표에 사람이 적습니다. 아직 아무도 보지 않았습니다.
 
 ## 5. 한계와 남은 일
@@ -130,3 +130,5 @@ pelly-eval apply --set test-first --repeat 1                  --out C   # apply 
 * 1회 측정(저장소 `ee99421`, 모델 한 개)이고 apply는 `--repeat 1`입니다. 표준편차는 cs-modern 3회에서만 있습니다.
 * 시간 비율은 §1의 병렬 `dotnet test` 때문에 부풀었을 수 있습니다. 이번 값으로 시간 상한을 정하지 않습니다.
 * 수용 기준 충족률 100%는 PRD §12.6 목표(≥ 80%)를 넘지만, 판정 테스트가 독립 판정과 같다는 한계(§2)와 §4의 사람 검토가 끝나기 전에는 목표 달성으로 세지 않습니다.
+
+* 이 문서를 만든 커밋에서는 문서만 바뀌었으므로 `dotnet test` 게이트를 돌리지 않았습니다(`dotnet build -warnaserror`만 확인). 측정 자체는 `ee99421`의 빌드로 한 것입니다.

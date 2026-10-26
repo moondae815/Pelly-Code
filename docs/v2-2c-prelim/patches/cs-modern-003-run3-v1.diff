@@ -1,0 +1,11 @@
+--- a/Modern/Shop.Api/Data/OrderRepository.cs
++++ b/Modern/Shop.Api/Data/OrderRepository.cs
+@@ -46,7 +46,7 @@
+ SELECT OrderItemId, OrderId, ProductId, ProductName, Quantity, UnitPrice, IsGiftItem, IsRefundable
+ FROM dbo.OrderItems
+ WHERE OrderId = @OrderId
+-ORDER BY OrderItemId";
++ORDER BY CASE WHEN IsGiftItem = 1 THEN 1 ELSE 0 END, OrderItemId";
+ 
+                 var items = await conn.QueryAsync<OrderItem>(sql, new { OrderId = orderId });
+                 return items.ToList();

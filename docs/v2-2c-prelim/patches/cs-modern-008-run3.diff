@@ -1,0 +1,13 @@
+--- a/Modern/Shop.Jobs/DailySettlementJob.cs
++++ b/Modern/Shop.Jobs/DailySettlementJob.cs
+@@ -79,7 +79,9 @@
+                         bySeller.Add(row.SellerId, total);
+                     }
+ 
+-                    var rate = row.CommissionRate.HasValue ? row.CommissionRate.Value : DefaultCommissionRate;
++                    var rate = row.CommissionRate.HasValue && row.CommissionRate.Value > 0 && row.CommissionRate.Value <= 1
++                        ? row.CommissionRate.Value
++                        : (row.CommissionRate.HasValue && row.CommissionRate.Value == 0m ? 0m : DefaultCommissionRate);
+                     var sales = row.TotalAmount - row.ShippingFee;
+                     var commission = Math.Round(sales * rate, 0, MidpointRounding.AwayFromZero);
+ 

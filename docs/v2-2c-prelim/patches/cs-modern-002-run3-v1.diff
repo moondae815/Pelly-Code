@@ -1,0 +1,13 @@
+--- a/Modern/Shop.Api/Services/OrderService.cs
++++ b/Modern/Shop.Api/Services/OrderService.cs
+@@ -185,8 +185,8 @@
+                 refund -= order.PointUsed;
+             }
+ 
+-            // 10원 미만은 버린다.
+-            refund = Math.Floor(refund / 10m) * 10m;
++            // 10원 단위로 반올림한다.
++            refund = Math.Round(refund, -1, MidpointRounding.AwayFromZero);
+ 
+             if (refund < 0)
+             {

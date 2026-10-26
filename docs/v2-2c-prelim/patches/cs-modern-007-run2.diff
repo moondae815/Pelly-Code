@@ -1,0 +1,24 @@
+--- a/Modern/Shop.Api/Services/OrderService.cs
++++ b/Modern/Shop.Api/Services/OrderService.cs
+@@ -256,8 +256,20 @@
+ 
+             if (!string.IsNullOrWhiteSpace(request.Keyword))
+             {
+-                request.Keyword = request.Keyword.Trim();
++                var trimmedKeyword = request.Keyword.Trim();
++                if (trimmedKeyword.Length < 2)
++                {
++                    request.Keyword = null;
++                }
++                else
++                {
++                    request.Keyword = trimmedKeyword;
++                }
+             }
++            else
++            {
++                request.Keyword = null;
++            }
+ 
+             var orders = await _repository.SearchAsync(request);
+ 

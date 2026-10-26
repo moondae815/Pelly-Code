@@ -1,0 +1,243 @@
+{
+  "formatVersion": 2,
+  "runCount": 3,
+  "taskCount": 12,
+  "meanSuccesses": 12,
+  "stdDevSuccesses": 0,
+  "medianWallSeconds": 6.4992117,
+  "runs": [
+    {
+      "run": 1,
+      "tasks": 12,
+      "ran": 12,
+      "successes": 12,
+      "invariantViolations": 0,
+      "judgeFailures": 0,
+      "judgeTooling": 0,
+      "medianWallSeconds": 6.4681651,
+      "folder": "run-1"
+    },
+    {
+      "run": 2,
+      "tasks": 12,
+      "ran": 12,
+      "successes": 12,
+      "invariantViolations": 0,
+      "judgeFailures": 0,
+      "judgeTooling": 0,
+      "medianWallSeconds": 6.4992117,
+      "folder": "run-2"
+    },
+    {
+      "run": 3,
+      "tasks": 12,
+      "ran": 12,
+      "successes": 12,
+      "invariantViolations": 0,
+      "judgeFailures": 0,
+      "judgeTooling": 0,
+      "medianWallSeconds": 6.379868,
+      "folder": "run-3"
+    }
+  ],
+  "groups": [
+    {
+      "group": "cs-modern",
+      "tasks": 12,
+      "meanSuccesses": 12,
+      "stdDevSuccesses": 0,
+      "minSuccesses": 12,
+      "maxSuccesses": 12,
+      "successesPerRun": [
+        12,
+        12,
+        12
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "cs-modern-001",
+      "group": "cs-modern",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "cs-modern-002",
+      "group": "cs-modern",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "cs-modern-003",
+      "group": "cs-modern",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "cs-modern-004",
+      "group": "cs-modern",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "cs-modern-005",
+      "group": "cs-modern",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "cs-modern-006",
+      "group": "cs-modern",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "cs-modern-007",
+      "group": "cs-modern",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "cs-modern-008",
+      "group": "cs-modern",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "cs-modern-009",
+      "group": "cs-modern",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "cs-modern-010",
+      "group": "cs-modern",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "cs-modern-011",
+      "group": "cs-modern",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    },
+    {
+      "id": "cs-modern-012",
+      "group": "cs-modern",
+      "successes": 3,
+      "runs": 3,
+      "outcomes": [
+        "Passed",
+        "Passed",
+        "Passed"
+      ],
+      "ratio": "3/3"
+    }
+  ],
+  "conditions": {
+    "model": "qwen3.6:35b",
+    "csPromptVersion": "cs-v2",
+    "sqlPromptVersion": "sql-v1",
+    "thinkMode": "Retry",
+    "budgetThink": 512,
+    "samplingThink": {
+      "temperature": 0.6,
+      "topP": 0.95,
+      "topK": 20,
+      "repeatPenalty": 1,
+      "presencePenalty": 0
+    },
+    "samplingCode": {
+      "temperature": 0.1,
+      "topP": 0.9,
+      "topK": 20,
+      "repeatPenalty": 1.05,
+      "presencePenalty": 0
+    },
+    "pellyVersion": "0.9.1",
+    "tasks": "cs-modern",
+    "kind": null,
+    "ollamaVersion": "0.40.0",
+    "modelDigest": "a7eb95c53bcf96b4bdd008d0fab4a5dac88047d9c1a7a9ab88ed453423fbd87c",
+    "rulesRemoved": null,
+    "testFirst": true
+  },
+  "cancelled": false,
+  "testFirst": {
+    "ran": 36,
+    "met": 36,
+    "judged": 36,
+    "redWarned": 0,
+    "redChecked": 36,
+    "blockedWrongPatches": 12,
+    "fixedByFeedback": 12,
+    "breaksExcluded": 3
+  }
+}

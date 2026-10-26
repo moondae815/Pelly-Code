@@ -119,8 +119,9 @@ public static class Acceptance
 
     /// <summary>
     /// Why a v1 baseline and a <c>run --test-first</c> candidate cannot be reported on together (empty when they can): the same
-    /// model identity rules as <see cref="Comparability"/>, a cancelled or empty summary, and the test-first flag (candidate must
-    /// be a test-first run, baseline must not). The task set and run count may differ: the candidate covers only tasks with judge tests.
+    /// model identity rules as <see cref="Comparability"/> plus the model name (spec §4.2: same model), a different run count
+    /// (same <c>--repeat N</c>), a cancelled or empty summary, and the test-first flag (candidate must be a test-first run,
+    /// baseline must not). The task set may differ: the candidate covers only tasks with judge tests.
     /// </summary>
     public static IReadOnlyList<string> TestFirstComparability(RepeatSummaryData baseline, RepeatSummaryData candidate)
     {
@@ -132,6 +133,10 @@ public static class Acceptance
             if (s.Runs.Count == 0) problems.Add($"{name}: 회차(runs)가 없습니다.");
         }
         problems.AddRange(ModelIdentityProblems(baseline, candidate));
+        if (baseline.Conditions is { } bm && candidate.Conditions is { } cm && bm.Model != cm.Model)
+            problems.Add($"모델이 다릅니다 ({bm.Model} ≠ {cm.Model})");
+        if (baseline.RunCount != candidate.RunCount)
+            problems.Add($"회차 수가 다릅니다: 기준선 {baseline.RunCount} · 후보 {candidate.RunCount}.");
         if (candidate.Conditions is { } cc && cc.TestFirst != true) problems.Add("후보가 테스트 우선 실행(run --test-first)이 아닙니다.");
         if (baseline.Conditions is { TestFirst: true }) problems.Add("기준선이 테스트 우선 실행입니다. v1 실행 요약이어야 합니다.");
         return problems;
@@ -171,6 +176,7 @@ public static class Acceptance
 public static class CompareCommand
 {
     public const string Usage = "사용법: dotnet run --project eval/PellyCoder.Eval -- compare <기준선 summary.json> <후보 summary.json>\n"
+        + "        dotnet run --project eval/PellyCoder.Eval -- compare --test-first <v1 summary.json> <테스트 우선 summary.json>\n"
         + "  종료 코드: 0 채택 · 3 거절 · 4 판정 불가(인자·파일 오류, 비교할 수 없는 요약)";
 
     private static RepeatSummaryData[]? Load(IReadOnlyList<string> paths, TextWriter output)
@@ -233,9 +239,13 @@ public static class CompareCommand
             s.RunCount == 0 ? 0 : (double)s.Tasks.Where(t => targets.Contains(t.Id)).Sum(t => t.Successes) / s.RunCount;
         var (bMean, cMean) = (Mean(baseline), Mean(candidate));
 
+        // The test-first flag is the point of the comparison, not a condition difference.
+        WriteConditionDifferences(Acceptance.ConditionDifferences(baseline.Conditions!, candidate.Conditions!)
+            .Where(d => d.Field != "testFirst").ToList(), output);
         output.WriteLine();
         output.WriteLine("보고 (판정이 아닙니다):");
         output.WriteLine($"* 대상 작업: 테스트 우선 {targets.Count}건 (기준선은 이 작업만 셉니다)");
+        output.WriteLine($"* 회차 수: 기준선 {baseline.RunCount} · 테스트 우선 {candidate.RunCount}");
         output.WriteLine($"* 평균 성공 수: 기준선 {Acceptance.F(bMean)} · 테스트 우선 {Acceptance.F(cMean)}");
         output.WriteLine($"* 차이: {Acceptance.Sg(cMean - bMean)}");
         var ratio = baseline.MedianWallSeconds is > 0 && candidate.MedianWallSeconds is not null
@@ -255,6 +265,18 @@ public static class CompareCommand
             output.WriteLine(TestFirstMetricsData.Notice);
         }
         return 0;
+    }
+
+    private static void WriteConditionDifferences(IReadOnlyList<(string Field, string Baseline, string Candidate)> diff, TextWriter output)
+    {
+        output.WriteLine();
+        output.WriteLine(diff.Count == 0 ? "조건 차이: 없음" : "조건 차이:");
+        if (diff.Count > 0)
+        {
+            output.WriteLine("| 조건 | 기준선 | 후보 |");
+            output.WriteLine("| :--- | :--- | :--- |");
+            foreach (var (field, b, c) in diff) output.WriteLine($"| {field} | {b} | {c} |");
+        }
     }
 
     public static int Run(IReadOnlyList<string> paths, TextWriter output)
@@ -278,15 +300,7 @@ public static class CompareCommand
             return 4;
         }
 
-        var diff = Acceptance.ConditionDifferences(baseline.Conditions!, candidate.Conditions!);
-        output.WriteLine();
-        output.WriteLine(diff.Count == 0 ? "조건 차이: 없음" : "조건 차이:");
-        if (diff.Count > 0)
-        {
-            output.WriteLine("| 조건 | 기준선 | 후보 |");
-            output.WriteLine("| :--- | :--- | :--- |");
-            foreach (var (field, b, c) in diff) output.WriteLine($"| {field} | {b} | {c} |");
-        }
+        WriteConditionDifferences(Acceptance.ConditionDifferences(baseline.Conditions!, candidate.Conditions!), output);
 
         output.WriteLine();
         output.WriteLine("| 범주 | 기준선 평균 | 후보 평균 |");

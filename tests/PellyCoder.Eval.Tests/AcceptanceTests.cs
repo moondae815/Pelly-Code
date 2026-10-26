@@ -308,12 +308,55 @@ public sealed class AcceptanceTests : IDisposable
     }
 
     [Fact]
+    public void CompareTestFirst_DifferentModelName_NotJudged()
+    {
+        var (b, c) = TfPair();
+        var (code, output) = RunTf(Write("b.json", b), Write("c.json", c with { Conditions = TfConditions(true) with { Model = "other-model" } }));
+        Assert.Equal(4, code);
+        Assert.Contains("모델이 다릅니다", output, StringComparison.Ordinal);
+        Assert.Contains("other-model", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CompareTestFirst_DifferentRunCount_NotJudged()
+    {
+        var (b, c) = TfPair();
+        var cc = c with
+        {
+            RunCount = 3,
+            Runs = [.. c.Runs, new(3, 5, 4, 4, 0, 0, 0, 3.8, "run-3")],
+        };
+        var (code, output) = RunTf(Write("b.json", b), Write("c.json", cc));
+        Assert.Equal(4, code);
+        Assert.Contains("회차 수가 다릅니다: 기준선 2 · 후보 3", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CompareTestFirst_PrintsRunCountsAndConditionDifferences_WithoutTestFirstFlag()
+    {
+        var (b, c) = TfPair();
+        var (_, same) = RunTf(Write("b.json", b), Write("c.json", c));
+        Assert.Contains("조건 차이: 없음", same, StringComparison.Ordinal);
+        Assert.Contains("회차 수: 기준선 2 · 테스트 우선 2", same, StringComparison.Ordinal);
+
+        var (code, output) = RunTf(Write("b2.json", b), Write("c2.json", c with { Conditions = TfConditions(true) with { ThinkMode = "off" } }));
+        Assert.Equal(0, code);
+        Assert.Contains("조건 차이:", output, StringComparison.Ordinal);
+        Assert.Contains("| thinkMode |", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("testFirst", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void CompareTestFirst_WrongPathCount_Usage()
     {
         var (code, output) = RunTf("only-one.json");
         Assert.Equal(4, code);
         Assert.Contains("사용법", output, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void CompareUsage_MentionsTestFirst() =>
+        Assert.Contains("compare --test-first <v1 summary.json> <테스트 우선 summary.json>", CompareCommand.Usage, StringComparison.Ordinal);
 
     private (int Code, string Output) RunTf(params string[] paths)
     {

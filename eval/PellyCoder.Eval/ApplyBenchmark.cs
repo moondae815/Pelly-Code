@@ -25,8 +25,9 @@ namespace PellyCoder.Eval;
 /// <param name="FilesDir">The case folder's <c>files/</c>, copied over the work copy's <c>corpus/</c> (same relative paths); null without one.</param>
 /// <param name="Expected">The case's <c>expected.json</c>: shown beside the actual results, never used to judge.</param>
 /// <param name="Approved">False for a folder case not listed in <c>APPROVED.json</c> (the summary is then preliminary).</param>
+/// <param name="TestCommand">The <c>test.command</c> of the case folder's <c>pelly.json</c> fragment, merged into the options of that case's run only; null without one.</param>
 public sealed record ApplyCase(string Id, IReadOnlyList<string> Scope, string SpecText, int TaskCount, bool HasSql, bool HasGroup,
-    string? FilesDir = null, IReadOnlyList<ExpectedCriterion>? Expected = null, bool Approved = true);
+    string? FilesDir = null, IReadOnlyList<ExpectedCriterion>? Expected = null, bool Approved = true, string? TestCommand = null);
 
 /// <summary>One entry of a case's <c>expected.json</c>: the criterion's expected RED state and outcome (enum names).</summary>
 public sealed record ExpectedCriterion(string AcId, string Red, string Outcome);
@@ -96,6 +97,9 @@ public static class ApplyBenchmark
     /// <summary>The approval file of the test-first case folders.</summary>
     public const string ApprovedFile = "APPROVED.json";
 
+    /// <summary>A case folder's config fragment (<c>{ "test": { "command": "…" } }</c>), merged into that case's run options.</summary>
+    public const string ConfigFragmentFile = "pelly.json";
+
     private static readonly JsonSerializerOptions ReadJson = new() { PropertyNameCaseInsensitive = true };
 
     /// <summary>
@@ -121,10 +125,11 @@ public static class ApplyBenchmark
 
     /// <summary>
     /// The case folders in <paramref name="dir"/> (ordinal by folder name) whose id matches <paramref name="glob"/>: each holds
-    /// <c>spec.md</c> (the flat cases' front matter rules, id = folder name), optionally <c>files/</c> and <c>expected.json</c>
-    /// (<c>[{ "acId", "red", "outcome" }]</c>). A case is approved when <paramref name="approved"/> lists its id.
+    /// <c>spec.md</c> (the flat cases' front matter rules, id = folder name), optionally <c>files/</c>, <c>expected.json</c>
+    /// (<c>[{ "acId", "red", "outcome" }]</c>) and a <see cref="ConfigFragmentFile"/> fragment. A case is approved when
+    /// <paramref name="approved"/> lists its id.
     /// </summary>
-    /// <exception cref="InvalidDataException">A folder has no spec, a spec does not parse, its id is not the folder name, or expected.json is malformed.</exception>
+    /// <exception cref="InvalidDataException">A folder has no spec, a spec does not parse, its id is not the folder name, or expected.json or the fragment is malformed.</exception>
     public static IReadOnlyList<ApplyCase> LoadTestFirstCases(string dir, string? glob, IReadOnlySet<string> approved)
     {
         var cases = new List<ApplyCase>();
@@ -141,6 +146,7 @@ public static class ApplyBenchmark
                 FilesDir = Directory.Exists(files) ? files : null,
                 Expected = Expected(id, Path.Combine(folder, "expected.json")),
                 Approved = approved.Contains(id),
+                TestCommand = TestCommandOf(id, Path.Combine(folder, ConfigFragmentFile)),
             });
         }
         return cases;
@@ -184,6 +190,45 @@ public static class ApplyBenchmark
             throw new InvalidDataException($"{id}/expected.json: {ex.Message}", ex);
         }
     }
+
+    /// <summary>
+    /// The <c>test.command</c> of a case's config fragment; null without the file. Only that key is accepted: the fragment
+    /// exists for the legacy test command (<c>{trx}</c>), and any other setting would make the case's runs incomparable.
+    /// </summary>
+    private static string? TestCommandOf(string id, string file)
+    {
+        if (!File.Exists(file)) return null;
+        var name = $"{id}/{ConfigFragmentFile}";
+        try
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllText(file));
+            static JsonElement? Only(JsonElement e, string key, JsonValueKind kind) =>
+                e.ValueKind == JsonValueKind.Object && e.EnumerateObject().ToList() is [var p]
+                && string.Equals(p.Name, key, StringComparison.OrdinalIgnoreCase) && p.Value.ValueKind == kind ? p.Value : null;
+            if (Only(doc.RootElement, "test", JsonValueKind.Object) is not { } test
+                || Only(test, "command", JsonValueKind.String) is not { } command
+                || string.IsNullOrWhiteSpace(command.GetString()))
+                throw new InvalidDataException($"{name}: test.command만 지정할 수 있습니다");
+            return command.GetString();
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidDataException($"{name}: {ex.Message}", ex);
+        }
+    }
+
+    /// <summary>
+    /// The options of one case's run: <paramref name="options"/> itself, or a copy whose <c>test</c> section carries the case's
+    /// <see cref="ApplyCase.TestCommand"/> (the shared options are never changed).
+    /// </summary>
+    private static PellyOptions OptionsFor(ApplyCase c, PellyOptions options) => c.TestCommand is not { } command
+        ? options
+        : new PellyOptions
+        {
+            Llm = options.Llm, Budget = options.Budget, Sampling = options.Sampling, Retry = options.Retry, Log = options.Log,
+            Build = options.Build, Sql = options.Sql,
+            Test = new TestOptions { Command = command, Projects = options.Test.Projects, TimeoutSeconds = options.Test.TimeoutSeconds },
+        };
 
     /// <summary>The work copy of one case run: <c>&lt;out&gt;/work/&lt;id&gt;-&lt;repeat&gt;</c>, the corpus in its <c>corpus</c> folder.</summary>
     public static string CaseDir(string outDir, string id, int repeat) => Path.Combine(outDir, "work", $"{id}-{repeat}");
@@ -279,8 +324,9 @@ public static class ApplyBenchmark
         }
 
         var ui = new EvalUserInteraction($"{c.Id}#{repeat}", setup.Log);
-        var runner = SpecRunnerFactory.Create(setup.Fs, setup.Options, ui, setup.Time, setup.Processes,
-            setup.RunFactory(setup.Options), ImpactFinders.Default(setup.Fs), setup.IsWindows);
+        var caseOptions = OptionsFor(c, setup.Options);
+        var runner = SpecRunnerFactory.Create(setup.Fs, caseOptions, ui, setup.Time, setup.Processes,
+            setup.RunFactory(caseOptions), ImpactFinders.Default(setup.Fs), setup.IsWindows);
         var options = new ApplyOptions(Continue: false, Resume: false, ReviewAtEnd: false, Yes: true, DryRun: false, MaxRetries: null, Verbose: false);
 
         setup.Log($"[{c.Id}#{repeat}] 실행: 작업 {c.TaskCount}개 → {corpus}");
@@ -412,8 +458,9 @@ public static class ApplyBenchmark
     {
         var tests = ChangeSpecParser.Parse(c.SpecText).Criteria.Where(a => a.Test is not null)
             .GroupBy(a => a.Id, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First().Test!, StringComparer.Ordinal);
-        var runner = new TestRunner(setup.Processes, setup.Options.Build, setup.Options.Test);
-        var tools = new BuildToolResolver(setup.Fs, setup.Processes, setup.Options.Build, setup.IsWindows);
+        var options = OptionsFor(c, setup.Options);
+        var runner = new TestRunner(setup.Processes, options.Build, options.Test);
+        var tools = new BuildToolResolver(setup.Fs, setup.Processes, options.Build, setup.IsWindows);
         var checks = new List<AcTestCheck>();
         foreach (var ac in criteria.Where(a => a.Outcome == AcOutcome.Met))
         {

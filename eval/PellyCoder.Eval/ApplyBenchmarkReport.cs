@@ -88,6 +88,8 @@ public static class ApplyBenchmarkReport
             sb.Append($"| 테스트로 검증되지 않은 수용 기준 | {N(ac.Unverified)}건 |\n");
             sb.Append($"| breaks로 뺀 테스트 | {N(ac.BreaksExcluded)}건 |\n");
             sb.Append($"| 테스트 판정 불일치 | {N(results.Sum(r => r.TestJudgeMismatches))}건 |\n");
+            var notJudged = results.Sum(r => r.TestChecks?.Count(k => k.Verdict is not (ApplyBenchmark.TestPassed or ApplyBenchmark.TestMismatch)) ?? 0);
+            sb.Append($"| 독립 테스트 검증 불가·건너뜀 | {N(notJudged)}건 |\n");
         }
 
         sb.Append("\n## 건너뛴 사례\n");

@@ -1,0 +1,5 @@
+{
+  "test": {
+    "command": "vstest.console.exe {dll} /TestAdapterPath:Legacy\\packages\\MSTest.TestAdapter.2.2.10\\build\\_common /logger:trx;LogFileName={trx}"
+  }
+}

@@ -443,6 +443,45 @@ public sealed class ApplyBenchmarkTests : IDisposable
         var check = Assert.Single(result.TestChecks!);
         Assert.Equal(ApplyBenchmark.TestSkipped, check.Verdict);
         Assert.Contains("Windows", check.Detail, StringComparison.Ordinal);
+
+        // A re-run that did not judge (skipped or unverifiable) is counted apart from the mismatches.
+        var lines = ApplyBenchmarkReport.Write(new FileSystem(), Out, [result], "* 시험", [c]).Split('\n');
+        Assert.Contains("| 테스트 판정 불일치 | 0건 |", lines);
+        Assert.Contains("| 독립 테스트 검증 불가·건너뜀 | 1건 |", lines);
+    }
+
+    [Fact]
+    public async Task Apply_CaseConfigFragment_SetsTestCommandForThatCaseOnly()
+    {
+        Folder("t1");
+        Folder("t2");
+        File.WriteAllText(Path.Combine(TestFirstDir, "t1", "pelly.json"),
+            "{ \"test\": { \"command\": \"runner.exe {dll} /logger:trx;LogFileName={trx}\" } }\n");
+        var cases = LoadSet("test-first");
+        Assert.Equal(["runner.exe {dll} /logger:trx;LogFileName={trx}", null], cases.Select(c => c.TestCommand));
+
+        var setup = Setup(EditingRun(), new FixedBuild([]), processes: new TrxProcesses(_ => true));
+        var seen = new List<string?>();
+        setup = setup with { RunFactory = o => { seen.Add(o.Test.Command); return EditingRun(); } };
+        foreach (var c in cases)
+            Assert.Equal(ApplyBenchmark.Completed, (await ApplyBenchmark.RunCaseAsync(c, 1, setup, Out, TestContext.Current.CancellationToken)).Outcome);
+
+        // The case's run sees the merged test.command; the shared options are never changed.
+        Assert.Equal(["runner.exe {dll} /logger:trx;LogFileName={trx}", null], seen);
+        Assert.Null(setup.Options.Test.Command);
+    }
+
+    [Fact]
+    public void LoadTestFirstCases_ConfigFragment_OnlyTestCommand()
+    {
+        Folder("t1");
+        File.WriteAllText(Path.Combine(TestFirstDir, "t1", "pelly.json"), "{ \"llm\": { \"model\": \"x\" } }\n");
+        var ex = Assert.Throws<InvalidDataException>(() => LoadSet("test-first"));
+        Assert.Contains("t1/pelly.json", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("test.command", ex.Message, StringComparison.Ordinal);
+
+        File.WriteAllText(Path.Combine(TestFirstDir, "t1", "pelly.json"), "{ \"test\": ");
+        Assert.Contains("t1/pelly.json", Assert.Throws<InvalidDataException>(() => LoadSet("test-first")).Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -488,6 +527,7 @@ public sealed class ApplyBenchmarkTests : IDisposable
         Assert.Contains("| 테스트로 검증되지 않은 수용 기준 | 0건 |", lines);
         Assert.Contains("| breaks로 뺀 테스트 | 0건 |", lines);
         Assert.Contains("| 테스트 판정 불일치 | 1건 |", lines);
+        Assert.Contains("| 독립 테스트 검증 불가·건너뜀 | 0건 |", lines);
 
         Assert.Contains("## 사례별 수용 기준", lines);
         Assert.Contains("| 사례 | 회차 | AC | 기대 RED/결과 | 실제 RED/결과 | 독립 테스트 |", lines);

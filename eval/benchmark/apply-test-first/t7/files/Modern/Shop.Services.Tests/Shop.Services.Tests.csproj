@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <Nullable>disable</Nullable>
+  </PropertyGroup>
+
+  <!--
+    서비스 소스를 프로젝트 참조 없이 직접 컴파일한다(웹 호스트 Shop.Api를 테스트 실행 파일에 넣지 않으려는 구성).
+    그래서 이 프로젝트는 대상 프로젝트를 참조하는 테스트 프로젝트로 잡히지 않고, 수용 기준 테스트를 선언한 프로젝트로만 들어온다.
+    로깅 추상화는 ASP.NET Core 공유 프레임워크에서 받는다.
+  -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="../Shop.Api/Models/*.cs" Link="Shop.Api/Models/%(Filename)%(Extension)" />
+    <Compile Include="../Shop.Api/Data/IOrderRepository.cs" Link="Shop.Api/Data/IOrderRepository.cs" />
+    <Compile Include="../Shop.Api/Services/IOrderService.cs" Link="Shop.Api/Services/IOrderService.cs" />
+    <Compile Include="../Shop.Api/Services/OrderService.cs" Link="Shop.Api/Services/OrderService.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3.mtp-v2" Version="4.0.2" />
+  </ItemGroup>
+
+</Project>

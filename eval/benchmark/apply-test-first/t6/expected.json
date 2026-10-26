@@ -1,0 +1,4 @@
+[
+  { "acId": "AC1", "red": "Red", "outcome": "Met" },
+  { "acId": "AC2", "red": "NotChecked", "outcome": "Unverified" }
+]

@@ -116,12 +116,14 @@ dotnet run --project eval/PellyCoder.Eval -- --suite <스위트 폴더> --config
 * 첫 측정 기록: `docs/m2b-benchmark.md`
 
 ## apply 벤치마크 (`pelly-eval apply`, V2-1c)
-여러 작업 명세를 `pelly apply`로 끝까지 돌려 **명세 완료율**(PRD §12.6)을 잽니다. 사례는 `apply/<id>.md` 12건(승인된 S6 정답, 출처·변환 규칙은 `apply/README.md`)입니다.
+여러 작업 명세를 `pelly apply`로 끝까지 돌려 **명세 완료율**(PRD §12.6)을 잽니다. 사례는 `apply/<id>.md` 12건(승인된 S6 정답, 출처·변환 규칙은 `apply/README.md`)과, 수용 기준 테스트(`test:`·`breaks:`)를 단 테스트 우선 사례 `apply-test-first/t1`~`t8`(V2-2c, 형식·구성·승인은 `apply-test-first/README.md`)입니다.
 ```bash
 dotnet run --project eval/PellyCoder.Eval -- apply --config <pelly.json>                       # 12건 전체
 dotnet run --project eval/PellyCoder.Eval -- apply --cases a1,d* --repeat 3 --out <폴더> --config <pelly.json>
+dotnet run --project eval/PellyCoder.Eval -- apply --set test-first --config <pelly.json>      # 테스트 우선 8건
 ```
-* 옵션: `--cases <패턴>`(사례 id 접두사·글롭, 쉼표로 여러 개), `--repeat <N>`(사례마다 N회), `--out <폴더>`(기본 `eval/results/apply-<yyyyMMdd-HHmmss>/`, 비어 있지 않으면 거절), `--config <pelly.json>`.
+* 옵션: `--set <default|test-first|all>`(기본 `default` = 12건만, `test-first` = 테스트 우선 8건, `all` = 20건), `--cases <패턴>`(사례 id 접두사·글롭, 쉼표로 여러 개, `--set`이 고른 폴더 안에서), `--repeat <N>`(사례마다 N회), `--out <폴더>`(기본 `eval/results/apply-<yyyyMMdd-HHmmss>/`, 비어 있지 않으면 거절), `--config <pelly.json>`.
+* 테스트 우선 사례는 폴더(`spec.md`, `files/`, `expected.json`, 선택 `pelly.json`)입니다. 작업 복사본을 만든 뒤 `files/`를 `corpus/` 위에 덮어 넣고, 사례의 `pelly.json` 조각(`test.command`만)은 그 사례 실행의 설정에만 합칩니다(t8의 레거시 `{trx}` 명령). 승인 파일 `apply-test-first/APPROVED.json`(`{ "approvedBy", "approvedAt", "cases": [id…] }`)은 사람이 만들고, 실행 집합에 승인되지 않은 사례가 있으면 요약 제목에 「예비(사람 승인 전)」가 붙습니다.
 * 사례·회차마다 다음 순서로 돕니다.
   1. 건너뛰기: 범위에 `Legacy`가 있는데 Windows가 아니면 `Windows 전용`, `Sql`이 있는데 SQL 연결이 없거나 허용 목록 밖이면 `SQL 연결 없음`.
   2. 작업 복사본 `work/<id>-<n>/`: 스위트 `supportFiles`(`global.json` 등)를 맨 위에, `eval/corpus`를 `corpus/`에(기본 제외 폴더 빼고) 복사합니다. `corpus/`에 빈 `.git` 폴더를 만들어 루트마다 있는 `.sln`과 상관없이 코퍼스 전체가 작업 공간 하나가 되게 하고, 명세를 `corpus/changes/<id>.md`로 씁니다.
@@ -129,8 +131,9 @@ dotnet run --project eval/PellyCoder.Eval -- apply --cases a1,d* --repeat 3 --ou
   4. `pelly apply`와 같은 조립(`SpecRunnerFactory`, 시작 영향 탐색 포함)으로 `--yes`, `--continue` 없이 실행합니다.
   5. 종료 0이면 **독립 검증**: 원본 코퍼스와 바이트가 다른 `.cs` 파일의 프로젝트와 그 의존 프로젝트를 다시 빌드합니다(pelly 기록이 아니라 파일 비교로 찾음). 컴파일러 오류가 있으면 검증 불변 조건 위반(기준 빌드와 비교하지 않으므로 **원본 코퍼스가 오류 없이 컴파일된다고 가정**합니다. CI가 Modern을 `-warnaserror`로, Legacy를 Windows에서 빌드해 지킵니다), 빌드가 판정할 수 없으면 「독립 검증 불가」, 바뀐 `.cs`가 없으면 「C# 변경 없음」입니다.
 * 산출물: `apply-results.json`(모든 사례 실행), `apply-summary.md`(명세 완료율·작업 3~8개 명세 완료율·그룹 빌드 통과율·독립 빌드 집계·건너뛴 사례·사례별 표), `work/<id>-<n>/corpus/.pelly/runs/`(apply·작업 실행 기록).
+  * 수용 기준이 있는 실행이 있으면 「테스트 우선」 표(수용 기준 충족률·RED 확인 경고율·테스트로 검증되지 않은 수용 기준·breaks로 뺀 테스트, `pelly report`와 같은 계산, 그리고 테스트 판정 불일치·독립 테스트 검증 불가·건너뜀 수)와 사례별 수용 기준 표(기대 vs 실제 RED/결과, 독립 테스트)가 더해집니다. **독립 테스트**: 종료 0인 apply에서 pelly가 `Met`이라 한 수용 기준의 `test:`를 pelly 밖에서 다시 빌드·실행합니다. 통과하지 않으면 「테스트 판정 불일치」로 검증 불변 조건 위반(종료 1)이고, 판정할 수 없으면(레거시 off Windows는 「건너뜀」, 그 밖은 「검증 불가」) 따로 셉니다.
   * 완료율·그룹 빌드 통과율은 각 작업 복사본의 `apply.json`을 `pelly report`와 같은 계산(`ApplyReport.Build`)으로 셉니다. 완료 = 종료 0이고 명세가 보관됨. 건너뛰지도 실행기 오류도 아닌데 `apply.json`을 남기지 않은 실행(명세 검사 오류·거절로 시작 전에 끝남 등)은 미완료로 분모에 더하고(작업 3~8개 줄은 그 사례의 작업 수로), 요약 줄에 「apply.json 없는 실행 N건을 미완료로 포함」으로 적습니다.
-* 종료 코드는 `run`과 같습니다: 0 실행 완료 · 1 검증 불변 조건 위반(종료 0인데 독립 빌드에 컴파일러 오류) · 2 중단 · 4 설정 오류(사례 명세 오류·`--out` 포함), LLM 서버 연결 불가, 또는 실행기 오류(`error`: 작업 복사본을 못 만듦·실행기 예외) 사례가 있음. 여럿이면 2 → 1 → 4 순으로 앞의 것을 냅니다.
+* 종료 코드는 `run`과 같습니다: 0 실행 완료 · 1 검증 불변 조건 위반(종료 0인데 독립 빌드에 컴파일러 오류, 또는 테스트 판정 불일치) · 2 중단 · 4 설정 오류(사례 명세 오류·`--out` 포함), LLM 서버 연결 불가, 또는 실행기 오류(`error`: 작업 복사본을 못 만듦·실행기 예외) 사례가 있음. 여럿이면 2 → 1 → 4 순으로 앞의 것을 냅니다.
 * 현장 모델 실측(`--repeat N`)과 레거시 사례(a3 등)의 Windows 실측은 사람이 하고, 결과는 `deploy/field-results.md`에 옮깁니다.
 
 ## 현재 구성 (M3b, 50건)

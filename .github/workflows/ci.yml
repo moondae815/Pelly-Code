@@ -96,6 +96,7 @@ jobs:
           exit 0
       - name: pelly ui selftest
         # 승인 창을 화면에 띄우지 않고 한 번 그린다. exe 옆의 Avalonia 네이티브 DLL을 실제로 불러온다 (V2-0 Task 6)
+        timeout-minutes: 5
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -111,6 +112,7 @@ jobs:
           if (-not $out.Contains('ui selftest: ok')) { throw 'ui --selftest output lacks "ui selftest: ok"' }
       - name: pelly ui selftest without the GUI DLLs
         # exe만 둔 사본: ui는 DLL 안내와 함께 종료 4, ui가 아닌 명령은 네이티브 DLL 없이 뜬다
+        timeout-minutes: 5
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -135,6 +137,7 @@ jobs:
           exit 0
       - name: pelly ui selftest without ANGLE (informational)
         # 기록만 한다(판정하지 않음): av_libglesv2.dll만 빠졌을 때 Avalonia가 소프트웨어 렌더링으로 넘어가는지 로그로 남긴다
+        timeout-minutes: 5
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -357,8 +360,8 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          # 고정 파일 수(SHA256SUMS 제외): 반입 zip 16(GUI 네이티브 DLL 셋 포함), 현장 키트 13. BuildHost 폴더 둘의 파일 수는 패키지 버전에 따르므로 zip 안 실제 파일 수로 더한다
-          foreach ($case in @(@{ zip = $env:PELLY_TEST_PACKAGE; fixed = 16 }, @{ zip = $env:PELLY_TEST_FIELD_KIT; fixed = 13 })) {
+          # 고정 파일 수(SHA256SUMS 제외): 반입 zip 17(GUI 네이티브 DLL 셋, ANGLE 라이선스 전문 포함), 현장 키트 13. BuildHost 폴더 둘의 파일 수는 패키지 버전에 따르므로 zip 안 실제 파일 수로 더한다
+          foreach ($case in @(@{ zip = $env:PELLY_TEST_PACKAGE; fixed = 17 }, @{ zip = $env:PELLY_TEST_FIELD_KIT; fixed = 13 })) {
             $dir = Join-Path $env:RUNNER_TEMP ('unzip-' + [System.IO.Path]::GetFileNameWithoutExtension($case.zip))
             Expand-Archive $case.zip $dir
             $buildHostFiles = @(Get-ChildItem -Recurse -File (Join-Path $dir 'BuildHost-net472'), (Join-Path $dir 'BuildHost-netcore')).Count

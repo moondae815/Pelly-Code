@@ -21,6 +21,7 @@ docs/no-network.md <- deploy/no-network.md
 sbom.cdx.json <- generated
 THIRD-PARTY-NOTICES.md <- generated
 licenses/Microsoft.Data.SqlClient.SNI.runtime.LICENSE.txt <- generated
+licenses/Avalonia.Angle.Windows.Natives.LICENSE.txt <- generated
 version-record.json <- deploy/version-record.json
 benchmark-summary.md <- deploy/benchmark-summary.md
 SHA256SUMS.txt <- generated

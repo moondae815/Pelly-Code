@@ -7,5 +7,15 @@
     "reason": "Microsoft.Data.SqlClient 7.1.1(MIT)이 Windows에서 쓰는 네이티브 SNI(Microsoft.Data.SqlClient.SNI.dll)입니다. pelly.exe 안에 들어 있고 첫 실행 때 풀립니다. 라이선스 3a가 애플리케이션 일부로 재배포하는 것을 허용합니다.",
     "approvedBy": "Daesung Moon (2026-10-19, M4 반입 전 결정)",
     "shipAs": "licenses/Microsoft.Data.SqlClient.SNI.runtime.LICENSE.txt"
+  },
+  {
+    "package": "Avalonia.Angle.Windows.Natives",
+    "version": "2.1.27548.20260419",
+    "licenseFileSha256": "54aff7276217df9f6b5181613999d208c9e40d2b1d51bf55217837e6871a4a63",
+    "licenseName": "BSD-3-Clause (ANGLE Project Authors)",
+    "reason": "Avalonia GUI(`pelly ui`)의 그래픽 가속(ANGLE) 네이티브 `av_libglesv2.dll`입니다. nuspec이 라이선스를 파일로만 적어 게이트에 걸리지만 내용은 BSD-3-Clause이며, 원문을 함께 배포합니다.",
+    "approvedBy": "Daesung Moon (2026-10-26, V2-0 GUI 반입 전 결정)",
+    "shipAs": "licenses/Avalonia.Angle.Windows.Natives.LICENSE.txt",
+    "packages": ["pelly"]
   }
 ]

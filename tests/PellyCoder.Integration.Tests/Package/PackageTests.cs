@@ -40,6 +40,7 @@ public sealed record PackageKind(string Name, string ZipVariable, string ListFil
         "sbom.cdx.json",
         "THIRD-PARTY-NOTICES.md",
         "licenses/Microsoft.Data.SqlClient.SNI.runtime.LICENSE.txt",
+        "licenses/Avalonia.Angle.Windows.Natives.LICENSE.txt",
         "version-record.json",
         "benchmark-summary.md",
         "SHA256SUMS.txt",

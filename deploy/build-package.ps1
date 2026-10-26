@@ -32,6 +32,7 @@
 .PARAMETER LicenseExceptions
   Approved license exceptions. Default deploy/license-exceptions.json. CI passes altered copies to check that a
   changed version or license hash fails the gate.
+  An entry with "packages" (e.g. ["pelly"]) applies only to those -Package values.
 
 .PARAMETER BuildProps
   Directory.Build.props to read the Version from. Default the repository's. CI passes an altered copy (Version 1.0.0)
@@ -176,6 +177,9 @@ $sbom['components'] = $components.ToArray()
 # --- 2. licenses -------------------------------------------------------------------------------------------
 $exceptions = @()
 if (Test-Path $LicenseExceptions) { $exceptions = @(Get-Content -Raw $LicenseExceptions | ConvertFrom-Json -AsHashtable) }
+# An exception with "packages" applies only to those packages (the GUI's ANGLE natives are in pelly, not in the field kit);
+# without it, to every package. Outside its packages it is neither matched nor reported as stale.
+$exceptions = @($exceptions | Where-Object { -not $_.Contains('packages') -or @($_['packages']) -contains $Package })
 Write-Host "license exceptions: $LicenseExceptions ($($exceptions.Count))"
 
 function Test-Expression([string]$Expr) {

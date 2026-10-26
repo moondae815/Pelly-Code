@@ -98,6 +98,9 @@ public sealed class TestFirstState(IReadOnlyList<string> names, IReadOnlyList<st
     public IReadOnlyList<string> Breaks { get; } = breaks;
     public IReadOnlyDictionary<string, string> TestFileHashes { get; } = testFileHashes;
 
+    /// <summary>Full names of the named tests' declarations; <see cref="HashOf"/> recomputes the hashes with them.</summary>
+    public IReadOnlyCollection<string> DeclaredNames { get; init; } = [];
+
     /// <summary>The RED verdict (set by the first APPLY that awaited the baseline tests).</summary>
     public RedResult? Red { get; set; }
 

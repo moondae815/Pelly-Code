@@ -1,3 +1,4 @@
+using System.IO.Abstractions;
 using PellyCoder.Core.Builds;
 using PellyCoder.Core.Config;
 using PellyCoder.Core.Feedbacks;
@@ -10,8 +11,10 @@ namespace PellyCoder.Core.Verification;
 /// <summary>
 /// Runs the target's test projects with the edit applied (<c>--test</c>, design §8.9 step 4) and fails only on tests that
 /// newly fail: failing now, and not failing in the baseline run (passed there or absent). Runs after <see cref="BuildStep"/>.
+/// A test-first run (<c>--verify-test</c>) also judges GREEN on the same runs, leaves the expected breaks out of the regressions
+/// and checks that the files declaring the named tests did not change (design §5.4–§5.6).
 /// </summary>
-public sealed class TestStep(TestRunner runner, FeedbackBuilder feedback, TestOptions options) : IVerifierStep
+public sealed class TestStep(TestRunner runner, FeedbackBuilder feedback, TestOptions options, IFileSystem fs) : IVerifierStep
 {
     public const string NotComparable = "테스트가 원래도 실패해 비교할 수 없습니다";
 
@@ -32,23 +35,33 @@ public sealed class TestStep(TestRunner runner, FeedbackBuilder feedback, TestOp
         var baselines = ctx.BaselineTestRuns
             ?? throw new InvalidOperationException("APPLY must await the baseline tests before VERIFY runs them.");
 
+        var testFirst = ctx.Request.TestFirst ? ctx.TestFirst : null;
+        var runs = new TestRun?[ctx.TestProjects.Count];     // this attempt's runs, for the GREEN verdict
+        var excluded = new HashSet<string>(StringComparer.Ordinal); // expected breaks left out of the regressions
         var failures = new List<TestCaseResult>();          // named tests, across all projects
         var exitFailures = new List<(string Project, int ExitCode)>(); // projects that failed without a named test
         for (var i = 0; i < ctx.TestProjects.Count; i++)
         {
             // Baseline tests that could not run were announced by APPLY; this project is judged by the build alone.
-            if (baselines[i] is not { } before) continue;
+            if (baselines[i] is not { } before)
+            {
+                if (testFirst is not null)
+                    throw new InvalidOperationException("A test-first run judges RED only when every baseline test run is usable.");
+                continue;
+            }
 
             var project = ctx.TestProjects[i];
             var run = await runner.RunAsync(tool, project, ctx.Workspace!.Root, TrxPath(ctx, $"verify-{ctx.Attempt}-{i + 1}"), ct);
             if (run.TimedOut)
                 return StepResult.Environment(TimedOutMessage(options));
+            runs[i] = run;
             if (run.ReportMissing && before.PerTestResults)
             {
                 // The edit killed an in-process test host (stack overflow, fail-fast): no report exists, which is a test failure the
                 // model can fix, not a broken environment. Every test that passed before did not pass now.
                 var lost = before.Results.Where(r => r.Passed)
                     .Select(r => new TestCaseResult(r.FullName, false, NotRunFeedback)).ToList();
+                if (testFirst is not null) lost.RemoveAll(r => IsExpectedBreak(testFirst, r.FullName, excluded));
                 if (lost.Count > 0) failures.AddRange(lost);
                 else exitFailures.Add((project, run.ExitCode));
                 continue;
@@ -100,11 +113,13 @@ public sealed class TestStep(TestRunner runner, FeedbackBuilder feedback, TestOp
                 found.AddRange(before.Results.Where(r => r.Passed && !ran.Contains(r.FullName))
                     .Select(r => new TestCaseResult(r.FullName, false, NotRunFeedback)));
             }
+            var breaksHere = testFirst is null ? 0 : found.RemoveAll(r => IsExpectedBreak(testFirst, r.FullName, excluded));
             failures.AddRange(found);
             // The exit code still counts when no test can be named (e.g. the host died before reporting anything).
-            if (found.Count == 0 && brokeExit) exitFailures.Add((project, run.ExitCode));
+            if (found.Count == 0 && breaksHere == 0 && brokeExit) exitFailures.Add((project, run.ExitCode));
         }
 
+        if (testFirst is not null) return JudgeTestFirst(ctx, testFirst, runs, failures, exitFailures, excluded);
         if (failures.Count == 0 && exitFailures.Count == 0) return StepResult.Pass;
         var unique = failures.DistinctBy(f => f.FullName).ToList();
         // R8: code TEST; the test name stays in the message, which the de-identified report never prints.
@@ -113,6 +128,77 @@ public sealed class TestStep(TestRunner runner, FeedbackBuilder feedback, TestOp
             .ToList();
         var text = unique.Count > 0 ? feedback.ForTests(unique) : feedback.ForTestExitCode(exitFailures[0].ExitCode);
         return StepResult.Fail(text, diagnostics, []);
+    }
+
+    /// <summary>Notice for an expected break (<c>--expect-break</c>) that still passes after the edit; followed by its name.</summary>
+    public const string BreakStillPasses = "깨질 것으로 정한 테스트가 여전히 통과합니다";
+
+    private static bool IsExpectedBreak(TestFirstState state, string fullName, HashSet<string> excluded)
+    {
+        if (!state.Breaks.Any(b => TestNames.Matches(b, fullName))) return false;
+        excluded.Add(TestNames.WithoutArguments(fullName));
+        return true;
+    }
+
+    /// <summary>
+    /// GREEN and regression verdict of a test-first run: GREEN failures first (<c>TestGreenFailed</c>), then regressions
+    /// (<c>TestRegression</c>), then the test file guard (<c>TestFileChanged</c>, exit 4).
+    /// </summary>
+    private StepResult JudgeTestFirst(RunContext ctx, TestFirstState state, IReadOnlyList<TestRun?> runs,
+        List<TestCaseResult> failures, List<(string Project, int ExitCode)> exitFailures, HashSet<string> excluded)
+    {
+        var red = state.Red ?? throw new InvalidOperationException("APPLY must judge RED before VERIFY judges GREEN.");
+        foreach (var name in state.Breaks)
+        {
+            var rows = runs.Where(r => r is not null).SelectMany(r => r!.Results).Where(r => TestNames.Matches(name, r.FullName)).ToList();
+            var notice = $"{BreakStillPasses}: {name}";
+            if (rows.Count > 0 && rows.All(r => r.Passed) && !ctx.Messages.Contains(notice)) ctx.Messages.Add(notice);
+        }
+
+        // A named test that passed in the baseline and fails now is reported once, as a GREEN failure.
+        var named = red.Tests.Select(t => t.FullName).ToHashSet(StringComparer.Ordinal);
+        var regressions = failures.Where(f => !named.Contains(TestNames.WithoutArguments(f.FullName)))
+            .DistinctBy(f => f.FullName).ToList();
+        var green = TestFirstJudge.Green(red.Tests, runs);
+        state.BreaksExcluded = excluded.Count;
+
+        // R8: code TEST; the test name stays in the message, which the de-identified report never prints.
+        static Diagnostic Test(string message) => new("", 0, 0, "error", "TEST", message);
+        if (green.Count > 0)
+        {
+            state.Green = GreenState.Failed;
+            state.Regressions = regressions.Count;
+            var target = Path.GetRelativePath(ctx.Workspace!.Root, ctx.FilePath).Replace('\\', '/');
+            var diagnostics = green.Select(g => Test(g.FullName)).Concat(regressions.Select(r => Test(r.FullName))).ToList();
+            return StepResult.Fail(feedback.ForGreen(green, regressions, target), diagnostics, [], "TestGreenFailed");
+        }
+
+        state.Green = GreenState.Passed;
+        state.Regressions = regressions.Count + exitFailures.Count;
+        if (state.Regressions > 0)
+        {
+            var diagnostics = regressions.Select(r => Test(r.FullName))
+                .Concat(exitFailures.Select(e => Test(Path.GetFileName(e.Project)))).ToList();
+            var text = regressions.Count > 0 ? feedback.ForTests(regressions) : feedback.ForTestExitCode(exitFailures[0].ExitCode);
+            return StepResult.Fail(text, diagnostics, [], "TestRegression");
+        }
+
+        foreach (var (file, hash) in state.TestFileHashes)
+        {
+            string? now;
+            try
+            {
+                now = TestFirstState.HashOf(fs, file, ctx.FilePath, state.DeclaredNames);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                now = null; // deleted or unreadable: not the file RED was judged on
+            }
+            if (now != hash)
+                return StepResult.Environment(
+                    $"지정한 테스트 파일이 실행 중에 바뀌었습니다: {Path.GetRelativePath(ctx.Workspace!.Root, file)}", "TestFileChanged");
+        }
+        return StepResult.Pass;
     }
 
     public static string TimedOutMessage(TestOptions options) =>

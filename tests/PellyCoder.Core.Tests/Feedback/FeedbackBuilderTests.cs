@@ -198,6 +198,77 @@ public sealed class FeedbackBuilderTests
 
     private const string KeepRequest = "Keep the requested change; do not undo it to make tests pass.";
 
+    private const string GreenRequest = "The test cannot be changed. Make it pass by implementing the request.";
+
+    private const string TestFrames =
+        "   at Demo.Calc.<CancelAsync>d__3.MoveNext() in C:\\src\\Demo\\Calc.cs:line 42\n" +
+        "   at Demo.Tests.CalcTests.Cancel_Throws() in C:\\src\\Demo.Tests\\CalcTests.cs:line 12\n" +
+        "   at Demo.Calc.Divide(Int32 a, Int32 b) in /src/Demo/Calc.cs:line 7\n" +
+        "   at Demo.OtherDemo.Calc.Add(Int32 a) in /src/OtherDemo/Calc.cs:line 3\n" +
+        "   at Demo.Calc.Third() in /src/Demo/Calc.cs:line 9\n" +
+        "   at Demo.Calc.Fourth() in /src/Demo/Calc.cs:line 11";
+
+    [Fact]
+    public void ForGreen_FormatsNameDetailAndTargetFrames()
+    {
+        var failure = new PellyCoder.Core.Testing.GreenFailure("Demo.Tests.CalcTests.Cancel_Throws",
+            "Assert.Throws() Failure: No exception was thrown\r\nExpected: DivideByZeroException", TestFrames);
+
+        var fb = new FeedbackBuilder(Counter, 296).ForGreen([failure], [], "Demo/Calc.cs");
+
+        Assert.Equal(string.Join("\n",
+            "TEST NOT PASSING: Demo.Tests.CalcTests.Cancel_Throws",
+            "Assert.Throws() Failure: No exception was thrown",
+            "Expected: DivideByZeroException",
+            "  at Calc.CancelAsync (Demo/Calc.cs:42)",
+            "  at Calc.Divide (Demo/Calc.cs:7)",
+            "  at Calc.Third (Demo/Calc.cs:9)",
+            GreenRequest), fb.Text);
+        Assert.Equal(Counter.Count(fb.Text), fb.Tokens);
+
+        var notRun = new FeedbackBuilder(Counter, 296).ForGreen([new PellyCoder.Core.Testing.GreenFailure("N.T.A", "not run", null)], [], "Demo/Calc.cs");
+        Assert.Equal("TEST NOT PASSING: N.T.A\nnot run\n" + GreenRequest, notRun.Text);
+    }
+
+    [Fact]
+    public void ForGreen_OverBudget_KeepsHeadAndRequest()
+    {
+        var detail = string.Join("\n", Enumerable.Range(1, 200).Select(i => $"Expected line {i}: " + new string('x', 30)));
+        var failures = new[]
+        {
+            new PellyCoder.Core.Testing.GreenFailure("Demo.Tests.CalcTests.First", detail, TestFrames),
+            new PellyCoder.Core.Testing.GreenFailure("Demo.Tests.CalcTests.Second", "boom", null),
+        };
+        var regressions = new[] { new PellyCoder.Core.Testing.TestCaseResult("Demo.Tests.CalcTests.Other", false, "broke") };
+
+        var fb = new FeedbackBuilder(Counter, 296).ForGreen(failures, regressions, "Demo/Calc.cs");
+
+        Assert.True(fb.Tokens <= 296);
+        Assert.Equal(Counter.Count(fb.Text), fb.Tokens);
+        var lines = fb.Text.Split('\n');
+        Assert.Equal("TEST NOT PASSING: Demo.Tests.CalcTests.First", lines[0]);
+        Assert.Equal(GreenRequest, lines[^1]);
+        Assert.Equal("Expected line 1: " + new string('x', 30), lines[1]); // the detail is cut from its end
+        Assert.DoesNotContain("Second", fb.Text);
+        Assert.DoesNotContain("TESTS FAILED", fb.Text);
+
+        var tiny = new FeedbackBuilder(Counter, 40).ForGreen(failures, regressions, "Demo/Calc.cs");
+        Assert.True(tiny.Tokens <= 40);
+        Assert.StartsWith("TEST NOT PASSING: Demo.Tests.CalcTests.First", tiny.Text);
+        Assert.EndsWith("\n" + GreenRequest, tiny.Text);
+    }
+
+    [Fact]
+    public void ForGreen_WithRegressions_GreenFirst()
+    {
+        var fb = new FeedbackBuilder(Counter, 296).ForGreen(
+            [new PellyCoder.Core.Testing.GreenFailure("N.T.A", "Assert.True() Failure", null)],
+            [new PellyCoder.Core.Testing.TestCaseResult("N.T.B", false, "boom\nsecond line")], "Demo/Calc.cs");
+
+        Assert.Equal("TEST NOT PASSING: N.T.A\nAssert.True() Failure\nTESTS FAILED (1 new failure)\nN.T.B: boom\n" + GreenRequest, fb.Text);
+        Assert.DoesNotContain(KeepRequest, fb.Text);
+    }
+
     [Fact]
     public void ForNoChange_Format() =>
         Assert.Equal("NO CHANGE: the edit leaves the target identical to the original. Make the requested change.",

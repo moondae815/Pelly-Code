@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.RegularExpressions;
 using PellyCoder.Core.Abstractions;
 using PellyCoder.Core.Models;
 using PellyCoder.Core.Rules;
@@ -8,7 +9,7 @@ using Diagnostic = PellyCoder.Core.Models.Diagnostic;
 namespace PellyCoder.Core.Feedbacks;
 
 /// <summary>Builds the retry feedback text the local model reads, fitted to a token budget.</summary>
-public sealed class FeedbackBuilder(ITokenCounter tokens, int budget)
+public sealed partial class FeedbackBuilder(ITokenCounter tokens, int budget)
 {
     private const int MaxRadius = 3;
     private const string Ellipsis = "…";
@@ -200,14 +201,6 @@ public sealed class FeedbackBuilder(ITokenCounter tokens, int budget)
         static string WithKeep(string body) => body + "\n" + KeepRequest;
         if (unique.Count == 0) return Done(WithKeep(head));
 
-        static string FirstLine(string? message)
-        {
-            var text = (message ?? "").Replace("\r\n", "\n").Trim();
-            var cut = text.IndexOf('\n');
-            return (cut < 0 ? text : text[..cut]).TrimEnd();
-        }
-        static string TestLine(TestCaseResult f, string first) => first.Length == 0 ? f.FullName : $"{f.FullName}: {first}";
-
         var entries = unique.Select(f => TestLine(f, FirstLine(f.Message))).ToList();
         for (var count = entries.Count; count >= 1; count--)
         {
@@ -219,6 +212,125 @@ public sealed class FeedbackBuilder(ITokenCounter tokens, int budget)
         if (message.Length == 0) return Done(WithKeep(head + "\n" + only.FullName));
         return Done(WithKeep(head + "\n" + TestLine(only, Truncate(message, m => WithKeep(head + "\n" + TestLine(only, m))))));
     }
+
+    /// <summary>
+    /// Test-first feedback (design §5.5): per named test that did not pass <c>TEST NOT PASSING: &lt;FullName&gt;</c>, its whole
+    /// message and up to three stack frames inside the target file, then the regressions in the <see cref="ForTests"/> format,
+    /// then <see cref="GreenRequest"/>. Over budget, in order: drop regressions from the back, keep only the first named test,
+    /// cut its message lines from the end, drop its frames, cut its first message line; the head line and the last line stay.
+    /// </summary>
+    public Feedback ForGreen(IReadOnlyList<GreenFailure> green, IReadOnlyList<TestCaseResult> regressions, string targetRelativePath)
+    {
+        var failures = green.DistinctBy(g => g.FullName).ToList();
+        if (failures.Count == 0) return Done(GreenRequest);
+        var regressed = regressions.DistinctBy(r => r.FullName).ToList();
+        var regressionHead = $"TESTS FAILED ({regressed.Count} new {(regressed.Count == 1 ? "failure" : "failures")})";
+        var regressionLines = regressed.Select(r => TestLine(r, FirstLine(r.Message))).ToList();
+        var details = failures.Select(f => DetailLines(f.Detail)).ToList();
+        var frames = failures.Select(f => TargetFrames(f.StackTrace, targetRelativePath)).ToList();
+
+        string Entry(int i, int detailCount, int frameCount, string? firstLine = null)
+        {
+            var lines = new List<string> { GreenHead + failures[i].FullName };
+            var detail = details[i].Take(detailCount).ToList();
+            if (firstLine is not null && detail.Count > 0) detail[0] = firstLine;
+            lines.AddRange(detail);
+            lines.AddRange(frames[i].Take(frameCount));
+            return string.Join("\n", lines);
+        }
+        string Compose(IEnumerable<string> entries, int regressionCount)
+        {
+            var parts = entries.ToList();
+            if (regressionCount > 0) parts.Add(regressionHead + "\n" + string.Join("\n", regressionLines.Take(regressionCount)));
+            parts.Add(GreenRequest);
+            return string.Join("\n", parts);
+        }
+
+        var all = Enumerable.Range(0, failures.Count).Select(i => Entry(i, details[i].Count, MaxFrames)).ToList();
+        for (var count = regressionLines.Count; count >= 0; count--)
+        {
+            var text = Compose(all, count);
+            if (Fits(text)) return Done(text);
+        }
+        for (var lines = details[0].Count; lines >= 1; lines--)
+        {
+            var text = Compose([Entry(0, lines, MaxFrames)], 0);
+            if (Fits(text)) return Done(text);
+        }
+        for (var count = MaxFrames - 1; count >= 0; count--)
+        {
+            var text = Compose([Entry(0, 1, count)], 0);
+            if (Fits(text)) return Done(text);
+        }
+        if (details[0].Count > 0)
+        {
+            var first = details[0][0];
+            var cut = Truncate(first, l => Compose([Entry(0, 1, 0, l)], 0));
+            var text = Compose([Entry(0, 1, 0, cut)], 0);
+            if (Fits(text)) return Done(text);
+        }
+        // Even the bare head does not fit: cut the test name, never the last line.
+        var name = Truncate(failures[0].FullName, n => GreenHead + n + "\n" + GreenRequest);
+        return Done(GreenHead + name + "\n" + GreenRequest);
+    }
+
+    /// <summary>Last line of <see cref="ForGreen"/>: the model may not change the test (design §5.6).</summary>
+    public const string GreenRequest = "The test cannot be changed. Make it pass by implementing the request.";
+
+    private const string GreenHead = "TEST NOT PASSING: ";
+    private const int MaxFrames = 3;
+
+    [GeneratedRegex(@"^\s*at (?<m>.+?) in (?<f>.+?):line (?<l>\d+)\s*$")]
+    private static partial Regex StackFrame();
+
+    /// <summary>An async state machine frame: <c>Ns.Type.&lt;Method&gt;d__3.MoveNext</c>.</summary>
+    [GeneratedRegex(@"^(?<type>.+)\.<(?<method>[^>]+)>d__\d+\.MoveNext$")]
+    private static partial Regex AsyncFrame();
+
+    private static List<string> DetailLines(string? detail)
+    {
+        var text = (detail ?? "").Replace("\r\n", "\n").Trim();
+        return text.Length == 0 ? [] : text.Split('\n').Select(l => l.TrimEnd()).ToList();
+    }
+
+    /// <summary>Frames whose file is the target, as <c>  at Type.Method (target:line)</c>.</summary>
+    private static List<string> TargetFrames(string? stackTrace, string targetRelativePath)
+    {
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        var target = targetRelativePath.Replace('\\', '/');
+        var frames = new List<string>();
+        foreach (var line in (stackTrace ?? "").Replace("\r\n", "\n").Split('\n'))
+        {
+            if (StackFrame().Match(line) is not { Success: true } match) continue;
+            var file = match.Groups["f"].Value.Replace('\\', '/');
+            // Ends with the target path at a path-segment boundary (OtherDemo/Calc.cs is not Demo/Calc.cs).
+            var isTarget = file.Equals(target, comparison)
+                || (file.EndsWith(target, comparison) && file[file.Length - target.Length - 1] == '/');
+            if (!isTarget) continue;
+            frames.Add($"  at {ShortMethod(match.Groups["m"].Value)} ({targetRelativePath}:{match.Groups["l"].Value})");
+            if (frames.Count == MaxFrames) break;
+        }
+        return frames;
+    }
+
+    /// <summary><c>Ns.Type.Method(args)</c> → <c>Type.Method</c>; an async state machine reads as its method.</summary>
+    private static string ShortMethod(string method)
+    {
+        var open = method.IndexOf('(');
+        var name = (open < 0 ? method : method[..open]).Trim();
+        if (AsyncFrame().Match(name) is { Success: true } async) name = async.Groups["type"].Value + "." + async.Groups["method"].Value;
+        var parts = name.Split('.');
+        return parts.Length <= 2 ? name : parts[^2] + "." + parts[^1];
+    }
+
+    private static string FirstLine(string? message)
+    {
+        var text = (message ?? "").Replace("\r\n", "\n").Trim();
+        var cut = text.IndexOf('\n');
+        return (cut < 0 ? text : text[..cut]).TrimEnd();
+    }
+
+    private static string TestLine(TestCaseResult f, string first) => first.Length == 0 ? f.FullName : $"{f.FullName}: {first}";
 
     /// <summary>Last line of <see cref="ForTests"/>.</summary>
     public const string KeepRequest = "Keep the requested change; do not undo it to make tests pass.";

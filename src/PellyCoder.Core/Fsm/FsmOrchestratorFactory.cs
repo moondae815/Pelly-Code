@@ -38,7 +38,7 @@ public static class FsmOrchestratorFactory
             new SlicePhase(fs, fileGuard, tokens, options.Budget),
             new EditPhase(prompts, client, feedback, logger, ui),
             new ApplyPhase(fileGuard, feedback, ui, options.Build),
-            new VerifyPhase([new SyntaxStep(fs, feedback), new RulesStep(feedback), new BuildStep(builds, feedback, options.Build), new TestStep(tests, feedback, options.Test)]),
+            new VerifyPhase([new SyntaxStep(fs, feedback), new RulesStep(feedback), new BuildStep(builds, feedback, options.Build), new TestStep(tests, feedback, options.Test, fs)]),
             new ReviewPhase(ui),
         ];
         return new FsmOrchestrator(phases, fileGuard, logger, fs, options, ui, time);

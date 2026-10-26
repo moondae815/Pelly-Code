@@ -25,7 +25,7 @@ public sealed class VerifyPhase(IReadOnlyList<IVerifierStep> steps) : IPhase
                 if (!ctx.ErrorCodes.Contains(code)) ctx.ErrorCodes.Add(code);
             }
             ctx.Feedback = result.Feedback;
-            ctx.FailureKind = $"{step.Name}Errors";
+            ctx.FailureKind = result.FailureKind ?? $"{step.Name}Errors";
             return PhaseOutcome.NewErrors;
         }
         return PhaseOutcome.Ok;

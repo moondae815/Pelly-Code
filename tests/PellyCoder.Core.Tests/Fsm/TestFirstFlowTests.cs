@@ -45,10 +45,13 @@ public sealed class TestFirstFlowTests : IDisposable
 
     private const string Original = "        return a / b;";
     private const string Guarded = "        if (b == 0) throw new DivideByZeroException();\n        return a / b;";
+    private const string Wrong = "        return b == 0 ? 0 : a / b;";
+    private const string GreenRequest = "The test cannot be changed. Make it pass by implementing the request.";
 
     private const string Name = "Divide_ByZero_Throws";
     private const string FullName = "Demo.Tests.CalcTests.Divide_ByZero_Throws";
     private const string OtherTest = "Demo.Tests.CalcTests.Divide_Positive";
+    private const string ThirdTest = "Demo.Tests.CalcTests.Divide_Negative";
 
     private const string Sln =
         "Project(\"{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}\") = \"Demo\", \"Demo\\Demo.csproj\", \"{11111111-1111-1111-1111-111111111111}\"\n" +
@@ -245,7 +248,7 @@ public sealed class TestFirstFlowTests : IDisposable
 
         Assert.Equal(0, exit);
         Assert.Contains("깨질 것으로 정한 테스트 Missing_Break이(가) 원본 상태에서 통과하지 않습니다", _ui.Warnings);
-        Assert.DoesNotContain(_ui.Warnings, w => w.Contains("Divide_Positive", StringComparison.Ordinal));
+        Assert.DoesNotContain("깨질 것으로 정한 테스트 Divide_Positive이(가) 원본 상태에서 통과하지 않습니다", _ui.Warnings);
     }
 
     [Fact]
@@ -433,5 +436,184 @@ public sealed class TestFirstFlowTests : IDisposable
         Assert.Equal(before, TestFirstState.HashOf(fs, TestSourcePath, TestSourcePath, [FullName]));
         File.WriteAllText(TestSourcePath, TestSource.Replace("Divide(1, 0)", "Divide(2, 0)"));
         Assert.NotEqual(before, TestFirstState.HashOf(fs, TestSourcePath, TestSourcePath, [FullName]));
+    }
+    /// <summary>One attempt's VERIFY processes: the target build, the test project build and the test run writing <paramref name="trx"/>.</summary>
+    private void EnqueueAttempt(string trx)
+    {
+        _processes.Enqueue(Ok());
+        _processes.Enqueue(Ok());
+        EnqueueTests(trx);
+    }
+
+    private void EnqueueBaseline(string trx) => EnqueueAttempt(trx);
+
+    [Fact]
+    public async Task VerifyTest_GreenFails_RetriesWithGreenFeedback_ThenPasses()
+    {
+        EnqueueBaseline(Red());
+        EnqueueAttempt(Red());      // attempt 1: the named test still fails
+        EnqueueAttempt(Green());
+        _backend.Enqueue(Block(Original, Wrong));
+        _backend.Enqueue("Throw instead.</think>", evalCount: 10);
+        _backend.Enqueue(Block(Wrong, Guarded));
+
+        var exit = await Run(Req(CalcPath, [Name]));
+
+        Assert.Equal(0, exit);
+        Assert.Equal(CalcSource.Replace(Original, Guarded), File.ReadAllText(CalcPath));
+        var prompt = _backend.Requests[1].RawPrompt;
+        Assert.Contains("TEST NOT PASSING: " + FullName, prompt);
+        Assert.Contains("Assert.Throws() Failure: No exception was thrown\nExpected: DivideByZeroException", prompt);
+        Assert.Contains(GreenRequest, prompt);
+        Assert.DoesNotContain("Keep the requested change", prompt);
+    }
+
+    [Fact]
+    public async Task VerifyTest_GreenNeverPasses_Exit1_RolledBack()
+    {
+        var originalBytes = File.ReadAllBytes(CalcPath);
+        EnqueueBaseline(Red());
+        EnqueueAttempt(Red());
+        EnqueueAttempt(Red());
+        _backend.Enqueue(Block(Original, Wrong));
+        _backend.Enqueue("Throw instead.</think>", evalCount: 10);
+        _backend.Enqueue(Block(Wrong, Guarded));
+
+        var exit = await Run(Req(CalcPath, [Name]) with { MaxRetries = 1 });
+
+        Assert.Equal(1, exit);
+        Assert.Equal(originalBytes, File.ReadAllBytes(CalcPath));
+        Assert.Equal("TestGreenFailed", FailureKind());
+        Assert.Contains("TEST", Summary().GetProperty("errorCodes").EnumerateArray().Select(e => e.GetString()));
+    }
+
+    [Fact]
+    public async Task VerifyTest_Regression_Exit1()
+    {
+        var originalBytes = File.ReadAllBytes(CalcPath);
+        EnqueueBaseline(Red());
+        EnqueueAttempt(Trx((FullName, true), (OtherTest, false)));   // GREEN, but another test now fails
+        EnqueueAttempt(Trx((FullName, true), (OtherTest, false)));
+        _backend.Enqueue(Block(Original, Wrong));
+        _backend.Enqueue("Keep the other test.</think>", evalCount: 10);
+        _backend.Enqueue(Block(Wrong, Guarded));
+
+        var exit = await Run(Req(CalcPath, [Name]) with { MaxRetries = 1 });
+
+        Assert.Equal(1, exit);
+        Assert.Equal(originalBytes, File.ReadAllBytes(CalcPath));
+        Assert.Equal("TestRegression", FailureKind());
+        var prompt = _backend.Requests[1].RawPrompt;
+        Assert.Contains("TESTS FAILED (1 new failure)\n" + OtherTest + ": Assert.Throws() Failure", prompt);
+        Assert.DoesNotContain("TEST NOT PASSING", prompt);
+    }
+
+    [Fact]
+    public async Task VerifyTest_HostCrash_IsGreenFailure()
+    {
+        EnqueueBaseline(Red());
+        _processes.Enqueue(Ok());
+        _processes.Enqueue(Ok());
+        _processes.Enqueue(Result(exit: 134));  // attempt 1: the host died, no TRX was written
+        EnqueueAttempt(Green());
+        _backend.Enqueue(Block(Original, Wrong));
+        _backend.Enqueue("Avoid the crash.</think>", evalCount: 10);
+        _backend.Enqueue(Block(Wrong, Guarded));
+
+        var exit = await Run(Req(CalcPath, [Name]));
+
+        Assert.Equal(0, exit);
+        var prompt = _backend.Requests[1].RawPrompt;
+        Assert.Contains("TEST NOT PASSING: " + FullName + "\nnot run", prompt);
+        Assert.Contains(OtherTest + ": not run (test host may have crashed)", prompt);
+        Assert.DoesNotContain(_ui.Warnings, w => w.Contains("테스트를 실행하지 못했습니다", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task ExpectBreak_ExcludesOnlyThatTest()
+    {
+        EnqueueBaseline(Red());
+        EnqueueAttempt(Trx((FullName, true), (OtherTest, false)));   // only the expected break fails
+        _backend.Enqueue(Block(Original, Guarded));
+
+        var exit = await Run(Req(CalcPath, [Name], breaks: ["Divide_Positive"]));
+
+        Assert.Equal(0, exit);
+        Assert.Equal(CalcSource.Replace(Original, Guarded), File.ReadAllText(CalcPath));
+        Assert.DoesNotContain(_ui.Warnings, w => w.StartsWith("깨질 것으로 정한 테스트가 여전히 통과합니다", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task ExpectBreak_WithAnotherFailure_IsRegression()
+    {
+        var baseline = Trx((FullName, false), (OtherTest, true), (ThirdTest, true));
+        var broken = Trx((FullName, true), (OtherTest, false), (ThirdTest, false));
+        EnqueueBaseline(baseline);
+        EnqueueAttempt(broken);
+        EnqueueAttempt(broken);
+        _backend.Enqueue(Block(Original, Wrong));
+        _backend.Enqueue("Keep the other test.</think>", evalCount: 10);
+        _backend.Enqueue(Block(Wrong, Guarded));
+
+        var exit = await Run(Req(CalcPath, [Name], breaks: ["Divide_Positive"]) with { MaxRetries = 1 });
+
+        Assert.Equal(1, exit);
+        Assert.Equal("TestRegression", FailureKind());
+        var prompt = _backend.Requests[1].RawPrompt;
+        Assert.Contains("TESTS FAILED (1 new failure)\n" + ThirdTest + ":", prompt);
+        Assert.DoesNotContain(OtherTest, prompt);
+    }
+
+    [Fact]
+    public async Task ExpectBreak_StillPassing_Notice()
+    {
+        EnqueueBaseline(Red());
+        EnqueueAttempt(Green());
+        _backend.Enqueue(Block(Original, Guarded));
+
+        var exit = await Run(Req(CalcPath, [Name], breaks: ["Divide_Positive"]));
+
+        Assert.Equal(0, exit);
+        Assert.Single(_ui.Warnings, w => w == "깨질 것으로 정한 테스트가 여전히 통과합니다: Divide_Positive");
+    }
+
+    [Fact]
+    public async Task VerifyTest_TestInTargetFile_HashIgnoresTargetEdit()
+    {
+        const string Helper = "    public static int Seed() => 1;\n";
+        File.WriteAllText(TestSourcePath, TestSource.Replace("public class CalcTests\n{\n", "public class CalcTests\n{\n" + Helper + "\n"));
+        EnqueueBaseline(Red());
+        EnqueueAttempt(Green());
+        _backend.Enqueue(Block(Helper.TrimEnd('\n'), "    public static int Seed() => 2;"));
+
+        var exit = await Run(Req(TestSourcePath, [Name], method: "Seed"));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("public static int Seed() => 2;", File.ReadAllText(TestSourcePath));
+        Assert.DoesNotContain(_ui.Warnings, w => w.StartsWith("지정한 테스트 파일이 실행 중에 바뀌었습니다", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task VerifyTest_TestFileEditedDuringRun_Exit4()
+    {
+        var originalBytes = File.ReadAllBytes(CalcPath);
+        EnqueueBaseline(Red());
+        _processes.Enqueue(Ok());
+        _processes.Enqueue(Ok());
+        _processes.Enqueue((spec, _) =>
+        {
+            // Something outside pelly weakens the test while VERIFY runs it.
+            File.WriteAllText(TestSourcePath, TestSource.Replace("Assert.Throws<System.DivideByZeroException>(() => new Calc().Divide(1, 0));", "Assert.True(true);"));
+            File.WriteAllText(TrxPathOf(spec), Green());
+            return Task.FromResult(Ok());
+        });
+        _backend.Enqueue(Block(Original, Guarded));
+
+        var exit = await Run(Req(CalcPath, [Name]));
+
+        Assert.Equal(4, exit);
+        Assert.Equal(originalBytes, File.ReadAllBytes(CalcPath));
+        Assert.Equal("TestFileChanged", FailureKind());
+        Assert.Contains($"지정한 테스트 파일이 실행 중에 바뀌었습니다: {Path.Combine("Demo.Tests", "CalcTests.cs")}", _ui.Warnings);
     }
 }

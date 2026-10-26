@@ -219,7 +219,10 @@ public sealed class LocatePhase(
             return null;
         }
 
-        ctx.TestFirst = new TestFirstState(ctx.Request.VerifyTests!, ctx.Request.ExpectBreaks ?? [], hashes);
+        ctx.TestFirst = new TestFirstState(ctx.Request.VerifyTests!, ctx.Request.ExpectBreaks ?? [], hashes)
+        {
+            DeclaredNames = declarations.Select(d => d.FullName).ToHashSet(StringComparer.Ordinal),
+        };
         return declarations.Select(d => d.Csproj!).ToList();
     }
 

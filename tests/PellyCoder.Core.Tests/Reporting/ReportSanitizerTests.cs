@@ -248,6 +248,49 @@ public sealed class ReportSanitizerTests
         Assert.Contains("| 테스트로 검증되지 않은 수용 기준 | 1건 |", md);
         Assert.Contains("| breaks로 뺀 테스트 | 2건 |", md);
     }
+
+    private static ApplyRecord ApplyWith(params AcResult[] acs)
+    {
+        var rec = ApplyReportTests.Apply("apply-1");
+        return rec with { Summary = rec.Summary with { Criteria = acs } };
+    }
+
+    [Fact]
+    public void Sanitize_AllUnverifiedAc_ZeroDenominatorShowsDash()
+    {
+        var runs = new[] { Rec(Injected()) };
+        var report = ReportSanitizer.Sanitize(runs, RunReport.Build(runs),
+            ApplyReport.Build([ApplyWith(new AcResult("AC1", RedState.NotChecked, AcOutcome.Unverified, null, 0))]));
+
+        var md = report.ToMarkdown();
+        Assert.Contains("| 수용 기준 충족률 | - (0/0) |", md);
+        Assert.Contains("| 테스트로 검증되지 않은 수용 기준 | 1건 |", md);
+    }
+
+    [Fact]
+    public void Sanitize_CombinesSingleRunAndCriteria()
+    {
+        var single = Injected() with
+        {
+            ExitCode = 0,
+            TestFirst = new TestFirstSummary(1, RedState.Red, GreenState.Passed, 0, 1),
+        };
+        var runs = new[] { Rec(single) };
+        var report = ReportSanitizer.Sanitize(runs, RunReport.Build(runs), ApplyReport.Build([ApplyWith(
+            new AcResult("AC1", RedState.Red, AcOutcome.Met, "r1", 2),
+            new AcResult("AC2", RedState.Red, AcOutcome.NotMet, "r2", 0))]));
+
+        var md = report.ToMarkdown();
+        Assert.Contains("| 수용 기준 충족률 | 66.7% (2/3) |", md);
+        Assert.Contains("| breaks로 뺀 테스트 | 3건 |", md);
+        var tf = report.Aggregate.TestFirst!;
+        Assert.Equal(2, tf.Met);
+        Assert.Equal(3, tf.Judged);
+        using var doc = System.Text.Json.JsonDocument.Parse(report.ToJson());
+        var el = doc.RootElement.GetProperty("aggregate").GetProperty("testFirst");
+        Assert.Equal(2, el.GetProperty("met").GetInt32());
+        Assert.Equal(3, el.GetProperty("judged").GetInt32());
+    }
 }
 
 /// <summary>File system whose read/open methods throw for any path that is not a summary.json.</summary>

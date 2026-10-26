@@ -276,8 +276,7 @@ public class ReportCommandTests
 
         var output = app.Run("report").Output;
 
-        Assert.Contains("테스트로 검증되지 않은 수용 기준", output);
-        Assert.Contains("2건", output);
+        Assert.Contains("2건", RowOf(output, "테스트로 검증되지 않은 수용 기준"));
     }
 
     [Fact]
@@ -289,8 +288,7 @@ public class ReportCommandTests
 
         var output = app.Run("report").Output;
 
-        Assert.Contains("breaks로 뺀 테스트", output);
-        Assert.Contains("3건", output);
+        Assert.Contains("3건", RowOf(output, "breaks로 뺀 테스트"));
     }
 
     [Fact]
@@ -299,5 +297,24 @@ public class ReportCommandTests
         var (app, _, fs) = Build();
         AddRun(fs, "20261001-101010-aaaa", 0);
         Assert.DoesNotContain("테스트로 검증되지 않은 수용 기준", app.Run("report").Output);
+    }
+
+    private static string RowOf(string output, string label) =>
+        Assert.Single(output.Split('\n'), l => l.Contains(label));
+
+    [Fact]
+    public void Report_AllUnverifiedAc_ZeroDenominatorShowsDash()
+    {
+        var (app, _, fs) = Build();
+        AddCriteriaApply(fs, "apply-20261002-101010",
+            new AcResult("AC1", RedState.NotChecked, AcOutcome.Unverified, null, 0),
+            new AcResult("AC2", RedState.NotChecked, AcOutcome.Unverified, null, 0));
+
+        var output = app.Run("report").Output;
+
+        var row = RowOf(output, "수용 기준 충족률");
+        Assert.Contains("-", row);
+        Assert.DoesNotContain("%", row);
+        Assert.Contains("2건", RowOf(output, "테스트로 검증되지 않은 수용 기준"));
     }
 }

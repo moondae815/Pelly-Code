@@ -16,7 +16,7 @@ public static class NameImpactFinder
 {
     private const int MaxDirectories = 2000;
 
-    private sealed record Parsed(string Path, SyntaxNode Root);
+    internal sealed record Parsed(string Path, SyntaxNode Root);
 
     public static ImpactResult Find(IFileSystem fs, Workspace ws, IReadOnlyList<ImpactSeed> seeds, IReadOnlyList<string> projects, SemanticFailure fallback, int maxDirectories = MaxDirectories)
     {
@@ -171,7 +171,7 @@ public static class NameImpactFinder
         _ => t.ToString(),
     };
 
-    private static (List<Parsed> Files, bool Incomplete) Load(IFileSystem fs, Workspace ws, IReadOnlyList<string> projects, int maxDirectories)
+    internal static (List<Parsed> Files, bool Incomplete) Load(IFileSystem fs, Workspace ws, IReadOnlyList<string> projects, int maxDirectories)
     {
         var roots = projects.Count > 0
             ? projects.Select(p => fs.Path.GetDirectoryName(p) ?? ws.Root).ToList()

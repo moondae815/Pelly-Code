@@ -18,10 +18,16 @@ public sealed record PackageKind(string Name, string ZipVariable, string ListFil
     /// <summary>Roslyn build-host folders shipped beside the exe (V2-1c Task 5); both zips carry them whole.</summary>
     public static readonly string[] BuildHostFolders = ["BuildHost-net472", "BuildHost-netcore"];
 
+    /// <summary>Avalonia natives kept out of the single file and shipped beside pelly.exe (V2-0 Task 6); only <c>pelly ui</c> loads them.</summary>
+    public static readonly string[] UiNatives = ["av_libglesv2.dll", "libHarfBuzzSharp.dll", "libSkiaSharp.dll"];
+
     // The brief's allow-list (Task 9). deploy/package-files.txt must say the same; the zip must contain exactly this.
     public static readonly PackageKind Pelly = new("pelly", "PELLY_TEST_PACKAGE", "deploy/package-files.txt", "pelly.exe", "artifacts/publish/win-x64",
     [
         "pelly.exe",
+        "av_libglesv2.dll",
+        "libHarfBuzzSharp.dll",
+        "libSkiaSharp.dll",
         "BuildHost-net472/**",
         "BuildHost-netcore/**",
         "LICENSE",
@@ -170,8 +176,8 @@ public sealed class PackageTests
         var kind = PackageKind.ByName(package);
         var root = Extracted[package].Value;
         var problems = new List<string>();
-        // Our own text files only: the build-host folders are the NuGet package's binaries and runtime configs.
-        foreach (var file in kind.ExpectedFiles.Where(f => f != kind.Exe && !PackageFileList.IsFolder(f, out _)))
+        // Our own text files only: the build-host folders and the GUI natives are NuGet packages' binaries and runtime configs.
+        foreach (var file in kind.ExpectedFiles.Where(f => f != kind.Exe && !PackageKind.UiNatives.Contains(f) && !PackageFileList.IsFolder(f, out _)))
         {
             var text = File.ReadAllText(Path.Combine(root, file));
             // localhost is not checked here: the docs name it as the built-in default (no-network.md).
@@ -204,6 +210,17 @@ public sealed class PackageTests
         Assert.True(result.ExitCode == 0, $"exit {result.ExitCode}\n{result.StdOut}\n{result.StdErr}");
         foreach (var row in new[] { "토크나이저", "Roslyn", "ScriptDom", "인코딩", "리소스", "SqlClient", "의미 분석 보조 프로세스" })
             Assert.Contains(row, result.StdOut, StringComparison.Ordinal);
+    }
+
+    [WindowsFact]
+    public async Task Packaged_UiSelfTest_Exit0()
+    {
+        // Draws the approval window once off screen with the natives beside pelly.exe in the unzipped folder (V2-0 Task 6).
+        // A missing DLL would exit 4 with 「GUI 구성 요소를 불러오지 못했습니다」.
+        var result = await Run(PackageKind.Pelly, ["ui", "--selftest"]);
+
+        Assert.True(result.ExitCode == 0, $"exit {result.ExitCode}\n{result.StdOut}\n{result.StdErr}");
+        Assert.Contains("ui selftest: ok", result.StdOut, StringComparison.Ordinal);
     }
 
     [WindowsFact]

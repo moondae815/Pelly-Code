@@ -5,6 +5,10 @@
 #   그 밖           저장소 루트 기준
 # LICENSE: pelly 자체의 라이선스(사내 전용, 2026-10-19 사람 결정). 현장 키트에도 같은 파일이 들어간다.
 pelly.exe <- publish:pelly.exe
+# Avalonia 네이티브 (V2-0): 단일 파일에 묶지 않고 pelly.exe 옆에 둔다. pelly ui만 불러온다. pdb는 넣지 않는다
+av_libglesv2.dll <- publish:av_libglesv2.dll
+libHarfBuzzSharp.dll <- publish:libHarfBuzzSharp.dll
+libSkiaSharp.dll <- publish:libSkiaSharp.dll
 BuildHost-net472/** <- publish:BuildHost-net472/**
 BuildHost-netcore/** <- publish:BuildHost-netcore/**
 LICENSE <- LICENSE

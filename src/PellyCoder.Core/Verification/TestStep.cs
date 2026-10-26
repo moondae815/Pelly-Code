@@ -113,7 +113,8 @@ public sealed class TestStep(TestRunner runner, FeedbackBuilder feedback, TestOp
 
     /// <summary>
     /// GREEN and regression verdict of a test-first run: GREEN failures first (<c>TestGreenFailed</c>), then regressions
-    /// (<c>TestRegression</c>), then the test file guard (<c>TestFileChanged</c>, exit 4).
+    /// (<c>TestRegression</c>), then the test file guard and the caller's expected declaration hashes (<c>TestFileChanged</c>,
+    /// exit 4). The first attempt's GREEN verdict is kept in <see cref="TestFirstState.FirstAttemptGreen"/>.
     /// </summary>
     private StepResult JudgeTestFirst(RunContext ctx, TestFirstState state, IReadOnlyList<TestRun?> runs,
         List<TestCaseResult> failures, List<(string Project, int ExitCode)> exitFailures, HashSet<string> excluded)
@@ -141,6 +142,7 @@ public sealed class TestStep(TestRunner runner, FeedbackBuilder feedback, TestOp
         if (green.Count > 0)
         {
             state.Green = GreenState.Failed;
+            if (ctx.Attempt == 1) state.FirstAttemptGreen = state.Green;
             state.Regressions = regressions.Count;
             var target = Path.GetRelativePath(ctx.Workspace!.Root, ctx.FilePath).Replace('\\', '/');
             var diagnostics = green.Select(g => Test(g.FullName)).Concat(regressions.Select(r => Test(r.FullName))).ToList();
@@ -148,6 +150,7 @@ public sealed class TestStep(TestRunner runner, FeedbackBuilder feedback, TestOp
         }
 
         state.Green = greenTests.Count > 0 ? GreenState.Passed : GreenState.NotChecked;
+        if (ctx.Attempt == 1) state.FirstAttemptGreen = state.Green;
         state.Regressions = regressions.Count + exitFailures.Count;
         if (state.Regressions > 0)
         {
@@ -171,6 +174,20 @@ public sealed class TestStep(TestRunner runner, FeedbackBuilder feedback, TestOp
             if (now != hash)
                 return StepResult.Environment(
                     $"지정한 테스트 파일이 실행 중에 바뀌었습니다: {Path.GetRelativePath(ctx.Workspace!.Root, file)}", "TestFileChanged");
+        }
+
+        // The caller's hashes (pelly apply): the named test's declaration must still be the one the caller recorded, which
+        // also catches a change made before this run started (an earlier task or group of the same apply).
+        foreach (var (name, expected) in ctx.Request.ExpectedTestHashes ?? new Dictionary<string, string>())
+        {
+            var root = ctx.Workspace!.Root;
+            if (TestDeclarationHash.Of(fs, root, name) == expected) continue;
+            // Name the declaring file found now; a vanished declaration falls back to a file LOCATE recorded.
+            var file = TestMethodIndex.Find(fs, root, name).Select(d => d.File).FirstOrDefault()
+                ?? state.TestFileHashes.Keys.Order(StringComparer.Ordinal).FirstOrDefault()
+                ?? ctx.FilePath;
+            return StepResult.Environment(
+                $"지정한 테스트 파일이 실행 중에 바뀌었습니다: {Path.GetRelativePath(root, file)}", "TestFileChanged");
         }
         return StepResult.Pass;
     }

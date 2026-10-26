@@ -1,5 +1,4 @@
 using System.IO.Abstractions;
-using System.Text;
 using PellyCoder.Core.Abstractions;
 using PellyCoder.Core.Builds;
 using PellyCoder.Core.Config;
@@ -21,14 +20,17 @@ namespace PellyCoder.Core.Fsm;
 /// when that task belongs to a task group. <paramref name="VerifyTests"/> (<c>--verify-test</c>) names the tests that must
 /// fail before the edit and pass after it (design §6); <paramref name="ExpectBreaks"/> (<c>--expect-break</c>) the tests the
 /// change may break (design §5.2b). <paramref name="TestChecks"/> gives each named test's role (RED before the edit, GREEN
-/// after it); null means every name has both (a <c>pelly cs</c> run).
+/// after it); null means every name has both (a <c>pelly cs</c> run). <paramref name="ExpectedTestHashes"/> maps named tests
+/// (as spelled in <paramref name="VerifyTests"/>) to the <see cref="TestDeclarationHash.Of"/> their caller recorded; VERIFY's
+/// test step fails with <c>TestFileChanged</c> when a declaration no longer hashes to it.
 /// </summary>
 public sealed record RunRequest(
     string FilePath, string? ClassName, string? MethodName, int? Line, string Request, bool Yes, bool DryRun, int? MaxRetries,
     string? ObjectName = null, EditKind Kind = EditKind.CSharp, bool Verbose = false, bool RunTests = false,
     ApplyHost? Host = null, GroupRun? Group = null,
     IReadOnlyList<string>? VerifyTests = null, IReadOnlyList<string>? ExpectBreaks = null,
-    IReadOnlyDictionary<string, TestCheck>? TestChecks = null)
+    IReadOnlyDictionary<string, TestCheck>? TestChecks = null,
+    IReadOnlyDictionary<string, string>? ExpectedTestHashes = null)
 {
     /// <summary>A test-first run: it always runs the tests and judges RED before the first write and GREEN after it.</summary>
     public bool TestFirst => VerifyTests is { Count: > 0 };
@@ -122,6 +124,10 @@ public sealed class TestFirstState(IReadOnlyList<string> names, IReadOnlyList<st
     public RedResult? Red { get; set; }
 
     public GreenState Green { get; set; } = GreenState.NotChecked;
+
+    /// <summary>The GREEN verdict of the first attempt's test step; NotChecked when that attempt did not reach it.</summary>
+    public GreenState FirstAttemptGreen { get; set; } = GreenState.NotChecked;
+
     public int Regressions { get; set; }
     public int BreaksExcluded { get; set; }
 
@@ -136,8 +142,7 @@ public sealed class TestFirstState(IReadOnlyList<string> names, IReadOnlyList<st
     {
         if (!PathComparers.ForOs.Equals(fs.Path.GetFullPath(file), fs.Path.GetFullPath(targetFile)))
             return TextFileCodec.HashHex(fs.File.ReadAllBytes(file));
-        var declarations = TestMethodIndex.DeclarationTexts(fs.File.ReadAllText(file), testFullNames);
-        return TextFileCodec.HashHex(Encoding.UTF8.GetBytes(string.Join("\n", declarations)));
+        return TestDeclarationHash.OfTexts(TestMethodIndex.DeclarationTexts(fs.File.ReadAllText(file), testFullNames));
     }
 }
 

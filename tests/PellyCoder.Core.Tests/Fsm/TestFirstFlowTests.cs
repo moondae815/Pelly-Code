@@ -827,4 +827,86 @@ public sealed class TestFirstFlowTests : IDisposable
         Assert.Equal(0, exit);
         Assert.True(Summary().GetProperty("testFirst").GetProperty("inApply").GetBoolean());
     }
+
+    [Fact]
+    public async Task VerifyTest_ExpectedHashMismatch_Exit4()
+    {
+        var originalBytes = File.ReadAllBytes(CalcPath);
+        EnqueueBaseline(Red());
+        EnqueueAttempt(Green());
+        _backend.Enqueue(Block(Original, Guarded));
+
+        var exit = await Run(Req(CalcPath, [Name]) with { ExpectedTestHashes = new Dictionary<string, string> { [Name] = new string('0', 64) } });
+
+        Assert.Equal(4, exit);
+        Assert.Equal(originalBytes, File.ReadAllBytes(CalcPath));
+        Assert.Equal("TestFileChanged", FailureKind());
+        Assert.Equal("Passed", Summary().GetProperty("testFirst").GetProperty("green").GetString());
+        Assert.Contains($"지정한 테스트 파일이 실행 중에 바뀌었습니다: {Path.Combine("Demo.Tests", "CalcTests.cs")}", _ui.Warnings);
+    }
+
+    [Fact]
+    public async Task VerifyTest_ExpectedHashMatch_Passes()
+    {
+        var expected = TestDeclarationHash.Of(_fs, _root, Name);
+        Assert.NotNull(expected);
+        EnqueueBaseline(Red());
+        EnqueueAttempt(Green());
+        _backend.Enqueue(Block(Original, Guarded));
+
+        var exit = await Run(Req(CalcPath, [Name]) with { ExpectedTestHashes = new Dictionary<string, string> { [Name] = expected } });
+
+        Assert.Equal(0, exit);
+        Assert.Equal(CalcSource.Replace(Original, Guarded), File.ReadAllText(CalcPath));
+    }
+
+    [Fact]
+    public async Task Summary_FirstAttemptGreen_FailedThenPassed()
+    {
+        EnqueueBaseline(Red());
+        EnqueueAttempt(Red());      // attempt 1: the named test still fails
+        EnqueueAttempt(Green());
+        _backend.Enqueue(Block(Original, Wrong));
+        _backend.Enqueue("Throw instead.</think>", evalCount: 10);
+        _backend.Enqueue(Block(Wrong, Guarded));
+
+        var exit = await Run(Req(CalcPath, [Name]));
+
+        Assert.Equal(0, exit);
+        var tf = Summary().GetProperty("testFirst");
+        Assert.Equal("Failed", tf.GetProperty("firstAttemptGreen").GetString());
+        Assert.Equal("Passed", tf.GetProperty("green").GetString());
+    }
+
+    [Fact]
+    public async Task Summary_FirstAttemptGreen_PassedOnFirst()
+    {
+        EnqueueBaseline(Red());
+        EnqueueAttempt(Green());
+        _backend.Enqueue(Block(Original, Guarded));
+
+        var exit = await Run(Req(CalcPath, [Name]));
+
+        Assert.Equal(0, exit);
+        Assert.Equal("Passed", Summary().GetProperty("testFirst").GetProperty("firstAttemptGreen").GetString());
+    }
+
+    [Fact]
+    public async Task Summary_FirstAttemptBuildFails_NotChecked()
+    {
+        EnqueueBaseline(Red());
+        // Attempt 1: the target does not build, so the test step is never reached.
+        _processes.Enqueue(Result(1, $"{CalcPath}(7,9): error CS0103: The name 'x' does not exist in the current context [{CsprojPath}]"));
+        EnqueueAttempt(Green());
+        _backend.Enqueue(Block(Original, "        return x / b;"));
+        _backend.Enqueue("Use a.</think>", evalCount: 10);
+        _backend.Enqueue(Block("        return x / b;", Guarded));
+
+        var exit = await Run(Req(CalcPath, [Name]));
+
+        Assert.Equal(0, exit);
+        var tf = Summary().GetProperty("testFirst");
+        Assert.Equal("NotChecked", tf.GetProperty("firstAttemptGreen").GetString());
+        Assert.Equal("Passed", tf.GetProperty("green").GetString());
+    }
 }

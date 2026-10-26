@@ -23,9 +23,11 @@ public sealed record RunSummary(
 
 /// <summary>
 /// Test-first outcome of a run: counts and enum states only, never test names (they stay out of the sanitized report).
-/// <paramref name="InApply"/> is true when <c>pelly apply</c> ran it as one of its tasks.
+/// <paramref name="InApply"/> is true when <c>pelly apply</c> ran it as one of its tasks. <paramref name="FirstAttemptGreen"/>
+/// is the first attempt's GREEN verdict (NotChecked when that attempt did not reach the test step).
 /// </summary>
-public sealed record TestFirstSummary(int Tests, RedState Red, GreenState Green, int Regressions, int BreaksExcluded, bool InApply = false);
+public sealed record TestFirstSummary(int Tests, RedState Red, GreenState Green, int Regressions, int BreaksExcluded, bool InApply = false,
+    GreenState FirstAttemptGreen = GreenState.NotChecked);
 
 /// <summary>
 /// Writes <c>.pelly/runs/&lt;runId&gt;/</c>: <c>events.jsonl</c>, <c>attempt-&lt;n&gt;/*.txt</c>, <c>summary.json</c>.
@@ -144,7 +146,8 @@ public sealed class RunLogger(IFileSystem fs, TimeProvider time)
             : tests.Any(t => t.State == RedState.AlreadyPassed) ? RedState.AlreadyPassed
             : s.Red.Unverifiable is null && s.Red.FailureKind is null && tests.Any(t => t.State == RedState.Red) ? RedState.Red
             : RedState.NotChecked;
-        return new TestFirstSummary(s.Names.Count, red, s.Green, s.Regressions, s.BreaksExcluded, ctx.Request.Host is not null);
+        return new TestFirstSummary(s.Names.Count, red, s.Green, s.Regressions, s.BreaksExcluded, ctx.Request.Host is not null,
+            s.FirstAttemptGreen);
     }
 
     private string RunsDir(RunContext ctx) => fs.Path.Combine(ctx.Workspace!.PellyDir, "runs");

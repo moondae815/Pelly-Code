@@ -12,7 +12,8 @@ public static class TestDeclarationHash
 {
     /// <summary>
     /// SHA-256 hex of the declarations <see cref="TestMethodIndex.Find"/> finds for <paramref name="testName"/>, in full-name
-    /// order; null when there is none (or a declaring file can no longer be read).
+    /// order; null when there is none. Throws when the workspace or a declaring file cannot be read: callers use
+    /// <see cref="TryOf"/>.
     /// </summary>
     public static string? Of(IFileSystem fs, string workspaceRoot, string testName)
     {
@@ -20,19 +21,30 @@ public static class TestDeclarationHash
         if (declarations.Count == 0) return null;
         var texts = new List<string>();
         var sources = new Dictionary<string, string>(StringComparer.Ordinal);
-        try
+        foreach (var d in declarations)
         {
-            foreach (var d in declarations)
-            {
-                if (!sources.TryGetValue(d.File, out var source)) sources[d.File] = source = fs.File.ReadAllText(d.File);
-                texts.AddRange(TestMethodIndex.DeclarationTexts(source, [d.FullName]));
-            }
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return null;
+            if (!sources.TryGetValue(d.File, out var source)) sources[d.File] = source = fs.File.ReadAllText(d.File);
+            texts.AddRange(TestMethodIndex.DeclarationTexts(source, [d.FullName]));
         }
         return OfTexts(texts);
+    }
+
+    /// <summary>
+    /// <see cref="Of"/>, or null when it cannot be taken (no declaration, or the search or a read failed with an
+    /// <see cref="IOException"/> or <see cref="UnauthorizedAccessException"/>). What null means is the caller's: changed for
+    /// a check against an expected hash, not recorded for a recorder.
+    /// </summary>
+    public static string? TryOf(IFileSystem fs, string workspaceRoot, string testName)
+    {
+        try { return Of(fs, workspaceRoot, testName); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
+    }
+
+    /// <summary>The first file declaring <paramref name="testName"/> now; null when none or the search fails on I/O.</summary>
+    public static string? TryDeclaringFile(IFileSystem fs, string workspaceRoot, string testName)
+    {
+        try { return TestMethodIndex.Find(fs, workspaceRoot, testName).Select(d => d.File).FirstOrDefault(); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
     }
 
     /// <summary>The hash rule shared with <c>TestFirstState.HashOf</c>: the declaration texts joined by newlines, UTF-8, SHA-256 hex.</summary>

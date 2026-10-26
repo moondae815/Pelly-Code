@@ -366,7 +366,7 @@ public sealed class GroupTesterTests : IDisposable
 
         Assert.Null(verdict.Unverifiable);
         Assert.Empty(verdict.Green);
-        Assert.Equal(Path.Combine("tests", "App.Tests", "OrderTests.cs"), verdict.ChangedTestFile);
+        Assert.Equal("tests/App.Tests/OrderTests.cs", verdict.ChangedTestFile); // '/' on every OS, like the other group messages
     }
 
     [Fact]
@@ -399,6 +399,6 @@ public sealed class GroupTesterTests : IDisposable
 
         var verdict = await Verify(tester, baseline, plan);
 
-        Assert.Equal(Path.Combine("tests", "App.Tests", "OrderTests.cs"), verdict.ChangedTestFile);
+        Assert.Equal("tests/App.Tests/OrderTests.cs", verdict.ChangedTestFile); // '/' on every OS, like the other group messages
     }
 }

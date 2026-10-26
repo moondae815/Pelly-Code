@@ -181,9 +181,10 @@ public sealed class TestStep(TestRunner runner, FeedbackBuilder feedback, TestOp
         foreach (var (name, expected) in ctx.Request.ExpectedTestHashes ?? new Dictionary<string, string>())
         {
             var root = ctx.Workspace!.Root;
-            if (TestDeclarationHash.Of(fs, root, name) == expected) continue;
+            // Null (vanished, or unreadable) never equals a recorded hash: it counts as changed.
+            if (TestDeclarationHash.TryOf(fs, root, name) == expected) continue;
             // Name the declaring file found now; a vanished declaration falls back to a file LOCATE recorded.
-            var file = TestMethodIndex.Find(fs, root, name).Select(d => d.File).FirstOrDefault()
+            var file = TestDeclarationHash.TryDeclaringFile(fs, root, name)
                 ?? state.TestFileHashes.Keys.Order(StringComparer.Ordinal).FirstOrDefault()
                 ?? ctx.FilePath;
             return StepResult.Environment(

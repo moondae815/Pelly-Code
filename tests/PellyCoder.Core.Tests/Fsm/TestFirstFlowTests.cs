@@ -846,6 +846,33 @@ public sealed class TestFirstFlowTests : IDisposable
     }
 
     [Fact]
+    public async Task VerifyTest_ExpectedHash_DeclarationVanishedBeforeVerify_Exit4WithFallbackFile()
+    {
+        var expected = TestDeclarationHash.Of(_fs, _root, Name);
+        Assert.NotNull(expected);
+        var originalBytes = File.ReadAllBytes(CalcPath);
+        EnqueueBaseline(Red());
+        _processes.Enqueue(Ok());
+        _processes.Enqueue(Ok());
+        _processes.Enqueue((spec, _) =>
+        {
+            // The attribute goes away while VERIFY re-measures: the test no longer exists, so its file cannot be found now.
+            File.WriteAllText(TestSourcePath, TestSource.Replace("    [Fact]\n", ""));
+            File.WriteAllText(TrxPathOf(spec), Green());
+            return Task.FromResult(Ok());
+        });
+        _backend.Enqueue(Block(Original, Guarded));
+
+        var exit = await Run(Req(CalcPath, [Name]) with { ExpectedTestHashes = new Dictionary<string, string> { [Name] = expected } });
+
+        Assert.Equal(4, exit);
+        Assert.Null(TestDeclarationHash.Of(_fs, _root, Name));
+        Assert.Equal(originalBytes, File.ReadAllBytes(CalcPath));
+        Assert.Equal("TestFileChanged", FailureKind());
+        Assert.Contains($"지정한 테스트 파일이 실행 중에 바뀌었습니다: {Path.Combine("Demo.Tests", "CalcTests.cs")}", _ui.Warnings);
+    }
+
+    [Fact]
     public async Task VerifyTest_ExpectedHashMatch_Passes()
     {
         var expected = TestDeclarationHash.Of(_fs, _root, Name);

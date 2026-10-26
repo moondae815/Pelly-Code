@@ -284,9 +284,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             {
                 if (link.LinkedTaskIds.Count < 2 || _startHashes.ContainsKey(link.AcId)) continue;
                 if (!tasks.Any(t => t.Id == link.LinkedTaskIds[0])) continue;
-                string? hash;
-                try { hash = TestDeclarationHash.Of(owner.Fs, ws.Root, link.Test); }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { hash = null; }
+                var hash = TestDeclarationHash.TryOf(owner.Fs, ws.Root, link.Test);
                 // Not found or unreadable: skip the test (it is not guarded across tasks). Never store null as an expected
                 // hash: it would silently pass. The last task's own run still locates and judges the test.
                 if (hash is not null) _startHashes[link.AcId] = hash;

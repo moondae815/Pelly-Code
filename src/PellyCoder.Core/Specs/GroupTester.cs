@@ -166,7 +166,7 @@ public sealed class GroupTester(IFileSystem fs, TestRunner runner, BuildToolReso
         // The test-change guard's reference (design V2-2c): every plan test's declaration as it stands before the group edits.
         var declarations = new Dictionary<string, (string File, string Hash)>(StringComparer.Ordinal);
         foreach (var (name, decl) in decls)
-            if (HashOf(ws, name) is { } hash) declarations[name] = (decl.File, hash);
+            if (TestDeclarationHash.TryOf(fs, ws.Root, name) is { } hash) declarations[name] = (decl.File, hash);
 
         return new GroupTestBaseline(projects, runs, compileRed, states, null) { Tests = tests, Notices = notices, Declarations = declarations };
     }
@@ -264,22 +264,12 @@ public sealed class GroupTester(IFileSystem fs, TestRunner runner, BuildToolReso
         {
             var known = baseline.Declarations.TryGetValue(name, out var declaration);
             string? expected = plan.ExpectedHashes?.GetValueOrDefault(name) ?? (known ? declaration.Hash : null);
-            if (expected is null || HashOf(ws, name) == expected) continue;
+            if (expected is null || TestDeclarationHash.TryOf(fs, ws.Root, name) == expected) continue;
             // Name the declaring file found now; a vanished declaration falls back to the one the baseline saw.
-            string? file;
-            try { file = TestMethodIndex.Find(fs, ws.Root, name).Select(d => d.File).FirstOrDefault(); }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { file = null; }
-            file ??= known ? declaration.File : null;
-            return file is null ? name : fs.Path.GetRelativePath(ws.Root, fs.Path.GetFullPath(file));
+            var file = TestDeclarationHash.TryDeclaringFile(fs, ws.Root, name) ?? (known ? declaration.File : null);
+            return file is null ? name : Relative(ws, fs.Path.GetFullPath(file));
         }
         return null;
-    }
-
-    /// <summary>The test's declaration hash; null when it cannot be taken (not found, or a file cannot be read).</summary>
-    private string? HashOf(Workspace ws, string name)
-    {
-        try { return TestDeclarationHash.Of(fs, ws.Root, name); }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
     }
 
     /// <summary>The scope's test projects (or its <c>test.projects</c>), then the projects declaring the named tests.</summary>

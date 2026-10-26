@@ -46,7 +46,7 @@ public static class FsmOrchestratorFactory
 
     /// <summary>The SQL pipeline: same EDIT/REVIEW, SQL-specific preflight, locate, slice, apply and verify.</summary>
     public static FsmOrchestrator CreateSql(IFileSystem fs, ILlmBackend backend, IUserInteraction ui, PellyOptions options, TimeProvider time,
-        ISqlExecutor sql)
+        ISqlExecutor sql, SqlReaderOpen? prod = null)
     {
         var tokens = QwenTokenCounter.Shared;
         var template = options.Llm.Template is { } path ? QwenChatTemplate.LoadFromFile(fs, path) : QwenChatTemplate.LoadDefault();
@@ -60,7 +60,7 @@ public static class FsmOrchestratorFactory
         IPhase[] phases =
         [
             new SqlPreflightPhase(new PreflightPhase(fs, fileGuard, backend, options.Llm, tokens.SpecialTokens), sql, options.Sql),
-            new SqlLocatePhase(ui, options.Sql),
+            new SqlProdCheckPhase(new SqlLocatePhase(ui, options.Sql), prod ?? new SqlReaderOpen(null, null, null)),
             new SqlSlicePhase(fileGuard, tokens, options.Budget, sql),
             new EditPhase(prompts, client, feedback, logger, ui),
             new SqlApplyPhase(fileGuard, feedback, ui),

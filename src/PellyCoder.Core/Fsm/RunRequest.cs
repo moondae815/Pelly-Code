@@ -200,6 +200,9 @@ public sealed class RunContext(string runId, RunRequest request, PellyOptions op
 
     /// <summary>Set by SQL LOCATE; null in C# runs.</summary>
     public SqlRunState? Sql { get; set; }
+
+    /// <summary>Production comparison of the SQL target (set by the prod check); null when no production connection is configured.</summary>
+    public PellyCoder.Core.Sql.ProdCheck? SqlProd { get; set; }
     public MemberCandidate? Candidate { get; set; }
 
     /// <summary>SLICE's dto text with the (member display, file sha) it was built for; a retry with both unchanged reuses it.</summary>

@@ -1,6 +1,6 @@
 # V2-2 테스트 우선 검증 (Test-First Verification) 설계
 
-작성 2026-10-26. 상태: 초안, 사람 확인 전. 설계 검토(빌더 확인) 반영. 사람은 「질문 없이 바로 설계」를 골랐다. 아래에서 「Claude 결정」으로 표시한 것은 사람이 아직 확인하지 않은 판단이다.
+작성 2026-10-26. 상태: 초안, 사람 확인 전. V2-2a(단독 실행 `--verify-test`·`--expect-break`)는 2026-10-26 구현됨, 명세·`apply` 연동은 V2-2b. 설계 검토(빌더 확인) 반영. 사람은 「질문 없이 바로 설계」를 골랐다. 아래에서 「Claude 결정」으로 표시한 것은 사람이 아직 확인하지 않은 판단이다.
 
 근거 문서:
 - PRD §12.4(V2-2 원안), §12.6(v2 KPI: 수용 기준 충족률·RED 확인 경고율), §12.7, FR-06 5번(v1 `--test`)
@@ -203,7 +203,7 @@ The test cannot be changed. Make it pass by implementing the request.
 - **`summary.json`(실행 하나):** 테스트 우선 검증을 한 실행에만 `testFirst`를 더한다. 고정 값과 개수만 둔다: 판정한 테스트 수, RED 상태(`Red`, `RedCompile`, `AlreadyPassed`, `Skipped`(이어서 하기), `NotChecked`), GREEN 상태(`Passed`, `Failed`, `NotChecked`), 회귀 개수. 테스트 이름은 넣지 않는다(이름은 v1처럼 오류 메시지 쪽에만 있고, 비식별 리포트는 메시지를 쓰지 않는다).
 - **`apply.json`:** AC별로 결과를 남긴다: RED 상태, GREEN 결과(`Met`, `NotMet`, `Unverified`), 판정한 작업의 run-id. AC ID(`AC1`)는 비식별 리포트에서 지우고 개수만 남긴다.
 - **`pelly report`:**
-  - **수용 기준 충족률** = GREEN 확인까지 간 AC 중 GREEN·회귀 없음으로 끝난 AC 비율. PRD §12.6은 「테스트가 연결된 작업」 기준이지만, 이 설계는 판정이 AC 단위라 AC로 센다(Claude 결정). 단독 실행(`--verify-test`)은 실행 하나를 AC 하나로 센다. 「미검증」 AC는 분모에서 빼고 따로 개수를 낸다.
+  - **수용 기준 충족률** = RED를 통과했고 사람이 취소·거부하지 않은 실행(종료 2 제외) 중 GREEN·회귀 없음으로 끝난 비율. Met은 종료 0도 필요하다(테스트 파일이 바뀐 실행은 Met이 아니다). PRD §12.6은 「테스트가 연결된 작업」 기준이지만, 이 설계는 판정이 AC 단위라 AC로 센다(Claude 결정). 단독 실행(`--verify-test`)은 실행 하나를 AC 하나로 센다. 「미검증」 AC는 분모에서 빼고 따로 개수를 낸다.
   - RED가 「이미 통과」였던 AC는 GREEN이 거의 저절로 나오므로 **분자와 분모 모두에서 뺀다**(설계 검토 반영, Claude 결정). RED 확인 경고율에만 들어간다.
   - **RED 확인 경고율** = RED 확인을 한 AC 중 「이미 통과」 비율. 기록만 한다.
   - 실패 유형 고정 목록(`FailureKinds`)에 `TestGreenFailed`, `TestRegression`, `TestNotFound`, `TestAmbiguous`, `TestUnverifiable`, `TestRedDeclined`, `TestFileChanged`를 더한다. 비식별 허용 목록 규칙은 그대로다.

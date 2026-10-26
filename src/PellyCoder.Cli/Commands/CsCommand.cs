@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.IO.Abstractions;
 using PellyCoder.Core.Abstractions;
 using PellyCoder.Core.Fsm;
+using PellyCoder.Core.Testing;
 using Spectre.Console;
 using Spectre.Console.Cli;
 
@@ -40,6 +41,14 @@ public sealed class CsSettings : RunSettings
     [CommandOption("--test")]
     [Description("검증 때 테스트도 실행 (새로 실패한 테스트만 실패로 봄)")]
     public bool Test { get; init; }
+
+    [CommandOption("--verify-test <NAME>")]
+    [Description("패치 전 실패·패치 뒤 통과해야 하는 테스트 (여러 번 지정 가능)")]
+    public string[]? VerifyTest { get; init; }
+
+    [CommandOption("--expect-break <NAME>")]
+    [Description("이 변경으로 실패해도 되는 기존 테스트 (--verify-test와 함께)")]
+    public string[]? ExpectBreak { get; init; }
 }
 
 /// <summary><c>pelly cs</c>: validates arguments, merges configuration, then hands the run to <see cref="IRunner"/>.</summary>
@@ -55,6 +64,17 @@ public sealed class CsCommand(
             return Fail("--line은 1 이상이어야 합니다");
         if (settings.MaxRetries is < 0)
             return Fail("--max-retries는 0 이상이어야 합니다");
+
+        // Distinct, in the order given; an empty list means the option was absent.
+        var verifyTests = settings.VerifyTest?.Distinct(StringComparer.Ordinal).ToList() ?? [];
+        var expectBreaks = settings.ExpectBreak?.Distinct(StringComparer.Ordinal).ToList() ?? [];
+        foreach (var name in verifyTests.Concat(expectBreaks))
+            if (!TestNames.IsValid(name))
+                return Fail($"테스트 이름 형식이 아닙니다: {name}");
+        if (expectBreaks.Count > 0 && verifyTests.Count == 0)
+            return Fail("--expect-break는 --verify-test와 함께 써야 합니다");
+        if (verifyTests.Intersect(expectBreaks, StringComparer.Ordinal).FirstOrDefault() is { } both)
+            return Fail($"같은 테스트를 --verify-test와 --expect-break에 함께 줄 수 없습니다: {both}");
 
         var requestText = settings.Request;
         if (requestText is null)
@@ -80,7 +100,8 @@ public sealed class CsCommand(
 
         var request = new RunRequest(
             file, settings.Class, settings.Method, settings.Line, requestText, settings.Yes, settings.DryRun, settings.MaxRetries,
-            Verbose: settings.Verbose, RunTests: settings.Test);
+            Verbose: settings.Verbose, RunTests: settings.Test,
+            VerifyTests: verifyTests.Count > 0 ? verifyTests : null, ExpectBreaks: expectBreaks.Count > 0 ? expectBreaks : null);
         try
         {
             return await runner.RunAsync(request, loaded.Options, cancellation);

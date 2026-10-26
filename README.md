@@ -23,7 +23,8 @@ dotnet run --project src/PellyCoder.Cli -- --version
 ### `pelly cs` — C# 멤버 하나 수정
 ```bash
 pelly cs <파일> ["<요청문>"] [--class <클래스>] [--method <메서드>] [--line N] [--yes] [--dry-run] \
-  [--max-retries N] [--strict-baseline] [--warn-as-error] [--test] [--verbose] [--pause-on-exit] \
+  [--max-retries N] [--strict-baseline] [--warn-as-error] [--test] \
+  [--verify-test <이름>]... [--expect-break <이름>]... [--verbose] [--pause-on-exit] \
   [--config <경로>] [--think off|retry|always] [--model <태그>] [--endpoint <URL>]
 ```
 
@@ -55,6 +56,18 @@ pelly cs <파일> ["<요청문>"] [--class <클래스>] [--method <메서드>] [
 * 원본 상태의 테스트를 돌리지 못하면 알림과 함께 빌드로만 검증합니다.
 * **한계:** 요청이 기존 테스트와 모순되면(테스트가 고정한 옛 동작을 바꾸라는 요청 등) 모델이 요청을 로그 출력으로 바꾸는 식으로 회피해 테스트를 통과하고 종료 0이 될 수 있습니다(실측 약 25%). `--test`를 써도 **diff를 직접 읽고** 승인하십시오.
 
+**`--verify-test` — 테스트 먼저, 그다음 패치 (V2-2a)**
+* `--verify-test <이름>`(여러 번 가능)은 **패치 전에 실패하고(RED) 패치 뒤에 통과해야(GREEN)** 하는 테스트를 지정합니다. 이름은 `[네임스페이스.]클래스.메서드` 또는 `메서드`이며, 점 경계 뒷부분이 일치하면 맞고 대소문자를 구별합니다. 데이터 행(`Theory`)은 모든 행이 통과해야 통과입니다. `--test`를 켠 것과 같고 회귀 확인에 같은 실행 결과를 씁니다. `--dry-run`에서는 테스트를 돌리지 않습니다.
+* 순서: 기준 실행에서 지정 테스트가 실패하는지 확인(RED) → 패치 → 구문·규칙·빌드·테스트. 지정 테스트가 통과하고(GREEN) 같은 프로젝트의 다른 테스트가 새로 실패하지 않아야 합니다(회귀). 아니면 실패한 테스트 이름·assert 메시지·대상 파일의 스택 프레임을 모델에 돌려주며 재시도하고, 재시도를 다 쓰면 원본으로 되돌리고 종료 1입니다.
+* RED에서 지정 테스트가 **이미 통과**하면 「이 테스트는 변경을 검증하지 못합니다」 경고를 보이고 계속할지 묻습니다(거부하면 종료 2, `--yes`면 기록하고 계속).
+* `--expect-break <이름>`(여러 번 가능, `--verify-test`와 함께만): 요청이 바꾸는 동작을 기존 테스트가 고정해 두었을 때, 이 변경으로 실패해도 되는 테스트를 회귀 판정에서 뺍니다. 패치 뒤에도 통과하면 알림만 남깁니다. 같은 테스트를 두 옵션에 함께 줄 수 없습니다.
+* 테스트 프로젝트는 `--test`와 같이 찾고, 지정 테스트가 선언된 파일의 가장 가까운 프로젝트를 더합니다. 필터(`--filter`)나 `vstest.console` 없이 프로젝트 전체를 돌려 지정 테스트의 결과를 읽습니다. 레거시 프로젝트는 `test.command`에 `{trx}`가 있어야 합니다.
+* **v1 `--test`와 다른 점:** 판정할 수 없으면 알림 뒤 빌드로 내려가지 않고 **종료 4**로 멈춥니다.
+* 종료 4가 되는 경우: 이름 형식 오류, `--expect-break`만 줌, 같은 이름을 두 옵션에 줌(서버 호출 전); 지정 테스트를 찾지 못함(`test.projects`를 안내)·여러 곳에서 찾음(더 길게 쓰기); 테스트별 결과가 없음(`OtherTestingPlatform`, `{trx}` 없는 레거시 `test.command`); 기준 테스트를 돌리지 못함·건너뜀; 테스트 프로젝트가 빌드되지 않는데 시그니처를 바꾸는 그룹 작업이 아님; 레거시를 Windows 밖에서 실행; `--verify-test`가 수정 대상 멤버 자신; 실행 중 지정 테스트 파일이 바뀜(GREEN을 인정하지 않음).
+* 종료 코드 요약: 0 GREEN·회귀 없음, 1 GREEN 실패(`TestGreenFailed`)·회귀(`TestRegression`), 2 「이미 통과」 거부·승인 거부(`TestRedDeclined`), 4 위 사유(`TestNotFound`·`TestAmbiguous`·`TestUnverifiable`·`TestFileChanged`).
+* `pelly report`는 수용 기준 충족률(RED를 통과했고 사람이 취소·거부하지 않은 실행 중 GREEN·회귀 없음·종료 0인 비율, 종료 2 제외)과 RED 확인 경고율을 냅니다. `summary.json`의 `testFirst`에는 개수와 상태만 있고 테스트 이름은 없습니다.
+* **알려진 한계:** 환경(DB·네트워크) 탓으로 실패하는 테스트도 RED로 보입니다(RED 실패 메시지를 `--verbose`에 보임). 모델이 테스트 입력에만 맞는 분기를 넣어 GREEN을 만들 수 있으므로 **diff 승인이 마지막 방어선**입니다. 테스트는 한 번씩만 돌려 불안정한 테스트는 우연히 판정이 바뀔 수 있고, 시도마다 테스트 프로젝트 전체를 돌아 큰 프로젝트에서는 `test.timeoutSeconds`·`test.projects`로 조절합니다. `pelly sql`에는 없고, 명세의 `test:`·`breaks:`는 V2-2b입니다.
+
 **실행 후 표시 옵션**
 * `--verbose`: 실행이 끝난 뒤 단계별 시간·토큰·시도 요약과 실행 폴더 경로를 보여줍니다. 프롬프트 원문은 출력하지 않고 `attempt-N/prompt.txt` 경로를 안내합니다(`pelly sql`에서도 같습니다).
 * `--pause-on-exit`: 결과를 보여준 뒤 키 입력을 기다립니다. IDE External Tools 창이 바로 닫히지 않게 할 때 씁니다. 아홉 명령(`cs`·`sql`·`doctor`·`report`·`rules init`·`rules check`·`spec new`·`spec check`·`apply`) 모두의 옵션입니다. 대기 여부는 `Program`이 `--` 앞의 원시 인자로 판정하므로 인자 오류로 끝나도 기다립니다. 입력이 리디렉션되거나 종료 신호를 받으면 기다리지 않습니다. Ctrl+C로 중단한 실행은 기다립니다. 키 대기는 Windows에서 확인하지 않았습니다.
@@ -62,6 +75,8 @@ pelly cs <파일> ["<요청문>"] [--class <클래스>] [--method <메서드>] [
 예:
 ```bash
 pelly cs Shop.Api/Services/OrderService.cs "배송 중인 주문은 취소할 수 없게 해줘" --method CancelAsync --test --verbose
+pelly cs Shop.Api/Services/OrderService.cs "배송 중인 주문은 취소할 수 없게 해줘" --method CancelAsync \
+  --verify-test OrderServiceTests.CancelAsync_WhenShipped_Throws --expect-break OrderServiceTests.CancelAsync_WhenShipped_CurrentlyCancels
 pelly cs Shop.Api/Services/OrderService.cs "null 검사 추가" --line 42 --pause-on-exit
 pelly cs Shop.Api/Services/OrderService.cs        # 요청문을 대화형으로 입력
 ```

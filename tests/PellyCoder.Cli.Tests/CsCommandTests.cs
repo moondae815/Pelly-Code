@@ -85,6 +85,70 @@ public class CsCommandTests
     }
 
     [Fact]
+    public void VerifyTest_AndExpectBreak_ArePassedDeduplicated()
+    {
+        var h = Build();
+
+        var result = h.App.Run("cs", File, "do it", "--verify-test", "A.T1", "--verify-test", "A.T1", "--verify-test", "A.T2",
+            "--expect-break", "B.Old", "--expect-break", "B.Old");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(["A.T1", "A.T2"], h.Runner.Request!.VerifyTests);
+        Assert.Equal(["B.Old"], h.Runner.Request.ExpectBreaks);
+    }
+
+    [Fact]
+    public void NoVerifyTest_LeavesBothNull()
+    {
+        var h = Build();
+
+        Assert.Equal(0, h.App.Run("cs", File, "do it").ExitCode);
+        Assert.Null(h.Runner.Request!.VerifyTests);
+        Assert.Null(h.Runner.Request.ExpectBreaks);
+    }
+
+    [Theory]
+    [InlineData("--verify-test")]
+    [InlineData("--expect-break")]
+    public void InvalidTestName_Exit4(string option)
+    {
+        var h = Build();
+        string[] args = option == "--verify-test"
+            ? ["cs", File, "do it", "--verify-test", "A.1bad"]
+            : ["cs", File, "do it", "--verify-test", "A.T", "--expect-break", "A.1bad"];
+
+        var result = h.App.Run(args);
+
+        Assert.Equal(4, result.ExitCode);
+        Assert.Contains("테스트 이름 형식이 아닙니다: A.1bad", result.Output);
+        Assert.Equal(0, h.Runner.Calls);
+    }
+
+    [Fact]
+    public void ExpectBreakAlone_Exit4()
+    {
+        var h = Build();
+
+        var result = h.App.Run("cs", File, "do it", "--expect-break", "A.Old");
+
+        Assert.Equal(4, result.ExitCode);
+        Assert.Contains("--expect-break는 --verify-test와 함께 써야 합니다", result.Output);
+        Assert.Equal(0, h.Runner.Calls);
+    }
+
+    [Fact]
+    public void SameNameInBoth_Exit4()
+    {
+        var h = Build();
+
+        var result = h.App.Run("cs", File, "do it", "--verify-test", "A.T", "--expect-break", "A.T");
+
+        Assert.Equal(4, result.ExitCode);
+        Assert.Contains("같은 테스트를 --verify-test와 --expect-break에 함께 줄 수 없습니다: A.T", result.Output);
+        Assert.Equal(0, h.Runner.Calls);
+    }
+
+    [Fact]
     public void NoMethodNoLine_PassesNullsToRunner()
     {
         var h = Build();

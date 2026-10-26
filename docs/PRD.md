@@ -167,7 +167,7 @@ Ollama에는 공개된 토큰화 전용 엔드포인트가 없으므로 다음�
 * **빌드 검증 옵션:** `--strict-baseline`(원본에 이미 있던 CS 오류도 종료 코드 4로 처리), `--warn-as-error`(새 경고도 오류로 취급).
 * **입력 제한:** 요청문이나 대상 파일에 모델 제어 토큰 문자열(`<|im_end|>` 등)이 있으면 서버를 부르기 전에 종료 코드 4로 끝납니다.
 * **공통 옵션:** `--dry-run`(패치만 보여주고 적용 안 함), `--yes`(최종 승인 생략), `--max-retries <n>`(기본 3), `--verbose`(실행 후 단계별 타이밍·토큰·시도 요약과 실행 폴더·`prompt.txt` 경로 출력, 프롬프트 원문은 출력하지 않음), `--pause-on-exit`, `--config <path>`
-* **`pelly cs` 전용 옵션:** `--test`(검증 시 테스트 실행, FR-06 5번), `--warn-as-error`, `--strict-baseline`
+* **`pelly cs` 전용 옵션:** `--test`(검증 시 테스트 실행, FR-06 5번), `--verify-test <이름>`(패치 전 실패·패치 뒤 통과해야 하는 테스트, 여러 번 가능, V2-2a), `--expect-break <이름>`(이 변경으로 실패해도 되는 기존 테스트, `--verify-test`와 함께, V2-2a), `--warn-as-error`, `--strict-baseline`
 * **옵션 구현 상태 (M3a):** `--test`·`--verbose`·`--pause-on-exit`·`report`(`--since`·`--sanitize`·`--out`)는 M3a에서 구현했습니다. `--pause-on-exit`는 실행 결과를 보여준 뒤 키 입력을 기다리며, 입력이 리디렉션되면 기다리지 않고, Ctrl+C로 중단한 실행은 기다리지 않습니다(알려진 한계; 콘솔 키 대기는 Windows 미확인).
 * **IDE 연동:** 사용자는 Visual Studio와 JetBrains Rider를 혼용합니다. 두 IDE의 External Tools에 `pelly cs "<현재 파일>" --line <커서 줄>`을 등록해, 커서가 있는 메서드를 대상으로 실행합니다. 요청문을 생략하면 콘솔에서 입력받습니다. `--pause-on-exit`는 결과를 보여준 뒤 키 입력을 기다립니다(External Tools 콘솔 창이 바로 닫히지 않게). 설정 가이드는 반입 패키지 문서에 포함합니다.
 * **최종 승인 (REVIEW):** 검증을 통과하면 `Spectre.Console`로 컬러 diff를 표시하고 `[y/N]` 확인을 받습니다. 거부하면 원본으로 복구합니다.
@@ -642,6 +642,8 @@ OpenSpec의 "변경 제안 → 작업 목록 → 적용 → 보관" 흐름에서
   * 작업 그룹(V2-1b): `Specs/ApplyTransaction.cs`(apply·그룹 백업과 되돌리기), `Specs/GroupVerifier.cs`(영향 범위 기준·검증 빌드), `Specs/GroupErrorAttribution.cs`(새 오류의 작업 귀속), `Builds/ProjectReferenceGraph.cs`(영향 범위 탐색), `Files/BoundedWalker.cs`(작업 공간 폴더 탐색), `CSharp/MemberShapeGuard.cs`의 그룹 허용(`ShapeAllowance.TargetSignatureAndName`)
 
 ### 12.4 V2-2. 테스트 우선 검증 (Test-First Verification)
+> **구현(V2-2a): 2026-10-26.** 단독 실행 `pelly cs --verify-test`(RED 확인 → 패치 → GREEN·회귀 확인)와 `--expect-break`, 테스트 우선 `summary.json`(`testFirst`)·`pelly report`의 수용 기준 충족률과 RED 확인 경고율이 구현됐습니다. 아래 도구 항목과 달리 **`--filter` 실행 대신 테스트 프로젝트 전체를 한 번 돌려** 지정 테스트의 결과를 읽고, 레거시는 `vstest.console.exe` 탐색 대신 설정 `test.command`(`{trx}` 필요)로 돌립니다. 명세의 `test:`·`breaks:`와 `pelly apply` 연동은 V2-2b이며 아직 없습니다. 설계는 `docs/superpowers/specs/2026-10-26-v2-2-test-first-design.md`, 사용법은 README `pelly cs` 절을 보십시오.
+
 Superpowers의 TDD(Red → Green) 원칙에서 착안했습니다. v1 검증은 "컴파일이 되는가"까지만 확인합니다. 이 기능은 "요청한 동작을 하는가"까지 결정론적으로 확인합니다.
 
 * **연결:** 명세의 수용 기준에 `test:`로 테스트 이름을 지정합니다. 단독 실행에서는 `pelly cs … --verify-test <테스트 이름>`으로 지정합니다.

@@ -231,6 +231,27 @@ public sealed class FeedbackBuilderTests
     }
 
     [Fact]
+    public void ForGreen_KoreanNetFrameworkFrames()
+    {
+        var trace =
+            "   위치: Shop.Services.OrderService.Cancel(Int32 id) 파일 C:\\work\\Shop\\Services\\OrderService.cs:줄 42\n" +
+            "   위치: Shop.Tests.OrderTests.Cancel_Works() 파일 C:\\work\\Shop.Tests\\OrderTests.cs:줄 12";
+        var fb = new FeedbackBuilder(Counter, 400).ForGreen([new PellyCoder.Core.Testing.GreenFailure("Shop.Tests.OrderTests.Cancel_Works", "boom", trace)], [], "Services/OrderService.cs");
+
+        Assert.Contains("\n  at OrderService.Cancel (Services/OrderService.cs:42)\n", fb.Text);
+        Assert.DoesNotContain("OrderTests.cs", fb.Text);
+    }
+
+    [Fact]
+    public void ForGreen_KoreanAsyncFrame()
+    {
+        var trace = "   위치: Shop.Services.OrderService.<CancelAsync>d__3.MoveNext() 파일 /src/Shop/Services/OrderService.cs:줄 7";
+        var fb = new FeedbackBuilder(Counter, 400).ForGreen([new PellyCoder.Core.Testing.GreenFailure("Shop.Tests.OrderTests.X", "boom", trace)], [], "Services/OrderService.cs");
+
+        Assert.Contains("\n  at OrderService.CancelAsync (Services/OrderService.cs:7)\n", fb.Text);
+    }
+
+    [Fact]
     public void ForGreen_OverBudget_KeepsHeadAndRequest()
     {
         var detail = string.Join("\n", Enumerable.Range(1, 200).Select(i => $"Expected line {i}: " + new string('x', 30)));

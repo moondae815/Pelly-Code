@@ -280,7 +280,9 @@ public sealed partial class FeedbackBuilder(ITokenCounter tokens, int budget)
     private const string GreenHead = "TEST NOT PASSING: ";
     private const int MaxFrames = 3;
 
-    [GeneratedRegex(@"^\s*at (?<m>.+?) in (?<f>.+?):line (?<l>\d+)\s*$")]
+    // English "at M in F:line N" and Korean .NET Framework "위치: M 파일 F:줄 N" share group names, so one
+    // selection path serves both. The Korean form is Windows-unverified (fixture-based only).
+    [GeneratedRegex(@"^\s*(?:at (?<m>.+?) in (?<f>.+?):line (?<l>\d+)|위치:\s*(?<m>.+?)\s+파일\s+(?<f>.+?):줄\s*(?<l>\d+))\s*$")]
     private static partial Regex StackFrame();
 
     /// <summary>An async state machine frame: <c>Ns.Type.&lt;Method&gt;d__3.MoveNext</c>.</summary>

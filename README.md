@@ -75,7 +75,7 @@ pelly cs <파일> ["<요청문>"] [--class <클래스>] [--method <메서드>] [
 * **알려진 한계:** 환경(DB·네트워크) 탓으로 실패하는 테스트도 RED로 보입니다(RED 실패 메시지 첫 줄은 실행 폴더의 `messages.txt`에 늘 남고 `--verbose`면 화면에도 보임). 모델이 테스트 입력에만 맞는 분기를 넣어 GREEN을 만들 수 있으므로 **diff 승인이 마지막 방어선**입니다. 테스트는 한 번씩만 돌려 불안정한 테스트는 우연히 판정이 바뀔 수 있고, 시도마다 테스트 프로젝트 전체를 돌아 큰 프로젝트에서는 `test.timeoutSeconds`·`test.projects`로 조절합니다. `pelly sql`에는 없습니다. 명세의 `test:`·`breaks:`는 아래 `pelly apply` 절을 보십시오.
   * 테스트 찾기는 Fact·Theory·Test·TestCase·TestMethod·DataTestMethod 특성만 봅니다: 사용자 정의 특성(`SkippableFact`·`WpfFact` 등)이 붙은 테스트는 찾지 못합니다(종료 4).
   * 추상 기반 클래스에 선언된 테스트나 `DisplayName`을 준 테스트는 찾기를 통과해도 실행 결과의 이름이 달라 RED에서 찾지 못할 수 있습니다(종료 4). 제네릭 테스트 클래스(결과 이름 ``Foo`1``)도 맞추지 못합니다. 중첩 클래스는 `Outer.Inner.M`으로 씁니다(결과의 `Outer+Inner`와 맞춥니다).
-  * 피드백의 스택 프레임은 영어 스택 추적에서만 읽습니다: 지역화된 .NET Framework 추적에서는 프레임이 없습니다.
+  * 피드백의 스택 프레임은 영어(`at … in …:line N`)와 한국어 .NET Framework(`위치: … 파일 …:줄 N`) 형식을 읽습니다. 한국어 형식은 픽스처로만 확인했고 Windows 실환경은 미확인이며, 그 밖의 지역화 형식에서는 프레임이 없습니다.
   * `--expect-break`로 뺀 테스트(`BreaksExcluded`)는 `summary.json`에 기록되고 `pelly report`의 `breaks로 뺀 테스트` 줄에 더해집니다.
 
 **실행 후 표시 옵션**

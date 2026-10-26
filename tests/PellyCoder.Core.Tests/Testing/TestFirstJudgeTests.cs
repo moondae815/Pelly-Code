@@ -56,6 +56,14 @@ public class TestFirstJudgeTests
     }
 
     [Fact]
+    public void Red_PartlySkippedTheory_Unverifiable()
+    {
+        var r = Red(Run([Fail("N.T.Do(1)")], skipped: ["N.T.Do(2)"]), "T.Do");
+        Assert.Equal("TestUnverifiable", r.FailureKind);
+        Assert.Equal("테스트 T.Do이(가) 건너뛰도록 표시되어 있습니다", r.Unverifiable);
+    }
+
+    [Fact]
     public void Red_Missing_NotFound()
     {
         var r = Red(Run([Pass("N.T.Other")]), "T.Do");
@@ -127,6 +135,20 @@ public class TestFirstJudgeTests
         var f = Assert.Single(TestFirstJudge.Green([Red1()], [Run([Pass("N.T.Do(1)"), Fail("N.T.Do(2)")])]));
         Assert.Equal("detail-N.T.Do(2)", f.Detail);
         Assert.Equal("stack-N.T.Do(2)", f.StackTrace);
+    }
+
+    [Fact]
+    public void Green_PartlySkippedTheory_Fails()
+    {
+        var f = Assert.Single(TestFirstJudge.Green([Red1()], [Run([Pass("N.T.Do(1)")], skipped: ["N.T.Do(2)"])]));
+        Assert.Equal("not run", f.Detail);
+    }
+
+    [Fact]
+    public void Green_FailingRowWithoutDetail_FallsBackToMessage()
+    {
+        var f = Assert.Single(TestFirstJudge.Green([Red1()], [Run([new TestCaseResult("N.T.Do", false, "the message")])]));
+        Assert.Equal("the message", f.Detail);
     }
 
     [Fact]

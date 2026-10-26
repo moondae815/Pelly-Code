@@ -50,13 +50,13 @@ public static class TestFirstJudge
                 return Unverifiable($"테스트 이름 {name}이(가) 여러 테스트와 맞습니다: {candidates}", "TestAmbiguous");
             }
 
+            // A skipped row never counts as run: a test with any skipped row cannot be judged, matched rows or not.
+            var skipped = baselines.Any(b => b!.Skipped?.Any(s => TestNames.Matches(name, s)) == true);
+            if (skipped)
+                return Unverifiable($"테스트 {name}이(가) 건너뛰도록 표시되어 있습니다", "TestUnverifiable");
+
             if (distinct.Count == 0)
-            {
-                var skipped = baselines.Any(b => b!.Skipped?.Any(s => TestNames.Matches(name, s)) == true);
-                return skipped
-                    ? Unverifiable($"테스트 {name}이(가) 건너뛰도록 표시되어 있습니다", "TestUnverifiable")
-                    : Unverifiable($"테스트 {name}을(를) 테스트 실행 결과에서 찾지 못했습니다 (test.projects 설정을 확인하세요)", "TestNotFound");
-            }
+                return Unverifiable($"테스트 {name}을(를) 테스트 실행 결과에서 찾지 못했습니다 (test.projects 설정을 확인하세요)", "TestNotFound");
 
             var firstFailure = matches.Select(m => m.Result).FirstOrDefault(r => !r.Passed);
             tests.Add(new RedTest(name, distinct[0].Full, distinct[0].Project,
@@ -79,7 +79,8 @@ public static class TestFirstJudge
             }
 
             var rows = run.Results.Where(r => TestNames.WithoutArguments(r.FullName) == test.FullName).ToList();
-            if (rows.Count == 0)
+            var partlySkipped = run.Skipped?.Any(n => TestNames.WithoutArguments(n) == test.FullName) == true;
+            if (rows.Count == 0 || partlySkipped)
             {
                 failures.Add(new GreenFailure(test.FullName, NotRun, null));
                 continue;
@@ -87,7 +88,7 @@ public static class TestFirstJudge
 
             var failed = rows.FirstOrDefault(r => !r.Passed);
             if (failed is not null)
-                failures.Add(new GreenFailure(test.FullName, failed.Detail, failed.StackTrace));
+                failures.Add(new GreenFailure(test.FullName, failed.Detail ?? failed.Message, failed.StackTrace));
         }
 
         return failures;

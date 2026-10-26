@@ -180,6 +180,24 @@ public sealed class RepeatSummaryTests : IDisposable
     }
 
     [Fact]
+    public void Summary_TestFirst_ListsPassedRowsForHumanSampleReview()
+    {
+        TaskResult Tf(string id, string status) => TestFirstMetricsTests.Row(id, status, status == VerificationResult.Passed ? 0 : 1, new("Red", "Passed", "Passed", 0, 0));
+        var data = RepeatSummary.Build([
+            [Tf("cs-modern-001", VerificationResult.Passed), Tf("cs-modern-002", VerificationResult.Failed)],
+            [Tf("cs-modern-001", VerificationResult.Passed), Tf("cs-modern-002", VerificationResult.Passed)],
+        ]);
+        var md = KpiReport.RenderRepeat(data, "h");
+        Assert.Contains("## 사람 표본 검토 대상", md, StringComparison.Ordinal);
+        var lines = md.Split('\n').Select(l => l.TrimEnd('\r')).ToList();
+        Assert.Contains("* cs-modern-001: 회차 1, 2", lines);
+        Assert.Contains("* cs-modern-002: 회차 2", lines);
+
+        var plain = RepeatSummary.Build([[Pass("cs-modern-001")]]);
+        Assert.DoesNotContain("사람 표본 검토 대상", KpiReport.RenderRepeat(plain, "h"), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Summary_OldJsonWithoutTestFirst_Loads()
     {
         var data = RepeatSummary.Build([[Pass("cs-modern-001")]]);

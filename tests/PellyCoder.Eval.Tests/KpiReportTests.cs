@@ -177,6 +177,10 @@ public class KpiReportTests
         Assert.Contains("| 막은 잘못된 패치 | 1건 |", report, StringComparison.Ordinal);
         Assert.Contains("| 피드백으로 고친 비율 | 1/1 |", report, StringComparison.Ordinal);
         Assert.Contains(TestFirstMetricsData.Notice, report, StringComparison.Ordinal);
+        Assert.Contains("## 사람 표본 검토 대상", report, StringComparison.Ordinal);
+        Assert.Contains("* cs-modern-001", report.Split('\n').Select(l => l.TrimEnd('\r')));
+        Assert.DoesNotContain("* cs-modern-002", report, StringComparison.Ordinal);
+        Assert.DoesNotContain("사람 표본 검토 대상", plain, StringComparison.Ordinal);
     }
 
     private static TaskResult Result(string id, string kind, string status, int exit, double ttft, double wall,

@@ -43,7 +43,12 @@ public static class KpiReport
         sb.AppendLine($"| 최종 작업 성공률 | ≥ 85% | {SuccessRates(ran)} (판정 도구 오류로 미판정 {tooling}건) |");
         sb.AppendLine($"| 단일 작업 완료 시간 | 중위값 < 15초 / P90 < 30초 | {MedianP90(wall, "초")} |");
         sb.AppendLine();
-        if (ran.Any(r => r.TestFirst is not null)) TestFirstMetrics.AppendSection(sb, TestFirstMetrics.Build(ran));
+        if (ran.Any(r => r.TestFirst is not null))
+        {
+            TestFirstMetrics.AppendSection(sb, TestFirstMetrics.Build(ran));
+            TestFirstMetrics.AppendSampleReview(sb, ran.Where(r => r.TestFirst is not null && r.Status == VerificationResult.Passed)
+                .Select(r => r.Id).Distinct(StringComparer.Ordinal).Select(id => (id, (IReadOnlyList<int>?)null)));
+        }
 
         sb.AppendLine("## 실패 유형 분포").AppendLine();
         var failures = ran.Where(r => r.Status == VerificationResult.Failed)
@@ -93,7 +98,15 @@ public static class KpiReport
         sb.AppendLine($"* 작업 시간 중위값(전 회차): {Num(s.MedianWallSeconds)}초");
         sb.AppendLine($"* 검증 불변 조건 위반: 회차별 {string.Join(", ", s.Runs.Select(r => r.InvariantViolations))}건").AppendLine();
 
-        if (s.TestFirst is { Ran: > 0 } tf) TestFirstMetrics.AppendSection(sb, tf);
+        if (s.TestFirst is { Ran: > 0 } tf)
+        {
+            TestFirstMetrics.AppendSection(sb, tf);
+            // A test-first run skips every task without judge tests, so each Passed outcome is a test-first row.
+            TestFirstMetrics.AppendSampleReview(sb, s.Tasks
+                .Select(t => (t.Id, Runs: (IReadOnlyList<int>?)t.Outcomes.Select((o, i) => (o, Run: i + 1))
+                    .Where(x => x.o == VerificationResult.Passed).Select(x => x.Run).ToList()))
+                .Where(t => t.Runs!.Count > 0));
+        }
 
         sb.AppendLine("## 회차별").AppendLine();
         sb.AppendLine("| 회차 | 폴더 | 작업 | 실행 | 성공 | 불변 조건 위반 | 판정 실패(Judge) | 판정 도구 오류(JudgeTooling) | 시간 중위값(초) |");

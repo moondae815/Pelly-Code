@@ -62,6 +62,24 @@ public static class TestFirstMetrics
         sb.AppendLine().AppendLine(TestFirstMetricsData.Notice).AppendLine();
     }
 
+    /// <summary>
+    /// The "## 사람 표본 검토 대상" list: test-first rows that passed (task id, and the runs when repeated), from which a person
+    /// samples diffs to review (design V2-2c).
+    /// </summary>
+    public static void AppendSampleReview(StringBuilder sb, IEnumerable<(string Id, IReadOnlyList<int>? Runs)> passed)
+    {
+        sb.AppendLine("## 사람 표본 검토 대상").AppendLine();
+        sb.AppendLine("테스트 우선으로 통과한 작업입니다. 사람이 여기서 표본을 골라 변경을 검토합니다.").AppendLine();
+        var any = false;
+        foreach (var (id, runs) in passed)
+        {
+            any = true;
+            sb.AppendLine(runs is null ? $"* {id}" : $"* {id}: 회차 {string.Join(", ", runs)}");
+        }
+        if (!any) sb.AppendLine("없음");
+        sb.AppendLine();
+    }
+
     public static string Rate(int part, int whole) => whole == 0
         ? "— (대상 없음)"
         : $"{(100.0 * part / whole).ToString("0.0", CultureInfo.InvariantCulture)}% ({part}/{whole})";

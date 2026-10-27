@@ -34,4 +34,23 @@ public class ProductArmTests
         Assert.Equal(1, (int)node["impactAdded"]!);
         Assert.Equal(0, (int)node["dropped"]!);
     }
+
+    [Fact]
+    public void Prepare_refuses_a_non_empty_folder_without_the_ready_marker_and_deletes_nothing()
+    {
+        var dest = Path.Combine(Path.GetTempPath(), "s6-arm-p-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(dest, "src"));
+        var mine = Path.Combine(dest, "src", "Mine.cs");
+        File.WriteAllText(mine, "keep me");
+        try
+        {
+            var ex = Assert.Throws<InvalidOperationException>(() => ProductArm.PrepareWorkspace(Path.Combine(dest, "no-corpus"), dest));
+            Assert.Contains(dest, ex.Message);
+            Assert.Equal("keep me", File.ReadAllText(mine));
+        }
+        finally
+        {
+            Directory.Delete(dest, recursive: true);
+        }
+    }
 }

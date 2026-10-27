@@ -156,13 +156,19 @@ public static class ProductArm
     /// A copy of eval/corpus with an empty .git folder as the workspace marker (the corpus root has none, so the product
     /// would otherwise take the repository root and every path would gain an "eval/corpus/" prefix), Modern restored for
     /// the semantic load. Legacy (non-SDK, .NET Framework) is copied as is; its semantic load needs Windows.
+    /// A non-empty folder without the ready marker is refused, never deleted: <c>--workspace</c> may point at a real checkout.
     /// </summary>
-    private static void PrepareWorkspace(string corpus, string dest)
+    public static void PrepareWorkspace(string corpus, string dest)
     {
         if (File.Exists(Path.Combine(dest, Marker)))
             return;
         if (Directory.Exists(dest))
-            Directory.Delete(dest, recursive: true);
+        {
+            if (Directory.EnumerateFileSystemEntries(dest).Any())
+                throw new InvalidOperationException(
+                    $"--workspace {dest} is not empty and has no {Marker}; refusing to overwrite it. Pass an empty or new folder, or delete it yourself.");
+            Directory.Delete(dest);
+        }
         foreach (var file in Directory.GetFiles(corpus, "*", SearchOption.AllDirectories))
         {
             var rel = Path.GetRelativePath(corpus, file).Replace('\\', '/');

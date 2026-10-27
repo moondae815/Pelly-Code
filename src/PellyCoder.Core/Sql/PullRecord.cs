@@ -72,9 +72,10 @@ public sealed record SqlRecordRefresh(string StaleLine, string RefreshedLine)
     /// <summary>True when the first line of <paramref name="textLf"/> is <see cref="RefreshedLine"/>.</summary>
     public bool IsIn(string textLf) => FirstLine(textLf) == RefreshedLine;
 
+    /// <summary>The first line without a trailing '\r', as <see cref="PullRecord.TryParse"/> reads it; the '\r' stays in the rest.</summary>
     private static string FirstLine(string textLf)
     {
         var end = textLf.IndexOf('\n');
-        return end < 0 ? textLf : textLf[..end];
+        return (end < 0 ? textLf : textLf[..end]).TrimEnd('\r');
     }
 }

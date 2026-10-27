@@ -55,6 +55,19 @@ public class SqlRecordRefreshTests
     }
 
     [Fact]
+    public void A_lone_trailing_cr_on_the_record_line_is_kept()
+    {
+        // The snapshot text is LF, but a stray '\r' before the LF survives decoding; TryParse ignores it, so must the refresh.
+        var text = StaleLine + "\r\n" + Rest;
+        var refresh = SqlRecordRefresh.For(text, PullRecord.TryParse(text)!, ProdHash, Now);
+
+        Assert.NotNull(refresh);
+        Assert.Equal(StaleLine, refresh!.StaleLine);
+        Assert.Equal(FreshLine + "\r\n" + Rest, refresh.ApplyTo(text));
+        Assert.True(refresh.IsIn(refresh.ApplyTo(text)));
+    }
+
+    [Fact]
     public void ApplyTo_leaves_a_text_whose_first_line_is_not_the_stale_record()
     {
         var refreshed = FreshLine + "\n" + Rest;

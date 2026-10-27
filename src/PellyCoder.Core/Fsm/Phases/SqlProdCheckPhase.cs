@@ -40,7 +40,11 @@ public sealed class SqlProdCheckPhase(IPhase locate, SqlReaderOpen prod, TimePro
                 // "changed since pull". The written file carries the record refreshed to production (only when pelly writes).
                 if (SqlRecordRefresh.For(ctx.Original.Text, stale, check.ProdHash!, time.GetUtcNow()) is { } refresh
                     && state.RefreshRecord(refresh, ctx.Original.Text))
-                    ctx.Messages.Add("받은 기록을 운영 정의로 갱신합니다 (이 파일은 이미 운영에 반영되어 있습니다)");
+                    ctx.Messages.Add("받은 기록을 운영 정의로 갱신합니다 (이 파일은 이미 운영에 반영되어 있습니다)"
+                        + (ctx.Request.DryRun ? " (--dry-run: 파일은 쓰지 않음)" : ""));
+                else
+                    // Not refreshable (the record is inside the target batch): the next edit would stop, so say how to avoid it.
+                    ctx.Messages.Add($"받은 기록이 운영보다 오래되었습니다 — 고치기 전에 pelly sql pull {state.Target.Schema ?? "dbo"}.{state.Target.Name} --force로 다시 받으십시오");
                 break;
         }
         return PhaseOutcome.Ok;

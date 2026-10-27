@@ -228,6 +228,8 @@ public sealed class SqlProdCheckFlowTests : IDisposable
 
         Assert.Equal(0, result.ExitCode);
         Assert.Equal(text, File.ReadAllText(PathA));
+        Assert.Contains(_ui.Warnings, w => w == RefreshNotice + " (--dry-run: 파일은 쓰지 않음)");
+        Assert.DoesNotContain(_ui.Warnings, w => w == RefreshNotice);
         // The diff shows what a real run would write, the refreshed record included.
         Assert.StartsWith(Record(Hash(Deployed), "2026-10-27T01:02:03Z"), Assert.Single(_ui.Diffs).After);
         Assert.False(Summary().GetProperty("sqlProd").GetProperty("recordRefreshed").GetBoolean());
@@ -243,6 +245,26 @@ public sealed class SqlProdCheckFlowTests : IDisposable
 
         Assert.NotEqual(0, result.ExitCode);
         Assert.Equal(text, File.ReadAllText(PathA));
+        Assert.False(Summary().GetProperty("sqlProd").GetProperty("recordRefreshed").GetBoolean());
+    }
+
+    [Fact]
+    public async Task Stale_record_inside_the_target_batch_is_not_refreshed_and_says_to_pull()
+    {
+        // No SET batch: the record line is part of the target batch, which pelly never rewrites itself. Production's
+        // definition carries the same leading comment, so the file is still production.
+        var record = Record(Hash(OlderDef));
+        var body = "ALTER PROCEDURE dbo.usp_P @Id int\nAS\nBEGIN\n" + Search + "\nEND\n";
+        Prepare(record + body + "GO\n");
+        _backend.Enqueue(Block(Search, Good));
+
+        var result = await Run(Open(record + body.Replace("ALTER", "CREATE")));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("SameAsProd", Summary().GetProperty("sqlProd").GetProperty("outcome").GetString());
+        Assert.Contains(_ui.Warnings, w => w == "받은 기록이 운영보다 오래되었습니다 — 고치기 전에 pelly sql pull dbo.usp_P --force로 다시 받으십시오");
+        Assert.DoesNotContain(_ui.Warnings, w => w.StartsWith(RefreshNotice));
+        Assert.Equal(record + body.Replace(Search, Good) + "GO\n", File.ReadAllText(PathA));
         Assert.False(Summary().GetProperty("sqlProd").GetProperty("recordRefreshed").GetBoolean());
     }
 

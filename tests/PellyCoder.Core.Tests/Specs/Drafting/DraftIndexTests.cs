@@ -118,4 +118,15 @@ public sealed class DraftIndexTests
     [Fact]
     public void SameFileTwice_ListedOnce() =>
         Assert.Single(Ok(Fs(), "/ws/src", "/ws/src/a.cs").Files);
+
+    [Fact]
+    public void ScopeAboveDirectoryCap_IsRejectedNotTruncated()
+    {
+        var fs = Fs();
+        for (var i = 0; i <= 2000; i++) fs.AddFile($"/ws/big/d{i:D4}/f.cs", "class F { }");
+        var (index, error) = DraftIndexBuilder.Build(fs, Ws(), ["/ws/big"], Level);
+        Assert.Null(index);
+        Assert.Contains("범위가 너무 넓어", error!.Message);
+        Assert.Contains("/ws/big", error.Message);
+    }
 }

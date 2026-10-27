@@ -50,6 +50,7 @@ public static class DraftIndexBuilder
         var root = fs.Path.TrimEndingDirectorySeparator(fs.Path.GetFullPath(ws.Root));
         var paths = new List<string>();
         var seen = new HashSet<string>(PathComparers.ForOs);
+        var skipped = new List<string>();
 
         foreach (var scope in scopes)
         {
@@ -65,12 +66,24 @@ public static class DraftIndexBuilder
 
             IEnumerable<string> found;
             if (fs.Directory.Exists(full))
-                found = Walk(fs, full);
+            {
+                var walked = Walk(fs, full);
+                if (walked.Truncated)
+                    return (null, new DraftScopeError($"범위가 너무 넓어 폴더를 다 읽지 못했습니다(폴더 {BoundedSources.MaxDirectories}개 초과). --scope를 좁히십시오: {scope}"));
+                skipped.AddRange(walked.Unreadable.Select(d => Rel(fs, root, d)));
+                found = walked.Files;
+            }
             else if (fs.File.Exists(full))
             {
                 var ext = fs.Path.GetExtension(full);
                 if (ext.Equals(".csproj", StringComparison.OrdinalIgnoreCase))
-                    found = Walk(fs, fs.Path.GetDirectoryName(full)!);
+                {
+                    var walked = Walk(fs, fs.Path.GetDirectoryName(full)!);
+                    if (walked.Truncated)
+                        return (null, new DraftScopeError($"범위가 너무 넓어 폴더를 다 읽지 못했습니다(폴더 {BoundedSources.MaxDirectories}개 초과). --scope를 좁히십시오: {scope}"));
+                    skipped.AddRange(walked.Unreadable.Select(d => Rel(fs, root, d)));
+                    found = walked.Files;
+                }
                 else if (IsSource(full))
                     found = [full];
                 else
@@ -85,7 +98,6 @@ public static class DraftIndexBuilder
         }
 
         var files = new List<DraftIndexFile>();
-        var skipped = new List<string>();
         foreach (var p in paths)
         {
             var rel = Rel(fs, root, p);
@@ -105,13 +117,17 @@ public static class DraftIndexBuilder
 
         return (new DraftIndex(
             files.OrderBy(f => f.Path, StringComparer.Ordinal).ToList(),
-            skipped.Order(StringComparer.Ordinal).ToList()), null);
+            skipped.Distinct().Order(StringComparer.Ordinal).ToList()), null);
     }
 
-    private static IEnumerable<string> Walk(IFileSystem fs, string dir) =>
-        BoundedWalker.Files(fs, dir, "*.cs", BoundedSources.MaxDirectories)
-            .Concat(BoundedWalker.Files(fs, dir, "*.sql", BoundedSources.MaxDirectories))
-            .Where(IsSource);
+    // Collect (not Files) so a walk the directory cap cut short is known; the index must never be silently partial.
+    private static WalkResult Walk(IFileSystem fs, string dir)
+    {
+        var cs = BoundedWalker.Collect(fs, dir, "*.cs", BoundedSources.MaxDirectories);
+        var sql = BoundedWalker.Collect(fs, dir, "*.sql", BoundedSources.MaxDirectories);
+        return new WalkResult(cs.Files.Concat(sql.Files).Where(IsSource).ToList(), cs.Truncated || sql.Truncated,
+            cs.Unreadable.Concat(sql.Unreadable).Distinct().ToList(), []);
+    }
 
     // AssemblyInfo.cs is generated boilerplate; the S6 index left it out.
     private static bool IsSource(string path)

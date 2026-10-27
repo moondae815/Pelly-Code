@@ -11,7 +11,9 @@ namespace PellyCoder.Core.Fsm.Phases;
 
 /// <summary>
 /// Applies the blocks in memory, then lets <see cref="SqlSafetyGuard"/> judge the patched file before anything is written:
-/// a parse error is a failed match (retry), a safety violation is a rejection (exit 5 when retries run out).
+/// a parse error is a failed match (retry), a safety violation is a rejection (exit 5 when retries run out). The blocks are
+/// applied to the file with the pending pull record refresh (<see cref="SqlRunState.EditBase"/>), which the guard's original
+/// already carries, so that line is the only change it accepts outside the target batch.
 /// </summary>
 public sealed class SqlApplyPhase(FileGuard fileGuard, FeedbackBuilder feedback, IUserInteraction ui) : IPhase
 {
@@ -19,7 +21,9 @@ public sealed class SqlApplyPhase(FileGuard fileGuard, FeedbackBuilder feedback,
 
     public async Task<PhaseOutcome> ExecuteAsync(RunContext ctx, CancellationToken ct)
     {
-        var patch = SearchReplacePatcher.Apply(ctx.Current.Text, ctx.Blocks, ctx.SliceResult.Regions);
+        var state = ctx.Sql!;
+        // The refresh replaces one line with one line, so the slice's line regions still hold.
+        var patch = SearchReplacePatcher.Apply(state.EditBase(ctx.Current.Text), ctx.Blocks, ctx.SliceResult.Regions);
         if (!patch.Success)
         {
             ctx.Feedback = feedback.ForPatchFailure(patch.Failure!);
@@ -27,7 +31,6 @@ public sealed class SqlApplyPhase(FileGuard fileGuard, FeedbackBuilder feedback,
             return PhaseOutcome.MatchFailed;
         }
 
-        var state = ctx.Sql!;
         var check = SqlSafetyGuard.Check(state.OriginalScript, state.TargetIndex, patch.NewText!, state.CompatLevel);
         if (check.ParseErrors.Count > 0)
         {

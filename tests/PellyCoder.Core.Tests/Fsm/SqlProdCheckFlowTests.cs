@@ -53,8 +53,19 @@ public sealed class SqlProdCheckFlowTests : IDisposable
 
     private static string Block(string search, string replace) => search + "\n=======\n" + replace + "\n>>>>>>> REPLACE\n";
 
-    private static string Record(string hash) =>
-        $"-- pelly pull: source=prod server=proddb01 database=Shop object=[dbo].[usp_P] sha256={hash} at=2026-10-26T09:12:33Z\n";
+    private static string Record(string hash, string at = "2026-10-26T09:12:33Z", string source = "prod") =>
+        $"-- pelly pull: source={source} server=proddb01 database=Shop object=[dbo].[usp_P] sha256={hash} at={at}\n";
+
+    /// <summary>The time the refreshed record is stamped with; every other clock use (run id, timings) sees it too.</summary>
+    private static readonly DateTimeOffset Now = new(2026, 10, 27, 1, 2, 3, TimeSpan.Zero);
+
+    private sealed class FixedNow(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
+    }
+
+    /// <summary>The user's deploy of the first edit: production now holds the file's target batch.</summary>
+    private const string Deployed = "CREATE PROCEDURE dbo.usp_P @Id int\nAS\nBEGIN\n" + Search + "\nEND\n";
 
     private string Prepare(string text)
     {
@@ -83,12 +94,14 @@ public sealed class SqlProdCheckFlowTests : IDisposable
     private static SqlReaderOpen Open(string def = ProdDef, bool unreachable = false) =>
         new(new FakeReader(new SqlModuleDefinition(Name, "P", def, true, true), unreachable), Endpoint, null);
 
-    private async Task<RunResult> Run(SqlReaderOpen? prod)
+    private async Task<RunResult> Run(SqlReaderOpen? prod, bool dryRun = false, bool yes = true)
     {
-        var request = new RunRequest(PathA, null, null, null, "add a filter", true, false, null, null, EditKind.Sql);
-        return await FsmOrchestratorFactory.CreateSql(_fs, _backend, _ui, _options, TimeProvider.System, _sql, prod)
+        var request = new RunRequest(PathA, null, null, null, "add a filter", yes, dryRun, null, null, EditKind.Sql);
+        return await FsmOrchestratorFactory.CreateSql(_fs, _backend, _ui, _options, new FixedNow(Now), _sql, prod)
             .RunDetailedAsync(request, TestContext.Current.CancellationToken);
     }
+
+    private const string RefreshNotice = "받은 기록을 운영 정의로 갱신합니다 (이 파일은 이미 운영에 반영되어 있습니다)";
 
     private JsonElement Summary()
     {
@@ -151,33 +164,111 @@ public sealed class SqlProdCheckFlowTests : IDisposable
     }
 
     [Fact]
-    public async Task Same_as_prod_with_stale_record_notes_pull_and_continues()
+    public async Task Same_as_prod_with_stale_record_refreshes_the_record_in_the_written_file()
     {
         // pull → edit → deploy in SSMS → edit again: the file is production now, the record is older.
-        var deployed = "CREATE PROCEDURE dbo.usp_P @Id int\nAS\nBEGIN\n" + Search + "\nEND\n";
         Prepare(Record(Hash(OlderDef)) + Script);
         _backend.Enqueue(Block(Search, Good));
 
-        var result = await Run(Open(deployed));
+        var result = await Run(Open(Deployed));
 
         Assert.Equal(0, result.ExitCode);
         Assert.Single(_backend.Requests);
-        Assert.Contains(_ui.Warnings, w => w == "받은 기록이 운영보다 오래되었습니다 — 고치기 전에 pelly sql pull dbo.usp_P --force로 다시 받으십시오");
-        Assert.Equal("SameAsProd", Summary().GetProperty("sqlProd").GetProperty("outcome").GetString());
+        Assert.Contains(_ui.Warnings, w => w == RefreshNotice);
+        Assert.DoesNotContain(_ui.Warnings, w => w.Contains("다시 받으십시오"));
+        var written = File.ReadAllText(PathA);
+        Assert.Equal(Record(Hash(Deployed), "2026-10-27T01:02:03Z") + Script.Replace(Search, Good), written);
+        var p = Summary().GetProperty("sqlProd");
+        Assert.Equal("SameAsProd", p.GetProperty("outcome").GetString());
+        Assert.True(p.GetProperty("recordRefreshed").GetBoolean());
+
+        // The next edit of this file is no longer a false "changed since pull".
+        var again = written.Replace(Good, "    SELECT Id FROM dbo.T WHERE Id = @Id AND Id > 1;");
+        var target = SqlBatchSplitter.Split(again, _options.Sql.CompatLevel).ObjectBatches[0];
+        var next = await SqlProdComparer.CompareAsync(again, target, Name, Open(Deployed), _options.Sql.CompatLevel, TestContext.Current.CancellationToken);
+        Assert.Equal(ProdCheckOutcome.UnchangedSincePull, next.Outcome);
     }
 
     [Fact]
-    public async Task Same_as_prod_with_current_record_is_silent()
+    public async Task Refresh_keeps_the_dev_differs_line()
     {
-        var deployed = "CREATE PROCEDURE dbo.usp_P @Id int\nAS\nBEGIN\n" + Search + "\nEND\n";
-        Prepare(Record(Hash(deployed)) + Script);
+        const string devLine = "-- pelly pull: dev differs (sha256=1234)\n";
+        Prepare(Record(Hash(OlderDef)) + devLine + Script);
         _backend.Enqueue(Block(Search, Good));
 
-        var result = await Run(Open(deployed));
+        var result = await Run(Open(Deployed));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(Record(Hash(Deployed), "2026-10-27T01:02:03Z") + devLine + Script.Replace(Search, Good), File.ReadAllText(PathA));
+    }
+
+    [Fact]
+    public async Task Refresh_keeps_crlf_and_bom()
+    {
+        var text = (Record(Hash(OlderDef)) + Script).Replace("\n", "\r\n");
+        File.WriteAllText(PathA, text, new UTF8Encoding(true));
+        _backend.Enqueue(Block(Search, Good));
+
+        var result = await Run(Open(Deployed));
+
+        Assert.Equal(0, result.ExitCode);
+        var bytes = File.ReadAllBytes(PathA);
+        Assert.Equal(new byte[] { 0xEF, 0xBB, 0xBF }, bytes[..3]);
+        var expected = (Record(Hash(Deployed), "2026-10-27T01:02:03Z") + Script.Replace(Search, Good)).Replace("\n", "\r\n");
+        Assert.Equal(expected, new UTF8Encoding(false).GetString(bytes[3..]));
+    }
+
+    [Fact]
+    public async Task Refresh_in_dry_run_writes_nothing()
+    {
+        var text = Prepare(Record(Hash(OlderDef)) + Script);
+        _backend.Enqueue(Block(Search, Good));
+
+        var result = await Run(Open(Deployed), dryRun: true);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(text, File.ReadAllText(PathA));
+        // The diff shows what a real run would write, the refreshed record included.
+        Assert.StartsWith(Record(Hash(Deployed), "2026-10-27T01:02:03Z"), Assert.Single(_ui.Diffs).After);
+        Assert.False(Summary().GetProperty("sqlProd").GetProperty("recordRefreshed").GetBoolean());
+    }
+
+    [Fact]
+    public async Task Rejected_review_restores_the_old_record()
+    {
+        var text = Prepare(Record(Hash(OlderDef)) + Script);
+        _backend.Enqueue(Block(Search, Good));
+
+        var result = await Run(Open(Deployed), yes: false);
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Equal(text, File.ReadAllText(PathA));
+        Assert.False(Summary().GetProperty("sqlProd").GetProperty("recordRefreshed").GetBoolean());
+    }
+
+    [Theory]
+    [InlineData("current")]
+    [InlineData("dev")]
+    [InlineData("absent")]
+    public async Task Same_as_prod_without_a_stale_valid_record_keeps_the_first_line(string record)
+    {
+        var first = record switch
+        {
+            "current" => Record(Hash(Deployed)),
+            "dev" => Record(Hash(OlderDef), source: "dev"),
+            _ => "",
+        };
+        Prepare(first + Script);
+        _backend.Enqueue(Block(Search, Good));
+
+        var result = await Run(Open(Deployed));
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(_ui.Warnings);
-        Assert.Equal("SameAsProd", Summary().GetProperty("sqlProd").GetProperty("outcome").GetString());
+        Assert.Equal(first + Script.Replace(Search, Good), File.ReadAllText(PathA));
+        var p = Summary().GetProperty("sqlProd");
+        Assert.Equal("SameAsProd", p.GetProperty("outcome").GetString());
+        Assert.False(p.GetProperty("recordRefreshed").GetBoolean());
     }
 
     [Fact]

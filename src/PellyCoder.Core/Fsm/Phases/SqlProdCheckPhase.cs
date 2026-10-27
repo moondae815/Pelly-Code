@@ -7,8 +7,10 @@ namespace PellyCoder.Core.Fsm.Phases;
 /// the pull stops the run (exit 4, <c>SqlProdChanged</c>); every other outcome only informs. Reads production only.
 /// Without a production connection nothing happens and nothing is recorded. The orchestrator keys phases by <see cref="RunPhase"/>,
 /// so this step wraps LOCATE and runs right after it succeeded (before SLICE), like <see cref="SqlPreflightPhase"/> wraps PREFLIGHT.
+/// A file that is production already but carries an older valid pull record (the user deployed their edit) gets that record
+/// refreshed to production's hash in every write of this run (<see cref="SqlRunState.RefreshRecord"/>); nothing is written here.
 /// </summary>
-public sealed class SqlProdCheckPhase(IPhase locate, SqlReaderOpen prod) : IPhase
+public sealed class SqlProdCheckPhase(IPhase locate, SqlReaderOpen prod, TimeProvider time) : IPhase
 {
     public RunPhase Phase => RunPhase.Locate;
 
@@ -33,9 +35,12 @@ public sealed class SqlProdCheckPhase(IPhase locate, SqlReaderOpen prod) : IPhas
             case ProdCheckOutcome.NotInProd:
                 ctx.Messages.Add(check.Message);
                 break;
-            case ProdCheckOutcome.SameAsProd when check.Notice is not null:
-                // The user's own deploy made the record older than production: continue, but say to pull before the next edit.
-                ctx.Messages.Add(check.Notice);
+            case ProdCheckOutcome.SameAsProd when check.StaleRecord is { } stale:
+                // The user's own deploy made the record older than production; left alone it would stop the next edit as
+                // "changed since pull". The written file carries the record refreshed to production (only when pelly writes).
+                if (SqlRecordRefresh.For(ctx.Original.Text, stale, check.ProdHash!, time.GetUtcNow()) is { } refresh
+                    && state.RefreshRecord(refresh, ctx.Original.Text))
+                    ctx.Messages.Add("받은 기록을 운영 정의로 갱신합니다 (이 파일은 이미 운영에 반영되어 있습니다)");
                 break;
         }
         return PhaseOutcome.Ok;

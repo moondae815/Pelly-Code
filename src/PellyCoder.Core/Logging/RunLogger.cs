@@ -21,8 +21,11 @@ public sealed record RunSummary(
     IReadOnlyList<string>? RulesIncluded = null, IReadOnlyList<string>? RulesDropped = null,
     TestFirstSummary? TestFirst = null, SqlProdCheckSummary? SqlProd = null);
 
-/// <summary>Production comparison recorded in the run summary: the outcome name and the three normalized hashes (no definition text).</summary>
-public sealed record SqlProdCheckSummary(string Outcome, string? FileHash, string? ProdHash, string? PulledHash);
+/// <summary>
+/// Production comparison recorded in the run summary: the outcome name and the three normalized hashes (no definition text).
+/// <paramref name="RecordRefreshed"/> is true when the file as the run left it carries the refreshed pull record.
+/// </summary>
+public sealed record SqlProdCheckSummary(string Outcome, string? FileHash, string? ProdHash, string? PulledHash, bool RecordRefreshed = false);
 
 /// <summary>
 /// Test-first outcome of a run: counts and enum states only, never test names (they stay out of the sanitized report).
@@ -137,7 +140,10 @@ public sealed class RunLogger(IFileSystem fs, TimeProvider time)
             ctx.Prompt?.Rules is { } sel ? [.. sel.Included.Select(r => r.Text)] : null,
             ctx.Prompt?.Rules is { } sel2 ? [.. sel2.Dropped.Select(r => r.Text)] : null,
             SummarizeTestFirst(ctx),
-            ctx.SqlProd is { } p ? new SqlProdCheckSummary(p.Outcome.ToString(), p.FileHash, p.ProdHash, p.PulledHash) : null);
+            ctx.SqlProd is { } p
+                ? new SqlProdCheckSummary(p.Outcome.ToString(), p.FileHash, p.ProdHash, p.PulledHash,
+                    ctx.Sql?.RecordRefresh is { } refresh && ctx.Current is { } current && refresh.IsIn(current.Text))
+                : null);
     }
 
     private static TestFirstSummary? SummarizeTestFirst(RunContext ctx)

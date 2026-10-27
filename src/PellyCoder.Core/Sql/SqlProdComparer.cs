@@ -5,11 +5,12 @@ namespace PellyCoder.Core.Sql;
 
 public enum ProdCheckOutcome { NotConfigured, SameAsProd, UnchangedSincePull, ChangedSincePull, DiffersNoRecord, NotInProd, Unavailable }
 
-/// <param name="Notice">
-/// Extra information that never changes the outcome: with <see cref="ProdCheckOutcome.SameAsProd"/>, a valid pull record
-/// whose hash is not production's (the user deployed their edit; the record is older than production).
+/// <param name="StaleRecord">
+/// Only with <see cref="ProdCheckOutcome.SameAsProd"/>: the file's valid pull record whose hash is not production's (the user
+/// deployed their edit; the record is older than production). <c>pelly sql</c> refreshes it to <paramref name="ProdHash"/> in
+/// the file it writes (design 6.3); it never changes the outcome. Null otherwise.
 /// </param>
-public sealed record ProdCheck(ProdCheckOutcome Outcome, string? FileHash, string? ProdHash, string? PulledHash, string Message, string? Notice = null);
+public sealed record ProdCheck(ProdCheckOutcome Outcome, string? FileHash, string? ProdHash, string? PulledHash, string Message, PullRecord? StaleRecord = null);
 
 /// <summary>Production comparison verdict for a target batch (design 6.2-6.4). Reads production only.</summary>
 public static class SqlProdComparer
@@ -55,10 +56,8 @@ public static class SqlProdComparer
         if (fileHash == prodHash)
         {
             // Same as production wins (design 6.2), but a valid record that no longer matches production would stop the next
-            // edit as "changed since pull": say so now, before the user edits again.
-            var stale = record is not null && IsValid(record, prod.Endpoint, targetName) && record.Sha256 != prodHash
-                ? $"받은 기록이 운영보다 오래되었습니다 — 고치기 전에 pelly sql pull {display} --force로 다시 받으십시오"
-                : null;
+            // edit as "changed since pull": hand it back so it can be refreshed.
+            var stale = record is not null && IsValid(record, prod.Endpoint, targetName) && record.Sha256 != prodHash ? record : null;
             return new(ProdCheckOutcome.SameAsProd, fileHash, prodHash, null, $"{display}가 운영 정의와 같습니다", stale);
         }
 

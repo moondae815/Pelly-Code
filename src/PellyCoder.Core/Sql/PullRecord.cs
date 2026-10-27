@@ -38,3 +38,43 @@ public sealed record PullRecord(string Source, string Server, string Database, S
     private static string Bracketed(SqlObjectName name) =>
         $"[{(name.Schema ?? "dbo").Replace("]", "]]")}].[{name.Name.Replace("]", "]]")}]";
 }
+
+/// <summary>
+/// A pull record that pelly rewrites because the file is production already (the user deployed their edit, design 6.2):
+/// <see cref="StaleLine"/> is the file's first line as read, <see cref="RefreshedLine"/> the same record with production's
+/// hash and the refresh time. Only that line changes.
+/// </summary>
+public sealed record SqlRecordRefresh(string StaleLine, string RefreshedLine)
+{
+    /// <summary>
+    /// The refresh of <paramref name="stale"/>, the record on the first line of <paramref name="fileTextLf"/> (LF, no BOM);
+    /// null when the first line is not that record.
+    /// </summary>
+    public static SqlRecordRefresh? For(string fileTextLf, PullRecord stale, string prodHash, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(fileTextLf);
+        ArgumentNullException.ThrowIfNull(stale);
+        ArgumentException.ThrowIfNullOrEmpty(prodHash);
+        var line = FirstLine(fileTextLf);
+        if (PullRecord.TryParse(line) != stale)
+            return null;
+        return new SqlRecordRefresh(line, (stale with { Sha256 = prodHash, At = now }).Format());
+    }
+
+    /// <summary><paramref name="textLf"/> with its first line replaced when that line is exactly <see cref="StaleLine"/>; otherwise unchanged.</summary>
+    public string ApplyTo(string textLf)
+    {
+        ArgumentNullException.ThrowIfNull(textLf);
+        var line = FirstLine(textLf);
+        return line == StaleLine ? string.Concat(RefreshedLine, textLf.AsSpan(line.Length)) : textLf;
+    }
+
+    /// <summary>True when the first line of <paramref name="textLf"/> is <see cref="RefreshedLine"/>.</summary>
+    public bool IsIn(string textLf) => FirstLine(textLf) == RefreshedLine;
+
+    private static string FirstLine(string textLf)
+    {
+        var end = textLf.IndexOf('\n');
+        return end < 0 ? textLf : textLf[..end];
+    }
+}

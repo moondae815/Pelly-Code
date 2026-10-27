@@ -1,0 +1,104 @@
+## Modern/Shop.Api.Tests/OrderServiceTests.cs (cs)
+- OrderServiceTests.CancelAsync_WhenShipped_CurrentlyCancels: public async Task CancelAsync_WhenShipped_CurrentlyCancels()
+- OrderServiceTests.CalculateRefundAsync_PaidOrder_RefundsItemsAndShippingFee: public async Task CalculateRefundAsync_PaidOrder_RefundsItemsAndShippingFee()
+- OrderServiceTests.CalculateRefundAsync_ShippedOrder_DeductsReturnShippingFee: public async Task CalculateRefundAsync_ShippedOrder_DeductsReturnShippingFee()
+- OrderServiceTests.NewOrder: private static Order NewOrder(OrderStatus status)
+- OrderServiceTests.FakeOrderRepository.Order: public Order Order { get; }
+- OrderServiceTests.FakeOrderRepository.History: public List<string> History { get; }
+- OrderServiceTests.FakeOrderRepository.RefundRequested: public decimal RefundRequested { get; private set; }
+- OrderServiceTests.FakeOrderRepository.GetByIdAsync: public Task<Order> GetByIdAsync(int orderId)
+- OrderServiceTests.FakeOrderRepository.GetItemsAsync: public Task<IReadOnlyList<OrderItem>> GetItemsAsync(int orderId)
+- OrderServiceTests.FakeOrderRepository.SearchAsync: public Task<IReadOnlyList<Order>> SearchAsync(OrderSearchRequest request)
+- OrderServiceTests.FakeOrderRepository.UpdateStatusAsync: public Task UpdateStatusAsync(int orderId, OrderStatus status, string reason)
+- OrderServiceTests.FakeOrderRepository.AddHistoryAsync: public Task AddHistoryAsync(int orderId, string message)
+- OrderServiceTests.FakeOrderRepository.AddRefundAsync: public Task AddRefundAsync(int orderId, decimal amount)
+
+## Modern/Shop.Api/Controllers/OrdersController.cs (cs)
+- OrdersController.Get: public async Task<IActionResult> Get(int id)
+- OrdersController.Cancel: public async Task<IActionResult> Cancel(int id, CancelRequest body)
+- OrdersController.Search: public async Task<ActionResult<IReadOnlyList<Order>>> Search(int? customerId, OrderStatus? status, DateTime? from, DateTime? to, string keyword, int page = 1, int pageSize = 20)
+
+## Modern/Shop.Api/Data/IOrderRepository.cs (cs)
+- IOrderRepository.GetByIdAsync: Task<Order> GetByIdAsync(int orderId)
+- IOrderRepository.GetItemsAsync: Task<IReadOnlyList<OrderItem>> GetItemsAsync(int orderId)
+- IOrderRepository.SearchAsync: Task<IReadOnlyList<Order>> SearchAsync(OrderSearchRequest request)
+- IOrderRepository.UpdateStatusAsync: Task UpdateStatusAsync(int orderId, OrderStatus status, string reason)
+- IOrderRepository.AddHistoryAsync: Task AddHistoryAsync(int orderId, string message)
+- IOrderRepository.AddRefundAsync: Task AddRefundAsync(int orderId, decimal amount)
+
+## Modern/Shop.Api/Data/OrderRepository.cs (cs)
+- OrderRepository.GetByIdAsync: public async Task<Order> GetByIdAsync(int orderId)
+- OrderRepository.GetItemsAsync: public async Task<IReadOnlyList<OrderItem>> GetItemsAsync(int orderId)
+- OrderRepository.SearchAsync: public async Task<IReadOnlyList<Order>> SearchAsync(OrderSearchRequest request)
+- OrderRepository.UpdateStatusAsync: public async Task UpdateStatusAsync(int orderId, OrderStatus status, string reason)
+- OrderRepository.AddHistoryAsync: public async Task AddHistoryAsync(int orderId, string message)
+- OrderRepository.AddRefundAsync: public async Task AddRefundAsync(int orderId, decimal amount)
+
+## Modern/Shop.Api/Models/CancelRequest.cs (cs)
+- CancelRequest.Reason: public string Reason { get; set; }
+
+## Modern/Shop.Api/Models/Order.cs (cs)
+- Order.OrderId: public int OrderId { get; set; }
+- Order.CustomerId: public int CustomerId { get; set; }
+- Order.Status: public OrderStatus Status { get; set; }
+- Order.TotalAmount: public decimal TotalAmount { get; set; }
+- Order.ShippingFee: public decimal ShippingFee { get; set; }
+- Order.DiscountAmount: public decimal DiscountAmount { get; set; }
+- Order.PointUsed: public decimal PointUsed { get; set; }
+- Order.OrderedAt: public DateTime OrderedAt { get; set; }
+- Order.PaidAt: public DateTime? PaidAt { get; set; }
+- Order.ShippedAt: public DateTime? ShippedAt { get; set; }
+- Order.DeliveredAt: public DateTime? DeliveredAt { get; set; }
+- Order.CancelledAt: public DateTime? CancelledAt { get; set; }
+- Order.CancelReason: public string CancelReason { get; set; }
+- Order.Items: public List<OrderItem> Items { get; set; }
+- OrderItem.OrderItemId: public int OrderItemId { get; set; }
+- OrderItem.OrderId: public int OrderId { get; set; }
+- OrderItem.ProductId: public int ProductId { get; set; }
+- OrderItem.ProductName: public string ProductName { get; set; }
+- OrderItem.Quantity: public int Quantity { get; set; }
+- OrderItem.UnitPrice: public decimal UnitPrice { get; set; }
+- OrderItem.IsGiftItem: public bool IsGiftItem { get; set; }
+- OrderItem.IsRefundable: public bool IsRefundable { get; set; }
+
+## Modern/Shop.Api/Models/OrderSearchRequest.cs (cs)
+- OrderSearchRequest.CustomerId: public int? CustomerId { get; set; }
+- OrderSearchRequest.Status: public OrderStatus? Status { get; set; }
+- OrderSearchRequest.From: public DateTime? From { get; set; }
+- OrderSearchRequest.To: public DateTime? To { get; set; }
+- OrderSearchRequest.Keyword: public string Keyword { get; set; }
+- OrderSearchRequest.Page: public int Page { get; set; }
+- OrderSearchRequest.PageSize: public int PageSize { get; set; }
+
+## Modern/Shop.Api/Models/OrderStatus.cs (cs)
+
+## Modern/Shop.Api/Program.cs (cs)
+
+## Modern/Shop.Api/Services/IOrderService.cs (cs)
+- IOrderService.CancelAsync: Task CancelAsync(int orderId, string reason)
+- IOrderService.CalculateRefundAsync: Task<decimal> CalculateRefundAsync(int orderId)
+- IOrderService.SearchAsync: Task<IReadOnlyList<Order>> SearchAsync(OrderSearchRequest request)
+
+## Modern/Shop.Api/Services/OrderService.cs (cs)
+- OrderService.CancelAsync: public async Task CancelAsync(int orderId, string reason)
+- OrderService.CalculateRefundAsync: public async Task<decimal> CalculateRefundAsync(int orderId)
+- OrderService.SearchAsync: public async Task<IReadOnlyList<Order>> SearchAsync(OrderSearchRequest request)
+
+## Modern/Shop.Jobs/DailySettlementJob.cs (cs)
+- DailySettlementJob.Run: public bool Run(DateTime businessDate)
+- DailySettlementJob.SettlementSource.OrderId: public int OrderId { get; set; }
+- DailySettlementJob.SettlementSource.SellerId: public int SellerId { get; set; }
+- DailySettlementJob.SettlementSource.TotalAmount: public decimal TotalAmount { get; set; }
+- DailySettlementJob.SettlementSource.ShippingFee: public decimal ShippingFee { get; set; }
+- DailySettlementJob.SettlementSource.DiscountAmount: public decimal DiscountAmount { get; set; }
+- DailySettlementJob.SettlementSource.CommissionRate: public decimal? CommissionRate { get; set; }
+- DailySettlementJob.SellerTotal.SellerId: public int SellerId { get; set; }
+- DailySettlementJob.SellerTotal.OrderCount: public int OrderCount { get; set; }
+- DailySettlementJob.SellerTotal.SalesAmount: public decimal SalesAmount { get; set; }
+- DailySettlementJob.SellerTotal.ShippingAmount: public decimal ShippingAmount { get; set; }
+- DailySettlementJob.SellerTotal.CommissionAmount: public decimal CommissionAmount { get; set; }
+- DailySettlementJob.SellerTotal.DiscountAmount: public decimal DiscountAmount { get; set; }
+- DailySettlementJob.SellerTotal.PayoutAmount: public decimal PayoutAmount { get; set; }
+
+## Modern/Shop.Jobs/Program.cs (cs)
+- Program.Main: private static int Main(string[] args)

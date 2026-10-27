@@ -1,0 +1,102 @@
+## Legacy/Shop.Batch/Program.cs (cs)
+- Program.Main: private static int Main(string[] args)
+
+## Legacy/Shop.Batch/SettlementBatch.cs (cs)
+- SettlementBatch.Execute: public SettlementResult Execute(DateTime businessDate)
+- SettlementBatch.BuildReport: public string BuildReport(DateTime businessDate, IList<SettlementRow> rows, IList<string> warnings)
+- SettlementResult.Success: public bool Success { get; set; }
+- SettlementResult.Report: public string Report { get; set; }
+- SettlementRow.SellerId: public int SellerId { get; set; }
+- SettlementRow.SellerName: public string SellerName { get; set; }
+- SettlementRow.Category: public string Category { get; set; }
+- SettlementRow.OrderCount: public int OrderCount { get; set; }
+- SettlementRow.SalesAmount: public decimal SalesAmount { get; set; }
+- SettlementRow.CommissionAmount: public decimal CommissionAmount { get; set; }
+- SettlementRow.PayoutAmount: public decimal PayoutAmount { get; set; }
+- SettlementRow.Deferred: public bool Deferred { get; set; }
+
+## Legacy/Shop.Data/Dto/OrderDto.cs (cs)
+- OrderDto.OrderId: public int OrderId { get; set; }
+- OrderDto.CustomerId: public int CustomerId { get; set; }
+- OrderDto.CustomerName: public string CustomerName { get; set; }
+- OrderDto.Status: public OrderStatus Status { get; set; }
+- OrderDto.TotalAmount: public decimal TotalAmount { get; set; }
+- OrderDto.ShippingFee: public decimal ShippingFee { get; set; }
+- OrderDto.OrderedAt: public DateTime OrderedAt { get; set; }
+- OrderDto.PaidAt: public DateTime? PaidAt { get; set; }
+- OrderDto.ShippedAt: public DateTime? ShippedAt { get; set; }
+- OrderDto.CancelledAt: public DateTime? CancelledAt { get; set; }
+- OrderDto.CancelReason: public string CancelReason { get; set; }
+
+## Legacy/Shop.Data/Dto/OrderStatus.cs (cs)
+
+## Legacy/Shop.Data/IOrderDao.cs (cs)
+- IOrderDao.GetOrder: OrderDto GetOrder(int orderId)
+- IOrderDao.SearchOrders: IList<OrderDto> SearchOrders(int? customerId, OrderStatus? status, DateTime? from, DateTime? to, string keyword)
+- IOrderDao.UpdateStatus: int UpdateStatus(int orderId, OrderStatus status, string reason)
+- IOrderDao.AddHistory: void AddHistory(int orderId, string message)
+
+## Legacy/Shop.Data/OrderDao.cs (cs)
+- OrderDao.GetOrder: public OrderDto GetOrder(int orderId)
+- OrderDao.SearchOrders: public IList<OrderDto> SearchOrders(int? customerId, OrderStatus? status, DateTime? from, DateTime? to, string keyword)
+- OrderDao.UpdateStatus: public int UpdateStatus(int orderId, OrderStatus status, string reason)
+- OrderDao.AddHistory: public void AddHistory(int orderId, string message)
+
+## Legacy/Shop.Tests/OrderServiceTests.cs (cs)
+- OrderServiceTests.Cancel_WhenShipped_CurrentlyCancels: public void Cancel_WhenShipped_CurrentlyCancels()
+- OrderServiceTests.Cancel_WhenDelivered_Throws: public void Cancel_WhenDelivered_Throws()
+- OrderServiceTests.Cancel_WithBlockedReason_Throws: public void Cancel_WithBlockedReason_Throws()
+- OrderServiceTests.FakeOrderDao.Order: public OrderDto Order { get; private set; }
+- OrderServiceTests.FakeOrderDao.History: public List<string> History { get; private set; }
+- OrderServiceTests.FakeOrderDao.GetOrder: public OrderDto GetOrder(int orderId)
+- OrderServiceTests.FakeOrderDao.SearchOrders: public IList<OrderDto> SearchOrders(int? customerId, OrderStatus? status, DateTime? from, DateTime? to, string keyword)
+- OrderServiceTests.FakeOrderDao.UpdateStatus: public int UpdateStatus(int orderId, OrderStatus status, string reason)
+- OrderServiceTests.FakeOrderDao.AddHistory: public void AddHistory(int orderId, string message)
+
+## Legacy/Shop.Web/Controllers/OrderController.cs (cs)
+- OrderController.Index: public ActionResult Index()
+- OrderController.Detail: public ActionResult Detail(int id)
+- OrderController.Cancel: public ActionResult Cancel(int id, string reason)
+
+## Legacy/Shop.Web/Services/IOrderService.cs (cs)
+- IOrderService.GetOrder: OrderDto GetOrder(int orderId)
+- IOrderService.Cancel: void Cancel(int orderId, string reason)
+
+## Legacy/Shop.Web/Services/OrderService.cs (cs)
+- OrderService.GetOrder: public OrderDto GetOrder(int orderId)
+- OrderService.Cancel: public void Cancel(int orderId, string reason)
+
+## Sql/objects/Order_Batch.sql (sql)
+- dbo.usp_ShipOrder: PROCEDURE (@OrderId int, @Carrier nvarchar(30), @TrackingNo varchar(30))
+- dbo.usp_ExpirePendingOrders: PROCEDURE (@Days int = 3)
+
+## Sql/objects/Settlement_All.sql (sql)
+- dbo.usp_SettleDaily: PROCEDURE (@BusinessDate date)
+- dbo.usp_SettleMonthly: PROCEDURE (@Year int, @Month int)
+
+## Sql/objects/fn_CustomerOrders.sql (sql)
+- dbo.fn_CustomerOrders: FUNCTION (@CustomerId int)
+
+## Sql/objects/fn_OrderTotal.sql (sql)
+- dbo.fn_OrderTotal: FUNCTION (@OrderId int)
+
+## Sql/objects/usp_BuildSettlement.sql (sql)
+- dbo.usp_BuildSettlement: PROCEDURE (@BusinessDate date)
+
+## Sql/objects/usp_CancelOrder.sql (sql)
+- dbo.usp_CancelOrder: PROCEDURE (@OrderId int, @Reason nvarchar(200))
+
+## Sql/objects/usp_GetOrderDetail.sql (sql)
+- dbo.usp_GetOrderDetail: PROCEDURE (@OrderId int)
+
+## Sql/objects/usp_SearchOrders.sql (sql)
+- dbo.usp_SearchOrders: PROCEDURE (@CustomerId int = NULL, @Status tinyint = NULL, @From datetime2(0) = NULL, @To datetime2(0) = NULL)
+
+## Sql/objects/usp_SearchOrdersDynamic.sql (sql)
+- dbo.usp_SearchOrdersDynamic: PROCEDURE (@CustomerId int = NULL, @SortColumn sysname = N'OrderedAt', @SortDesc bit = 1)
+
+## Sql/objects/usp_SetSellerCommission.sql (sql)
+- dbo.usp_SetSellerCommission: PROCEDURE (@SellerId int, @CommissionRate decimal(5,4))
+
+## Sql/objects/vw_ShippedOrders.sql (sql)
+- dbo.vw_ShippedOrders: VIEW

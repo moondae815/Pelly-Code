@@ -74,7 +74,8 @@ public sealed class SqlCheckCommand(
         {
             case ProdCheckOutcome.SameAsProd:
                 Print("green", "운영과 같음 (이미 반영됨 또는 아직 고치지 않음)");
-                if (check.Notice is not null) Print("yellow", check.Notice);
+                // Read-only: the next pelly sql run refreshes the record (design 6.4).
+                if (check.StaleRecord is not null) Print("yellow", "받은 기록이 운영보다 오래되었습니다 — 다음 pelly sql 실행 때 갱신합니다");
                 return ExitCodes.Success;
             case ProdCheckOutcome.UnchangedSincePull:
                 Print("green", "받은 뒤 운영이 바뀌지 않음");

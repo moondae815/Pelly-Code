@@ -87,10 +87,13 @@ public class SqlCheckCommandTests
     [Fact]
     public void Same_as_prod_with_stale_record_notes_it_and_exits_0()
     {
-        var (exit, output, _, _) = Run(Config, Record(OldDef) + "SET ANSI_NULLS ON\nGO\n" + Same, ProdDef, true);   // a pulled file's shape, then deployed
+        var text = Record(OldDef) + "SET ANSI_NULLS ON\nGO\n" + Same;   // a pulled file's shape, then deployed
+        var (exit, output, fs, _) = Run(Config, text, ProdDef, true);
         Assert.Equal(0, exit);
         Assert.Contains("운영과 같음 (이미 반영됨 또는 아직 고치지 않음)", output);
-        Assert.Contains("받은 기록이 운영보다 오래되었습니다 — 고치기 전에 pelly sql pull dbo.usp_X --force로 다시 받으십시오", output);
+        Assert.Contains("받은 기록이 운영보다 오래되었습니다 — 다음 pelly sql 실행 때 갱신합니다", output);
+        Assert.DoesNotContain("다시 받으십시오", output);
+        Assert.Equal(text, fs.File.ReadAllText("/w/x.sql"));   // check stays read-only: the refresh is pelly sql's
     }
 
     [Fact]

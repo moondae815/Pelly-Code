@@ -67,35 +67,40 @@ public class SqlProdComparerTests
         var r = await Run(file, Batch(AlterProd), new SqlReaderOpen(reader, Endpoint, null));
         Assert.Equal(ProdCheckOutcome.SameAsProd, r.Outcome);
         Assert.Equal(r.FileHash, r.ProdHash);
-        Assert.Equal("받은 기록이 운영보다 오래되었습니다 — 고치기 전에 pelly sql pull dbo.usp_X --force로 다시 받으십시오", r.Notice);
+        // The stale record is handed back so `pelly sql` can refresh it to production's hash.
+        Assert.NotNull(r.StaleRecord);
+        Assert.Equal(Hash(OldDef), r.StaleRecord!.Sha256);
+        Assert.Equal(PullRecord.TryParse(file), r.StaleRecord);
+        Assert.Equal(Hash(ProdDef), r.ProdHash);
     }
 
     [Fact]
-    public async Task Same_as_prod_with_current_record_has_no_notice()
+    public async Task Same_as_prod_with_current_record_has_no_stale_record()
     {
         var file = Record(Hash(ProdDef)) + AlterProd;
         var r = await Run(file, Batch(AlterProd), new SqlReaderOpen(ProdWith(), Endpoint, null));
         Assert.Equal(ProdCheckOutcome.SameAsProd, r.Outcome);
-        Assert.Null(r.Notice);
+        Assert.Null(r.StaleRecord);
     }
 
     [Theory]
-    [InlineData("dev", "proddb01")]
-    [InlineData("prod", "otherdb")]
-    public async Task Same_as_prod_with_invalid_stale_record_has_no_notice(string source, string server)
+    [InlineData("dev", "proddb01", "[dbo].[usp_X]")]
+    [InlineData("prod", "otherdb", "[dbo].[usp_X]")]
+    [InlineData("prod", "proddb01", "[dbo].[usp_Other]")]
+    public async Task Same_as_prod_with_invalid_stale_record_has_no_stale_record(string source, string server, string obj)
     {
-        var file = Record(Hash(OldDef), source, server) + AlterProd;
+        var file = Record(Hash(OldDef), source, server, obj: obj) + AlterProd;
         var r = await Run(file, Batch(AlterProd), new SqlReaderOpen(ProdWith(), Endpoint, null));
         Assert.Equal(ProdCheckOutcome.SameAsProd, r.Outcome);
-        Assert.Null(r.Notice);
+        Assert.Null(r.StaleRecord);
     }
 
     [Fact]
-    public async Task Same_as_prod_without_record_has_no_notice()
+    public async Task Same_as_prod_without_record_has_no_stale_record()
     {
         var r = await Run(AlterProd, Batch(AlterProd), new SqlReaderOpen(ProdWith(), Endpoint, null));
         Assert.Equal(ProdCheckOutcome.SameAsProd, r.Outcome);
-        Assert.Null(r.Notice);
+        Assert.Null(r.StaleRecord);
     }
 
     [Fact]
@@ -113,6 +118,7 @@ public class SqlProdComparerTests
         var r = await Run(file, Batch(Edited), new SqlReaderOpen(ProdWith(), Endpoint, null));
         Assert.Equal(ProdCheckOutcome.UnchangedSincePull, r.Outcome);
         Assert.Equal(Hash(ProdDef), r.PulledHash);
+        Assert.Null(r.StaleRecord);
     }
 
     [Fact]
@@ -121,6 +127,7 @@ public class SqlProdComparerTests
         var file = Record(Hash(OldDef)) + Edited;
         var r = await Run(file, Batch(Edited), new SqlReaderOpen(ProdWith(), Endpoint, null));
         Assert.Equal(ProdCheckOutcome.ChangedSincePull, r.Outcome);
+        Assert.Null(r.StaleRecord);   // only a file that is production already gets its record refreshed
         Assert.Equal(
             "받은 뒤 운영에서 dbo.usp_X가 바뀌었습니다 (받은 시각 2026-10-26T09:12:33Z). 운영 변경을 덮어쓰지 않도록 다시 받으십시오: pelly sql pull dbo.usp_X --force. 이미 고친 내용이 있으면 다시 받기 전에 파일을 따로 보관하십시오.",
             r.Message);

@@ -60,7 +60,7 @@ public static class FsmOrchestratorFactory
         IPhase[] phases =
         [
             new SqlPreflightPhase(new PreflightPhase(fs, fileGuard, backend, options.Llm, tokens.SpecialTokens), sql, options.Sql),
-            new SqlProdCheckPhase(new SqlLocatePhase(ui, options.Sql), prod ?? new SqlReaderOpen(null, null, null)),
+            new SqlProdCheckPhase(new SqlLocatePhase(ui, options.Sql), prod ?? new SqlReaderOpen(null, null, null), time),
             new SqlSlicePhase(fileGuard, tokens, options.Budget, sql),
             new EditPhase(prompts, client, feedback, logger, ui),
             new SqlApplyPhase(fileGuard, feedback, ui),

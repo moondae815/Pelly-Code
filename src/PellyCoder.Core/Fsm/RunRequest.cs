@@ -84,7 +84,11 @@ public sealed record TestFirstOutcome(IReadOnlyDictionary<string, RedState> Red,
 public sealed class SqlRunState(SqlScript originalScript, int targetIndex, SqlObjectName target, SqlObjectKind kind,
     string statementType, SqlSessionSettings settings, int compatLevel)
 {
-    public SqlScript OriginalScript { get; } = originalScript;
+    /// <summary>
+    /// The original script the safety and no-change guards compare with: the file as first read, with the pull record line
+    /// refreshed when <see cref="RecordRefresh"/> is set.
+    /// </summary>
+    public SqlScript OriginalScript { get; private set; } = originalScript;
     public SqlObjectName Target { get; } = target;
     public SqlObjectKind Kind { get; } = kind;
     public string StatementType { get; } = statementType;
@@ -104,6 +108,39 @@ public sealed class SqlRunState(SqlScript originalScript, int targetIndex, SqlOb
     public IReadOnlyList<Diagnostic>? OriginalCompileErrors { get; set; }
 
     public bool NoticesShown { get; set; }
+
+    /// <summary>The pull record refresh every write carries (set by the prod check); null when the record stays as it is.</summary>
+    public SqlRecordRefresh? RecordRefresh { get; private set; }
+
+    /// <summary>
+    /// Makes <paramref name="refresh"/> part of every edit: <see cref="OriginalScript"/> becomes <paramref name="originalTextLf"/>
+    /// with the record refreshed, so the safety guard accepts exactly that line outside the target batch. Refused (false) when
+    /// the record line is inside the target batch or the refreshed text splits differently: pelly never rewrites the batch the
+    /// model edits, and the guard keeps comparing with the file as read.
+    /// </summary>
+    public bool RefreshRecord(SqlRecordRefresh refresh, string originalTextLf)
+    {
+        ArgumentNullException.ThrowIfNull(refresh);
+        ArgumentNullException.ThrowIfNull(originalTextLf);
+        var refreshedText = refresh.ApplyTo(originalTextLf);
+        if (TargetIndex == 0 || ReferenceEquals(refreshedText, originalTextLf))
+            return false;
+        var script = SqlBatchSplitter.Split(refreshedText, CompatLevel);
+        var sameShape = script.LexErrors.Count == 0
+            && script.Batches.Count == OriginalScript.Batches.Count
+            && Enumerable.Range(0, script.Batches.Count).All(i => i == 0
+                ? script.Batches[i].StartLine == OriginalScript.Batches[i].StartLine && script.Batches[i].EndLine == OriginalScript.Batches[i].EndLine
+                : script.Batches[i].Text == OriginalScript.Batches[i].Text);
+        if (!sameShape)
+            return false;
+        OriginalScript = script;
+        CurrentTarget = script.Batches[TargetIndex];
+        RecordRefresh = refresh;
+        return true;
+    }
+
+    /// <summary>The text an edit is built on: <paramref name="currentTextLf"/> with the pending record refresh applied.</summary>
+    public string EditBase(string currentTextLf) => RecordRefresh?.ApplyTo(currentTextLf) ?? currentTextLf;
 }
 
 /// <summary>

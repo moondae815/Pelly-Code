@@ -115,6 +115,8 @@ public static class Program
                 var prompt = PlanPrompt.Raw(QwenChatTemplate.LoadDefault(), gold.Request, CorpusIndexBuilder.Build(SpikePaths.Corpus, gold.Scope), think: true);
                 Console.WriteLine($"tokens={QwenTokenCounter.Shared.Count(rendered)} prompt={PlanPrompt.CountTokens(prompt)}");
                 return 0;
+            case "run" when Option(args, "--arm") == ProductArm.Arm:
+                return ProductArm.Command(args);
             case "run":
                 return RunCommand(args).GetAwaiter().GetResult();
             case "smoke":

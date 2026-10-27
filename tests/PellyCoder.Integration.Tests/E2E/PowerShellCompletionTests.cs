@@ -98,7 +98,7 @@ public sealed class PowerShellCompletionTests
     public async Task Branch_OffersSubcommands(string shell)
     {
         var r = await Complete(shell);
-        Assert.Equal(["check", "new"], r["spec-sub"].Order().ToArray());
+        Assert.Equal(["check", "draft", "new"], r["spec-sub"].Order().ToArray());
     }
 
     [WindowsTheory]

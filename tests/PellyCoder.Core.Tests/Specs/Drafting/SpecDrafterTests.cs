@@ -287,6 +287,69 @@ public sealed class SpecDrafterTests
     }
 
     [Fact]
+    public async Task UnmarkedWorkspace_NoModelCall_Exit4()
+    {
+        var fs = Fs();
+        fs.RemoveFile("/ws/App.sln");
+
+        var run = await Draft("- [ ] T1 cs src/A.cs#M x", fs: fs);
+
+        Assert.Null(run.Outcome);
+        Assert.Equal(4, run.Failure!.ExitCode);
+        Assert.Contains(".git, .svn 또는 *.sln", run.Failure.Message);
+        Assert.Empty(run.Backend.Requests);
+        Assert.False(fs.File.Exists("/ws/.pelly/drafts/d1.md"));
+    }
+
+    [Fact]
+    public async Task ScopeWithoutSources_NoModelCall_Exit4()
+    {
+        var fs = Fs();
+        fs.AddFile("/ws/docs/readme.txt", "x");
+        fs.AddFile("/ws/db/Bad.sql", "CREATE PROCEDURE (");
+
+        var run = await Draft("- [ ] T1 cs src/A.cs#M x", fs: fs, scopes: ["/ws/docs"]);
+        Assert.Equal(4, run.Failure!.ExitCode);
+        Assert.Contains("범위에 .cs·.sql 파일이 없습니다: /ws/docs", run.Failure.Message);
+        Assert.Empty(run.Backend.Requests);
+
+        run = await Draft("- [ ] T1 cs src/A.cs#M x", fs: fs, scopes: ["/ws/db"]);
+        Assert.Equal(4, run.Failure!.ExitCode);
+        Assert.Contains("범위에 .cs·.sql 파일이 없습니다: /ws/db", run.Failure.Message);
+        Assert.Contains("db/Bad.sql", run.Failure.Message);
+        Assert.Empty(run.Backend.Requests);
+    }
+
+    [Fact]
+    public async Task ImpactLinesOverTaskCap_AddNone_Warn()
+    {
+        var fs = Fs();
+        var many = new StringBuilder("public class D\n{\n");
+        for (var i = 1; i <= 20; i++) many.Append($"    public void U{i}() {{ }}\n");
+        fs.AddFile("/ws/src/D.cs", many.Append("}\n").ToString());
+        var answer = "- [ ] T1 cs src/A.cs#M 매개변수를 더한다 [G1]\n"
+            + string.Join("\n", Enumerable.Range(2, 5).Select(n => $"- [ ] T{n} cs src/D.cs#U{n + 14} 로그를 남긴다"));
+        var targets = Enumerable.Range(1, 15).Select(n => new ImpactTarget("T1", "src/D.cs", "U" + n, "호출")).ToArray();
+
+        var o = (await Draft(answer, Semantic(targets), fs: fs)).Outcome!;
+
+        Assert.Empty(o.Added);
+        Assert.Equal(15, o.ImpactSkippedForCap);
+        Assert.Equal(6, TaskLines(o).Length);
+        Assert.DoesNotContain("TooManyTasks", Codes(o));
+        Assert.Contains("ImpactMissing", Codes(o));
+        Assert.False(o.Check.HasErrors);
+    }
+
+    [Fact]
+    public async Task ImpactLinesWithinTaskCap_AreAdded()
+    {
+        var run = await Draft("- [ ] T1 cs src/A.cs#M 매개변수를 더한다 [G1]", Semantic(new ImpactTarget("T1", "src/B.cs", "Use", "호출")));
+        Assert.Single(run.Outcome!.Added);
+        Assert.Equal(0, run.Outcome.ImpactSkippedForCap);
+    }
+
+    [Fact]
     public async Task ChangesFolder_Untouched()
     {
         var run = await Draft("- [ ] T1 cs src/A.cs#M 매개변수를 더한다 [G1]", Semantic(new ImpactTarget("T1", "src/B.cs", "Use", "호출")));

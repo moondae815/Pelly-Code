@@ -19,6 +19,10 @@ public sealed record AddedImpactTask(string TaskId, string Path, string Member, 
 /// <param name="DroppedLines">Task-shaped lines of the answer that failed the grammar, verbatim.</param>
 /// <param name="Check">The final check of <paramref name="Document"/>; its line numbers point into it.</param>
 /// <param name="ImpactSkippedForErrors">The static check had errors, so no impact search ran.</param>
+/// <param name="ImpactSkippedForCap">
+/// How many impact task lines were left out because the model's tasks plus all of them would pass
+/// <see cref="ChangeSpecParser.MaxTasks"/>; 0 when none were left out for that reason.
+/// </param>
 public sealed record DraftOutcome(
     string Document,
     IReadOnlyList<string> DroppedLines,
@@ -26,7 +30,8 @@ public sealed record DraftOutcome(
     SpecCheckResult Check,
     bool ImpactSkippedForErrors,
     DraftCall Call,
-    DraftIndex Index);
+    DraftIndex Index,
+    int ImpactSkippedForCap = 0);
 
 /// <param name="ExitCode">4 for scope, budget or environment problems; 1 when the draft has no task.</param>
 public sealed record DraftFailure(int ExitCode, string Message);
@@ -50,10 +55,24 @@ public sealed class SpecDrafter(IFileSystem fs, DraftModel model, IImpactFinder 
     {
         var (index, scopeError) = DraftIndexBuilder.Build(fs, ws, request.Scopes, sqlCompatLevel);
         if (scopeError is not null) return Fail(4, scopeError.Message);
-        var rendered = index!.Render();
+        if (index!.Files.Count == 0) return Fail(4, NoSources(request.Scopes, index.Skipped));
+        var rendered = index.Render();
 
         var inputTokens = model.CountInput(request.Request, rendered);
         if (inputTokens > DraftPrompt.InputBudget) return Fail(4, OverBudget(index, inputTokens));
+
+        // Checked before the model runs, so an unusable workspace never costs a model call (WorkspaceLocator needs the folder).
+        var draftDir = fs.Path.Combine(ws.PellyDir, "drafts");
+        var draftPath = fs.Path.Combine(draftDir, request.Id + ".md");
+        try { fs.Directory.CreateDirectory(draftDir); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return Fail(4, $"초안 검사 폴더를 만들 수 없습니다: {draftDir} ({ex.Message})");
+        }
+
+        // The checker finds the workspace from the file's path; without a .git, .svn or *.sln above it, that would be .pelly/drafts.
+        if (!SamePath(WorkspaceLocator.Resolve(fs, draftPath).Root, ws.Root))
+            return Fail(4, $"작업 공간 루트({ws.Root})에 .git, .svn 또는 *.sln이 없어 초안을 검사할 수 없습니다.");
 
         var call = await model.RunAsync(request.Request, rendered, ct, onWaiting);
 
@@ -65,20 +84,8 @@ public sealed class SpecDrafter(IFileSystem fs, DraftModel model, IImpactFinder 
             return Fail(1, message);
         }
 
-        var draftDir = fs.Path.Combine(ws.PellyDir, "drafts");
-        var draftPath = fs.Path.Combine(draftDir, request.Id + ".md");
         try
         {
-            try { fs.Directory.CreateDirectory(draftDir); }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                return Fail(4, $"초안 검사 폴더를 만들 수 없습니다: {draftDir} ({ex.Message})");
-            }
-
-            // The checker finds the workspace from the file's path; without a .git, .svn or *.sln above it, that would be .pelly/drafts.
-            if (!SamePath(WorkspaceLocator.Resolve(fs, draftPath).Root, ws.Root))
-                return Fail(4, $"작업 공간 루트({ws.Root})에 .git, .svn 또는 *.sln이 없어 초안을 검사할 수 없습니다.");
-
             var document = Compose(request, taskLines);
             if (Write(draftPath, document) is { } writeError) return Fail(4, writeError);
 
@@ -91,7 +98,7 @@ public sealed class SpecDrafter(IFileSystem fs, DraftModel model, IImpactFinder 
                 : SpecChecker.SqlRequest(fs, sql, allowDev: true, SpecChecker.SpecCheckListPath(fs, first, draftPath));
             var searched = sqlRequest is null ? csChecked : await SpecChecker.AddImpactAsync(csChecked, null, false, ct, sqlRequest);
 
-            var (lines, added) = AddImpactTasks(ws, first.Spec, taskLines, searched.Impact);
+            var (lines, added, skippedForCap) = AddImpactTasks(ws, first.Spec, taskLines, searched.Impact);
             var check = searched;
             if (added.Count > 0)
             {
@@ -101,7 +108,7 @@ public sealed class SpecDrafter(IFileSystem fs, DraftModel model, IImpactFinder 
             }
 
             if (check.HasErrors) (document, check) = WithCheckComment(document, check);
-            return (new DraftOutcome(document, dropped, added, check, skipped, call, index), null);
+            return (new DraftOutcome(document, dropped, added, check, skipped, call, index, skippedForCap), null);
         }
         finally
         {
@@ -111,6 +118,13 @@ public sealed class SpecDrafter(IFileSystem fs, DraftModel model, IImpactFinder 
     }
 
     private static (DraftOutcome?, DraftFailure?) Fail(int code, string message) => (null, new DraftFailure(code, message));
+
+    private static string NoSources(IReadOnlyList<string> scopes, IReadOnlyList<string> skipped)
+    {
+        var message = "범위에 .cs·.sql 파일이 없습니다: " + string.Join(", ", scopes);
+        if (skipped.Count > 0) message += "\n읽지 못해 색인에서 뺀 파일:\n" + string.Join("\n", skipped.Select(p => "  " + p));
+        return message;
+    }
 
     private string OverBudget(DraftIndex index, int tokens)
     {
@@ -180,12 +194,15 @@ public sealed class SpecDrafter(IFileSystem fs, DraftModel model, IImpactFinder 
     /// <summary>
     /// Adds a task line for each semantic C# target that names a member (design §4.4): inside a member, the only member of that
     /// name in its file, reached only from seeds of one group and not already a task. It goes after the group's last task,
-    /// numbered from the highest task number + 1 in the order the targets came.
+    /// numbered from the highest task number + 1 in the order the targets came. When the model's tasks and all of these lines
+    /// together would pass <see cref="ChangeSpecParser.MaxTasks"/>, none is added (a partial set would look complete) and
+    /// <c>SkippedForCap</c> says how many there were.
     /// </summary>
-    private (List<string> Lines, List<AddedImpactTask> Added) AddImpactTasks(Workspace ws, ChangeSpec spec, List<string> taskLines, ImpactResult? result)
+    private (List<string> Lines, List<AddedImpactTask> Added, int SkippedForCap) AddImpactTasks(
+        Workspace ws, ChangeSpec spec, List<string> taskLines, ImpactResult? result)
     {
         var added = new List<AddedImpactTask>();
-        if (result is not { Mode: ImpactMode.Semantic } || spec.Tasks.Count != taskLines.Count) return (taskLines, added);
+        if (result is not { Mode: ImpactMode.Semantic } || spec.Tasks.Count != taskLines.Count) return (taskLines, added, 0);
 
         var lines = spec.Tasks.Select((t, i) => (Text: taskLines[i], t.Group)).ToList();
         var groupOf = spec.Tasks.GroupBy(t => t.Id, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First().Group, StringComparer.Ordinal);
@@ -207,7 +224,8 @@ public sealed class SpecDrafter(IFileSystem fs, DraftModel model, IImpactFinder 
             lines.Insert(lines.FindLastIndex(l => l.Group == group) + 1, (line, group));
             added.Add(new AddedImpactTask(id, place.Key.Path, place.Key.Member, target.SeedTaskId));
         }
-        return (lines.Select(l => l.Text).ToList(), added);
+        if (spec.Tasks.Count + added.Count > ChangeSpecParser.MaxTasks) return (taskLines, [], added.Count);
+        return (lines.Select(l => l.Text).ToList(), added, 0);
     }
 
     /// <summary>True when the file has exactly one method or property of that name (a constructor's name cannot be told from its type's).</summary>

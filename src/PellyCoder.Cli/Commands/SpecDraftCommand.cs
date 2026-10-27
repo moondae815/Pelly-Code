@@ -240,6 +240,8 @@ public sealed class SpecDraftCommand(
         }
 
         if (o.ImpactSkippedForErrors) Warn("검사 오류가 있어 영향 탐색을 하지 않았습니다.");
+        if (o.ImpactSkippedForCap > 0)
+            Warn($"영향 대상 {N(o.ImpactSkippedForCap)}개를 더하면 작업 수 상한 {N(ChangeSpecParser.MaxTasks)}을 넘어 더하지 않았습니다.");
 
         var errors = o.Check.Issues.Count(i => i.Severity == SpecIssueSeverity.Error);
         Print("");
@@ -259,7 +261,7 @@ public sealed class SpecDraftCommand(
             request.Id, request.Request, request.Scopes,
             new DraftRunIndex(o.Index.Files.Count, o.Index.Files.Sum(f => f.Members.Count), o.Call.InputTokens, o.Index.Skipped),
             o.Call.Stage1Prompt, o.Call.Think, o.Call.ThinkTruncated, o.Call.Answer, o.Call.Seconds,
-            o.DroppedLines, o.Added, o.ImpactSkippedForErrors,
+            o.DroppedLines, o.Added, o.ImpactSkippedForErrors, o.ImpactSkippedForCap,
             o.Check.Issues.Select(i => new DraftRunIssue(i.Line, i.Severity == SpecIssueSeverity.Error ? "error" : "warning", i.Code, i.Message)).ToList(),
             result, writtenPath);
         try
@@ -293,6 +295,6 @@ public sealed class SpecDraftCommand(
     private sealed record DraftRunRecord(
         string Id, string Request, IReadOnlyList<string> Scopes, DraftRunIndex Index,
         string Stage1Prompt, string Think, bool ThinkTruncated, string Answer, double Seconds,
-        IReadOnlyList<string> DroppedLines, IReadOnlyList<AddedImpactTask> AddedLines, bool ImpactSkippedForErrors,
+        IReadOnlyList<string> DroppedLines, IReadOnlyList<AddedImpactTask> AddedLines, bool ImpactSkippedForErrors, int ImpactSkippedForCap,
         IReadOnlyList<DraftRunIssue> Issues, string Outcome, string? WrittenPath);
 }

@@ -57,10 +57,10 @@ public sealed partial class SpecDraftCommandTests
         public void ShowRunSummary(PellyCoder.Core.Logging.RunSummary summary, string? runDirectory) { }
     }
 
-    private sealed class FakeFinder : IImpactFinder
+    private sealed class FakeFinder(IReadOnlyList<ImpactTarget> targets) : IImpactFinder
     {
         public Task<ImpactResult> FindAsync(Workspace ws, IReadOnlyList<ImpactSeed> seeds, CancellationToken ct) =>
-            Task.FromResult(new ImpactResult(ImpactMode.Semantic, null, [], []));
+            Task.FromResult(new ImpactResult(ImpactMode.Semantic, null, targets, []));
     }
 
     private sealed class Harness
@@ -68,6 +68,7 @@ public sealed partial class SpecDraftCommandTests
         public MockFileSystem Fs { get; } = new();
         public ScriptedBackend? Backend { get; private set; }
         public ConfirmUi? Ui { get; private set; }
+        public List<ImpactTarget> Targets { get; } = [];
 
         public Harness()
         {
@@ -89,7 +90,7 @@ public sealed partial class SpecDraftCommandTests
             services.AddSingleton(TimeProvider.System);
             services.AddSingleton(new ConfigSources(null, new Dictionary<string, string?>()));
             services.AddSingleton(typeof(CancellationToken), CancellationToken.None);
-            services.AddSingleton<IImpactFinder>(new FakeFinder());
+            services.AddSingleton<IImpactFinder>(new FakeFinder(Targets));
             var backend = Backend;
             services.AddSingleton<LlmBackendFactory>(_ => backend);
             // The tester's console is the one the command writes to, so the question lands in the same output.
@@ -287,6 +288,26 @@ public sealed partial class SpecDraftCommandTests
         Assert.Equal(0, r.ExitCode);
         Assert.Contains("형식에 맞지 않아 버린 줄", r.Output);
         Assert.Contains("- [ ] T2 cs", r.Output);
+    }
+
+    [Fact]
+    public void ImpactLinesOverTaskCap_AreNotAdded_AndWarned()
+    {
+        var h = new Harness();
+        var many = new System.Text.StringBuilder("namespace App;\npublic class Many\n{\n");
+        for (var i = 1; i <= 21; i++) many.Append($"    public void M{i}() {{ }}\n");
+        h.Fs.AddFile("/w/src/Many.cs", new MockFileData(many.Append("}\n").ToString()));
+        var answer = "- [ ] T1 cs src/Many.cs#Many.M1 매개변수를 더한다 [G1]\n"
+            + string.Join("\n", Enumerable.Range(2, 19).Select(n => $"- [ ] T{n} cs src/Many.cs#Many.M{n} 로그를 남긴다")) + "\n";
+        h.Targets.Add(new ImpactTarget("T1", "src/Many.cs", "M21", "호출"));
+        h.Targets.Add(new ImpactTarget("T1", "src/Order.cs", "Ship", "호출"));
+
+        var r = h.Draft(answer, extra: "--dry-run");
+
+        Assert.Equal(0, r.ExitCode);
+        Assert.Contains("영향 대상 2개를 더하면 작업 수 상한 20을 넘어 더하지 않았습니다", r.Output);
+        Assert.DoesNotContain("영향 탐색으로 더한 작업", r.Output);
+        Assert.DoesNotContain("TooManyTasks", r.Output);
     }
 
     [Fact]

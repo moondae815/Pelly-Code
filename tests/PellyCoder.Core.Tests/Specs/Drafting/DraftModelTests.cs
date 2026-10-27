@@ -6,27 +6,11 @@ namespace PellyCoder.Core.Tests.Specs.Drafting;
 
 public sealed class DraftModelTests
 {
-    private sealed class FakeBackend(params (string Text, string? DoneReason)[] script) : ILlmBackend
-    {
-        public List<LlmRequest> Requests { get; } = [];
-
-        public async IAsyncEnumerable<LlmChunk> GenerateAsync(LlmRequest request, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
-        {
-            var (text, reason) = script[Requests.Count];
-            Requests.Add(request);
-            await Task.Yield();
-            yield return new LlmChunk(text, false, null, null, null, null, null);
-            yield return new LlmChunk("", true, 100, null, 7, null, reason);
-        }
-
-        public Task<LlmServerStatus> GetStatusAsync(CancellationToken ct) => throw new NotSupportedException();
-    }
-
     private static readonly QwenChatTemplate Template = QwenChatTemplate.LoadDefault();
 
-    private static (DraftModel Model, FakeBackend Backend) Make(params (string, string?)[] script)
+    private static (DraftModel Model, FakeDraftBackend Backend) Make(params (string, string?)[] script)
     {
-        var backend = new FakeBackend(script);
+        var backend = new FakeDraftBackend(script);
         return (new DraftModel(backend, Template, TimeProvider.System), backend);
     }
 

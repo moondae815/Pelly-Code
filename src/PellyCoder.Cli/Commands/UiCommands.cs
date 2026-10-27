@@ -15,6 +15,9 @@ public static class UiCommands
     public static RunFunc RunFunc(RunnerFactory factory, PreparedRun run, Func<string, RunRequest> toRequest) =>
         (requestText, ui, ct) => factory(ui).RunAsync(toRequest(requestText), run.Options, ct);
 
+    /// <summary>Long names (without <c>--</c>) of the options <see cref="GuiOptionErrors"/> rejects; shell completion leaves them out for <c>ui</c>.</summary>
+    public static readonly IReadOnlyList<string> GuiRejectedOptions = ["yes", "pause-on-exit"];
+
     /// <summary>Errors for options that make no sense with a window, in the order they are checked.</summary>
     public static IEnumerable<string> GuiOptionErrors(RunSettings s)
     {

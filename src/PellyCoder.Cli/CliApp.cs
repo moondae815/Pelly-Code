@@ -148,10 +148,21 @@ public static class CliApp
 
     /// <summary>Long option names (without <c>--</c>) of a settings type; with <paramref name="valueOnly"/>, only those that require a value.</summary>
     private static IEnumerable<string> OptionNames(Type settingsType, bool valueOnly) =>
+        OptionAttributes(settingsType)
+            .Where(a => !valueOnly || a is { ValueName: not null, ValueIsOptional: false })
+            .SelectMany(a => a.LongNames);
+
+    /// <summary>A command's visible long options (hidden ones left out), for shell completion.</summary>
+    internal static IReadOnlyList<OptionInfo> CommandOptions(Type settingsType) =>
+        OptionAttributes(settingsType)
+            .Where(a => !a.IsHidden)
+            .SelectMany(a => a.LongNames.Select(n => new OptionInfo(n, a.ValueName is not null)))
+            .ToList();
+
+    private static IEnumerable<CommandOptionAttribute> OptionAttributes(Type settingsType) =>
         settingsType.GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .Select(p => p.GetCustomAttribute<CommandOptionAttribute>())
-            .Where(a => a is not null && (!valueOnly || a is { ValueName: not null, ValueIsOptional: false }))
-            .SelectMany(a => a!.LongNames);
+            .OfType<CommandOptionAttribute>();
 
     /// <summary>
     /// The checks Program runs on the raw arguments before Spectre parses them (a value option without its value, an
@@ -187,3 +198,6 @@ public static class CliApp
     /// <summary>Backstop for a result outside 0–5 (Spectre uses negative codes for its own failures): treated as an argument error.</summary>
     public static int NormalizeExitCode(int code) => code is >= ExitCodes.Success and <= ExitCodes.SafetyRejected ? code : ExitCodes.EnvError;
 }
+
+/// <summary>One long option of a command: its name without <c>--</c> and whether a value follows it.</summary>
+internal sealed record OptionInfo(string LongName, bool TakesValue);

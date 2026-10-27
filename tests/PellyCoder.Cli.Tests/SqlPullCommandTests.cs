@@ -157,7 +157,10 @@ public class SqlPullCommandTests
         var (exit, output) = f.Run("sql", "pull", "dbo.usp_X", "--out", "/elsewhere/pulled");
 
         Assert.Equal(4, exit);
-        Assert.Contains("/elsewhere/pulled", output);
+        // The message shows the full path, which Windows spells C:\elsewhere\pulled.
+        Assert.Contains("작업 공간 밖", output);
+        Assert.Contains("pulled", output);
+        Assert.Contains("elsewhere", output);
         Assert.Empty(f.Connections);
     }
 

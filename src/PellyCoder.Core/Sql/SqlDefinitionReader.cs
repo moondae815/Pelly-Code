@@ -7,7 +7,8 @@ namespace PellyCoder.Core.Sql;
 /// <summary>
 /// Reads definitions and dependency metadata from one server. Every statement is a read-only SELECT over catalog views or metadata
 /// functions (<c>OBJECT_DEFINITION</c>, <c>OBJECT_ID</c>, <c>HAS_PERMS_BY_NAME</c>, <c>sys.dm_sql_referenced_entities</c>);
-/// there is deliberately no SET NOEXEC, transaction, DDL or DML here, so a VIEW DEFINITION-only login suffices.
+/// there is deliberately no SET NOEXEC, transaction, DDL or DML here, so a VIEW DEFINITION-only login suffices (the one view it
+/// cannot read, <c>sys.sql_expression_dependencies</c>, has a fallback).
 /// </summary>
 public sealed class SqlDefinitionReader(string connectionString) : ISqlDefinitionReader
 {
@@ -27,16 +28,63 @@ public sealed class SqlDefinitionReader(string connectionString) : ISqlDefinitio
                 : new SqlModuleDefinition(new SqlObjectName(row.Schema, row.Name), row.TypeCode, row.Definition, row.UsesAnsiNulls, row.UsesQuotedIdentifier);
         }, ct);
 
+    /// <summary>SQL Server's "SELECT permission was denied on the object" error.</summary>
+    private const int PermissionDenied = 229;
+
     public Task<IReadOnlyList<SqlModuleRef>> GetReferencingModulesAsync(SqlObjectName name, CancellationToken ct)
         => SqlCalls.RunAsync<IReadOnlyList<SqlModuleRef>>(connectionString, async conn =>
         {
-            var rows = await conn.QueryAsync<RefRow>(Cmd(
-                "SELECT DISTINCT SCHEMA_NAME(o.schema_id) AS [Schema], o.name AS Name, RTRIM(o.type) AS TypeCode " +
-                "FROM sys.sql_expression_dependencies d JOIN sys.objects o ON o.object_id = d.referencing_id " +
-                "WHERE d.referenced_id = OBJECT_ID(@name) AND d.referencing_id <> d.referenced_id AND d.referencing_class = 1 " +
-                "ORDER BY [Schema], Name", new { name = Quote(name) }, ct));
-            return rows.Select(r => new SqlModuleRef(new SqlObjectName(r.Schema, r.Name), r.TypeCode)).ToList();
+            var quoted = Quote(name);
+            try
+            {
+                var rows = await conn.QueryAsync<RefRow>(Cmd(
+                    "SELECT DISTINCT SCHEMA_NAME(o.schema_id) AS [Schema], o.name AS Name, RTRIM(o.type) AS TypeCode " +
+                    "FROM sys.sql_expression_dependencies d JOIN sys.objects o ON o.object_id = d.referencing_id " +
+                    "WHERE d.referenced_id = OBJECT_ID(@name) AND d.referencing_id <> d.referenced_id AND d.referencing_class = 1 " +
+                    "ORDER BY [Schema], Name", new { name = quoted }, ct));
+                return rows.Select(r => new SqlModuleRef(new SqlObjectName(r.Schema, r.Name), r.TypeCode)).ToList();
+            }
+            catch (SqlException ex) when (ex.Number == PermissionDenied && !SqlCalls.IsConnectionLevel(ex, conn) && !ct.IsCancellationRequested)
+            {
+                // sys.sql_expression_dependencies needs SELECT on the view itself, which only db_owner has by default; a
+                // VIEW DEFINITION-only login (the documented production account) gets Msg 229. Same answer without it:
+                // modules whose text mentions the name, kept when the referenced-entities function confirms the reference.
+                return await ReferencingByTextAsync(conn, name, quoted, ct);
+            }
         }, ct);
+
+    private static async Task<IReadOnlyList<SqlModuleRef>> ReferencingByTextAsync(SqlConnection conn, SqlObjectName name, string quoted, CancellationToken ct)
+    {
+        var pattern = "%" + name.Name.Replace(@"\", @"\\", StringComparison.Ordinal).Replace("%", @"\%", StringComparison.Ordinal)
+            .Replace("_", @"\_", StringComparison.Ordinal).Replace("[", @"\[", StringComparison.Ordinal) + "%";
+        var candidates = await conn.QueryAsync<RefRow>(Cmd(
+            "SELECT SCHEMA_NAME(o.schema_id) AS [Schema], o.name AS Name, RTRIM(o.type) AS TypeCode " +
+            "FROM sys.sql_modules m JOIN sys.objects o ON o.object_id = m.object_id " +
+            "WHERE m.definition LIKE @pattern ESCAPE '\\' AND m.object_id <> ISNULL(OBJECT_ID(@name), 0) AND o.is_ms_shipped = 0 " +
+            "ORDER BY [Schema], Name", new { pattern, name = quoted }, ct));
+
+        var result = new List<SqlModuleRef>();
+        foreach (var c in candidates)
+        {
+            var module = new SqlObjectName(c.Schema, c.Name);
+            try
+            {
+                var hits = await conn.ExecuteScalarAsync<int>(Cmd(
+                    "SELECT COUNT(*) FROM sys.dm_sql_referenced_entities(@module, 'OBJECT') " +
+                    "WHERE referenced_server_name IS NULL AND referenced_database_name IS NULL AND referenced_entity_name = @entity " +
+                    "AND (referenced_schema_name IS NULL OR referenced_schema_name = @schema)",
+                    new { module = Quote(module), entity = name.Name, schema = name.Schema ?? "dbo" }, ct));
+                if (hits > 0) result.Add(new SqlModuleRef(module, c.TypeCode));
+            }
+            catch (SqlException ex) when (!SqlCalls.IsConnectionLevel(ex, conn) && !ct.IsCancellationRequested)
+            {
+                // The candidate no longer compiles, so the function cannot confirm it: keep it — a possible reference
+                // shown as a warning beats one missed silently.
+                result.Add(new SqlModuleRef(module, c.TypeCode));
+            }
+        }
+        return result;
+    }
 
     public Task<IReadOnlyList<SqlColumnUse>?> GetColumnUsesAsync(SqlObjectName module, CancellationToken ct)
         => SqlCalls.RunAsync<IReadOnlyList<SqlColumnUse>?>(connectionString, async conn =>

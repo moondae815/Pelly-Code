@@ -120,4 +120,53 @@ public class SqlDefinitionReaderTests
             await admin.ExecuteAsync($"USE master; IF SUSER_ID(N'{login}') IS NOT NULL DROP LOGIN [{login}]");
         }
     }
+
+    /// <summary>
+    /// A VIEW DEFINITION-only login cannot read sys.sql_expression_dependencies (Msg 229), so the reader falls back to a text
+    /// search confirmed by sys.dm_sql_referenced_entities: a module that only names the table in a comment is not a reference.
+    /// </summary>
+    [SqlServerFact]
+    public async Task View_definition_only_fallback_matches_catalog_and_ignores_comments()
+    {
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        var login = $"pelly_vf_{suffix}";
+        var reads = $"usp_ReadsOrders_{suffix}";
+        var mentions = $"usp_MentionsOrders_{suffix}";
+        const string password = "Pelly_Vf_2026!x";
+        await using var admin = new SqlConnection(ProdDb.ConnectionString);
+        await admin.OpenAsync();
+        try
+        {
+            await admin.ExecuteAsync($"CREATE PROCEDURE dbo.{reads} AS SELECT COUNT(*) FROM dbo.Orders;");
+            await admin.ExecuteAsync($"CREATE PROCEDURE dbo.{mentions} AS /* dbo.Orders */ SELECT 1;");
+            await admin.ExecuteAsync($"CREATE LOGIN [{login}] WITH PASSWORD = '{password}', CHECK_POLICY = OFF");
+            await admin.ExecuteAsync($"CREATE USER [{login}] FOR LOGIN [{login}]");
+            await admin.ExecuteAsync($"GRANT CONNECT TO [{login}]; GRANT VIEW DEFINITION TO [{login}];");
+
+            var limited = new SqlDefinitionReader(new SqlConnectionStringBuilder(ProdDb.ConnectionString!)
+            {
+                IntegratedSecurity = false,
+                UserID = login,
+                Password = password,
+                Pooling = false,
+            }.ConnectionString);
+
+            var viaFallback = (await limited.GetReferencingModulesAsync(Orders, CancellationToken.None)).Select(m => m.Name.Name).ToList();
+            var viaCatalog = (await Reader().GetReferencingModulesAsync(Orders, CancellationToken.None)).Select(m => m.Name.Name).ToList();
+
+            // Same verdicts as the catalog for the modules this test controls (other test classes may add their own meanwhile).
+            foreach (var found in new[] { viaFallback, viaCatalog })
+            {
+                Assert.Contains(reads, found);
+                Assert.Contains(CancelOrder.Name, found);
+                Assert.DoesNotContain(mentions, found);
+            }
+        }
+        finally
+        {
+            await admin.ExecuteAsync($"DROP USER IF EXISTS [{login}]");
+            await admin.ExecuteAsync($"DROP PROCEDURE IF EXISTS dbo.{reads}; DROP PROCEDURE IF EXISTS dbo.{mentions};");
+            await admin.ExecuteAsync($"USE master; IF SUSER_ID(N'{login}') IS NOT NULL DROP LOGIN [{login}]");
+        }
+    }
 }

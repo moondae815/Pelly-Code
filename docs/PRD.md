@@ -27,6 +27,7 @@
 | v1.16 | 2026-10-25 | V2-1c 구현: 영향 탐색(심볼·이름 대체 표시), BuildHost 배포, doctor 의미 분석 행, 명세 완료율 report, apply E2E 벤치마크 |
 | v1.17 | 2026-10-26 | V2-0 구현: `pelly ui cs`·`pelly ui sql` 승인 창(Avalonia 12.1.4, 요청 입력·진행·diff 승인·다시 실행, `--yes`·`--pause-on-exit` 불가), Avalonia 네이티브 DLL 셋을 `pelly.exe` 옆에 둠(반입 zip 고정 파일 17개, `pelly.exe` +9.3 MB), 두 번째 라이선스 예외(`Avalonia.Angle.Windows.Natives`, 2026-10-26 사람 승인)와 패키지별 예외 범위(`packages`), 빌드 시점 수집 끄기(`AVALONIA_TELEMETRY_OPTOUT=1`). Windows 실행은 미확인 |
 | v1.18 | 2026-10-26 | V2-1d 구현: 운영 DB 읽기 전용 정의 읽기(`VIEW DEFINITION`, `sql.production.*`), `pelly sql pull`·`pelly sql check`, 받은 뒤 운영 변경 시 `pelly sql` 중단(`SqlProdChanged`), SQL 영향 탐색, doctor 「SQL 운영(읽기 전용)」 행. 사람 결정: 운영 읽기 접속 허용, pull 기본 출처는 운영, 영향 탐색 세 가지 모두 이번 단계, §12 로드맵에 올림 |
+| v1.19 | 2026-10-27 | PowerShell 자동완성: `pelly completion powershell`이 명령·옵션·정해진 값(`--think`)을 Tab으로 완성하는 정적 스크립트를 출력(명령 목록에서 생성, ASCII, 5.1·7, 파일 자리는 기본 경로 완성). 반입 zip 변화 없음. 설계 `docs/superpowers/specs/2026-10-27-powershell-completion-design.md` |
 
 ---
 
@@ -165,6 +166,7 @@ Ollama에는 공개된 토큰화 전용 엔드포인트가 없으므로 다음�
   pelly report [--since <yyyy-MM-dd>] [--sanitize [--out <폴더>]]   # 실행 기록 요약 (FR-09)
   pelly ui cs  <file.cs>  ["<요청>"] [--class <Name>] [--method <Name>] [--line <n>]   # 승인 창 (V2-0)
   pelly ui sql <file.sql> ["<요청>"] [--object <Name>] [--line <n>]   # 승인 창 (V2-0)
+  pelly completion powershell   # PowerShell 자동완성 스크립트 출력
   ```
 * **대상 지정 (`pelly cs`):** `--method`(+선택 `--class`), `--line <n>`(커서 줄이 속한 멤버, `--class`/`--method`와 함께 쓸 수 없고 1 이상), 또는 둘 다 생략(요청문의 식별자 → 없으면 모델이 멤버 목록에서 선택, 최대 60개). `--method`와 요청문은 모두 선택입니다. 요청문을 생략하면 대화형 실행에서는 입력을 묻고 비대화형이면 종료 코드 4입니다.
 * **대상 지정 (`pelly sql`, M2b):** 파일에 프로시저·함수·뷰 정의가 하나면 자동으로 정하고, 여럿이면 `--object <이름>`(예: `dbo.MyProc`) 또는 `--line <n>`(그 줄을 포함하는 정의)으로 지정합니다. `--line`과 `--object`는 함께 쓸 수 없고(종료 4), 여러 객체에서 지정이 없으면 대화형은 선택 UI, 비대화형은 종료 코드 3입니다. SQL에는 모델이 대상을 고르는 단계가 없습니다. 편집은 대상 객체 배치 하나에만 적용되며 `--strict-baseline`·`--warn-as-error`는 없습니다(`pelly cs` 전용). 공통 옵션(`--yes`, `--dry-run`, `--max-retries`, `--config`, `--think`, `--model`, `--endpoint`)은 같습니다. 요청문 생략은 `pelly cs`와 같이 대화형에서만 허용됩니다.

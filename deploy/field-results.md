@@ -130,11 +130,20 @@ CI와 헤드리스 테스트로는 확인할 수 없는 네 가지입니다. CI�
 * 확인한 Windows·Visual Studio 버전: ____
 * 확인한 날짜·확인자: ____
 
-## 10. Visual Studio External Tools
+## 10. PowerShell 자동완성 현장 확인
+
+`deploy/usage.md`의 「PowerShell 자동완성」대로 등록한 뒤 확인합니다. 결과 칸에는 합격 / 불합격 / 해당 없음 중 하나를 적습니다.
+
+| 번호 | 확인할 것 | 결과 | 메모 |
+| :--- | :--- | :--- | :--- |
+| C1 | 현장 PC의 실행 정책(`Get-ExecutionPolicy -List`)이 프로필 실행을 허용하는가 (허용하지 않으면 C2는 해당 없음) | | |
+| C2 | 한국어 Windows의 PowerShell 5.1에서 `pelly completion powershell > 파일` 뒤 새 창에서 `pelly sp`+Tab이 `spec`이 되는가, `pelly cs .\`+Tab이 파일을 완성하는가 | | |
+
+## 11. Visual Studio External Tools
 
 pelly zip의 `docs\ide-external-tools.md`의 「Visual Studio 실기 확인 결과」 표를 채웠는가: 예 / 아니오
 
-## 11. 반출한 파일 목록
+## 12. 반출한 파일 목록
 
 | 파일 (반출 폴더 기준) | 만든 명령 |
 | :--- | :--- |
@@ -145,6 +154,6 @@ pelly zip의 `docs\ide-external-tools.md`의 「Visual Studio 실기 확인 결�
 * 반출 전에 파일을 직접 열어 사내 이름이 없는지 확인했는가: 예 / 아니오
 * 반출 승인한 사람·날짜: ____
 
-## 12. 메모
+## 13. 메모
 
 막힌 명령, 이상한 출력, 문서와 다른 점을 적습니다.

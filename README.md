@@ -262,6 +262,14 @@ pelly ui sql <file.sql> ["<요청>"] [--object <Name>] | [--line <n>]  [공통 �
 * IDE 등록은 [deploy/ide-external-tools.md](deploy/ide-external-tools.md)의 「GUI 항목」을 보십시오. 같은 문서의 설계 배경은 `docs/superpowers/specs/2026-10-26-v2-0-gui-design.md`입니다.
 * **개발 메모:** Avalonia 12.1.4. `Avalonia.Headless.XUnit`이 xunit.v3 4.0.2와 맞지 않아 UI 테스트는 `HeadlessUnitTestSession`으로 직접 세션을 띄웁니다. 빌드 시점 사용 정보 수집은 `AVALONIA_TELEMETRY_OPTOUT=1`로 끕니다.
 
+### `pelly completion powershell` — PowerShell 자동완성
+```powershell
+pelly completion powershell > "$HOME\pelly-completion.ps1"
+Add-Content $PROFILE '. "$HOME\pelly-completion.ps1"'
+```
+
+PowerShell 5.1·7에서 Tab으로 명령·옵션 이름과 정해진 값(`--think`)을 완성합니다. 파일 자리는 기본 경로 완성 그대로입니다. 명령 목록(`CliApp.CommandSettings`)과 설정 클래스의 옵션 속성에서 스크립트를 만들므로 명령을 더하면 완성도 따라옵니다. 스크립트는 ASCII만 쓰고 Tab마다 `pelly.exe`를 실행하지 않습니다. `pelly`를 바꾸면 다시 만드십시오. 실제 Tab 결과는 Windows CI의 `PowerShellCompletionTests`가 `TabExpansion2`로 확인합니다. 설계는 `docs/superpowers/specs/2026-10-27-powershell-completion-design.md`입니다.
+
 ### `pelly doctor` — 환경 점검
 ```bash
 pelly doctor [--project <csproj>] [--sanitize [--out <폴더>]] [--config <경로>] [--model <태그>] [--endpoint <URL>]

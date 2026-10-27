@@ -164,6 +164,26 @@ pelly ui                  # 사용법 출력
 * 한글 IME 입력, 고해상도(125%·150%) 표시, 폐쇄망 PC에서 창이 뜨는지는 모두 **Windows 미확인**입니다. 현장에서 확인한 결과는 `field-results.md`에 적습니다.
 * IDE 등록: [ide-external-tools.md](ide-external-tools.md)의 「GUI 항목」.
 
+## PowerShell 자동완성: `pelly completion powershell`
+
+PowerShell에서 Tab으로 명령 이름(`spec` → `check`/`new`), 옵션 이름(`--ver` → `--verbose`/`--verify-test`), 정해진 값(`--think` → `off`/`retry`/`always`)을 완성합니다. 파일 자리는 지금처럼 PowerShell 기본 경로 완성이 그대로 됩니다. Windows PowerShell 5.1과 PowerShell 7 모두 됩니다. (Windows 미확인: 현장 PC에서 확인 전)
+
+한 번만 등록합니다. 스크립트를 파일로 저장하고 프로필에서 불러오게 합니다.
+
+```powershell
+pelly completion powershell > "$HOME\pelly-completion.ps1"
+Add-Content $PROFILE '. "$HOME\pelly-completion.ps1"'
+```
+
+새 PowerShell 창부터 적용됩니다.
+
+* 프로필에 `pelly completion powershell | Out-String | Invoke-Expression`을 넣어도 되지만, PowerShell을 열 때마다 `pelly.exe`가 실행되어 1~2초 늦어집니다. 위의 파일 방식을 권합니다.
+* `pelly`를 새 버전으로 바꾸면 첫 줄 명령을 다시 실행해 스크립트를 새로 만드십시오. 스크립트 첫 줄 주석에 만든 버전이 적혀 있습니다.
+* Tab을 누를 때 `pelly.exe`를 실행하지 않습니다. 명령·옵션 목록이 스크립트에 들어 있습니다.
+* 숨은 점검 옵션과, `pelly ui`에서 쓸 수 없는 `--yes`·`--pause-on-exit`는 완성하지 않습니다. 메서드·SQL 객체·테스트 이름 같은 값은 완성하지 않습니다.
+* PC의 실행 정책(`Get-ExecutionPolicy -List`)이 `Restricted`면 프로필이 실행되지 않아 쓸 수 없습니다. 정책은 PC 관리자에게 문의하십시오.
+* `pelly completion`만 쓰거나 다른 셸 이름을 주면 지원하는 셸을 알려 주고 종료 코드 4입니다.
+
 ## 자주 쓰는 옵션
 
 | 옵션 | 동작 |

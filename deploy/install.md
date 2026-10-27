@@ -89,6 +89,8 @@ pelly --version
 `0.9.1`으로 시작하면 됩니다. (Windows 미확인: PATH 반영은 새 터미널부터입니다. IDE는 재시작해야 할 수 있습니다.)
 PATH를 건드리지 않고 `pelly.exe` 전체 경로로 실행해도 됩니다. IDE External Tools는 전체 경로를 씁니다.
 
+선택: PowerShell에서 Tab으로 명령·옵션을 완성하려면 [usage.md](usage.md)의 「PowerShell 자동완성」 두 줄을 실행합니다. (Windows 미확인)
+
 ## 4. 설정 파일
 
 `pelly.json.template`을 복사해 고칩니다. 둘 중 한 곳에 둡니다.

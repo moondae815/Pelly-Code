@@ -28,6 +28,7 @@ public static class FailureKinds
     public const string SqlPermission = "SqlPermission";
     public const string SqlSafetyRejected = "SqlSafetyRejected";
     public const string SqlTargetNotAllowed = "SqlTargetNotAllowed";
+    public const string SqlProdChanged = "SqlProdChanged";
 
     public const string TargetAmbiguous = "TargetAmbiguous";
     public const string TargetNotFound = "TargetNotFound";
@@ -65,7 +66,7 @@ public static class FailureKinds
     {
         Parse, NotFound, Ambiguous, OutsideRegion, Overlap, Unencodable,
         BaselineErrors, BuildToolUnavailable, BuildUnverifiable, Crashed, FileChangedExternally, ShapeRejected, NoChange,
-        SqlForbiddenInOriginal, SqlParseErrors, SqlPermission, SqlSafetyRejected, SqlTargetNotAllowed,
+        SqlForbiddenInOriginal, SqlParseErrors, SqlPermission, SqlSafetyRejected, SqlTargetNotAllowed, SqlProdChanged,
         TargetAmbiguous, TargetNotFound,
         SyntaxErrors, BuildErrors, SqlObjectsErrors, SqlCompileErrors, TestErrors,
         TestGreenFailed, TestRegression, TestNotFound, TestAmbiguous, TestUnverifiable, TestRedDeclined, TestFileChanged,

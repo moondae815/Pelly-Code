@@ -48,11 +48,79 @@ public class SqlCommandTests
         services.AddSingleton<IRunner>(runner);
         services.AddSingleton<IUserInteraction>(new FakeUi(interactive));
         services.AddSingleton<IDoctorRunner>(new FakeDoctor());
+        services.AddSingleton<IProcessRunner>(new NoProcessRunner());
+        services.AddSingleton(TimeProvider.System);
+        Func<string, ISqlDefinitionReader> noReader = _ => throw new InvalidOperationException("no connection expected");
+        services.AddSingleton(noReader);
         services.AddSingleton(new ConfigSources(null, new Dictionary<string, string?>()));
         services.AddSingleton(typeof(CancellationToken), CancellationToken.None);
         var app = new CommandAppTester(new DiTypeRegistrar(services));
         app.Configure(CliApp.Configure);
         return new Harness(app, runner);
+    }
+
+    [Fact]
+    public void Bare_sql_with_file_still_runs_edit()
+    {
+        var h = Build();
+
+        var result = h.App.Run("sql", File, "요청", "--dry-run");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(1, h.Runner.Calls);
+        Assert.Equal(EditKind.Sql, h.Runner.Request!.Kind);
+        Assert.Equal("요청", h.Runner.Request.Request);
+        Assert.True(h.Runner.Request.DryRun);
+    }
+
+    [Fact]
+    public void Sql_help_shows_edit_usage()
+    {
+        var h = Build();
+
+        var result = h.App.Run("sql", "--help");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("<FILE>", result.Output);
+        Assert.Contains("--object", result.Output);
+    }
+
+    [Fact]
+    public void Sql_pull_routes_to_pull_command()
+    {
+        var h = Build();
+
+        var result = h.App.Run("sql", "pull", "dbo.X", "--from", "prod", "--out", "/w/out", "--force");
+
+        Assert.Equal(4, result.ExitCode);
+        Assert.Contains("sql.production", result.Output);
+        Assert.Equal(0, h.Runner.Calls);
+    }
+
+    [Fact]
+    public void Sql_check_routes_to_check_command()
+    {
+        var h = Build();
+
+        var result = h.App.Run("sql", "check", File, "--object", "dbo.P");
+
+        Assert.Equal(4, result.ExitCode);
+        Assert.Contains("sql.production", result.Output);
+        Assert.Equal(0, h.Runner.Calls);
+    }
+
+    [Fact]
+    public void Sql_pull_out_without_value_is_rejected()
+    {
+        var console = new Spectre.Console.Testing.TestConsole();
+
+        var code = CliApp.RejectOptionWithoutValue(["sql", "pull", "dbo.X", "--out"], console);
+
+        Assert.Equal(4, code);
+        Assert.Contains("--out 옵션에 값이 없습니다.", console.Output);
+        Assert.Equal("--object", CliApp.FindOptionWithoutValue(["sql", "check", "a.sql", "--object"]));
+        Assert.Equal("--object", CliApp.FindOptionWithoutValue(["sql", "a.sql", "요청", "--object"]));
+        Assert.Null(CliApp.FindOptionWithoutValue(["sql", "a.sql", "요청", "--object", "dbo.P"]));
     }
 
     [Fact]

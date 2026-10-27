@@ -2,10 +2,13 @@ using System.IO.Abstractions;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Time.Testing;
+using PellyCoder.Core.Abstractions;
+using PellyCoder.Core.Config;
 using PellyCoder.Core.Files;
 using PellyCoder.Core.Fsm;
 using PellyCoder.Core.Impact;
 using PellyCoder.Core.Specs;
+using PellyCoder.Core.Sql;
 using PellyCoder.Core.Tests.Fakes;
 using PellyCoder.Core.Workspaces;
 
@@ -179,6 +182,130 @@ public sealed class SpecRunnerImpactTests : IDisposable
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Run());
         Assert.Empty(_exec.Calls);
+    }
+
+    // ── SQL impact at the start of apply (V2-1d §7.1): only with a production connection ──
+
+    private readonly List<string> _opened = [];
+    private readonly FakeSqlFinder _sqlFinder = new();
+
+    private static SqlOptions SqlConfig(string? prod) => new()
+    {
+        ConnectionString = "Server=dev-sql;Database=Shop;Integrated Security=true",
+        AllowedHosts = ["dev-sql"],
+        AllowedDatabases = ["Shop"],
+        Production = new SqlProductionOptions { ConnectionString = prod, AllowedHosts = ["prod-sql"], AllowedDatabases = ["Shop"] },
+    };
+
+    private Task<int> RunSql(SqlOptions sql, ApplyOptions? o = null) =>
+        new SpecRunner(_fs, _guard, _exec, _ui, _time, 160, groups: new PassingGroups(), impact: _finder,
+                sqlImpact: new SqlImpactSetup(_sqlFinder, sql, cs => { _opened.Add(cs); return new NoReader(); }))
+            .RunAsync(SpecPath, o ?? Yes, TestContext.Current.CancellationToken);
+
+    [Fact]
+    public async Task Apply_without_prod_does_not_search_sql()
+    {
+        Spec("- [ ] T1 sql db/a.sql 바꾼다\n");
+        _ui.IsInteractive = true;
+
+        var code = await RunSql(SqlConfig(null), new ApplyOptions(false, false, false, false, false, null, false));
+
+        Assert.Equal(0, code);
+        Assert.Empty(_sqlFinder.Calls);
+        Assert.Empty(_opened);
+        Assert.Empty(_ui.Warnings);
+        Assert.Equal(["T1"], _exec.Calls);
+        var json = ApplyJson();
+        Assert.False(json.TryGetProperty("sqlImpact", out _));
+        Assert.Empty(json.GetProperty("warnings").EnumerateArray());
+        var dir = Assert.Single(Directory.GetDirectories(P(".pelly/runs"), "apply-*"));
+        Assert.False(File.Exists(Path.Combine(dir, "impact-sql.json")));
+    }
+
+    [Fact]
+    public async Task Apply_with_prod_searches_sql_and_writes_list()
+    {
+        Spec("- [ ] T1 sql db/a.sql 바꾼다\n");
+        _sqlFinder.Tables = [new SqlTableShare("T1", new SqlObjectName("dbo", "Orders"), ["Status"], 3, 1, 0, 0)];
+        _sqlFinder.Targets = [new ImpactTarget("T1", "", "dbo.usp_Read", "같은 컬럼 읽음", ImpactTargetKind.SqlObject)];
+
+        var code = await RunSql(SqlConfig("Server=prod-sql;Database=Shop;Integrated Security=true"));
+
+        Assert.Equal(0, code);
+        var call = Assert.Single(_sqlFinder.Calls);
+        Assert.Equal(SqlImpactBasis.Prod, call.Basis);
+        Assert.Equal(["Server=prod-sql;Database=Shop;Integrated Security=true"], _opened);
+        Assert.Equal("dbo.usp_A", SqlImpactFinder.Display(Assert.Single(call.Seeds).Object));
+
+        var dir = Assert.Single(Directory.GetDirectories(P(".pelly/runs"), "apply-*"));
+        var id = Path.GetFileName(dir);
+        var list = JsonDocument.Parse(File.ReadAllText(Path.Combine(dir, "impact-sql.json"))).RootElement;
+        Assert.Equal("dbo.Orders", list.GetProperty("tables")[0].GetProperty("table").GetString());
+
+        var json = ApplyJson();
+        var sql = json.GetProperty("sqlImpact");
+        Assert.Equal("prod", sql.GetProperty("basis").GetString());
+        Assert.Equal(1, sql.GetProperty("seeds").GetInt32());
+        Assert.Equal(2, sql.GetProperty("warnings").GetInt32());
+        Assert.Equal($".pelly/runs/{id}/impact-sql.json", sql.GetProperty("listPath").GetString());
+        Assert.Contains(_ui.Warnings, w => w.EndsWith($"전체 목록: .pelly/runs/{id}/impact-sql.json"));
+        Assert.Contains(_ui.Warnings, w => w.Contains("dbo.usp_Read (같은 컬럼 읽음) — pelly sql pull dbo.usp_Read"));
+    }
+
+    [Fact]
+    public async Task Apply_sql_list_exists_when_the_warning_question_is_asked()
+    {
+        Spec("- [ ] T1 sql db/a.sql 바꾼다\n");
+        _sqlFinder.Tables = [new SqlTableShare("T1", new SqlObjectName("dbo", "Orders"), ["Status"], 3, 1, 0, 0)];
+        _ui.IsInteractive = true;
+        _ui.ConfirmAnswers.Enqueue(false);
+
+        var code = await RunSql(SqlConfig("Server=prod-sql;Database=Shop;Integrated Security=true"), new ApplyOptions(false, false, false, false, false, null, false));
+
+        Assert.Equal(2, code);
+        Assert.Empty(_exec.Calls);
+        var dir = Assert.Single(Directory.GetDirectories(P(".pelly/runs"), "apply-*"));
+        Assert.True(File.Exists(Path.Combine(dir, "impact-sql.json")));
+    }
+
+    [Fact]
+    public async Task Apply_sql_failure_never_blocks()
+    {
+        Spec("- [ ] T1 sql db/a.sql 바꾼다\n");
+        _sqlFinder.Throw = new InvalidOperationException("SQL 터졌다");
+
+        var code = await RunSql(SqlConfig("Server=prod-sql;Database=Shop;Integrated Security=true"));
+
+        Assert.Equal(0, code);
+        Assert.Equal(["T1"], _exec.Calls);
+        Assert.Contains(_ui.Warnings, w => w.Contains("SQL 터졌다"));
+        var codes = ApplyJson().GetProperty("warnings").EnumerateArray().Select(w => w.GetProperty("code").GetString()).ToList();
+        Assert.Equal(["ImpactFailed"], codes);
+    }
+
+    private sealed class FakeSqlFinder : ISqlImpactFinder
+    {
+        public List<(IReadOnlyList<SqlImpactSeed> Seeds, IReadOnlyCollection<SqlObjectName> Covered, SqlReaderOpen Db, SqlImpactBasis Basis)> Calls { get; } = [];
+        public IReadOnlyList<ImpactTarget> Targets { get; set; } = [];
+        public IReadOnlyList<SqlTableShare> Tables { get; set; } = [];
+        public Exception? Throw { get; set; }
+
+        public Task<SqlImpactResult> FindAsync(Workspace ws, IReadOnlyList<SqlImpactSeed> seeds, IReadOnlyCollection<SqlObjectName> covered, SqlReaderOpen db,
+            SqlImpactBasis basis, CancellationToken ct)
+        {
+            Calls.Add((seeds, covered, db, basis));
+            if (Throw is not null) throw Throw;
+            return Task.FromResult(new SqlImpactResult(basis, null, Targets, Tables, [], false, new Dictionary<string, IReadOnlyList<SqlImpactModuleRow>>()));
+        }
+    }
+
+    private sealed class NoReader : ISqlDefinitionReader
+    {
+        public Task<SqlServerProbe> ProbeAsync(CancellationToken ct) => throw new InvalidOperationException("must not connect");
+        public Task<SqlModuleDefinition?> GetDefinitionAsync(SqlObjectName name, CancellationToken ct) => throw new InvalidOperationException("must not connect");
+        public Task<IReadOnlyList<SqlModuleRef>> GetReferencingModulesAsync(SqlObjectName name, CancellationToken ct) => throw new InvalidOperationException("must not connect");
+        public Task<IReadOnlyList<SqlColumnUse>?> GetColumnUsesAsync(SqlObjectName module, CancellationToken ct) => throw new InvalidOperationException("must not connect");
+        public Task<IReadOnlyList<string>> GetColumnsAsync(SqlObjectName table, CancellationToken ct) => throw new InvalidOperationException("must not connect");
     }
 
     private sealed class FakeFinder : IImpactFinder

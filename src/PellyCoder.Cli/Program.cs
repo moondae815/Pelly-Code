@@ -31,7 +31,7 @@ var app = new CommandApp(new DiTypeRegistrar(Composition.Services(new SpectreUse
 app.Configure(CliApp.Configure);
 try
 {
-    var exitCode = CliApp.RejectOptionWithoutValue(args, console) ?? CliApp.NormalizeExitCode(await app.RunAsync(args));
+    var exitCode = await CliApp.RunAsync(app, args, console);
     // After the command (so after any rollback) and before SignalCompleted; the pause never changes the exit code.
     // Ctrl+C still pauses (window stays readable); a termination signal never waits.
     if (ExitPause.ShouldPause(args, Console.IsInputRedirected, shutdown.TerminationRequested))

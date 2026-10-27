@@ -21,8 +21,9 @@ public static class SpecRunnerFactory
     /// <param name="run">Runs one task request (the v1 orchestrator in the CLI).</param>
     /// <param name="impact">The start-of-apply impact search; null runs none.</param>
     /// <param name="isWindows">Platform probe of the group build; defaults to <see cref="OperatingSystem.IsWindows"/>.</param>
+    /// <param name="sqlImpact">The start-of-apply SQL impact search (runs only with <c>sql.production</c>); null runs none.</param>
     public static SpecRunner Create(IFileSystem fs, PellyOptions options, IUserInteraction ui, TimeProvider time, IProcessRunner processes,
-        Func<RunRequest, CancellationToken, Task<RunResult>> run, IImpactFinder? impact, Func<bool>? isWindows = null)
+        Func<RunRequest, CancellationToken, Task<RunResult>> run, IImpactFinder? impact, Func<bool>? isWindows = null, SqlImpactSetup? sqlImpact = null)
     {
         var executor = new FsmTaskExecutor(run);
         var windows = isWindows ?? OperatingSystem.IsWindows;
@@ -32,6 +33,6 @@ public static class SpecRunnerFactory
         return new SpecRunner(
             fs, new FileGuard(fs, time), executor, ui, time, options.Sql.CompatLevel,
             (ws, id) => new RunLogger(fs, time).Prune(ws, options.Log.RetentionDays, id),
-            groups, new FeedbackBuilder(QwenTokenCounter.Shared, options.Budget.Feedback), options.Retry.Max, impact, groupTests);
+            groups, new FeedbackBuilder(QwenTokenCounter.Shared, options.Budget.Feedback), options.Retry.Max, impact, groupTests, sqlImpact);
     }
 }

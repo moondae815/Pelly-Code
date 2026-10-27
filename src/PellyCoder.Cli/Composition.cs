@@ -43,12 +43,15 @@ public static class Composition
         services.AddSingleton(console);
         services.AddSingleton(typeof(CancellationToken), ct);
         services.AddSingleton(ConfigSources.FromProcess());
+        Func<string, ISqlDefinitionReader> readerFactory = cs => new SqlDefinitionReader(cs);
+        services.AddSingleton(readerFactory);
         services.AddSingleton<HttpClientHolder>();
         services.AddSingleton<OptionsResolver>();
         services.AddSingleton<IRunner, OrchestratorRunner>();
         services.AddSingleton<RunnerFactory>(sp => runUi => new OrchestratorRunner(
             sp.GetRequiredService<IFileSystem>(), runUi, sp.GetRequiredService<TimeProvider>(),
-            sp.GetRequiredService<HttpClientHolder>(), sp.GetRequiredService<IProcessRunner>()));
+            sp.GetRequiredService<HttpClientHolder>(), sp.GetRequiredService<IProcessRunner>(),
+            sp.GetRequiredService<Func<string, ISqlDefinitionReader>>()));
         services.AddSingleton<IUiLauncher, UiHostLauncher>();
         services.AddSingleton<IUiSelfTest, UiHostSelfTest>();
         services.AddSingleton<IDoctorRunner, DoctorRunner>();
@@ -71,7 +74,8 @@ public static class Composition
     }
 
     internal sealed class OrchestratorRunner(
-        IFileSystem fs, IUserInteraction ui, TimeProvider time, HttpClientHolder http, IProcessRunner processes) : IRunner
+        IFileSystem fs, IUserInteraction ui, TimeProvider time, HttpClientHolder http, IProcessRunner processes,
+        Func<string, ISqlDefinitionReader> readerFactory) : IRunner
     {
         /// <summary>Where this runner asks its questions (tests: <c>pelly ui</c> must get the window's interaction).</summary>
         internal IUserInteraction Interaction => ui;
@@ -80,7 +84,8 @@ public static class Composition
         {
             var backend = new OllamaBackend(http.Get(options.Llm), options.Llm, time);
             if (request.Kind == EditKind.Sql)
-                return FsmOrchestratorFactory.CreateSql(fs, backend, ui, options, time, new SqlServerExecutor(options.Sql.ConnectionString))
+                return FsmOrchestratorFactory.CreateSql(fs, backend, ui, options, time, new SqlServerExecutor(options.Sql.ConnectionString),
+                        SqlReaders.Production(options.Sql, readerFactory))
                     .RunDetailedAsync(request, ct);
             return FsmOrchestratorFactory.Create(fs, backend, ui, options, time, processes).RunDetailedAsync(request, ct);
         }
@@ -97,7 +102,8 @@ public static class Composition
         public int Run() => UiHost.SelfTest(Console.Out, Console.Error);
     }
 
-    private sealed class DoctorRunner(IFileSystem fs, TimeProvider time, HttpClientHolder http, IProcessRunner processes) : IDoctorRunner
+    private sealed class DoctorRunner(IFileSystem fs, TimeProvider time, HttpClientHolder http, IProcessRunner processes,
+        Func<string, ISqlDefinitionReader> readerFactory) : IDoctorRunner
     {
         public Task<IReadOnlyList<DoctorCheck>> RunAsync(PellyOptions options, DoctorContext context, CancellationToken ct)
         {
@@ -107,7 +113,7 @@ public static class Composition
                 ? null
                 : new SqlServerExecutor(options.Sql.ConnectionString);
             return new DoctorService(backend, backend, template, QwenTokenCounter.Shared, options, time, fs, processes, sql: sql, context: context with { BaseDirectory = AppContext.BaseDirectory },
-                semantic: new MsBuildSemanticLoader(fs)).RunAsync(ct);
+                semantic: new MsBuildSemanticLoader(fs), prodSql: SqlReaders.Production(options.Sql, readerFactory)).RunAsync(ct);
         }
     }
 }

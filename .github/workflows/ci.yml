@@ -446,6 +446,8 @@ jobs:
         run: dotnet build -warnaserror
       - name: Deploy SQL corpus
         run: ./eval/corpus/Sql/deploy.sh "${{ job.services.mssql.id }}" 'Pelly_Test_2026!'
+      - name: Deploy SQL corpus (production-role database)
+        run: ./eval/corpus/Sql/deploy.sh "${{ job.services.mssql.id }}" 'Pelly_Test_2026!' PellyCorpusProd
       - name: SQL Server tests
         # 환경이 빠져 Skip되거나 필터 오타로 0개가 되면 실패해야 한다
         run: dotnet test tests/PellyCoder.Integration.Tests --no-build -- --filter-trait "Env=SqlServer" --fail-skips on --minimum-expected-tests 1

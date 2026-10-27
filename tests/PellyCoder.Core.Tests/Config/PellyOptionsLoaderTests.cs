@@ -233,4 +233,56 @@ public class PellyOptionsLoaderTests
         Assert.Equal("t", r.Options.Llm.Headers["X-Token"]);
         Assert.Equal(new SamplingOptions(0.2, 0.9, 20, 1.05, 0), r.Options.Sampling.Code);
     }
+
+    private static MockFileSystem WsFile(string json) => new(new Dictionary<string, MockFileData>
+    {
+        [P(@"C:\w\pelly.json")] = new(json),
+    });
+
+    [Fact]
+    public void Production_section_binds()
+    {
+        var fs = WsFile("""{"sql":{"production":{"allowedHosts":["p1"],"allowedDatabases":["Shop"],"connectionString":"Server=p1;Database=Shop;Integrated Security=true"}}}""");
+        var r = Load(fs, ws: P(@"C:\w\pelly.json"));
+        Assert.Empty(r.Errors);
+        Assert.Equal(["p1"], r.Options!.Sql.Production.AllowedHosts);
+        Assert.Equal(["Shop"], r.Options.Sql.Production.AllowedDatabases);
+        Assert.Equal("Server=p1;Database=Shop;Integrated Security=true", r.Options.Sql.Production.ConnectionString);
+        Assert.DoesNotContain(r.Errors, e => e.Contains("unknown config key"));
+    }
+
+    [Fact]
+    public void Production_password_in_file_is_error()
+    {
+        var fs = WsFile("""{"sql":{"production":{"connectionString":"Server=p1;Database=Shop;User Id=u;Password=x"}}}""");
+        var r = Load(fs, ws: P(@"C:\w\pelly.json"));
+        Assert.Null(r.Options);
+        Assert.Contains(r.Errors, e => e.Contains("PELLY_SQL_PROD_CONNECTION"));
+    }
+
+    [Fact]
+    public void Production_env_overrides_file()
+    {
+        var fs = WsFile("""{"sql":{"production":{"connectionString":"Server=p1;Database=Shop;Integrated Security=true"}}}""");
+        var env = new Dictionary<string, string?> { ["PELLY_SQL_PROD_CONNECTION"] = "Server=p2;Database=Shop;User Id=u;Password=x" };
+        var r = Load(fs, ws: P(@"C:\w\pelly.json"), env: env);
+        Assert.Empty(r.Errors);
+        Assert.Equal("Server=p2;Database=Shop;User Id=u;Password=x", r.Options!.Sql.Production.ConnectionString);
+    }
+
+    [Fact]
+    public void Production_same_as_dev_is_error()
+    {
+        var fs = WsFile("""{"sql":{"connectionString":"Server=DB1;Database=Shop;Integrated Security=true","production":{"connectionString":"Server=db1;Database=shop;Integrated Security=true"}}}""");
+        var r = Load(fs, ws: P(@"C:\w\pelly.json"));
+        Assert.Null(r.Options);
+        Assert.Contains("sql.production이 개발 연결(sql.connectionString)과 같은 서버·DB를 가리킵니다", r.Errors);
+    }
+
+    [Fact]
+    public void PullDirectory_defaults_to_db_pulled()
+    {
+        var r = Load(new MockFileSystem());
+        Assert.Equal("db/pulled", r.Options!.Sql.PullDirectory);
+    }
 }

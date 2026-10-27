@@ -14,6 +14,7 @@ public sealed class NetworkPolicyTests
 {
     private const string Composition = "src/PellyCoder.Cli/Composition.cs";
     private const string SqlExecutor = "src/PellyCoder.Core/Sql/SqlServerExecutor.cs";
+    private const string SqlCalls = "src/PellyCoder.Core/Sql/SqlCalls.cs";
     private const string ProcessRunner = "src/PellyCoder.Core/Processes/SystemProcessRunner.cs";
     private const string EvalProgram = "eval/PellyCoder.Eval/Program.cs";
 
@@ -31,7 +32,7 @@ public sealed class NetworkPolicyTests
     private static readonly Rule[] Rules =
     [
         new("HttpClient/SocketsHttpHandler creation", new Regex(Created("HttpClient") + @"|\bSocketsHttpHandler\b"), [Composition, EvalProgram]),
-        new("SqlConnection creation", new Regex(Created("SqlConnection")), [SqlExecutor]),
+        new("SqlConnection creation", new Regex(Created("SqlConnection")), [SqlExecutor, SqlCalls]),
         new("raw socket / legacy web API", new Regex(@"\bTcpClient\b|\bUdpClient\b|" + Created("Socket") + @"|WebRequest\b|\bWebClient\b|\bDns\s*\."), []),
         new("process creation", new Regex(Created("Process") + @"|\bProcess\s*\.\s*Start\s*\(|\bnew\s+" + Q + @"ProcessStartInfo\b|\bProcessStartInfo\s+[A-Za-z_][A-Za-z0-9_]*\s*=\s*new\s*\("), [ProcessRunner]),
     ];

@@ -31,9 +31,13 @@ namespace PellyCoder.Core.Specs;
 /// <param name="groupRetryMax">Group re-runs when the apply has no <c>--max-retries</c> (<c>retry.max</c>); defaults to its default.</param>
 /// <param name="impact">Searches the grouped cs tasks' impact at the start (warnings only); no search without it.</param>
 /// <param name="groupTests">Runs a group's acceptance-criterion tests; a group with linked tests exits 4 without it.</param>
+/// <param name="sqlImpact">
+/// The SQL impact search at the start (design §7.1): it runs only when <c>sql.production</c> is configured, so an apply
+/// without a production connection asks, warns and reads exactly as before. No search without it.
+/// </param>
 public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor executor, IUserInteraction ui, TimeProvider time, int sqlCompatLevel,
     Action<Workspace, string>? pruneRuns = null, IGroupVerifier? groups = null, FeedbackBuilder? groupFeedback = null, int? groupRetryMax = null,
-    IImpactFinder? impact = null, IGroupTester? groupTests = null)
+    IImpactFinder? impact = null, IGroupTester? groupTests = null, SqlImpactSetup? sqlImpact = null)
 {
     private static readonly JsonSerializerOptions SummaryJson = new()
     {
@@ -90,7 +94,18 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
         ApplyRun? run = null;
         try
         {
-            check = await SpecChecker.AddImpactAsync(check, impact, false, ct);
+            // The SQL full list goes under this apply's run folder and must be there when the warnings are shown (the
+            // person may open it before answering), so with a SQL search the apply ID is chosen now.
+            string? applyId = null;
+            SqlImpactRequest? sqlRequest = null;
+            if (sqlImpact is not null)
+            {
+                var id = "apply-" + RunLogger.NewRunId(time);
+                sqlRequest = SpecChecker.SqlRequest(fs, sqlImpact, allowDev: false, fs.Path.Combine(ws.PellyDir, "runs", id, "impact-sql.json"));
+                if (sqlRequest is not null) applyId = id;
+            }
+
+            check = await SpecChecker.AddImpactAsync(check, impact, false, ct, sqlRequest);
             var warnings = check.Issues.Where(i => i.Severity == SpecIssueSeverity.Warning).ToList();
             if (warnings.Count > 0)
             {
@@ -99,7 +114,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                     return 2;
             }
 
-            run = new ApplyRun(this, ws, specPath, o, warnings, check.Impact);
+            run = new ApplyRun(this, ws, specPath, o, warnings, check.Impact, check.SqlImpactSummary, applyId);
             return await run.ExecuteAsync(ct);
         }
         finally
@@ -126,7 +141,10 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
     }
 
     /// <summary>State of one apply after the lock is held.</summary>
-    private sealed class ApplyRun(SpecRunner owner, Workspace ws, string specPath, ApplyOptions o, IReadOnlyList<SpecIssue> warnings, ImpactResult? impact)
+    /// <param name="sqlImpact">The start-of-apply SQL impact search; null when none ran.</param>
+    /// <param name="presetApplyId">The apply ID chosen before the SQL impact search; null lets the apply choose it when it starts.</param>
+    private sealed class ApplyRun(SpecRunner owner, Workspace ws, string specPath, ApplyOptions o, IReadOnlyList<SpecIssue> warnings, ImpactResult? impact,
+        SqlImpactSummary? sqlImpact, string? presetApplyId)
     {
         private readonly List<ApplyTaskResult> _results = [];
         private readonly List<string> _marked = [];
@@ -185,7 +203,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                 return 4;
             }
 
-            ApplyId = "apply-" + RunLogger.NewRunId(owner.Time);
+            ApplyId = presetApplyId ?? "apply-" + RunLogger.NewRunId(owner.Time);
             if (!await SpecWrittenAsync(_doc.SetStatusAsync(SpecStatus.InProgress, CancellationToken.None))) return Finish(4);
 
             var tx = new ApplyTransaction(owner.Guard, ws, ApplyId);
@@ -1037,7 +1055,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                 owner.Fs.Directory.CreateDirectory(dir);
                 var summary = new ApplySummary(ApplyId!, SpecId, _results, exitCode, warnings, _archived,
                     impact is null ? null : impact.Mode == ImpactMode.Semantic ? "semantic" : "name", impact?.Fallback?.Kind.ToString(),
-                    _doc?.Spec.Tasks.Count ?? 0, o.Resume, _links.Count > 0 ? _links.Select(CriterionResult).ToList() : null);
+                    _doc?.Spec.Tasks.Count ?? 0, o.Resume, _links.Count > 0 ? _links.Select(CriterionResult).ToList() : null, sqlImpact);
                 owner.Fs.File.WriteAllText(owner.Fs.Path.Combine(dir, "apply.json"), JsonSerializer.Serialize(summary, SummaryJson));
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

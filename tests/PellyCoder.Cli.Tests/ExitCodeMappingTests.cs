@@ -268,7 +268,7 @@ public class ExitCodeMappingTests
             var help = Build(CancellationToken.None).Run([.. command, "--help"]);
             Assert.Equal(0, help.ExitCode);
         }
-        Assert.Equal(["apply", "cs", "doctor", "report", "rules check", "rules init", "spec check", "spec new", "sql", "sql check", "sql pull", "ui cs", "ui sql"], CliApp.CommandSettings.Keys.Order().ToArray());
+        Assert.Equal(["apply", "completion", "cs", "doctor", "report", "rules check", "rules init", "spec check", "spec new", "sql", "sql check", "sql pull", "ui cs", "ui sql"], CliApp.CommandSettings.Keys.Order().ToArray());
     }
 
     /// <summary>Command lines from README and deploy/*.md still parse under strict parsing (cancelled token: no real work runs).</summary>

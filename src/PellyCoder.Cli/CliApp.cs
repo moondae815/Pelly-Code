@@ -19,6 +19,7 @@ public static class CliApp
         config.AddCommand<DoctorCommand>("doctor").WithDescription("Ollama 서버·모델·토크나이저 환경을 점검합니다.");
         config.AddCommand<ApplyCommand>("apply").WithDescription("명세 파일(changes/<id>.md)의 작업을 순서대로 실행합니다.");
         config.AddCommand<ReportCommand>("report").WithDescription("실행 기록에서 KPI와 실패 유형을 집계합니다.");
+        config.AddCommand<CompletionCommand>("completion").WithDescription("셸 자동완성 스크립트를 출력합니다 (PowerShell).");
         // "pelly sql <FILE> [REQUEST]" stays the edit command (the branch default); a file named pull or check is written ./pull.
         config.AddBranch("sql", b =>
         {
@@ -81,6 +82,7 @@ public static class CliApp
         ["rules init"] = typeof(RulesInitSettings),
         ["ui cs"] = typeof(CsSettings),
         ["ui sql"] = typeof(SqlSettings),
+        ["completion"] = typeof(CompletionSettings),
     };
 
     /// <summary>

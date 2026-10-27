@@ -7,14 +7,21 @@ namespace PellyCoder.Cli.Completion;
 /// <summary>
 /// One command in the completion tree. <paramref name="AcceptsPositional"/>: the command itself takes positional arguments
 /// (a file, a request), so a word that is not a child name is left to the shell's path completion.
+/// <paramref name="PositionalValues"/>: the fixed values its first positional argument takes (e.g. a shell name), else empty.
 /// </summary>
-internal sealed record CompletionNode(string Name, IReadOnlyList<OptionInfo> Options, IReadOnlyList<CompletionNode> Children, bool AcceptsPositional);
+internal sealed record CompletionNode(
+    string Name, IReadOnlyList<OptionInfo> Options, IReadOnlyList<CompletionNode> Children, bool AcceptsPositional,
+    IReadOnlyList<string> PositionalValues);
 
 /// <summary>Builds the command tree for shell completion from <see cref="CliApp.CommandSettings"/> (design §4.4).</summary>
 internal static class CompletionTree
 {
     private static readonly OptionInfo Help = new("help", false);
     private static readonly OptionInfo Version = new("version", false);
+
+    /// <summary>Fixed values of a command's first positional argument, by registry key.</summary>
+    private static readonly IReadOnlyDictionary<string, IReadOnlyList<string>> PositionalValueTable =
+        new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal) { ["completion"] = [CompletionCommand.PowerShell] };
 
     /// <summary>
     /// Root "pelly" with <c>--help</c>/<c>--version</c>. A first word registered both alone ("sql") and as a prefix
@@ -34,9 +41,9 @@ internal static class CompletionTree
                 .ToList();
             if (registry.TryGetValue(word, out var own))
                 return Leaf(word, word, own) with { Children = subs };
-            return new CompletionNode(word, [Help], subs, AcceptsPositional: false);
+            return new CompletionNode(word, [Help], subs, AcceptsPositional: false, PositionalValues: []);
         }).ToList();
-        return new CompletionNode("pelly", [Help, Version], children, AcceptsPositional: false);
+        return new CompletionNode("pelly", [Help, Version], children, AcceptsPositional: false, PositionalValues: []);
     }
 
     private static CompletionNode Leaf(string name, string key, Type settings)
@@ -46,6 +53,6 @@ internal static class CompletionTree
             options = options.Where(o => !UiCommands.GuiRejectedOptions.Contains(o.LongName));
         var positional = settings.GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .Any(p => p.GetCustomAttribute<CommandArgumentAttribute>() is not null);
-        return new CompletionNode(name, [.. options, Help], [], positional);
+        return new CompletionNode(name, [.. options, Help], [], positional, PositionalValueTable.GetValueOrDefault(key, []));
     }
 }

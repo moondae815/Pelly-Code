@@ -20,14 +20,19 @@ internal static class PowerShellCompletion
     {
         var sb = new StringBuilder();
         sb.Append("# pelly ").Append(version).Append(" PowerShell completion. Regenerate after updating pelly: pelly completion powershell\n");
-        sb.Append("$script:PellyCompletionTree = ");
-        Node(sb, root, 0);
+        sb.Append("Register-ArgumentCompleter -Native -CommandName pelly, pelly.exe -ScriptBlock {\n");
+        sb.Append("    param($wordToComplete, $commandAst, $cursorPosition)\n");
+        // The tree lives inside the script block: run without dot-sourcing, script-scope variables would vanish
+        // while the completer stays registered.
+        sb.Append("    $tree = ");
+        Node(sb, root, 1);
         sb.Append('\n');
-        sb.Append("$script:PellyCompletionValues = @{\n");
+        sb.Append("    $values = @{\n");
         foreach (var (option, values) in OptionValues)
-            sb.Append("    '--").Append(option).Append("' = @(").Append(string.Join(", ", values.Select(Quote))).Append(")\n");
-        sb.Append("}\n");
+            sb.Append("        '--").Append(option).Append("' = @(").Append(string.Join(", ", values.Select(Quote))).Append(")\n");
+        sb.Append("    }\n");
         sb.Append(Completer);
+        sb.Append("}\n");
         return sb.ToString();
     }
 
@@ -37,6 +42,7 @@ internal static class PowerShellCompletion
         sb.Append("@{\n");
         sb.Append(pad).Append("    Name = ").Append(Quote(node.Name)).Append('\n');
         sb.Append(pad).Append("    Positional = ").Append(node.AcceptsPositional ? "$true" : "$false").Append('\n');
+        sb.Append(pad).Append("    PositionalValues = @(").Append(string.Join(", ", node.PositionalValues.Select(Quote))).Append(")\n");
         sb.Append(pad).Append("    Options = @(");
         sb.Append(string.Join(", ", node.Options.Select(o => "@{ Name = " + Quote("--" + o.LongName) + "; TakesValue = " + (o.TakesValue ? "$true" : "$false") + " }")));
         sb.Append(")\n");
@@ -56,8 +62,6 @@ internal static class PowerShellCompletion
     // Walks the words before the cursor down the tree, then completes options, fixed values or child names.
     // Returning nothing hands the position to PowerShell's path completion.
     private const string Completer = """
-        Register-ArgumentCompleter -Native -CommandName pelly, pelly.exe -ScriptBlock {
-            param($wordToComplete, $commandAst, $cursorPosition)
             $words = New-Object System.Collections.Generic.List[string]
             $elements = @($commandAst.CommandElements)
             for ($i = 1; $i -lt $elements.Count; $i++) {
@@ -66,7 +70,7 @@ internal static class PowerShellCompletion
                 if ($extent.EndOffset -eq $cursorPosition -and $wordToComplete -ne '') { break }
                 $words.Add($extent.Text)
             }
-            $node = $script:PellyCompletionTree
+            $node = $tree
             $positionalSeen = $false
             foreach ($word in $words) {
                 if ($word.StartsWith('-')) { continue }
@@ -89,8 +93,8 @@ internal static class PowerShellCompletion
                 }
                 return
             }
-            if ($null -ne $previous -and $script:PellyCompletionValues.ContainsKey($previous)) {
-                foreach ($value in $script:PellyCompletionValues[$previous]) {
+            if ($null -ne $previous -and $values.ContainsKey($previous)) {
+                foreach ($value in $values[$previous]) {
                     if ($value.StartsWith($wordToComplete, $ignoreCase)) {
                         [System.Management.Automation.CompletionResult]::new($value, $value, 'ParameterValue', $value)
                     }
@@ -102,14 +106,25 @@ internal static class PowerShellCompletion
                     if ($option.TakesValue -and [string]::Equals($option.Name, $previous, $ignoreCase)) { return }
                 }
             }
-            if (-not $positionalSeen) {
-                foreach ($candidate in $node.Children) {
-                    if ($candidate.Name.StartsWith($wordToComplete, $ignoreCase)) {
-                        [System.Management.Automation.CompletionResult]::new($candidate.Name, $candidate.Name, 'ParameterValue', $candidate.Name)
+            if ($positionalSeen) { return }
+            if ($node.PositionalValues.Count -gt 0) {
+                foreach ($value in $node.PositionalValues) {
+                    if ($value.StartsWith($wordToComplete, $ignoreCase)) {
+                        [System.Management.Automation.CompletionResult]::new($value, $value, 'ParameterValue', $value)
                     }
                 }
+                return
             }
-        }
+            foreach ($candidate in $node.Children) {
+                if ($candidate.Name.StartsWith($wordToComplete, $ignoreCase)) {
+                    [System.Management.Automation.CompletionResult]::new($candidate.Name, $candidate.Name, 'ParameterValue', $candidate.Name)
+                }
+            }
+            # A branch whose default command takes a file (sql): emitting sub-commands disables PowerShell's own path
+            # completion, so the file names are added here.
+            if ($node.Positional -and $node.Children.Count -gt 0) {
+                [System.Management.Automation.CompletionCompleters]::CompleteFilename($wordToComplete)
+            }
 
         """;
 }

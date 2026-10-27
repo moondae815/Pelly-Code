@@ -26,6 +26,9 @@ public sealed class PowerShellCompletionTests
         ("exe-sp", "pelly.exe sp"),
         ("upper-sp", "pelly SP"),
         ("ui-yes", "pelly ui cs a.cs --y"),
+        ("completion-sh", "pelly completion p"),
+        ("sql-empty", "pelly sql "),
+        ("sql-c", "pelly sql c"),
     ];
 
     // The driver prints "<case>\t<CompletionText>" per match. Everything is ASCII, so the console code page does not matter.
@@ -57,6 +60,7 @@ public sealed class PowerShellCompletionTests
         File.WriteAllBytes(Path.Combine(bin, "pelly.exe"), []);
         File.WriteAllText(Path.Combine(work, "OrderService.cs"), "class OrderService {}\n");
         File.WriteAllText(Path.Combine(work, "Orders.sql"), "SELECT 1\n");
+        File.WriteAllText(Path.Combine(work, "customers.sql"), "SELECT 2\n");
 
         var generated = await runner.RunAsync(
             new ProcessSpec("dotnet", [CliBinary.Dll(), "completion", "powershell"], root, TimeSpan.FromMinutes(1)), CancellationToken.None);
@@ -161,6 +165,27 @@ public sealed class PowerShellCompletionTests
     {
         var r = await Complete(shell);
         Assert.Contains("spec", r["upper-sp"]);
+    }
+
+    [WindowsTheory]
+    [InlineData("pwsh")]
+    [InlineData("powershell.exe")]
+    public async Task Completion_OffersShellName(string shell)
+    {
+        var r = await Complete(shell);
+        Assert.Equal(["powershell"], r["completion-sh"].ToArray());
+    }
+
+    [WindowsTheory]
+    [InlineData("pwsh")]
+    [InlineData("powershell.exe")]
+    public async Task SqlBranch_OffersFilesBesideSubcommands(string shell)
+    {
+        var r = await Complete(shell);
+        Assert.Contains("pull", r["sql-empty"]);
+        Assert.Contains(r["sql-empty"], m => m.EndsWith("Orders.sql", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains("check", r["sql-c"]);
+        Assert.Contains(r["sql-c"], m => m.EndsWith("customers.sql", StringComparison.OrdinalIgnoreCase));
     }
 
     [WindowsTheory]

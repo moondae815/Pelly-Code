@@ -265,6 +265,7 @@ pelly ui sql <file.sql> ["<요청>"] [--object <Name>] | [--line <n>]  [공통 �
 ### `pelly completion powershell` — PowerShell 자동완성
 ```powershell
 pelly completion powershell > "$HOME\pelly-completion.ps1"
+if (-not (Test-Path $PROFILE)) { New-Item -ItemType File -Path $PROFILE -Force | Out-Null }
 Add-Content $PROFILE '. "$HOME\pelly-completion.ps1"'
 ```
 

@@ -17,10 +17,13 @@ public sealed class CompletionSettings : CommandSettings
 /// <summary><c>pelly completion powershell</c>: prints the PowerShell completion script (design 2026-10-27 §4.1).</summary>
 public sealed class CompletionCommand(IAnsiConsole console) : Command<CompletionSettings>
 {
+    /// <summary>The supported shell name (<c>pwsh</c> is accepted as the same).</summary>
+    public const string PowerShell = "powershell";
+
     public override int Execute(CommandContext context, CompletionSettings settings, CancellationToken cancellation)
     {
         if (settings.Shell is not { } shell
-            || !(shell.Equals("powershell", StringComparison.OrdinalIgnoreCase) || shell.Equals("pwsh", StringComparison.OrdinalIgnoreCase)))
+            || !(shell.Equals(PowerShell, StringComparison.OrdinalIgnoreCase) || shell.Equals("pwsh", StringComparison.OrdinalIgnoreCase)))
         {
             console.MarkupLine("[red]지원하는 셸은 powershell입니다: pelly completion powershell[/]");
             return ExitCodes.EnvError;

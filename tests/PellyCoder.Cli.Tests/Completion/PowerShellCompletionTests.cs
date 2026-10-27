@@ -39,6 +39,21 @@ public class PowerShellCompletionTests
     }
 
     [Fact]
+    public void Script_KeepsStateInsideTheScriptBlock()
+    {
+        // Run without dot-sourcing, script-scope variables vanish while the completer stays registered.
+        Assert.DoesNotContain("$script:", Script);
+        Assert.True(Script.IndexOf("-ScriptBlock {", StringComparison.Ordinal) < Script.IndexOf("Name = 'pelly'", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Script_BranchWithFilesAddsFilenameCompletion() =>
+        Assert.Contains("[System.Management.Automation.CompletionCompleters]::CompleteFilename($wordToComplete)", Script);
+
+    [Fact]
+    public void Script_OffersPositionalValues() => Assert.Contains("PositionalValues = @('powershell')", Script);
+
+    [Fact]
     public void ThinkValues_MatchThinkModeEnum() =>
         Assert.Equal(["off", "retry", "always"], PowerShellCompletion.OptionValues["think"]);
 }

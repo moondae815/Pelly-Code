@@ -64,5 +64,6 @@ public sealed class CompletionCommandTests
     {
         var completion = Assert.Single(CompletionTree.Build().Children, c => c.Name == "completion");
         Assert.True(completion.AcceptsPositional);
+        Assert.Equal(["powershell"], completion.PositionalValues);
     }
 }

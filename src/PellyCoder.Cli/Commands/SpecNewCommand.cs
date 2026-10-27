@@ -23,12 +23,14 @@ public sealed class SpecNewSettings : CommandSettings
 public sealed partial class SpecNewCommand(IFileSystem fs, IAnsiConsole console) : Command<SpecNewSettings>
 {
     [GeneratedRegex("^[a-z0-9][a-z0-9-]{0,63}$", RegexOptions.CultureInvariant)]
-    private static partial Regex IdPattern();
+    internal static partial Regex IdPattern();
+
+    internal const string IdRule = "ID는 소문자·숫자·하이픈이며 영문자나 숫자로 시작하는 64자 이하여야 합니다.";
 
     public override int Execute(CommandContext context, SpecNewSettings settings, CancellationToken cancellation)
     {
         if (!IdPattern().IsMatch(settings.Id))
-            return Fail("ID는 소문자·숫자·하이픈이며 영문자나 숫자로 시작하는 64자 이하여야 합니다.");
+            return Fail(IdRule);
 
         // The workspace is the current directory's; the placeholder file name is never read.
         var ws = WorkspaceLocator.Resolve(fs, fs.Path.Combine(fs.Directory.GetCurrentDirectory(), "pelly-spec"));

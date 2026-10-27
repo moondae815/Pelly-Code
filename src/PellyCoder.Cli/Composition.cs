@@ -18,6 +18,9 @@ namespace PellyCoder.Cli;
 /// <summary>A runner that asks its questions through <paramref name="ui"/> (<c>pelly ui</c> passes the window's interaction).</summary>
 public delegate IRunner RunnerFactory(IUserInteraction ui);
 
+/// <summary>The model backend for <paramref name="llm"/> (<c>pelly spec draft</c>); tests replace it.</summary>
+public delegate ILlmBackend LlmBackendFactory(LlmOptions llm);
+
 /// <summary>Shows the approval window until it is closed and returns the session's exit code; tests replace it.</summary>
 public interface IUiLauncher
 {
@@ -47,6 +50,8 @@ public static class Composition
         services.AddSingleton(readerFactory);
         services.AddSingleton<HttpClientHolder>();
         services.AddSingleton<OptionsResolver>();
+        services.AddSingleton<LlmBackendFactory>(sp => llm =>
+            new OllamaBackend(sp.GetRequiredService<HttpClientHolder>().Get(llm), llm, sp.GetRequiredService<TimeProvider>()));
         services.AddSingleton<IRunner, OrchestratorRunner>();
         services.AddSingleton<RunnerFactory>(sp => runUi => new OrchestratorRunner(
             sp.GetRequiredService<IFileSystem>(), runUi, sp.GetRequiredService<TimeProvider>(),

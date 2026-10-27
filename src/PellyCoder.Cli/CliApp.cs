@@ -46,6 +46,7 @@ public static class CliApp
             b.SetDefaultCommand<SpecUsageCommand>();
             b.AddCommand<SpecNewCommand>("new").WithDescription("빈 명세 파일 changes/<id>.md를 만듭니다.");
             b.AddCommand<SpecCheckCommand>("check").WithDescription("명세 파일의 문법·대상·이름을 검사합니다.");
+            b.AddCommand<SpecDraftCommand>("draft").WithDescription("요청과 범위로 모델이 명세 초안을 만들고, 승인하면 changes/<id>.md에 씁니다.");
         });
 
         config.AddBranch("ui", b =>
@@ -78,6 +79,7 @@ public static class CliApp
         ["apply"] = typeof(ApplySettings),
         ["spec new"] = typeof(SpecNewSettings),
         ["spec check"] = typeof(SpecCheckSettings),
+        ["spec draft"] = typeof(SpecDraftSettings),
         ["rules check"] = typeof(RulesCheckSettings),
         ["rules init"] = typeof(RulesInitSettings),
         ["ui cs"] = typeof(CsSettings),

@@ -6,5 +6,5 @@ namespace PellyCoder.Cli.Commands;
 public sealed class SpecUsageCommand : Command
 {
     public override int Execute(CommandContext context, CancellationToken cancellation) =>
-        throw new InvalidOperationException("spec 뒤에 하위 명령이 필요합니다: `pelly spec new` 또는 `pelly spec check`");
+        throw new InvalidOperationException("spec 뒤에 하위 명령이 필요합니다: `pelly spec new`, `pelly spec draft` 또는 `pelly spec check`");
 }

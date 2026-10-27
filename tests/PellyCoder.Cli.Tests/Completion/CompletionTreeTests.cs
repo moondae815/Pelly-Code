@@ -39,7 +39,7 @@ public class CompletionTreeTests
     public void SpecBranch_IsUsageOnly()
     {
         var spec = Node("spec");
-        Assert.Equal(["check", "new"], spec.Children.Select(c => c.Name).Order().ToArray());
+        Assert.Equal(["check", "draft", "new"], spec.Children.Select(c => c.Name).Order().ToArray());
         Assert.False(spec.AcceptsPositional);
     }
 

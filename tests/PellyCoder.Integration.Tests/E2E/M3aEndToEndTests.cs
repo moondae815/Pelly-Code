@@ -106,14 +106,20 @@ public sealed class M3aEndToEndTests(ITestOutputHelper output) : IDisposable
     {
         var root = await PrepareModernAsync();
         var file = OrderServiceFile(root);
+        var before = File.ReadAllBytes(file);
 
-        // Two real runs in one workspace: a passing edit and a test-contradicting --test edit.
+        // Two real runs in one workspace: a test-contradicting --test edit, then a passing edit. The contradicting run
+        // goes first on the untouched corpus: the passing run has no --test, so an edit that builds but throws at run
+        // time (the field model writes Math.Round(refund, -1, ...)) would already fail CancelAsync_WhenShipped at
+        // baseline, and --test only counts new failures — the contradiction would then pass. It gets no retries: this
+        // test needs one failed run to report, and retries are where the known log-instead-of-throw evasion appears.
+        var (failExit, failUi) = await RunAsync(file, "CancelAsync", ShippedCancelRequest, runTests: true, maxRetries: 0);
+        DumpRun(root, failUi);
+        Assert.Equal(ExitCodes.VerifyFailed, failExit);
+        Assert.Equal(before, File.ReadAllBytes(file));
         var (passExit, passUi) = await RunAsync(file, "CalculateRefundAsync", RefundRequest, runTests: false);
         DumpRun(root, passUi);
-        var (failExit, failUi) = await RunAsync(file, "CancelAsync", ShippedCancelRequest, runTests: true);
-        DumpRun(root, failUi);
         Assert.Equal(ExitCodes.Success, passExit);
-        Assert.Equal(ExitCodes.VerifyFailed, failExit);
 
         var report = await CliAsync(root, ["report"]);
         Assert.Equal(ExitCodes.Success, report.ExitCode);
@@ -210,7 +216,7 @@ public sealed class M3aEndToEndTests(ITestOutputHelper output) : IDisposable
         return root;
     }
 
-    private static async Task<(int Exit, RecordingUserInteraction Ui)> RunAsync(string file, string method, string request, bool runTests)
+    private static async Task<(int Exit, RecordingUserInteraction Ui)> RunAsync(string file, string method, string request, bool runTests, int? maxRetries = null)
     {
         var fs = new FileSystem();
         var overrides = new Dictionary<string, string?>
@@ -228,7 +234,7 @@ public sealed class M3aEndToEndTests(ITestOutputHelper output) : IDisposable
 
         using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(15));
         var exit = await orchestrator.RunAsync(
-            new RunRequest(file, null, method, null, request, Yes: true, DryRun: false, MaxRetries: null, RunTests: runTests), cts.Token);
+            new RunRequest(file, null, method, null, request, Yes: true, DryRun: false, MaxRetries: maxRetries, RunTests: runTests), cts.Token);
         return (exit, ui);
     }
 

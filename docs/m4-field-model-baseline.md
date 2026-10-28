@@ -132,8 +132,16 @@ E2E 테스트는 35건이다(이전 기준선 28건 이후 늘었다).
 | 2 | 34 | `Report_AndSanitize_OverRealRuns` |
 | 3 | 34 | `Report_AndSanitize_OverRealRuns` |
 
-* 이전 기준선과 같은 모양이다. 실패는 모두 모순 요청에서 종료 0이 나온 것이다(4절의 우회).
 * 나머지 33건은 3/3이다.
+* `Test_ContradictingEdit` 1회 실패는 4절의 우회다.
+* **`Report_AndSanitize` 3/3 실패는 모델의 우회가 아니라 테스트 순서 때문이었다** (2026-10-28 조사).
+  * 이 테스트는 환불 반올림 수정을 `--test` 없이 먼저 하고, 같은 파일에 모순 요청을 보냈다.
+  * 현장 모델은 반올림을 `Math.Round(refund, -1, MidpointRounding.AwayFromZero)`로 쓴다(`--dry-run` 6/6). 빌드는 되지만 실행하면 예외가 난다(자릿수는 0~28).
+  * 그래서 모순 요청의 원본 상태에서 `CalculateRefundAsync`를 거치는 테스트 3건이 이미 실패했다. `CancelAsync_WhenShipped_CurrentlyCancels`도 그중 하나다.
+  * 모델은 요청대로 `throw`를 넣었지만, `--test`는 새로 실패한 테스트만 센다. 전후 실패가 같은 3건이라 1차 시도에 종료 0이었다.
+  * 망가진 반올림을 직접 넣은 사본에서 같은 모양(1차 시도·입력 1,302토큰·오류 코드 없음·종료 0)을 재현했다.
+  * 수정: 모순 요청을 깨끗한 원본에서 먼저, 재시도 없이(`maxRetries: 0`) 돌린다. 재시도는 4절 우회가 나오는 곳이고, 이 테스트는 집계할 실패 실행 1건만 있으면 된다. 수정 뒤 단독 5/5 통과.
+* 참고: 반올림 요청을 `--test` 없이 쓰면 현장 모델의 깨진 수정이 그대로 승인된다. `--test`를 켜면 재시도로 고쳐진다(`Test_PassingEdit_RunsTests_Exit0` 3/3).
 
 ## 4. 모순 요청 우회율 (단독 20회)
 

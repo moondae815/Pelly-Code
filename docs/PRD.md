@@ -29,6 +29,7 @@
 | v1.18 | 2026-10-26 | V2-1d 구현: 운영 DB 읽기 전용 정의 읽기(`VIEW DEFINITION`, `sql.production.*`), `pelly sql pull`·`pelly sql check`, 받은 뒤 운영 변경 시 `pelly sql` 중단(`SqlProdChanged`), SQL 영향 탐색, doctor 「SQL 운영(읽기 전용)」 행. 사람 결정: 운영 읽기 접속 허용, pull 기본 출처는 운영, 영향 탐색 세 가지 모두 이번 단계, §12 로드맵에 올림 |
 | v1.19 | 2026-10-27 | PowerShell 자동완성: `pelly completion powershell`이 명령·옵션·정해진 값(`--think`)을 Tab으로 완성하는 정적 스크립트를 출력(명령 목록에서 생성, ASCII, 5.1·7, 파일 자리는 기본 경로 완성). 반입 zip 변화 없음. 설계 `docs/superpowers/specs/2026-10-27-powershell-completion-design.md` |
 | v1.20 | 2026-10-27 | V2-4 `pelly spec draft` 구현: 모델이 변경 요청과 범위 색인(서명만)으로 작업 줄 초안을 쓰고, 기존 `spec check`(문법·대상·문구 안 이름)와 영향 탐색을 거친 뒤 **사람이 승인해야** `changes/<id>.md`로 씀. 호출부·구현체 전파는 모델이 아니라 영향 탐색이 작업 줄로 더함. §12.7 첫 줄 조정, §12.1에 초안 원칙과 토큰 예산 예외(계획 호출 생각 2048 + 답 1024), 새 §12.8. 근거는 S6 작업 분해 프로브(`docs/s6-planning-probe.md`), 설계 `docs/superpowers/specs/2026-10-27-spec-draft-design.md`. Windows 실행은 미확인 |
+| v1.21 | 2026-10-28 | M4 현장 모델 기준선: 질문지 회신으로 현장 모델이 `qwen3.6:35b-a3b-q4_K_M`(ID `07d35212591f`)임을 확인(Q10 해소)하고 같은 파일로 외부 기준선을 다시 잼 — 50건 × 3회 평균 47.00(94%), 위반 0, 모순 요청 우회 7/20. 기준선 문서 `docs/m4-field-model-baseline.md`(이전 `docs/m4-gguf-baseline.md`는 대체됨) |
 
 ---
 
@@ -532,7 +533,7 @@ pelly가 요청마다 지정하는 값: `options.num_ctx = 8192`, `keep_alive = 
 | Q7 | ~~기준 하드웨어 확정~~ → 폐쇄망 Ollama 서버로 확정 (사양은 Q9) | — | |
 | Q8 | ~~레거시 프로젝트 지원 여부~~ → **해소: 레거시 .NET Framework 프로젝트 있음, v1에 포함 (FR-06)** | — | |
 | Q9 | 폐쇄망 Ollama 서버의 GPU 사양·VRAM, 동시 사용자 수, `OLLAMA_NUM_PARALLEL` 등 현재 설정 | M0 → M4 반입 전 | 질문지 `docs/m4-field-questionnaire.md` |
-| Q10 | 폐쇄망 서버의 Ollama 버전과 모델 태그·GGUF 파일 SHA-256 (외부에서 같은 파일 확보 가능 여부) | M0 → M4 반입 전 | 질문지 `docs/m4-field-questionnaire.md` |
+| Q10 | ~~폐쇄망 서버의 Ollama 버전과 모델 태그·GGUF 파일 SHA-256~~ → **해소: Ollama 0.30.10, `qwen3.6:35b-a3b-q4_K_M`(ID `07d35212591f`, GGUF SHA-256 `f5ee307a…`), 공개 저장소에서 같은 파일 확보 (2026-10-28, `docs/m4-field-model-baseline.md`)** | — | |
 | Q11 | 반입 절차: 바이너리만 vs 소스 포함, 보안 심사 제출 자료(SBOM, 라이선스, 백신 검사 결과 등), 소요 기간, 비식별 리포트 반출 허용 여부 | M0 → M4 반입 전 | 질문지 `docs/m4-field-questionnaire.md` |
 | Q12 | 폐쇄망 개발 PC 환경: .NET SDK·Visual Studio/Build Tools 버전, .NET Framework 타겟 버전, 내부 NuGet 미러 유무, 형상 관리 도구(git/SVN/TFVC), PowerShell 실행 정책 | M0 → M4 반입 전 | 질문지 `docs/m4-field-questionnaire.md` |
 | Q13 | 개발 PC → Ollama 서버 접근 방식: 주소·포트, 사내 프록시, 앞단 인증 여부 | M0 → M4 반입 전 | 질문지 `docs/m4-field-questionnaire.md` |

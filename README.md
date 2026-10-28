@@ -5,7 +5,7 @@
 ## 문서
 - [PRD](docs/PRD.md)
 - [v1 설계](docs/superpowers/specs/2026-10-17-pelly-coder-v1-design.md)
-- 현장 모델 파일 기준선(M4): [GGUF `Q4_K_M` 50건 × 3회](docs/m4-gguf-baseline.md)
+- 현장 모델 파일 기준선(M4): [`qwen3.6:35b-a3b-q4_K_M` 50건 × 3회](docs/m4-field-model-baseline.md) (이전: [`qwen3.6:35b`](docs/m4-gguf-baseline.md))
 - 프로젝트 규칙(V2-3) 외부 사전 측정: [규칙 있음/없음 50건 × 3회](docs/v2-3-rules-premeasure.md)
 - 벤치마크·튜닝 기록(M3b): [기준선 50건 × 3회](docs/m3b-baseline.md) · [튜닝(채택 없음)](docs/m3b-tuning.md) · [S6 단일 파일](docs/spikes/S6-single-file.md) · [S7 Rider 확인표](docs/m3b-s7-rider.md)
 - 반입·운영 가이드: [설치](deploy/install.md) · [사용](deploy/usage.md) · [IDE External Tools](deploy/ide-external-tools.md) · [서버 확인 사항](deploy/server-checklist.md) · [외부 통신 없음](deploy/no-network.md)
@@ -343,7 +343,7 @@ pwsh ./deploy/build-package.ps1 -PublishDir artifacts/publish/win-x64 -OutDir ar
 ```
 * zip에는 `deploy/package-files.txt` 허용 목록에 있는 것만 들어갑니다(실행 파일·`pelly.exe` 옆 Avalonia 네이티브 DLL 셋·publish 폴더의 BuildHost 폴더 둘 전체·`LICENSE`(Payletter 사내 전용)·설정 템플릿·문서·`SHA256SUMS.txt`·SBOM·서드파티 라이선스·버전 기록·벤치마크 요약). 허용되지 않은 라이선스가 있으면 스크립트가 실패하며, 예외는 `deploy/license-exceptions.json`에 승인자와 함께 적습니다(현재 둘: SNI와 Avalonia ANGLE 네이티브, 둘 다 사람이 승인. `"packages"`를 적은 예외는 그 zip에서만 적용됩니다).
 * 현장 키트 zip은 `eval/PellyCoder.Eval`을 같은 옵션으로 publish한 뒤(그 폴더에 `pelly-eval.exe`와 BuildHost 폴더 둘이 나옵니다) `pwsh ./deploy/build-package.ps1 -Package field-kit -PublishDir <폴더> -OutDir artifacts/package`로 만듭니다. 허용 목록은 `deploy/field-kit-files.txt`이고 사용 순서는 [deploy/field-guide.md](deploy/field-guide.md)입니다.
-* `deploy/version-record.json`은 개발 PC의 Ollama에서 `dotnet run --project eval/PellyCoder.Eval -- record --out deploy/version-record.json`으로 다시 만듭니다(현장 모델의 GGUF SHA-256은 `--gguf-sha256 <hex>`, 현장에서는 `pelly-eval record`). 반입 전에 사람이 다시 실행합니다. Apple 칩 Mac에서는 `ollama pull qwen3.6:35b`가 GGUF가 아닌 `nvfp4` 판을 받으므로, GGUF를 받는 방법은 [docs/m4-gguf-baseline.md](docs/m4-gguf-baseline.md) 1절을 따르십시오.
+* `deploy/version-record.json`은 개발 PC의 Ollama에서 `dotnet run --project eval/PellyCoder.Eval -- record --out deploy/version-record.json`으로 다시 만듭니다(현장 모델의 GGUF SHA-256은 `--gguf-sha256 <hex>`, 현장에서는 `pelly-eval record`). 반입 전에 사람이 다시 실행합니다. Apple 칩 Mac에서는 `ollama pull qwen3.6:35b`가 GGUF가 아닌 `nvfp4` 판을 받으므로, GGUF를 받는 방법은 [docs/m4-gguf-baseline.md](docs/m4-gguf-baseline.md) 1절을 따르십시오. 현장 모델은 `qwen3.6:35b-a3b-q4_K_M`입니다([docs/m4-field-model-baseline.md](docs/m4-field-model-baseline.md) 1절).
 * 설치·사용·IDE·외부 통신 없음 문서는 [deploy/](deploy/)에 있고 zip의 `docs/`에도 들어갑니다. 현재 CI는 Windows에서만 이 zip을 검증하며, 실제 폐쇄망 PC는 **Windows 미확인**(M4)입니다.
 
 ## 벤치마크 실행
@@ -379,7 +379,7 @@ dotnet run --project eval/PellyCoder.Eval -- export <결과 폴더> --out <폴�
 ```bash
 dotnet run --project eval/PellyCoder.Eval -- --config <pelly.json> --repeat 3
 # 결과: <out>/run-1 … run-3, 상위 summary.md · summary.json
-dotnet run --project eval/PellyCoder.Eval -- compare docs/m4-gguf-baseline.summary.json <후보 summary.json>
+dotnet run --project eval/PellyCoder.Eval -- compare docs/m4-field-model-baseline.summary.json <후보 summary.json>
 ```
 * `compare` 종료 코드: 0 채택 · 3 거절 · 4 판정 불가(중단된 반복, 실행 조건·작업 집합이 다른 요약, 모델 digest나 Ollama 버전이 다른 요약 등). 채택 규칙(R4): 평균 성공 +1.0건 이상, 어느 범주(cs-legacy·cs-modern·sql)도 −0.5건 넘게 줄지 않음, 3회 모두 불변 조건 위반 0건, 시간 중위값 1.5배 이하. M3b 후보 셋은 모두 거절됐습니다([docs/m3b-tuning.md](docs/m3b-tuning.md)). 기준선 `docs/m4-gguf-baseline.summary.json`은 현장과 같은 `qwen3.6:35b`(GGUF) 파일로 쟀습니다. 후보도 같은 파일·같은 Ollama 버전으로 재야 판정됩니다.
 * SQL은 반복 사이에 다시 배포하지 않으므로, 의심되면 실행 전후 DB 객체를 비교하십시오(기준선은 차이 없음).

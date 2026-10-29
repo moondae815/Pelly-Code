@@ -1,0 +1,7 @@
+id: m3-controller-cancel
+root: Modern
+file: Shop.Api/Controllers/OrdersController.cs
+class: OrdersController
+method: Cancel
+count: 3
+platform: any

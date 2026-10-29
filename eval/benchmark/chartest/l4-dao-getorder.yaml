@@ -1,0 +1,7 @@
+id: l4-dao-getorder
+root: Legacy
+file: Shop.Data/OrderDao.cs
+class: OrderDao
+method: GetOrder
+count: 3
+platform: windows

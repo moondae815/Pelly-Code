@@ -241,6 +241,27 @@ pelly spec draft cancel-shipped "배송된 주문은 취소할 수 없게 하고
 * **기록:** 초안(작업 1개 이상)이 나온 실행은 `.pelly/runs/<run-id>/draft.json`에 요청, 범위, 색인 요약, 프롬프트, 생각, 답, 버린 줄, 더한 줄, 검사 결과, 결과(`written`·`rejected`·`dryRun` 등)를 남깁니다. 작업이 하나도 없는 실행은 기록을 남기지 않고 버린 줄은 화면에만 나옵니다. 초안을 얼마나 고쳐 썼는지 나중에 재려면 이 원문이 필요합니다. 승인 전 검사에 쓰는 임시 파일은 `.pelly/drafts/<id>.md`이며 검사가 끝나면 지웁니다.
 * **알려진 한계:** 생성자는 색인에 없습니다(S6가 잰 색인과 맞추려고 그대로 둠). 모델은 수용 기준과 `test:` 줄을 쓰지 않습니다. 모델이 지어낸 이름이나 이미 있는 것을 다시 하라는 지시는 검사가 일부만 잡으니 **승인 전에 초안을 직접 읽으십시오.** 한 번 부르고 끝이며 고쳐 쓰는 대화는 없습니다(요청을 고쳐 다시 실행하거나 파일을 손으로 고칩니다). 모델은 시그니처를 바꾸지 않는 한 곳의 동작 변경에도 `[G1]`을 자주 달아, 영향 탐색이 인터페이스·호출부·테스트 줄을 필요 없이 더할 수 있으니 승인 전에 지우십시오. sql 작업에 `[G1]`을 달면 `SqlInGroup` 오류로 초안의 영향 탐색이 건너뛰어지니, sql 줄에서 `[G…]`를 지우고 `pelly spec check --impact`를 돌리십시오. 모델의 작업과 영향 줄을 합쳐 작업 수 상한 20을 넘으면 영향 줄을 하나도 더하지 않고 「영향 대상 N개를 더하면 작업 수 상한 20을 넘어 더하지 않았습니다」로 알립니다(대상별 경고는 남음). 실측은 [사전 측정](docs/spec-draft-premeasure.md)을 보십시오. 모델 한 번 실행에 수십 초 걸립니다. Windows 미확인.
 
+### `pelly test` — 메서드의 현재 동작을 고정하는 테스트 만들기 (V2-5)
+```bash
+pelly test <파일> ["<힌트>"] [--class <클래스>] [--method <메서드>] [--line N] [--count 1-5] \
+           [--test-project <경로>] [--yes] [--dry-run] [--max-retries N] [--verbose] [--pause-on-exit] \
+           [--config <경로>] [--think off|retry|always] [--model <태그>] [--endpoint <URL>]
+```
+테스트가 없는 C# 메서드 하나의 **지금 동작**을 고정하는 테스트(특성 테스트) 1~5개(기본 3)를 모델이 쓰고, 기존 테스트 프로젝트의 `<타입>Tests` 클래스에 넣습니다(없으면 `<타입>Tests.cs`를 새로 만듭니다). 기대값은 사람이 정하지 않습니다. 지금 코드가 내는 값이 정답입니다. 이후 `pelly cs`(`--test`)나 사람의 수정이 기존 동작을 깨면 이 테스트가 잡습니다. 명령 이름이 `pelly cs --test`와 비슷하지만 하는 일이 다릅니다. `cs --test`는 수정을 검증하고, `pelly test`는 수정 없이 테스트만 더합니다.
+
+```text
+pelly test Shop.Api/Services/OrderService.cs --method SearchAsync --count 3
+```
+
+* **판정(앞이 실패하면 뒤는 하지 않음):** (1) 형태: 테스트 메서드 수가 1~`--count`, 건너뛰기 없음, 이름 겹침 없음. (2) 단언·호출: 각 테스트가 대상을 부르고 의미 있는 단언이 있음(`Assert.True(true)` 같은 리터럴만의 단언은 거부). (3) 환경 의존 금지: 시간·난수·파일·DB·네트워크·`Environment`. (4) 빌드. (5) 현재 코드에서 통과(기존 테스트는 원본 상태와 비교해 새 실패 없음). (6) 한 번 더 실행해 같은 결과. (7) **변이 검출**: 대상 본문을 `throw new System.NotImplementedException("pelly-mutation");`으로 바꿔 빌드·실행했을 때 새 테스트가 각각 실패. 어긋나면 이유를 피드백으로 주고 재시도합니다(`retry.max`). 변이는 판정 1~6을 통과한 뒤 시도당 한 번입니다.
+* **승인:** 통과하면 테스트 파일 diff를 보이고 `남길까요? [y/N]`를 묻습니다. 거부, 재시도 소진, 취소면 테스트 파일(과 레거시 csproj)을 원래대로 되돌리고 새로 만든 파일은 지웁니다. `--yes`는 묻지 않고 남기며, `--dry-run`은 판정까지 하고 diff만 보인 뒤 되돌립니다(종료 0).
+* **대상 조건:** 메서드만 받습니다. `public`이거나, `internal`이고 운영 어셈블리에 테스트 어셈블리를 가리키는 `InternalsVisibleTo`가 있어야 합니다. 추상·제네릭 타입, 반복기(`yield`), `extern`·본문 없는 메서드는 종료 3입니다. 테스트 프로젝트가 없거나 여럿인데 `--test-project`가 없어도 종료 3입니다. 이 명령은 테스트 프로젝트를 만들지 않습니다.
+* **테스트 프레임워크:** 테스트 프로젝트의 패키지 참조로 xUnit(v2·v3)·MSTest·NUnit 중 하나를 정합니다. 없거나 둘 이상이면 종료 4입니다. 테스트별 결과(TRX)를 읽을 수 없는 실행 방식(`MSTest.Sdk` 등 다른 Testing Platform, `{trx}` 없는 레거시 `test.command`)은 판정할 수 없어 종료 4입니다.
+* **운영 코드 보호:** 변이는 작업 사본의 운영 파일을 **잠깐** 바꿉니다(빌드가 실제 프로젝트를 써야 하므로). 끝나면 성공·실패·Ctrl+C 모두 원래 바이트로 되돌리고 해시를 확인합니다. IDE가 파일 변경을 감지해 다시 읽을 수 있고, 변이 빌드의 결과물은 다음 빌드까지 `bin`·`obj`에 남으니 끝난 뒤 한 번 다시 빌드하십시오. 프로세스가 강제로 죽어 되돌리지 못하면 `.pelly/runs/<run-id>/chartest.pending`이 남고, `pelly test`·`cs`·`sql`·`apply`는 「이전 `pelly test` 실행이 끝나지 않았습니다」와 백업 경로를 보이고 종료 4로 멈춥니다. 자동 복원하지 않습니다. 파일을 확인하고 표시 파일을 지우면 풀립니다.
+* **종료 코드:** 0 남김(또는 `--dry-run`), 1 재시도 소진, 2 거부 또는 취소, 3 대상·테스트 프로젝트·테스트 클래스 문제, 4 환경(원본 테스트 판정 불가, 변이 빌드 실패, 미완료 표시, 실행 방식, 프레임워크 판별 실패). 변이가 빌드되지 않으면 통과로 치지 않고 종료 4입니다.
+* **기록:** `summary.json`의 `charTest` 블록(`requested`, `generated`, `kept`, `passedOnCurrent`, `stableOnRerun`, `killedByMutation`, `rejectedBy`, `framework`, `newFile`)과 실패 유형 `CharTestShape`·`CharTestNoAssert`·`CharTestEnvDependent`·`CharTestBuild`·`CharTestFailsOnCurrent`·`CharTestRegression`·`CharTestFlaky`·`CharTestSurvivesMutation`·`CharTestMutationUnbuildable`·`CharTestBaselineUnusable`·`CharTestPending`. `pelly report`에 「특성 테스트」 줄(실행 수, 성공률, 평균 시도, 실패 유형)이 나옵니다.
+* **알려진 한계:** 테스트는 현재 동작을 그대로 고정하므로 **지금 코드에 버그가 있으면 그 버그가 정답으로 굳습니다.** 남기기 전에 diff의 기대값을 읽으십시오. 변이는 「본문 → 예외」 하나뿐이라 조건 하나를 뒤집는 수정은 못 잡을 수 있습니다. 의존성이 많은 메서드(DB 직접 호출 등)는 환경 의존 금지에 걸려 재시도가 소진되기 쉽습니다. 레거시 .NET Framework 테스트 실행은 Windows에서만 되고 **Windows 미확인**입니다. 실측은 [예비 측정](docs/chartest-premeasure.md)(Mac, Modern만)을 보십시오.
+
 ### `pelly rules` — 프로젝트 규칙 (AGENTS.md)
 ```bash
 pelly rules init  [--dry-run] [--force] [--yes] [--pause-on-exit]

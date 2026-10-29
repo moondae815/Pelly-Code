@@ -1,0 +1,7 @@
+id: l2-controller-detail
+root: Legacy
+file: Shop.Web/Controllers/OrderController.cs
+class: OrderController
+method: Detail
+count: 3
+platform: windows

@@ -1,0 +1,7 @@
+id: l1-service-getorder
+root: Legacy
+file: Shop.Web/Services/OrderService.cs
+class: OrderService
+method: GetOrder
+count: 3
+platform: windows

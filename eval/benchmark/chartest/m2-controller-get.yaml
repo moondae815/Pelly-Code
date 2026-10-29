@@ -1,0 +1,7 @@
+id: m2-controller-get
+root: Modern
+file: Shop.Api/Controllers/OrdersController.cs
+class: OrdersController
+method: Get
+count: 3
+platform: any

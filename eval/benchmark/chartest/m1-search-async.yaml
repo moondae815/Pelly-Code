@@ -1,0 +1,7 @@
+id: m1-search-async
+root: Modern
+file: Shop.Api/Services/OrderService.cs
+class: OrderService
+method: SearchAsync
+count: 3
+platform: any

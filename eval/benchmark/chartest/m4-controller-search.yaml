@@ -1,0 +1,7 @@
+id: m4-controller-search
+root: Modern
+file: Shop.Api/Controllers/OrdersController.cs
+class: OrdersController
+method: Search
+count: 3
+platform: any

@@ -1,0 +1,7 @@
+id: l3-controller-cancel
+root: Legacy
+file: Shop.Web/Controllers/OrderController.cs
+class: OrderController
+method: Cancel
+count: 3
+platform: windows

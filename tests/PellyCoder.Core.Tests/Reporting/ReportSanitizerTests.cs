@@ -291,6 +291,43 @@ public sealed class ReportSanitizerTests
         Assert.Equal(2, el.GetProperty("met").GetInt32());
         Assert.Equal(3, el.GetProperty("judged").GetInt32());
     }
+
+    [Fact]
+    public void Sanitize_CharTestHasNoNames()
+    {
+        // Names and paths ride in free-text fields (failure kind, error codes, framework); only counts and known kinds survive.
+        var s = RunHistoryTests.Summary("20261018-101010-abcd", 1, 2, failure: @"Calculator.Add_Returns_Sum in C:\src\Calc.cs", kind: EditKind.CSharpTest) with
+        {
+            PromptVersion = "cs-test-v1",
+            CharTest = new PellyCoder.Core.CharTests.CharTestSummary(3, 3, 0, 3, true, 1, "CalculatorTests.Add_Returns_Sum", "xUnit-CalculatorTests", true),
+        };
+        var ok = RunHistoryTests.Summary("20261018-101011-abcd", 1, 3, failure: "CharTestFlaky", kind: EditKind.CSharpTest) with { PromptVersion = "cs-test-v1" };
+        var runs = new[] { Rec(s), Rec(ok) };
+
+        var report = ReportSanitizer.Sanitize(runs, RunReport.Build(runs));
+
+        foreach (var text in new[] { report.ToJson(), report.ToMarkdown() })
+        {
+            foreach (var leak in new[] { "Calculator", "Add_Returns_Sum", "Calc.cs", "C:", "xUnit-", "20261018-101010" })
+                Assert.DoesNotContain(leak, text);
+            Assert.Contains("CharTestFlaky", text);
+            Assert.Contains("CSharpTest", text);
+            Assert.Contains("cs-test-v1", text);
+            Assert.DoesNotContain("invalid", text);
+        }
+        Assert.Contains("특성 테스트: 실행 2건, 남김 0건(성공률 0.0%), 평균 시도 2.5, 실패 유형 CharTestFlaky 1, Other 1", report.ToMarkdown());
+        Assert.Equal(2, report.Aggregate.CharTest!.Runs);
+    }
+
+    [Fact]
+    public void Sanitize_WithoutCharTestRuns_HasNoCharTestOutput()
+    {
+        var runs = new[] { Rec(Injected()) };
+        var report = ReportSanitizer.Sanitize(runs, RunReport.Build(runs));
+
+        Assert.Null(report.Aggregate.CharTest);
+        Assert.DoesNotContain("특성 테스트", report.ToMarkdown());
+    }
 }
 
 /// <summary>File system whose read/open methods throw for any path that is not a summary.json.</summary>

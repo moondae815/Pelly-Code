@@ -263,12 +263,12 @@ public class ExitCodeMappingTests
     [Fact]
     public void ValueOptionCheck_KnowsEveryCommand()
     {
-        foreach (var command in new[] { new[] { "cs" }, ["sql"], ["sql", "pull"], ["sql", "check"], ["doctor"], ["report"], ["rules", "init"], ["rules", "check"], ["apply"], ["spec", "new"], ["spec", "check"], ["spec", "draft"], ["ui", "cs"], ["ui", "sql"] })
+        foreach (var command in new[] { new[] { "cs" }, ["sql"], ["sql", "pull"], ["sql", "check"], ["doctor"], ["report"], ["rules", "init"], ["rules", "check"], ["apply"], ["spec", "new"], ["spec", "check"], ["spec", "draft"], ["test"], ["ui", "cs"], ["ui", "sql"] })
         {
             var help = Build(CancellationToken.None).Run([.. command, "--help"]);
             Assert.Equal(0, help.ExitCode);
         }
-        Assert.Equal(["apply", "completion", "cs", "doctor", "report", "rules check", "rules init", "spec check", "spec draft", "spec new", "sql", "sql check", "sql pull", "ui cs", "ui sql"], CliApp.CommandSettings.Keys.Order().ToArray());
+        Assert.Equal(["apply", "completion", "cs", "doctor", "report", "rules check", "rules init", "spec check", "spec draft", "spec new", "sql", "sql check", "sql pull", "test", "ui cs", "ui sql"], CliApp.CommandSettings.Keys.Order().ToArray());
     }
 
     /// <summary>Command lines from README and deploy/*.md still parse under strict parsing (cancelled token: no real work runs).</summary>

@@ -73,6 +73,14 @@ public sealed class ReportCommand(IFileSystem fs, IAnsiConsole console) : Comman
             if (tfOnly.Rows.Count > 0) console.Write(tfOnly);
             return ExitCodes.Success;
         }
+        if (d.RunCount == 0)
+        {
+            // Only characterization-test runs: no edit KPIs to show.
+            console.MarkupLine(Markup.Escape(d.CharTest!.Line()));
+            if (unreadable > 0) console.MarkupLine(Markup.Escape($"읽을 수 없어 건너뜀 {unreadable}건"));
+            if (applyData is not null) SpecTable(applyData);
+            return ExitCodes.Success;
+        }
         var kinds = string.Join(", ", d.RunsByKind.Select(k => $"{k.Key} {k.Value}"));
         console.MarkupLine(Markup.Escape($"실행 {d.RunCount}건 ({kinds})" + (unreadable > 0 ? $", 읽을 수 없어 건너뜀 {unreadable}건" : "")));
 
@@ -86,6 +94,7 @@ public sealed class ReportCommand(IFileSystem fs, IAnsiConsole console) : Comman
         kpi.AddRow("단일 작업 완료 시간", Describe(d.TaskSeconds, " (단계 합)"));
         AddTestFirstRows(kpi, d.TestFirst, applyData?.Criteria);
         console.Write(kpi);
+        if (d.CharTest is { } charTest) console.MarkupLine(Markup.Escape(charTest.Line()));
 
         Distribution("종료 코드", d.ExitCodes.Select(e => ($"{e.Key}", e.Value)));
         Distribution("실패 유형", d.FailureKinds.Select(e => (e.Key, e.Value)));

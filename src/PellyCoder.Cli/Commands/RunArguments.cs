@@ -1,4 +1,5 @@
 using System.IO.Abstractions;
+using PellyCoder.Core.CharTests;
 using PellyCoder.Core.Config;
 using PellyCoder.Core.Fsm;
 using PellyCoder.Core.Models;
@@ -35,6 +36,22 @@ public static class RunArguments
         return errors;
     }
 
+    public static IReadOnlyList<string> ValidateTest(TestSettings s)
+    {
+        var errors = new List<string>();
+        if (s.Line is not null && (s.Class is not null || s.Method is not null))
+            errors.Add("--line은 --class/--method와 함께 쓸 수 없습니다");
+        else if (s.Line is null && s.Method is null)
+            errors.Add("--method나 --line이 필요합니다");
+        if (s.Line is <= 0)
+            errors.Add("--line은 1 이상이어야 합니다");
+        if (s.Count is { } count && (count < CharTestLimits.MinCount || count > CharTestLimits.MaxCount))
+            errors.Add($"--count는 {CharTestLimits.MinCount}~{CharTestLimits.MaxCount}입니다");
+        if (s.MaxRetries is < 0)
+            errors.Add("--max-retries는 0 이상이어야 합니다");
+        return errors;
+    }
+
     public static IReadOnlyList<string> ValidateSql(SqlSettings s)
     {
         var errors = new List<string>();
@@ -50,6 +67,13 @@ public static class RunArguments
     public static (PreparedRun? Run, IReadOnlyList<string> Errors) PrepareCs(CsSettings s, IFileSystem fs, OptionsResolver resolver) =>
         Prepare(s.File, fs, file => resolver.Resolve(
             file, s.Config, s.Think, s.Model, s.Endpoint, s.StrictBaseline, s.WarnAsError));
+
+    public static (PreparedRun? Run, IReadOnlyList<string> Errors) PrepareTest(TestSettings s, IFileSystem fs, OptionsResolver resolver) =>
+        Prepare(s.File, fs, file => resolver.Resolve(file, s.Config, s.Think, s.Model, s.Endpoint));
+
+    public static CharTestRequest TestRequest(TestSettings s, string file) =>
+        new(file, s.Class, s.Method, s.Line, string.IsNullOrWhiteSpace(s.Hint) ? null : s.Hint, s.Count ?? CharTestLimits.DefaultCount,
+            s.TestProject, s.Yes, s.DryRun, s.MaxRetries, s.Verbose);
 
     public static (PreparedRun? Run, IReadOnlyList<string> Errors) PrepareSql(SqlSettings s, IFileSystem fs, OptionsResolver resolver) =>
         Prepare(s.File, fs, file => resolver.Resolve(file, s.Config, s.Think, s.Model, s.Endpoint));

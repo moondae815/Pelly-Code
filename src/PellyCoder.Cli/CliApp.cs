@@ -16,6 +16,7 @@ public static class CliApp
         // An unknown option is an argument error (exit 4), not ignored: a typo like --dry-rum would turn a preview into a write.
         config.Settings.StrictParsing = true;
         config.AddCommand<CsCommand>("cs").WithDescription("C# 메서드 하나를 요청대로 수정합니다.");
+        config.AddCommand<TestCommand>("test").WithDescription("메서드의 현재 동작을 고정하는 테스트를 만듭니다");
         config.AddCommand<DoctorCommand>("doctor").WithDescription("Ollama 서버·모델·토크나이저 환경을 점검합니다.");
         config.AddCommand<ApplyCommand>("apply").WithDescription("명세 파일(changes/<id>.md)의 작업을 순서대로 실행합니다.");
         config.AddCommand<ReportCommand>("report").WithDescription("실행 기록에서 KPI와 실패 유형을 집계합니다.");
@@ -71,6 +72,7 @@ public static class CliApp
     public static readonly IReadOnlyDictionary<string, Type> CommandSettings = new Dictionary<string, Type>(StringComparer.Ordinal)
     {
         ["cs"] = typeof(CsSettings),
+        ["test"] = typeof(TestSettings),
         ["sql"] = typeof(SqlSettings),
         ["sql pull"] = typeof(SqlPullSettings),
         ["sql check"] = typeof(SqlCheckSettings),

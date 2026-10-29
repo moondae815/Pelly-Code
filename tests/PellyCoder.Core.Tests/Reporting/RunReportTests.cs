@@ -123,4 +123,58 @@ public sealed class RunReportTests
         var b = RunHistoryTests.Summary("20261001-101011-bbbb", 0) with { TestFirst = new TestFirstSummary(1, RedState.Red, GreenState.Passed, 0, 1) };
         Assert.Equal(3, RunReport.Build([new RunRecord(a, DateTimeOffset.UnixEpoch), new RunRecord(b, DateTimeOffset.UnixEpoch)]).TestFirst!.BreaksExcluded);
     }
+
+    private static RunRecord CtRec(int i, int exit, int attempts, string? failure = null)
+    {
+        var s = RunHistoryTests.Summary($"20261001-10102{i}-aaaa", exit, attempts, failure: failure, kind: EditKind.CSharpTest) with
+        {
+            PromptVersion = "cs-test-v1",
+            CharTest = new PellyCoder.Core.CharTests.CharTestSummary(3, 3, exit == 0 ? 3 : 0, 3, true, 3, null, "xUnit", false),
+        };
+        return new RunRecord(s, DateTimeOffset.UnixEpoch);
+    }
+
+    [Fact]
+    public void Build_CharTestRuns_AreNotEditKpis()
+    {
+        var edit = new[] { Rec(1), Rec(2, exit: 1, failure: "BuildErrors") };
+        var plain = RunReport.Build(edit);
+
+        var mixed = RunReport.Build([.. edit, CtRec(1, 0, 1), CtRec(2, 1, 3, "CharTestBuild"), CtRec(3, 1, 2, "CharTestFlaky")]);
+
+        Assert.Equal(plain.ExitCodes, mixed.ExitCodes);
+        Assert.Equal(plain.RunsByKind, mixed.RunsByKind);
+        Assert.Equal(plain.FailureKinds, mixed.FailureKinds);
+        Assert.Equal(plain.AttemptDistribution, mixed.AttemptDistribution);
+        Assert.Equal(plain.MeanPhaseSeconds, mixed.MeanPhaseSeconds);
+        Assert.Equal(plain.Parse, mixed.Parse);
+        Assert.Equal(plain.SuccessRate, mixed.SuccessRate);
+        Assert.Equal(plain.TaskSeconds, mixed.TaskSeconds);
+        Assert.Null(plain.CharTest);
+        Assert.Equal(2, mixed.RunCount);
+        Assert.Equal(1, mixed.SuccessCount);
+        Assert.DoesNotContain(EditKind.CSharpTest, mixed.RunsByKind.Keys);
+        Assert.DoesNotContain("CharTestBuild", mixed.FailureKinds.Keys);
+    }
+
+    [Fact]
+    public void Build_CharTestCounts()
+    {
+        var d = RunReport.Build([CtRec(1, 0, 1), CtRec(2, 1, 3, "CharTestBuild"), CtRec(3, 1, 2, "CharTestFlaky"), CtRec(4, 0, 2)]);
+
+        var ct = d.CharTest!;
+        Assert.Equal(4, ct.Runs);
+        Assert.Equal(2, ct.Kept);
+        Assert.Equal(2.0, ct.MeanAttempts);
+        Assert.Equal(new Dictionary<string, int> { ["CharTestBuild"] = 1, ["CharTestFlaky"] = 1 }, ct.FailureKinds);
+        Assert.Equal("특성 테스트: 실행 4건, 남김 2건(성공률 50.0%), 평균 시도 2.0, 실패 유형 CharTestBuild 1, CharTestFlaky 1", ct.Line());
+        Assert.Equal(0, d.RunCount);
+    }
+
+    [Fact]
+    public void CharTestLine_NoFailures()
+    {
+        Assert.Equal("특성 테스트: 실행 1건, 남김 1건(성공률 100.0%), 평균 시도 1.0, 실패 유형 없음",
+            RunReport.Build([CtRec(1, 0, 1)]).CharTest!.Line());
+    }
 }

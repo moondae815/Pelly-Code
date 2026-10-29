@@ -317,4 +317,49 @@ public class ReportCommandTests
         Assert.DoesNotContain("%", row);
         Assert.Contains("2건", RowOf(output, "테스트로 검증되지 않은 수용 기준"));
     }
+
+    private static void AddCharTestRun(MockFileSystem fs, string id, int exit, int attempts, string? failure = null)
+    {
+        var s = new RunSummary(id, "1.0", null, "m", "cs-test-v1", EditKind.CSharpTest, "Sdk", exit, attempts,
+            new Dictionary<RunPhase, double> { [RunPhase.Edit] = 2 }, 0.8, 0.1, "Retry", 100, false, 10, null, null, [], [], 0, failure);
+        fs.AddFile($"/w/.pelly/runs/{id}/summary.json", new MockFileData(JsonSerializer.Serialize(s, Json)));
+    }
+
+    [Fact]
+    public void Report_CharTestLine()
+    {
+        var (app, _, fs) = Build();
+        AddRun(fs, "20261001-101010-aaaa", 0);
+        AddCharTestRun(fs, "20261002-101010-bbbb", 0, 1);
+        AddCharTestRun(fs, "20261003-101010-cccc", 1, 2, "CharTestBuild");
+
+        var result = app.Run("report");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("특성 테스트: 실행 2건, 남김 1건(성공률 50.0%), 평균 시도 1.5, 실패 유형 CharTestBuild 1", result.Output);
+        // The edit KPIs still describe the one cs run only.
+        Assert.Contains("100.0% (1/1건, 종료 코드 0)", result.Output);
+    }
+
+    [Fact]
+    public void Report_WithoutCharTestRuns_HasNoCharTestLine()
+    {
+        var (app, _, fs) = Build();
+        AddRun(fs, "20261001-101010-aaaa", 0);
+
+        Assert.DoesNotContain("특성 테스트", app.Run("report").Output);
+    }
+
+    [Fact]
+    public void Report_OnlyCharTestRuns_ShowsLineWithoutEditKpis()
+    {
+        var (app, _, fs) = Build();
+        AddCharTestRun(fs, "20261002-101010-bbbb", 0, 1);
+
+        var result = app.Run("report");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("특성 테스트: 실행 1건, 남김 1건(성공률 100.0%), 평균 시도 1.0, 실패 유형 없음", result.Output);
+        Assert.DoesNotContain("최종 작업 성공률", result.Output);
+    }
 }

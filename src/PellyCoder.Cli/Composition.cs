@@ -1,6 +1,7 @@
 using System.IO.Abstractions;
 using Microsoft.Extensions.DependencyInjection;
 using PellyCoder.Core.Abstractions;
+using PellyCoder.Core.CharTests;
 using PellyCoder.Core.Config;
 using PellyCoder.Core.Doctor;
 using PellyCoder.Core.Fsm;
@@ -53,6 +54,7 @@ public static class Composition
         services.AddSingleton<LlmBackendFactory>(sp => llm =>
             new OllamaBackend(sp.GetRequiredService<HttpClientHolder>().Get(llm), llm, sp.GetRequiredService<TimeProvider>()));
         services.AddSingleton<IRunner, OrchestratorRunner>();
+        services.AddSingleton<ICharTestRunner, CharTestRunner>();
         services.AddSingleton<RunnerFactory>(sp => runUi => new OrchestratorRunner(
             sp.GetRequiredService<IFileSystem>(), runUi, sp.GetRequiredService<TimeProvider>(),
             sp.GetRequiredService<HttpClientHolder>(), sp.GetRequiredService<IProcessRunner>(),
@@ -93,6 +95,16 @@ public static class Composition
                         SqlReaders.Production(options.Sql, readerFactory))
                     .RunDetailedAsync(request, ct);
             return FsmOrchestratorFactory.Create(fs, backend, ui, options, time, processes).RunDetailedAsync(request, ct);
+        }
+    }
+
+    private sealed class CharTestRunner(IFileSystem fs, IUserInteraction ui, TimeProvider time, HttpClientHolder http, IProcessRunner processes)
+        : ICharTestRunner
+    {
+        public Task<int> RunAsync(CharTestRequest request, PellyOptions options, CancellationToken ct)
+        {
+            var backend = new OllamaBackend(http.Get(options.Llm), options.Llm, time);
+            return FsmOrchestratorFactory.CreateCharTest(fs, backend, ui, options, time, processes).RunAsync(request, ct);
         }
     }
 

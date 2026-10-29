@@ -31,7 +31,7 @@ public sealed record SanitizedAggregate(
     IReadOnlyDictionary<string, int> FailureKinds,
     IReadOnlyDictionary<string, double> MeanPhaseSeconds,
     IReadOnlyDictionary<string, int> AttemptDistribution,
-    ApplyCounts? Apply = null, TestFirstCounts? TestFirst = null, int UnverifiedAc = 0);
+    ApplyCounts? Apply = null, TestFirstCounts? TestFirst = null, int UnverifiedAc = 0, CharTestCounts? CharTest = null);
 
 /// <summary>
 /// Report that can leave a closed network (D11, design §8.12). Whitelist only: every string in it is a fixed literal,
@@ -82,6 +82,11 @@ public sealed record SanitizedReport(SanitizedAggregate Aggregate, IReadOnlyList
             sb.AppendLine($"| breaks로 뺀 테스트 | {N(tf.BreaksExcluded)}건 |");
             sb.AppendLine();
         }
+        if (a.CharTest is { } ct)
+        {
+            sb.AppendLine("## 특성 테스트").AppendLine();
+            sb.AppendLine(ct.Line()).AppendLine();
+        }
         Table(sb, "종류", a.RunsByKind);
         Table(sb, "종료 코드", a.ExitCodes);
         Table(sb, "실패 유형", a.FailureKinds);
@@ -130,7 +135,7 @@ public static partial class ReportSanitizer
     [GeneratedRegex(@"\A[0-9][0-9A-Za-z.+\-]{0,39}\z", RegexOptions.CultureInvariant)]
     private static partial Regex VersionPattern { get; }
 
-    [GeneratedRegex(@"\A(cs|sql)-v[0-9]{1,4}\z", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"\A(cs|sql|cs-test)-v[0-9]{1,4}\z", RegexOptions.CultureInvariant)]
     private static partial Regex PromptVersionPattern { get; }
 
     private static readonly string[] ProjectStyles = ["Sdk", "Legacy", "None", "Sql"];
@@ -200,7 +205,9 @@ public static partial class ReportSanitizer
             failures,
             PhaseMap(d.MeanPhaseSeconds),
             d.AttemptDistribution.ToDictionary(k => k.Key.ToString(CultureInfo.InvariantCulture), k => k.Value),
-            TestFirst: d.TestFirst);
+            TestFirst: d.TestFirst,
+            // Counts and known kinds only (Build already folded unknown kinds into "Other").
+            CharTest: d.CharTest is { } ct ? ct with { MeanAttempts = Num(ct.MeanAttempts) } : null);
     }
 
     private static Spread? Clean(Spread? s) => s is null ? null : new Spread(Num(s.Median), Num(s.P90));

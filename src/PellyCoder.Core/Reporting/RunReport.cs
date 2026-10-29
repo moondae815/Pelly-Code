@@ -1,3 +1,4 @@
+using System.Globalization;
 using PellyCoder.Core.Fsm;
 using PellyCoder.Core.Logging;
 using PellyCoder.Core.Models;
@@ -29,7 +30,22 @@ public sealed record RunReportData(
     IReadOnlyDictionary<string, int> FailureKinds,
     IReadOnlyDictionary<RunPhase, double> MeanPhaseSeconds,
     IReadOnlyDictionary<int, int> AttemptDistribution,
-    TestFirstCounts? TestFirst = null);
+    TestFirstCounts? TestFirst = null,
+    CharTestCounts? CharTest = null);
+
+/// <summary>
+/// <c>pelly test</c> runs (kind <c>CSharpTest</c>): runs, runs that kept tests (exit 0), mean attempts and failure kinds.
+/// These runs are not edits, so they stay out of every other figure in <see cref="RunReportData"/>.
+/// </summary>
+public sealed record CharTestCounts(int Runs, int Kept, double MeanAttempts, IReadOnlyDictionary<string, int> FailureKinds)
+{
+    public string Line()
+    {
+        var rate = (100.0 * Kept / Runs).ToString("F1", CultureInfo.InvariantCulture);
+        var kinds = FailureKinds.Count == 0 ? "없음" : string.Join(", ", FailureKinds.Select(f => $"{f.Key} {f.Value}"));
+        return $"특성 테스트: 실행 {Runs}건, 남김 {Kept}건(성공률 {rate}%), 평균 시도 {MeanAttempts.ToString("F1", CultureInfo.InvariantCulture)}, 실패 유형 {kinds}";
+    }
+}
 
 /// <summary>Test-first KPIs per run: Met of Judged (acceptance criteria met), RedWarned of RedChecked (baseline already green).</summary>
 public sealed record TestFirstCounts(int Met, int Judged, int RedWarned, int RedChecked, int BreaksExcluded = 0);
@@ -38,7 +54,9 @@ public static class RunReport
 {
     public static RunReportData Build(IReadOnlyList<RunRecord> runs)
     {
-        var s = runs.Select(r => r.Summary).ToList();
+        // Characterization-test runs write tests rather than edit code: counted on their own, not in the edit KPIs below.
+        var s = runs.Select(r => r.Summary).Where(x => x.Kind != EditKind.CSharpTest).ToList();
+        var charTests = runs.Select(r => r.Summary).Where(x => x.Kind == EditKind.CSharpTest).ToList();
         var success = s.Count(x => x.ExitCode == ExitCodes.Success);
         var withTtft = s.Where(x => x.TtftSeconds > 0).ToList();
         var (ok, total) = KpiMath.ParseSuccess(s.Select(x => (x.Attempts, x.FormatErrors)));
@@ -69,7 +87,18 @@ public static class RunReport
             failures,
             phases,
             s.GroupBy(x => x.Attempts).OrderBy(g => g.Key).ToDictionary(g => g.Key, g => g.Count()),
-            CountTestFirst(s));
+            CountTestFirst(s),
+            CountCharTests(charTests));
+    }
+
+    private static CharTestCounts? CountCharTests(List<RunSummary> s)
+    {
+        if (s.Count == 0) return null;
+        var failures = s.Where(x => x.FailureKind is not null)
+            .GroupBy(x => FailureKinds.IsKnown(x.FailureKind) ? x.FailureKind! : "Other")
+            .OrderByDescending(g => g.Count()).ThenBy(g => g.Key, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.Count());
+        return new CharTestCounts(s.Count, s.Count(x => x.ExitCode == ExitCodes.Success), s.Average(x => x.Attempts), failures);
     }
 
     private static TestFirstCounts? CountTestFirst(List<RunSummary> s)

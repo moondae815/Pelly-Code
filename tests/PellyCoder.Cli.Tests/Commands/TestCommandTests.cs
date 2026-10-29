@@ -98,14 +98,15 @@ public class TestCommandTests
     [Fact]
     public void Test_PassesRequestToRunner()
     {
-        var (app, runner, _, _) = Build(exitCode: 1);
+        var (app, runner, _, fs) = Build(exitCode: 1);
 
         var result = app.Run("test", File, "빈 입력도 확인", "--class", "A", "--method", "M", "--count", "2",
             "--test-project", "/w/tests/T.csproj", "--yes", "--dry-run", "--max-retries", "1", "--verbose", "--model", "m1");
 
         Assert.Equal(1, result.ExitCode);
         var r = runner.Request!;
-        Assert.Equal(Path.GetFullPath(File), Path.GetFullPath(r.FilePath));
+        // The CLI resolves the path through the (mock) file system, which roots it on its own drive on Windows.
+        Assert.Equal(fs.Path.GetFullPath(File), r.FilePath);
         Assert.Equal("A", r.ClassName);
         Assert.Equal("M", r.MethodName);
         Assert.Null(r.Line);

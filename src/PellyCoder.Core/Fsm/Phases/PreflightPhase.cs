@@ -1,5 +1,6 @@
 using System.IO.Abstractions;
 using PellyCoder.Core.Abstractions;
+using PellyCoder.Core.CharTests;
 using PellyCoder.Core.Config;
 using PellyCoder.Core.Files;
 using PellyCoder.Core.Llm;
@@ -45,6 +46,11 @@ public sealed class PreflightPhase(IFileSystem fs, FileGuard fileGuard, ILlmBack
             ctx.Lock = WorkspaceLock.TryAcquire(fs, ws);
             if (ctx.Lock is null)
                 return Env(ctx, $"다른 pelly 실행이 진행 중입니다 (작업 폴더: {ws.Root}). 그 실행이 끝난 뒤 다시 시도하세요.");
+
+            // An unfinished `pelly test` may have left a changed test file or csproj; nothing else runs until a person looks.
+            var pending = new CharTestPending(fs).FindAll(ws);
+            if (pending.Count > 0)
+                return EnvKind(ctx, FailureKinds.CharTestPending, CharTestPending.Describe(pending));
         }
 
         var loaded = RulesLoader.Load(fs, ws);

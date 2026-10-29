@@ -340,6 +340,25 @@ public sealed class SpecRunnerTests : IDisposable
     }
 
     [Fact]
+    public async Task Apply_PendingMarker_Exit4_NoTaskRun()
+    {
+        Spec(ThreeTasks);
+        var ws = new Workspace(_root, P(".pelly"));
+        var marker = new PellyCoder.Core.CharTests.CharTestPending(_fs).Write(ws, "old-run",
+            [new PellyCoder.Core.CharTests.PendingFile(P("db/a.sql"), "test", false, null, "AB", true)]);
+        var before = Read("changes/x.md");
+
+        var code = await Run(Opts());
+
+        Assert.Equal(4, code);
+        Assert.Empty(_exec.Calls);
+        Assert.Equal(before, Read("changes/x.md"));
+        Assert.Contains(_ui.Warnings, w => w.Contains("이전 `pelly test` 실행이 끝나지 않았습니다") && w.Contains(marker));
+        using var again = WorkspaceLock.TryAcquire(_fs, ws);
+        Assert.NotNull(again);
+    }
+
+    [Fact]
     public async Task Cancellation_stops_with_2_and_keeps_completed_marks()
     {
         Spec(ThreeTasks);

@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 using Microsoft.CodeAnalysis.CSharp;
 using PellyCoder.Core.Abstractions;
 using PellyCoder.Core.Builds;
+using PellyCoder.Core.CharTests;
 using PellyCoder.Core.Config;
 using PellyCoder.Core.CSharp;
 using PellyCoder.Core.Feedbacks;
@@ -88,6 +89,14 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
         if (held is null)
         {
             ui.Warn("다른 pelly 실행이 이 작업 공간을 쓰고 있습니다. 끝난 뒤 다시 실행하세요.");
+            return 4;
+        }
+
+        var pending = new CharTestPending(fs).FindAll(ws);
+        if (pending.Count > 0)
+        {
+            held.Dispose();
+            ui.Warn(CharTestPending.Describe(pending));
             return 4;
         }
 

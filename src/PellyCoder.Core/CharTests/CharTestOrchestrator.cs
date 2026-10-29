@@ -300,9 +300,9 @@ public sealed class CharTestOrchestrator(
             }
             else
             {
-                // The skeleton takes the target's namespace and those of its usings the test project surely sees (workspace-declared
-                // namespaces, core BCL), so the model need not guess them (C1) and never inherits an unreferenced package's using.
-                var declared = TestClassWriter.DeclaredNamespaces(Fs, _ctx.Workspace!.Root);
+                // The skeleton takes the target's namespace and usings, so the model need not guess them (C1). A legacy (non-SDK) test
+                // project does not inherit the production project's references: there only workspace-declared and core BCL usings stay.
+                var declared = IsSdkProject(single) ? null : TestClassWriter.DeclaredNamespaces(Fs, _ctx.Workspace!.Root);
                 _baseText = TestClassWriter.NewFile(location.Namespace, location.ClassName, _framework,
                     TestClassWriter.TargetUsings(_ctx.Current.Text, _ctx.Language!.Version, declared));
                 FileSnapshot csproj;
@@ -1088,6 +1088,19 @@ public sealed class CharTestOrchestrator(
                     _displayBroken = true;
                     _ctx.Messages.Add($"메시지를 화면에 표시하지 못했습니다: {ex.GetType().Name}: {ex.Message}");
                 }
+            }
+        }
+
+        /// <summary>SDK-style per <see cref="ProjectStyleDetector"/>; an unreadable csproj counts as legacy (the filtered, safer skeleton).</summary>
+        private bool IsSdkProject(string csproj)
+        {
+            try
+            {
+                return ProjectStyleDetector.Detect(Fs, csproj) == ProjectStyle.Sdk;
+            }
+            catch (Exception ex) when (ex is XmlException or IOException or UnauthorizedAccessException)
+            {
+                return false;
             }
         }
 

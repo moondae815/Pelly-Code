@@ -379,7 +379,7 @@ public sealed class CharTestOrchestratorTests : IDisposable
     }
 
     [Fact]
-    public async Task NewFile_SkeletonCarriesTargetUsingsAndNamespace()
+    public async Task NewFile_SdkTestProject_SkeletonKeepsEveryTargetUsing()
     {
         File.WriteAllText(CalcPath, "using System.Collections.Generic;\nusing Dapper;\n" + CalcSource);
         File.Delete(TestPath);
@@ -388,9 +388,35 @@ public sealed class CharTestOrchestratorTests : IDisposable
         var exit = await Run(Req(CalcPath));
 
         Assert.Equal(0, exit);
-        Assert.StartsWith("using System.Collections.Generic;\nusing Demo;\nusing Xunit;\n\n", File.ReadAllText(TestPath));
+        // SDK references flow to the test project: a package using of the target is valid there.
+        Assert.StartsWith("using System.Collections.Generic;\nusing Dapper;\nusing Demo;\nusing Xunit;\n\n", File.ReadAllText(TestPath));
+        Assert.Contains("[READ-ONLY: test usings]\nusing System.Collections.Generic;\nusing Dapper;\nusing Demo;\nusing Xunit;\n", Prompt(0));
+    }
+
+    [Fact]
+    public async Task NewFile_LegacyTestProject_SkeletonDropsNonWorkspaceUsings()
+    {
+        _isWindows = () => true;
+        var msbuild = Path.Combine(_root, "msbuild.exe");
+        File.WriteAllText(msbuild, "");
+        _options.Build.MsbuildPath = msbuild;
+        _options.Test.Command = "vstest.console.exe {dll} /logger:trx;LogFileName={trx}";
+        File.WriteAllText(CsprojPath, LegacyCsproj);
+        File.WriteAllText(TestCsprojPath, LegacyTestCsproj);
+        File.WriteAllText(Path.Combine(_root, "Demo.Tests", "packages.config"),
+            "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<packages>\n  <package id=\"MSTest.TestFramework\" version=\"2.2.10\" />\n</packages>\n");
+        File.WriteAllText(CalcPath, "using System.Collections.Generic;\nusing Dapper;\n" + CalcSource);
+        File.Delete(TestPath);
+        _backend.Enqueue("### MEMBERS\n" + string.Join("\n", Three.Select(n =>
+            $"[TestMethod]\npublic void {n}()\n{{\n    var result = new Demo.Calc().Divide(6, 2);\n    Assert.AreEqual(3, result);\n}}\n")));
+
+        var exit = await Run(Req(CalcPath));
+
+        Assert.Equal(0, exit);
+        // A legacy test project does not inherit the production project's packages: only workspace and core BCL usings stay.
+        Assert.StartsWith("using System.Collections.Generic;\nusing Demo;\nusing Microsoft.VisualStudio.TestTools.UnitTesting;\n\n",
+            File.ReadAllText(TestPath).Replace("\r\n", "\n", StringComparison.Ordinal)); // the new file follows the csproj's CRLF
         Assert.DoesNotContain("Dapper", File.ReadAllText(TestPath));
-        Assert.Contains("[READ-ONLY: test usings]\nusing System.Collections.Generic;\nusing Demo;\nusing Xunit;\n", Prompt(0));
     }
 
     [Fact]

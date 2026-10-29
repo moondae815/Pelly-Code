@@ -123,19 +123,20 @@ public static class TestClassWriter
     private static readonly string[] CoreNamespaces = ["System", "System.Collections.Generic", "System.Linq", "System.Threading.Tasks"];
 
     /// <summary>
-    /// The namespaces a new test file can safely take from the target file: its top-level <c>using</c> directives (no alias,
-    /// <c>static</c> or <c>global</c> ones; namespace-level usings may be relative and are left out) whose namespace, or a parent or
-    /// child of it, is in <paramref name="declaredNamespaces"/>, or that are one of the core BCL namespaces; then the target's
-    /// namespace. A third-party or framework using (Dapper, System.Web.Mvc) is dropped: a legacy test project does not inherit the
-    /// production project's references, and the model can still add it under <c>### USINGS</c>.
+    /// The namespaces a new test file takes from the target file: its top-level <c>using</c> directives (no alias, <c>static</c> or
+    /// <c>global</c> ones; namespace-level usings may be relative and are left out), then the target's namespace. With
+    /// <paramref name="declaredNamespaces"/> (a legacy, non-SDK test project, which does not inherit the production project's
+    /// references) only usings whose namespace, or a parent or child of it, is declared in the workspace, and the core BCL ones, are
+    /// kept: a third-party or framework using (Dapper, System.Web.Mvc) is dropped, and the model can still add it under
+    /// <c>### USINGS</c>. Null (an SDK test project: references flow through the project reference) keeps them all.
     /// </summary>
-    public static IReadOnlyList<string> TargetUsings(string targetSourceLf, LanguageVersion version, IReadOnlySet<string> declaredNamespaces)
+    public static IReadOnlyList<string> TargetUsings(string targetSourceLf, LanguageVersion version, IReadOnlySet<string>? declaredNamespaces)
     {
         var root = (CompilationUnitSyntax)CSharpSyntaxTree.ParseText(targetSourceLf, new CSharpParseOptions(version)).GetRoot();
         var names = root.Usings
             .Where(u => u.Alias is null && u.StaticKeyword.IsKind(SyntaxKind.None) && u.GlobalKeyword.IsKind(SyntaxKind.None) && u.Name is not null)
             .Select(u => u.Name!.ToString())
-            .Where(n => CoreNamespaces.Contains(n, StringComparer.Ordinal) || declaredNamespaces.Any(d => d == n
+            .Where(n => declaredNamespaces is null || CoreNamespaces.Contains(n, StringComparer.Ordinal) || declaredNamespaces.Any(d => d == n
                 || d.StartsWith(n + ".", StringComparison.Ordinal) || n.StartsWith(d + ".", StringComparison.Ordinal)))
             .ToList();
         if (root.DescendantNodes().OfType<BaseNamespaceDeclarationSyntax>().FirstOrDefault() is { } ns) names.Add(ns.Name.ToString());

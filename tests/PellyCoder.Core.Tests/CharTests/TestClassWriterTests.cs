@@ -140,6 +140,15 @@ public sealed class TestClassWriterTests
     }
 
     [Fact]
+    public void TargetUsings_NoFilter_KeepsEveryPlainUsing()
+    {
+        const string source = "using System.Data.SqlClient;\nusing Dapper;\nusing static System.Math;\nusing M = System.Text;\n\nnamespace Shop.Data { public class OrderDao { } }\n";
+
+        Assert.Equal(["System.Data.SqlClient", "Dapper", "Shop.Data"],
+            TestClassWriter.TargetUsings(source, Microsoft.CodeAnalysis.CSharp.LanguageVersion.CSharp12, declaredNamespaces: null));
+    }
+
+    [Fact]
     public void TargetUsings_ParentOrChildOfDeclaredNamespace_Kept()
     {
         const string source = "using Shop.Api.Models;\nusing Shop;\nusing Shopify.Client;\n\nnamespace Demo { public class C { } }\n";

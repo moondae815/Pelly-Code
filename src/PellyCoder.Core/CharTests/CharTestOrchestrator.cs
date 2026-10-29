@@ -495,7 +495,8 @@ public sealed class CharTestOrchestrator(
             {
                 var errors = current.BuildErrors;
                 foreach (var code in errors.Select(e => e.Code).Distinct()) if (!_ctx.ErrorCodes.Contains(code)) _ctx.ErrorCodes.Add(code);
-                var relative = Fs.Path.GetRelativePath(_ctx.Workspace!.Root, location.FilePath);
+                // Same form as BuildErrorParser's diagnostic paths ('/' separators), as BuildStep does for cs runs.
+                var relative = Fs.Path.GetRelativePath(_ctx.Workspace!.Root, location.FilePath).Replace('\\', '/');
                 var version = _ctx.Language!.Version;
                 var hints = CharTestBuildHints.For(errors, relative, parts.Dependencies, missing => parts.SearchRoot is { } root
                     ? DependencySignatureCollector.NamespacesOf(Fs, root, missing, version, ct: ct)

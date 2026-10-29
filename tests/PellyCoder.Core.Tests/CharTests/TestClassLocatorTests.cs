@@ -46,7 +46,7 @@ public sealed class TestClassLocatorTests
         Assert.Null(loc.Error);
         Assert.True(loc.IsNew);
         Assert.Equal("OrderTests", loc.ClassName);
-        Assert.Equal(fs.Path.Combine("/w/Tests", "OrderTests.cs"), loc.FilePath);
+        Assert.Equal(fs.Path.GetFullPath(fs.Path.Combine("/w/Tests", "OrderTests.cs")), fs.Path.GetFullPath(loc.FilePath));
         Assert.Equal("Maj.Ns", loc.Namespace);
     }
 

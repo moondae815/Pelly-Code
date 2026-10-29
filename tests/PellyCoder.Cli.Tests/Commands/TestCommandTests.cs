@@ -105,7 +105,7 @@ public class TestCommandTests
 
         Assert.Equal(1, result.ExitCode);
         var r = runner.Request!;
-        Assert.Equal(File, r.FilePath);
+        Assert.Equal(Path.GetFullPath(File), Path.GetFullPath(r.FilePath));
         Assert.Equal("A", r.ClassName);
         Assert.Equal("M", r.MethodName);
         Assert.Null(r.Line);

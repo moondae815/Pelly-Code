@@ -4,11 +4,12 @@ namespace PellyCoder.Core.Llm;
 
 /// <summary>
 /// Embedded C# prompt texts. Bodies have the leading "# version: N" line and one trailing newline removed.
-/// <paramref name="Version"/> covers the edit prompts only; <paramref name="Locate"/> (target pick) is versioned on its own.
+/// <paramref name="Version"/> covers the edit prompts only (<paramref name="CsTestVersion"/> the <c>cs-test</c> pair); <paramref name="Locate"/> (target pick) is versioned on its own.
 /// </summary>
 public sealed record PromptResources(
     string SystemCs, string FewShotCs, string Version, string Locate,
-    string SystemSql = "", string FewShotSql = "", string SqlVersion = "", string SystemCsGroup = "")
+    string SystemSql = "", string FewShotSql = "", string SqlVersion = "", string SystemCsGroup = "",
+    string SystemCsTest = "", string FewShotCsTest = "", string CsTestVersion = "cs-test-v1")
 {
     private const string Prefix = "PellyCoder.Core.Llm.Resources.";
     private const string VersionPrefix = "# version:";
@@ -30,14 +31,20 @@ public sealed record PromptResources(
         if (systemSqlVersion != fewShotSqlVersion)
             throw new InvalidOperationException(
                 $"Prompt resource versions differ: system.sql.txt={systemSqlVersion}, fewshot.sql.txt={fewShotSqlVersion}.");
-        return new PromptResources(system, fewShot, "cs-v" + systemVersion, locate, systemSql, fewShotSql, "sql-v" + systemSqlVersion, systemGroup);
+        var (systemTest, systemTestVersion) = Load("system.cs-test.txt");
+        var (fewShotTest, fewShotTestVersion) = Load("fewshot.cs-test.txt");
+        if (systemTestVersion != fewShotTestVersion)
+            throw new InvalidOperationException(
+                $"Prompt resource versions differ: system.cs-test.txt={systemTestVersion}, fewshot.cs-test.txt={fewShotTestVersion}.");
+        return new PromptResources(system, fewShot, "cs-v" + systemVersion, locate, systemSql, fewShotSql, "sql-v" + systemSqlVersion, systemGroup,
+            systemTest, fewShotTest, "cs-test-v" + systemTestVersion);
     }
 
     /// <summary>Prompt version recorded in the run summary for the edit kind.</summary>
     public string VersionFor(EditKind kind) => kind switch
     {
         EditKind.Sql => SqlVersion,
-        EditKind.CSharpTest => "cs-test-v1",
+        EditKind.CSharpTest => CsTestVersion,
         _ => Version,
     };
 

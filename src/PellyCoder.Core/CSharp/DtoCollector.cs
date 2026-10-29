@@ -78,7 +78,7 @@ public static class DtoCollector
         }
     }
 
-    private static MemberDeclarationSyntax? FindMember(SyntaxTree tree, MemberCandidate target) =>
+    internal static MemberDeclarationSyntax? FindMember(SyntaxTree tree, MemberCandidate target) =>
         tree.GetRoot().DescendantNodes().OfType<MemberDeclarationSyntax>()
             .LastOrDefault(m => MemberLocator.SpanOf(tree, m) == target.Span
                 && MemberLocator.DisplayOf(m) is { } display
@@ -125,7 +125,7 @@ public static class DtoCollector
         return (names, used);
     }
 
-    private static IEnumerable<string> TypeNames(SyntaxNode type) =>
+    internal static IEnumerable<string> TypeNames(SyntaxNode type) =>
         type.DescendantNodesAndSelf().Select(n => n switch
         {
             IdentifierNameSyntax i => i.Identifier.ValueText,
@@ -133,7 +133,7 @@ public static class DtoCollector
             _ => null,
         }).OfType<string>();
 
-    private static string? ReadText(IFileSystem fs, string file, long maxBytes)
+    internal static string? ReadText(IFileSystem fs, string file, long maxBytes)
     {
         if (fs.FileInfo.New(file).Length > maxBytes) return null;
         return TextDecoding.Decode(fs.File.ReadAllBytes(file));

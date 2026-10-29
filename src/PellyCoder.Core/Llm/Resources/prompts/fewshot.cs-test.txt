@@ -1,0 +1,30 @@
+# version: 1
+Example (format only; never copy its code; assert in the style of [READ-ONLY: example test]).
+
+Example input:
+### TARGET
+Greeter.Greet(string) — type: Greeter, namespace: Demo
+### CONTEXT
+[READ-ONLY: target]
+public string Greet(string name)
+{
+    return _prefix.Get() + name;
+}
+[READ-ONLY: construction]
+public Greeter(IPrefix prefix)
+private readonly IPrefix _prefix;
+[READ-ONLY: dependencies]
+interface IPrefix { string Get(); }
+### REQUEST
+Write 1 tests that pin the CURRENT behavior of the target. Assert what it does now, even if it looks wrong.
+
+Example output:
+### USINGS
+### MEMBERS
+[{TestAttribute}]
+public void Greet_Name_PrependsPrefix()
+{
+    var sut = new Greeter(new FakePrefix());
+    Assert.Equal("Hi Kim", sut.Greet("Kim"));
+}
+private sealed class FakePrefix : IPrefix { public string Get() => "Hi "; }

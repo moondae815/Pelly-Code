@@ -31,7 +31,7 @@ namespace PellyCoder.Core.CharTests;
 /// </summary>
 public sealed class CharTestOrchestrator(
     IFileSystem fs, PreflightPhase preflight, LocatePhase locate, FileGuard fileGuard, RunLogger logger, QwenStreamClient client,
-    CharTestPromptBuilder prompts, CharTestFeedback feedback, TestRunner tests, ITokenCounter tokens,
+    CharTestPromptBuilder prompts, CharTestFeedback feedback, TestRunner tests, BuildVerifier builds, ITokenCounter tokens,
     IReadOnlyCollection<string> specialTokens, IUserInteraction ui, PellyOptions options, TimeProvider time)
 {
     // Fields (not captured parameters) so the per-run session can reach them.
@@ -44,6 +44,7 @@ public sealed class CharTestOrchestrator(
     private readonly CharTestPromptBuilder prompts = prompts;
     private readonly CharTestFeedback feedback = feedback;
     private readonly TestRunner tests = tests;
+    private readonly BuildVerifier builds = builds;
     private readonly ITokenCounter tokens = tokens;
     private readonly IReadOnlyCollection<string> specialTokens = specialTokens;
     private readonly IUserInteraction ui = ui;
@@ -58,6 +59,9 @@ public sealed class CharTestOrchestrator(
     public const string NoPerTestResultsMessage = "테스트별 결과를 읽을 수 없어 판정할 수 없습니다";
 
     public const string LegacyNotWindowsMessage = "레거시 테스트는 Windows에서만 실행합니다";
+
+    /// <summary>Shown when the build of the restored target after a mutation failed or was skipped.</summary>
+    public const string MutationOutputWarning = "변이 빌드 결과물이 bin·obj에 남아 있을 수 있습니다 — 다시 빌드하세요";
 
     private static readonly TimeSpan BaselineStopWait = TimeSpan.FromSeconds(10);
 
@@ -140,6 +144,7 @@ public sealed class CharTestOrchestrator(
                 {
                     await FinishFilesAsync();
                     await StopBaselineAsync();
+                    await RebuildAfterMutationAsync(ct);
                     _ctx.Phase = _ctx.ExitCode == 0 ? RunPhase.Done : RunPhase.Failed;
                     if (_ctx.ExitCode == 0) _ctx.FailureKind = null;
                     Flush();
@@ -937,6 +942,32 @@ public sealed class CharTestOrchestrator(
             {
                 return ex.Message;
             }
+        }
+
+        /// <summary>
+        /// After a mutation, one best-effort build of the test project with the restored target, so the mutated output does not stay
+        /// in bin/obj. Skipped after a cancel or when the target is not back to its original bytes; a failed or skipped build only
+        /// adds <see cref="MutationOutputWarning"/> (the exit code does not change). Never throws.
+        /// </summary>
+        private async Task RebuildAfterMutationAsync(CancellationToken ct)
+        {
+            if (!_targetWritten) return;
+            var rebuilt = false;
+            try
+            {
+                var restored = !_state.TargetMutating && DiskHashIs(_ctx.FilePath, _ctx.Original.Sha256);
+                if (restored && !ct.IsCancellationRequested && _ctx.BuildTool is { } tool && _testProject.Length > 0 && _ctx.Workspace is { } ws)
+                {
+                    Status(RunPhase.Verify, _ctx.Attempt, "원래 코드로 다시 빌드 (변이 빌드 결과물 정리)");
+                    var run = await _o.builds.BuildAsync(tool, _testProject, ws.Root, CancellationToken.None);
+                    rebuilt = !run.TimedOut && run.Errors.Count == 0;
+                }
+            }
+            catch (Exception)
+            {
+                rebuilt = false;
+            }
+            if (!rebuilt) _ctx.Messages.Add(MutationOutputWarning);
         }
 
         /// <summary>Cancels the baseline build and tests and waits for them (as <see cref="FsmOrchestrator"/> does).</summary>

@@ -65,7 +65,7 @@ public static class FsmOrchestratorFactory
             new ModelMemberPicker(backend, template, resources, options.Llm, options.Sampling), isWindows, tests);
         var prompts = new CharTestPromptBuilder(tokens, options.Budget, template, resources);
         var feedback = new CharTestFeedback(new FeedbackBuilder(tokens, options.Budget.Feedback), tokens, options.Budget.Feedback);
-        return new CharTestOrchestrator(fs, preflight, locate, fileGuard, logger, client, prompts, feedback, tests, tokens,
+        return new CharTestOrchestrator(fs, preflight, locate, fileGuard, logger, client, prompts, feedback, tests, builds, tokens,
             tokens.SpecialTokens, ui, options, time);
     }
 

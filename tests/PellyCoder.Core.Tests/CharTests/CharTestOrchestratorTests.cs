@@ -91,6 +91,9 @@ public sealed class CharTestOrchestratorTests : IDisposable
     private readonly List<string> _readOnlyDirs = [];
 
     private int _testRuns;
+
+    /// <summary>Every simulated process in order: a test run (TRX) or a build, and whether the target was mutated then.</summary>
+    private readonly List<(bool TestRun, bool Mutated)> _calls = [];
     private readonly List<string> _testFileAtRuns = [];
 
     public CharTestOrchestratorTests()
@@ -159,6 +162,7 @@ public sealed class CharTestOrchestratorTests : IDisposable
     {
         var mutated = File.ReadAllText(CalcPath).Contains("pelly-mutation", StringComparison.Ordinal);
         var trx = TrxArg(spec);
+        _calls.Add((trx is not null, mutated));
         if (trx is null)
         {
             var project = spec.Arguments.FirstOrDefault(a => a.EndsWith(".csproj", StringComparison.Ordinal)) ?? "";
@@ -428,6 +432,62 @@ public sealed class CharTestOrchestratorTests : IDisposable
         Assert.Single(_backend.Requests);
     }
 
+    /// <summary>The last process is a build of the restored target, after the mutated test run (I6).</summary>
+    private void AssertRebuiltAfterMutation()
+    {
+        var mutation = _calls.FindLastIndex(c => c.TestRun && c.Mutated);
+        Assert.True(mutation >= 0, "no mutated test run");
+        var last = _calls[^1];
+        Assert.True(_calls.Count - 1 > mutation && !last.TestRun && !last.Mutated, string.Join(", ", _calls));
+    }
+
+    [Fact]
+    public async Task AfterMutation_RebuildsRestoredTarget_Kept()
+    {
+        _backend.Enqueue(Members(Three));
+
+        Assert.Equal(0, await Run(Req(CalcPath)));
+
+        AssertRebuiltAfterMutation();
+        Assert.DoesNotContain(_ui.Warnings, w => w.Contains("변이 빌드 결과물", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task AfterMutation_RebuildsRestoredTarget_DryRun()
+    {
+        _backend.Enqueue(Members(Three));
+
+        Assert.Equal(0, await Run(Req(CalcPath, dryRun: true)));
+
+        AssertRebuiltAfterMutation();
+    }
+
+    [Fact]
+    public async Task AfterMutation_RebuildFails_WarnsExitUnchanged()
+    {
+        var mutationSeen = false;
+        _onTestRun = mutated => mutationSeen |= mutated;
+        _buildError = (_, mutated) => mutationSeen && !mutated ? $"{TestPath}(1,1): error CS0001: boom [{TestCsprojPath}]" : null;
+        _backend.Enqueue(Members(Three));
+
+        Assert.Equal(0, await Run(Req(CalcPath)));
+
+        AssertRebuiltAfterMutation();
+        Assert.Contains(_ui.Warnings, w => w.Contains("변이 빌드 결과물이 bin·obj에 남아 있을 수 있습니다 — 다시 빌드하세요", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task NoMutation_NoRebuild()
+    {
+        _backend.Enqueue("### MEMBERS\n[Fact]\npublic void Divide_Nothing()\n{\n    Assert.True(true);\n}\n");
+        _backend.Enqueue("### MEMBERS\n[Fact]\npublic void Divide_Nothing()\n{\n    Assert.True(true);\n}\n");
+        _backend.Enqueue("### MEMBERS\n[Fact]\npublic void Divide_Nothing()\n{\n    Assert.True(true);\n}\n");
+        Assert.Equal(1, await Run(Req(CalcPath)));
+
+        Assert.DoesNotContain(_calls, c => c.Mutated);
+        Assert.True(_calls[^1].TestRun, string.Join(", ", _calls)); // the baseline test run is the last process
+    }
+
     [Fact]
     public async Task DryRun_Exit0_Restored()
     {
@@ -468,6 +528,8 @@ public sealed class CharTestOrchestratorTests : IDisposable
         Assert.Equal(calcBytes, File.ReadAllBytes(CalcPath));
         Assert.Equal(testBytes, File.ReadAllBytes(TestPath));
         Assert.False(PendingExists());
+        Assert.True(_calls[^1].TestRun && _calls[^1].Mutated, string.Join(", ", _calls)); // no rebuild after a cancel
+        Assert.Contains(_ui.Warnings, w => w.Contains("변이 빌드 결과물이 bin·obj에 남아 있을 수 있습니다 — 다시 빌드하세요", StringComparison.Ordinal));
     }
 
     [Fact]

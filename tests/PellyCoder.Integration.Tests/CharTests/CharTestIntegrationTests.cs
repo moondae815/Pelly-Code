@@ -101,6 +101,42 @@ public sealed class CharTestIntegrationTests(ITestOutputHelper output) : IDispos
         }
         """;
 
+    /// <summary>A new <c>OrdersControllerTests</c> file. No <c>using</c> lines: <c>Task</c>, <c>OrdersController</c>, <c>IOrderService</c>,
+    /// <c>Order</c> and <c>OkObjectResult</c> resolve only because the new-file skeleton carries the target file's usings and namespace.</summary>
+    private const string ControllerAnswer = """
+        ### MEMBERS
+        [Fact]
+        public async Task Get_MatchingOrder_ReturnsOk()
+        {
+            var order = new Order { OrderId = 7 };
+            var sut = new OrdersController(new FakeOrderService(new List<Order> { order }));
+
+            var result = await sut.Get(7);
+
+            var ok = Assert.IsType<OkObjectResult>(result);
+            Assert.Same(order, ok.Value);
+        }
+
+        [Fact]
+        public async Task Get_NoMatch_ReturnsNotFound()
+        {
+            var sut = new OrdersController(new FakeOrderService(new List<Order>()));
+
+            var result = await sut.Get(7);
+
+            Assert.IsType<NotFoundResult>(result);
+        }
+
+        private sealed class FakeOrderService : IOrderService
+        {
+            private readonly IReadOnlyList<Order> _orders;
+            public FakeOrderService(IReadOnlyList<Order> orders) { _orders = orders; }
+            public Task CancelAsync(int orderId, string reason) => throw new NotImplementedException();
+            public Task<decimal> CalculateRefundAsync(int orderId) => throw new NotImplementedException();
+            public Task<IReadOnlyList<Order>> SearchAsync(OrderSearchRequest request) => Task.FromResult(_orders);
+        }
+        """;
+
     private readonly List<string> _temps = [];
 
     public void Dispose()
@@ -177,6 +213,31 @@ public sealed class CharTestIntegrationTests(ITestOutputHelper output) : IDispos
         Assert.Contains("Assert.Equal(100,", File.ReadAllText(TestFile(root)), StringComparison.Ordinal);
         Assert.Equal(before, File.ReadAllBytes(target));
         AssertNoMarker(run);
+    }
+
+    [Fact]
+    public async Task Modern_NewFile_SkeletonUsings_Kept()
+    {
+        var root = await PrepareModernAsync();
+        var target = Path.Combine(root, "Shop.Api", "Controllers", "OrdersController.cs");
+        var newFile = Path.Combine(root, "Shop.Api.Tests", "OrdersControllerTests.cs");
+        Assert.False(File.Exists(newFile));
+        var before = File.ReadAllBytes(target);
+
+        var (exit, ui, requests) = await RunAsync(target, "Get", [ControllerAnswer]);
+        var run = DumpRun(root, ui);
+        Assert.Equal(1, requests);
+
+        Assert.Equal(ExitCodes.Success, exit);
+        var tests = File.ReadAllText(newFile);
+        Assert.Contains("using Shop.Api.Controllers;", tests, StringComparison.Ordinal);
+        Assert.Contains("using Shop.Api.Services;", tests, StringComparison.Ordinal);
+        Assert.Contains("Get_NoMatch_ReturnsNotFound", tests, StringComparison.Ordinal);
+        Assert.Equal(before, File.ReadAllBytes(target));
+        AssertNoMarker(run);
+        var charTest = ReadSummary(run).GetProperty("charTest");
+        Assert.True(charTest.GetProperty("newFile").GetBoolean());
+        Assert.Equal(2, charTest.GetProperty("killedByMutation").GetInt32());
     }
 
     // Windows 미확인(실기): CI windows-integration 에서만 실행된다 (MSBuild, vstest, Legacy/packages).

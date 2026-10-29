@@ -100,6 +100,31 @@ public sealed class TestClassWriterTests
     }
 
     [Fact]
+    public void NewFile_ExtraUsings_ComeFirst_Deduped()
+    {
+        var text = TestClassWriter.NewFile("Shop.Api.Tests", "OrdersControllerTests", TestFrameworks.Info(TestFramework.XunitV3),
+            ["System", "Shop.Api.Models", "Xunit", "System"]);
+
+        Assert.StartsWith("using System;\nusing Shop.Api.Models;\nusing Xunit;\n\nnamespace Shop.Api.Tests\n{\n", text);
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(text, "using Xunit;"));
+    }
+
+    [Fact]
+    public void TargetUsings_FileUsingsThenNamespace_NoAliasStaticOrGlobal()
+    {
+        const string source = "using System;\nusing static System.Math;\nusing M = System.Text;\nglobal using System.Linq;\n"
+            + "using Shop.Api.Models;\n\nnamespace Shop.Api.Controllers\n{\n    using Inner;\n    public class C { }\n}\n";
+
+        var usings = TestClassWriter.TargetUsings(source, Microsoft.CodeAnalysis.CSharp.LanguageVersion.CSharp12);
+
+        Assert.Equal(["System", "Shop.Api.Models", "Shop.Api.Controllers"], usings);
+    }
+
+    [Fact]
+    public void TargetUsings_GlobalNamespace_OnlyFileUsings() =>
+        Assert.Equal(["System"], TestClassWriter.TargetUsings("using System;\npublic class C { }\n", Microsoft.CodeAnalysis.CSharp.LanguageVersion.CSharp12));
+
+    [Fact]
     public void NewFile_ThenInsert_Parses()
     {
         var text = TestClassWriter.NewFile("N", "CTests", TestFrameworks.Info(TestFramework.NUnit));

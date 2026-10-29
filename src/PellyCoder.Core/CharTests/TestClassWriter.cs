@@ -95,16 +95,36 @@ public static class TestClassWriter
         sb.Insert(at, string.Concat(missing.Select(m => "using " + m + ";" + eol)) + eol);
     }
 
-    /// <summary>A new test file in the legacy-compatible shape: LF, block namespace, public class.</summary>
-    public static string NewFile(string ns, string className, FrameworkInfo fw)
+    /// <summary>
+    /// A new test file in the legacy-compatible shape: LF, block namespace, public class. <paramref name="extraUsings"/> (namespace
+    /// names, see <see cref="TargetUsings"/>) come before the framework's usings; duplicates are written once.
+    /// </summary>
+    public static string NewFile(string ns, string className, FrameworkInfo fw, IReadOnlyList<string>? extraUsings = null)
     {
         var sb = new StringBuilder();
-        foreach (var u in fw.Usings) sb.Append("using ").Append(u).Append(";\n");
-        if (fw.Usings.Count > 0) sb.Append('\n');
+        var usings = (extraUsings ?? []).Concat(fw.Usings).Distinct(StringComparer.Ordinal).ToList();
+        foreach (var u in usings) sb.Append("using ").Append(u).Append(";\n");
+        if (usings.Count > 0) sb.Append('\n');
         sb.Append("namespace ").Append(ns).Append('\n').Append("{\n");
         if (fw.ClassAttribute is { } attr) sb.Append("    [").Append(attr).Append("]\n");
         sb.Append("    public class ").Append(className).Append('\n').Append("    {\n").Append("    }\n").Append("}\n");
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// The namespaces a new test file needs to see what the target file sees: the target file's own top-level <c>using</c>
+    /// directives (no alias, <c>static</c> or <c>global</c> ones; namespace-level usings may be relative and are left out), then the
+    /// target's namespace.
+    /// </summary>
+    public static IReadOnlyList<string> TargetUsings(string targetSourceLf, LanguageVersion version)
+    {
+        var root = (CompilationUnitSyntax)CSharpSyntaxTree.ParseText(targetSourceLf, new CSharpParseOptions(version)).GetRoot();
+        var names = root.Usings
+            .Where(u => u.Alias is null && u.StaticKeyword.IsKind(SyntaxKind.None) && u.GlobalKeyword.IsKind(SyntaxKind.None) && u.Name is not null)
+            .Select(u => u.Name!.ToString())
+            .ToList();
+        if (root.DescendantNodes().OfType<BaseNamespaceDeclarationSyntax>().FirstOrDefault() is { } ns) names.Add(ns.Name.ToString());
+        return names.Distinct(StringComparer.Ordinal).ToList();
     }
 
     /// <summary>

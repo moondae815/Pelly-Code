@@ -375,6 +375,35 @@ public sealed class CharTestOrchestratorTests : IDisposable
     }
 
     [Fact]
+    public async Task NewFile_SkeletonCarriesTargetUsingsAndNamespace()
+    {
+        File.WriteAllText(CalcPath, "using System.Collections.Generic;\n" + CalcSource);
+        File.Delete(TestPath);
+        _backend.Enqueue(Members(Three));
+
+        var exit = await Run(Req(CalcPath));
+
+        Assert.Equal(0, exit);
+        Assert.StartsWith("using System.Collections.Generic;\nusing Demo;\nusing Xunit;\n\n", File.ReadAllText(TestPath));
+        Assert.Contains("[READ-ONLY: test usings]\nusing System.Collections.Generic;\nusing Demo;\nusing Xunit;\n", Prompt(0));
+    }
+
+    [Fact]
+    public async Task BuildError_MissingWorkspaceType_FeedbackSuggestsUsing()
+    {
+        _buildError = (project, _) => project == TestCsprojPath && File.Exists(TestPath) && File.ReadAllText(TestPath).Contains("Broken_One", StringComparison.Ordinal)
+            ? $"{TestPath}(14,23): error CS0246: The type or namespace name 'Calc' could not be found (are you missing a using directive or an assembly reference?) [{TestCsprojPath}]"
+            : null;
+        _backend.Enqueue(Members("Broken_One"));
+        _backend.Enqueue(Members(Three));
+
+        var exit = await Run(Req(CalcPath));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Calc: add `using Demo;`", Prompt(1));
+    }
+
+    [Fact]
     public async Task DryRun_Exit0_Restored()
     {
         var testBytes = File.ReadAllBytes(TestPath);

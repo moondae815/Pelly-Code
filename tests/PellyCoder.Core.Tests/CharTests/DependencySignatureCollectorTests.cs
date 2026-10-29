@@ -29,7 +29,7 @@ public sealed class DependencySignatureCollectorTests
         var deps = CollectModern("CalculateRefundAsync");
 
         Assert.NotNull(deps);
-        Assert.Contains("interface IOrderRepository {", deps);
+        Assert.Contains("Shop.Api.Data: interface IOrderRepository {", deps);
         Assert.Contains("Task<Order> GetByIdAsync(int orderId);", deps);
         Assert.Contains("Task AddRefundAsync(int orderId, decimal amount);", deps);
         Assert.DoesNotContain("=>", deps);
@@ -80,7 +80,7 @@ public sealed class DependencySignatureCollectorTests
 
         var deps = CollectMock(fs, svc, "Run");
 
-        Assert.Equal("abstract class Store { abstract int Load(string key); virtual void Save(string key, int value); }", deps);
+        Assert.Equal("abstract class Store { public abstract int Load(string key); public virtual void Save(string key, int value); }", deps);
     }
 
     [Fact]
@@ -100,7 +100,23 @@ public sealed class DependencySignatureCollectorTests
     }
 
     [Fact]
-    public void Dependencies_MemberLimit_Truncates()
+    public void Dependencies_MemberLimit_TruncatesFieldTypes()
+    {
+        var fs = new MockFileSystem();
+        fs.AddFile("/repo/IBig.cs", new MockFileData("public interface IBig { void A(); void B(); void C(); }"));
+        const string svc = """
+            public class Svc
+            {
+                private IBig _big;
+                public void Run() { _big.A(); }
+            }
+            """;
+
+        Assert.Equal("interface IBig { void A(); void B(); … }", CollectMock(fs, svc, "Run", new DtoLimits(MaxMembers: 2)));
+    }
+
+    [Fact]
+    public void Dependencies_ConstructorParameterType_NeverTruncated()
     {
         var fs = new MockFileSystem();
         fs.AddFile("/repo/IBig.cs", new MockFileData("public interface IBig { void A(); void B(); void C(); }"));
@@ -112,6 +128,70 @@ public sealed class DependencySignatureCollectorTests
             }
             """;
 
-        Assert.Equal("interface IBig { void A(); void B(); … }", CollectMock(fs, svc, "Run", new DtoLimits(MaxMembers: 2)));
+        Assert.Equal("interface IBig { void A(); void B(); void C(); }", CollectMock(fs, svc, "Run", new DtoLimits(MaxMembers: 2)));
+    }
+
+    [Fact]
+    public void Dependencies_InheritedInterfaceMembers_Rendered()
+    {
+        var fs = new MockFileSystem();
+        fs.AddFile("/repo/IBase.cs", new MockFileData("public interface IBase<T> { T Get(int id); }\npublic interface IAudit { void Log(string m); }"));
+        fs.AddFile("/repo/IRepo.cs", new MockFileData("public interface IRepo : IBase<Order>, IAudit, System.IDisposable { void Save(Order o); }"));
+        const string svc = """
+            public class Svc
+            {
+                public Svc(IRepo repo) { }
+                public void Run() { }
+            }
+            """;
+
+        Assert.Equal("interface IRepo { void Save(Order o); Order Get(int id); void Log(string m); }", CollectMock(fs, svc, "Run"));
+    }
+
+    [Fact]
+    public void Dependencies_AbstractClass_KeepsProtectedModifier()
+    {
+        var fs = new MockFileSystem();
+        fs.AddFile("/repo/Job.cs", new MockFileData("public abstract class Job { protected abstract int Step(); protected internal virtual void Done() { } }"));
+        const string svc = """
+            public class Svc
+            {
+                public Svc(Job job) { }
+                public void Run() { }
+            }
+            """;
+
+        Assert.Equal("abstract class Job { protected abstract int Step(); protected internal virtual void Done(); }", CollectMock(fs, svc, "Run"));
+    }
+
+    [Fact]
+    public void Dependencies_NamespacedType_PrefixedWithNamespace()
+    {
+        var fs = new MockFileSystem();
+        fs.AddFile("/repo/IClock.cs", new MockFileData("namespace Demo.Time\n{\n    public interface IClock { int Now(); }\n}\n"));
+        const string svc = """
+            public class Svc
+            {
+                public Svc(IClock clock) { }
+                public void Run() { }
+            }
+            """;
+
+        Assert.Equal("Demo.Time: interface IClock { int Now(); }", CollectMock(fs, svc, "Run"));
+    }
+
+    [Fact]
+    public void NamespacesOf_FindsDeclaringNamespaces()
+    {
+        var fs = new MockFileSystem();
+        fs.AddFile("/repo/A.cs", new MockFileData("namespace Demo.Models { public class Order { } public enum Kind { A } }"));
+        fs.AddFile("/repo/B.cs", new MockFileData("namespace Demo.Other;\npublic record Order(int Id);"));
+        fs.AddFile("/repo/C.cs", new MockFileData("public class Order { }"));
+
+        var map = DependencySignatureCollector.NamespacesOf(fs, "/repo", ["Order", "Kind", "Missing"], V, ct: TestContext.Current.CancellationToken);
+
+        Assert.Equal(["Demo.Models", "Demo.Other"], map["Order"]);
+        Assert.Equal(["Demo.Models"], map["Kind"]);
+        Assert.False(map.ContainsKey("Missing"));
     }
 }

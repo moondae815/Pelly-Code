@@ -294,7 +294,9 @@ public sealed class CharTestOrchestrator(
             }
             else
             {
-                _baseText = TestClassWriter.NewFile(location.Namespace, location.ClassName, _framework);
+                // The skeleton sees what the target file sees (its usings and namespace), so the model need not guess them (C1).
+                _baseText = TestClassWriter.NewFile(location.Namespace, location.ClassName, _framework,
+                    TestClassWriter.TargetUsings(_ctx.Current.Text, _ctx.Language!.Version));
                 FileSnapshot csproj;
                 try
                 {
@@ -380,7 +382,7 @@ public sealed class CharTestOrchestrator(
                 dependencies = DependencySignatureCollector.Collect(Fs, searchRoot, source, candidate, version);
                 try
                 {
-                    dto = DtoCollector.Collect(Fs, searchRoot, source, candidate, version);
+                    dto = DtoCollector.Collect(Fs, searchRoot, source, candidate, version, withNamespace: true);
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
@@ -390,11 +392,13 @@ public sealed class CharTestOrchestrator(
 
             var testClass = TestClassContext.Of(_baseText, _state.Location!.ClassName, _framework, _testLanguage.Version);
             var langVersion = _testLanguage.Hint.StartsWith("C# ", StringComparison.Ordinal) ? _testLanguage.Hint[3..] : _testLanguage.Hint;
-            return new PromptParts(targetSource, ns, construction, dependencies, dto, testClass, langVersion);
+            return new PromptParts(targetSource, ns, construction, dependencies, dto, testClass, langVersion, string.IsNullOrEmpty(searchRoot) ? null : searchRoot);
         }
 
+        /// <param name="SearchRoot">Where the dependency and dto types were looked up (the target's project folder), also used to
+        /// find the namespace of a type the test file misses.</param>
         private sealed record PromptParts(string TargetSource, string Namespace, string Construction, string? Dependencies, string? Dto,
-            TestClassContext TestClass, string LangVersion);
+            TestClassContext TestClass, string LangVersion, string? SearchRoot);
 
         /// <summary>One attempt. Passed: every verdict passed and the tests are written. Exit: the run ends with that code.</summary>
         private async Task<(bool Passed, int? Exit)> AttemptAsync(int attempt, int max, PromptParts parts, CancellationToken ct)
@@ -482,7 +486,11 @@ public sealed class CharTestOrchestrator(
                 var errors = current.BuildErrors;
                 foreach (var code in errors.Select(e => e.Code).Distinct()) if (!_ctx.ErrorCodes.Contains(code)) _ctx.ErrorCodes.Add(code);
                 var relative = Fs.Path.GetRelativePath(_ctx.Workspace!.Root, location.FilePath);
-                return await RetryAfterRunAsync(attempt, verifyStart, FailureKinds.CharTestBuild, _o.feedback.ForBuild(errors, relative, newText),
+                var version = _ctx.Language!.Version;
+                var hints = CharTestBuildHints.For(errors, relative, parts.Dependencies, missing => parts.SearchRoot is { } root
+                    ? DependencySignatureCollector.NamespacesOf(Fs, root, missing, version, ct: ct)
+                    : new Dictionary<string, IReadOnlyList<string>>());
+                return await RetryAfterRunAsync(attempt, verifyStart, FailureKinds.CharTestBuild, _o.feedback.ForBuild(errors, relative, newText, hints),
                     [.. done, Verdict("빌드", false)], errors.Take(3).Select(Describe).ToList());
             }
             done.Add(Verdict("빌드", true));

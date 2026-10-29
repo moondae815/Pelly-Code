@@ -18,8 +18,10 @@ public sealed record DtoLimits(int MaxTypes = 5, int MaxMembers = 30, int MaxFil
 /// </summary>
 public static class DtoCollector
 {
+    /// <param name="withNamespace">Prefix each line with the type's namespace (<c>Shop.Api.Models: class Order: …</c>), for prompts that
+    /// write code in another file.</param>
     public static string? Collect(IFileSystem fs, string searchRoot, string sourceLf, MemberCandidate target, LanguageVersion version, DtoLimits? limits = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default, bool withNamespace = false)
     {
         try
         {
@@ -50,7 +52,7 @@ public static class DtoCollector
                     {
                         var text = ReadText(fs, file, limits.MaxFileBytes);
                         if (text is null || !pattern.IsMatch(text)) continue;
-                        foreach (var d in Declarations(text, parseOptions, wanted, used, limits))
+                        foreach (var d in Declarations(text, parseOptions, wanted, used, limits, withNamespace))
                         {
                             if (!found.TryAdd(d.Name, d.Line))
                             {
@@ -125,6 +127,13 @@ public static class DtoCollector
         return (names, used);
     }
 
+    /// <summary>The namespace a declaration sits in (nested namespaces joined), or null in the global namespace.</summary>
+    internal static string? NamespaceOf(SyntaxNode node)
+    {
+        var parts = node.Ancestors().OfType<BaseNamespaceDeclarationSyntax>().Select(n => n.Name.ToString()).Reverse().ToList();
+        return parts.Count == 0 ? null : string.Join('.', parts);
+    }
+
     internal static IEnumerable<string> TypeNames(SyntaxNode type) =>
         type.DescendantNodesAndSelf().Select(n => n switch
         {
@@ -141,7 +150,8 @@ public static class DtoCollector
 
     private sealed record Declared(string Name, string? Line, IReadOnlyList<string> Expansion);
 
-    private static IEnumerable<Declared> Declarations(string text, CSharpParseOptions options, HashSet<string> wanted, HashSet<string> used, DtoLimits limits)
+    private static IEnumerable<Declared> Declarations(string text, CSharpParseOptions options, HashSet<string> wanted, HashSet<string> used, DtoLimits limits,
+        bool withNamespace)
     {
         var root = CSharpSyntaxTree.ParseText(text, options).GetRoot();
         foreach (var type in root.DescendantNodes().OfType<BaseTypeDeclarationSyntax>())
@@ -152,6 +162,7 @@ public static class DtoCollector
             if (hasBraces && (type.OpenBraceToken.IsMissing || type.CloseBraceToken.IsMissing)) continue;
 
             var line = type is EnumDeclarationSyntax e ? RenderEnum(e, limits) : RenderType((TypeDeclarationSyntax)type, limits);
+            if (line is not null && withNamespace && NamespaceOf(type) is { } ns) line = ns + ": " + line;
             var expansion = line is not null || type is not TypeDeclarationSyntax td
                 ? []
                 : td.Members.OfType<MethodDeclarationSyntax>().Where(m => used.Contains(m.Identifier.ValueText))

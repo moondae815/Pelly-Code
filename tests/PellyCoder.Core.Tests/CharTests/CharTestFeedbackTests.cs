@@ -66,4 +66,28 @@ public sealed class CharTestFeedbackTests
     [Fact]
     public void Feedback_Regression_ExitOnly_SaysSo() =>
         Assert.Contains("exit code only", Make().ForRegression([]).Text);
+
+    [Fact]
+    public void Feedback_Build_WithHints_AppendsHintsWithinBudget()
+    {
+        var error = new PellyCoder.Core.Models.Diagnostic("T/CTests.cs", 3, 5, "error", "CS0246",
+            "The type or namespace name 'Order' could not be found (are you missing a using directive or an assembly reference?)");
+        var text = string.Join("\n", Enumerable.Range(0, 60).Select(i => "    var x" + i + " = new Order(); // " + new string('z', 40)));
+
+        var f = Make().ForBuild([error, error with { Line = 9 }, error with { Line = 20 }], "T/CTests.cs", text,
+            ["Order: add `using Shop.Api.Models;`"]);
+
+        Assert.StartsWith("BUILD FAILED", f.Text);
+        Assert.EndsWith("Order: add `using Shop.Api.Models;`", f.Text);
+        Assert.True(f.Tokens <= 296, $"{f.Tokens} tokens");
+    }
+
+    [Fact]
+    public void Feedback_Build_NoHints_SameAsBuilder()
+    {
+        var error = new PellyCoder.Core.Models.Diagnostic("T/CTests.cs", 1, 1, "error", "CS1002", "; expected");
+        var builder = new FeedbackBuilder(QwenTokenCounter.Shared, 296);
+
+        Assert.Equal(builder.ForBuild([error], "T/CTests.cs", "x\n").Text, Make().ForBuild([error], "T/CTests.cs", "x\n", []).Text);
+    }
 }

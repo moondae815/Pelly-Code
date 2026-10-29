@@ -52,6 +52,20 @@ public sealed class DtoCollectorTests
     }
 
     [Fact]
+    public void WithNamespace_PrefixesEachLine()
+    {
+        var src = File.ReadAllText(CorpusLocation.Get("Modern/Shop.Api/Services/OrderService.cs")).Replace("\r\n", "\n");
+        var target = Assert.Single(MemberLocator.FindByName(src, V, null, "CancelAsync"));
+
+        var dto = DtoCollector.Collect(new FileSystem(), CorpusLocation.Get("Modern/Shop.Api"), src, target, V, ct: TestContext.Current.CancellationToken, withNamespace: true);
+
+        Assert.NotNull(dto);
+        Assert.Contains("Shop.Api.Models: enum OrderStatus: Pending", dto);
+        Assert.Contains("Shop.Api.Models: class Order:", dto);
+        Assert.DoesNotContain("Shop.Api.Models: enum OrderStatus", CollectModern("CancelAsync"));
+    }
+
+    [Fact]
     public void Collect_IsDeterministic() => Assert.Equal(CollectModern("CancelAsync"), CollectModern("CancelAsync"));
 
     [Fact]

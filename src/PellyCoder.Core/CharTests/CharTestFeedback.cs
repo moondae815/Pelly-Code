@@ -23,6 +23,23 @@ public sealed class CharTestFeedback(FeedbackBuilder builder, ITokenCounter toke
     public Feedback ForBuild(IReadOnlyList<Diagnostic> newErrors, string testRelativePath, string testTextLf) =>
         builder.ForBuild(newErrors, testRelativePath, testTextLf);
 
+    /// <summary>
+    /// The build feedback with <paramref name="hints"/> (<see cref="CharTestBuildHints"/>) after it. The hints get at most half of the
+    /// budget (dropped from the back) and the build part the rest.
+    /// </summary>
+    public Feedback ForBuild(IReadOnlyList<Diagnostic> newErrors, string testRelativePath, string testTextLf, IReadOnlyList<string> hints)
+    {
+        var kept = hints.ToList();
+        while (kept.Count > 0 && tokens.Count(string.Join("\n", kept)) > budget / 2) kept.RemoveAt(kept.Count - 1);
+        if (kept.Count == 0) return builder.ForBuild(newErrors, testRelativePath, testTextLf);
+
+        var hintText = string.Join("\n", kept);
+        var room = budget - tokens.Count("\n" + hintText);
+        var build = new FeedbackBuilder(tokens, room).ForBuild(newErrors, testRelativePath, testTextLf);
+        var text = build.Text + "\n" + hintText;
+        return Done(text);
+    }
+
     /// <summary>The first lines of the whole failure message (<see cref="TestCaseResult.Detail"/>: TRX <c>Message</c> is only its
     /// first line, and the expected/actual values follow it).</summary>
     public Feedback ForFailsOnCurrent(IReadOnlyList<TestCaseResult> failures) =>

@@ -61,6 +61,17 @@ public static class FailureKinds
     public const string BudgetExceeded = "BudgetExceeded";
     public const string Rejected = "Rejected";
     public const string Cancelled = "Cancelled";
+    public const string CharTestShape = "CharTestShape";
+    public const string CharTestNoAssert = "CharTestNoAssert";
+    public const string CharTestEnvDependent = "CharTestEnvDependent";
+    public const string CharTestBuild = "CharTestBuild";
+    public const string CharTestFailsOnCurrent = "CharTestFailsOnCurrent";
+    public const string CharTestRegression = "CharTestRegression";
+    public const string CharTestFlaky = "CharTestFlaky";
+    public const string CharTestSurvivesMutation = "CharTestSurvivesMutation";
+    public const string CharTestMutationUnbuildable = "CharTestMutationUnbuildable";
+    public const string CharTestBaselineUnusable = "CharTestBaselineUnusable";
+    public const string CharTestPending = "CharTestPending";
 
     public static IReadOnlySet<string> All { get; } = new HashSet<string>(StringComparer.Ordinal)
     {
@@ -73,6 +84,7 @@ public static class FailureKinds
         GroupTestGreenFailed, GroupTestRegression, GroupTestUnverifiable, GroupTestFileChanged,
         RulesInvalid, RulesErrors,
         EnvError, BudgetExceeded, Rejected, Cancelled,
+        CharTestShape, CharTestNoAssert, CharTestEnvDependent, CharTestBuild, CharTestFailsOnCurrent, CharTestRegression, CharTestFlaky, CharTestSurvivesMutation, CharTestMutationUnbuildable, CharTestBaselineUnusable, CharTestPending,
     };
 
     public static bool IsKnown(string? kind) => kind is not null && All.Contains(kind);

@@ -40,14 +40,16 @@ public sealed class QwenStreamClient(
     private const string SearchMarker = "<<<<<<< SEARCH\n";
     private const string ThinkCloseTag = "</think>";
 
+    /// <param name="answerPrefix">Prefilled start of the answer; null means the SEARCH marker.</param>
     /// <param name="attempt">1-based attempt number.</param>
     /// <param name="onWaiting">
     /// Reports only (never cancels): per generate request, if no chunk has arrived 3 s after sending, called with the elapsed
     /// time at 3 s and then every second until the first chunk arrives or the request ends.
     /// </param>
     public async Task<GenerationResult> GenerateEditAsync(string basePrompt, int attempt, CancellationToken ct,
-        Action<TimeSpan>? onWaiting = null)
+        Action<TimeSpan>? onWaiting = null, string? answerPrefix = null)
     {
+        var prefix = answerPrefix ?? SearchMarker;
         var useThink = llm.ThinkMode == ThinkMode.Always || (llm.ThinkMode == ThinkMode.Retry && attempt >= 2);
 
         string? thinkText = null;
@@ -87,11 +89,11 @@ public sealed class QwenStreamClient(
             prefill = template.EmptyThink;
         }
 
-        var codeReq = new LlmRequest(basePrompt + prefill + SearchMarker, sampling.Code, budget.CodeOutput,
+        var codeReq = new LlmRequest(basePrompt + prefill + prefix, sampling.Code, budget.CodeOutput,
             [template.EndOfTurn], llm.NumCtx, llm.KeepAlive);
         var (code, codeUsage) = await ReadAsync(backend, codeReq, time, ct, onWaiting);
 
-        return new GenerationResult(SearchMarker + code, useThink, thinkText, thinkTokens, thinkTruncated, thinkUsage, codeUsage);
+        return new GenerationResult(prefix + code, useThink, thinkText, thinkTokens, thinkTruncated, thinkUsage, codeUsage);
     }
 
     private static readonly TimeSpan WaitingAfter = TimeSpan.FromSeconds(3);

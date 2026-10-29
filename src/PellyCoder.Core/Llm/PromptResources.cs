@@ -34,7 +34,12 @@ public sealed record PromptResources(
     }
 
     /// <summary>Prompt version recorded in the run summary for the edit kind.</summary>
-    public string VersionFor(EditKind kind) => kind == EditKind.Sql ? SqlVersion : Version;
+    public string VersionFor(EditKind kind) => kind switch
+    {
+        EditKind.Sql => SqlVersion,
+        EditKind.CSharpTest => "cs-test-v1",
+        _ => Version,
+    };
 
     private static (string Body, string Version) Load(string name)
     {

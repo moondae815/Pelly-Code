@@ -21,6 +21,30 @@ public sealed class QwenStreamClientTests
     }
 
     [Fact]
+    public async Task GenerateEdit_DefaultPrefix_IsSearchMarker()
+    {
+        var (client, backend, _, _) = Make(ThinkMode.Off);
+        backend.Enqueue("a\n>>>>>>> REPLACE");
+
+        var r = await client.GenerateEditAsync(Base, 1, CancellationToken.None);
+
+        Assert.EndsWith(Marker, Assert.Single(backend.Requests).RawPrompt);
+        Assert.StartsWith(Marker, r.Output);
+    }
+
+    [Fact]
+    public async Task GenerateEdit_CustomPrefix_UsedInPromptAndOutput()
+    {
+        var (client, backend, _, _) = Make(ThinkMode.Off);
+        backend.Enqueue("using System;");
+
+        var r = await client.GenerateEditAsync(Base, 1, CancellationToken.None, answerPrefix: "### USINGS\n");
+
+        Assert.EndsWith("### USINGS\n", Assert.Single(backend.Requests).RawPrompt);
+        Assert.StartsWith("### USINGS\n", r.Output);
+    }
+
+    [Fact]
     public async Task Retry_Attempt1_SingleCodeRequestWithEmptyThink()
     {
         var (client, backend, _, opts) = Make(ThinkMode.Retry);

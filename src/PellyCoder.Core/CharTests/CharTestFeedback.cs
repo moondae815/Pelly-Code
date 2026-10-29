@@ -23,9 +23,11 @@ public sealed class CharTestFeedback(FeedbackBuilder builder, ITokenCounter toke
     public Feedback ForBuild(IReadOnlyList<Diagnostic> newErrors, string testRelativePath, string testTextLf) =>
         builder.ForBuild(newErrors, testRelativePath, testTextLf);
 
+    /// <summary>The first lines of the whole failure message (<see cref="TestCaseResult.Detail"/>: TRX <c>Message</c> is only its
+    /// first line, and the expected/actual values follow it).</summary>
     public Feedback ForFailsOnCurrent(IReadOnlyList<TestCaseResult> failures) =>
         Fit($"TESTS FAIL ON CURRENT CODE ({failures.Count})",
-            failures.Select(f => string.Join("\n", new[] { f.FullName }.Concat(FirstLines(f.Message, 3)))).ToList(), TruthRequest);
+            failures.Select(f => string.Join("\n", new[] { f.FullName }.Concat(FirstLines(f.Detail ?? f.Message, 3)))).ToList(), TruthRequest);
 
     public Feedback ForRegression(IReadOnlyList<TestCaseResult> failures) =>
         Fit($"EXISTING TESTS NEWLY FAIL ({failures.Count})",

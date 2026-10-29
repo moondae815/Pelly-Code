@@ -21,6 +21,17 @@ public sealed class CharTestFeedbackTests
         Assert.EndsWith("The current behavior is the truth. Change the assertion to the actual value.", f.Text);
     }
 
+    /// <summary>As TrxParser reports it: Message is the first line only, Detail the whole message with the actual value.</summary>
+    [Fact]
+    public void Feedback_FailsOnCurrent_TakesActualFromDetail()
+    {
+        var f = Make().ForFailsOnCurrent([new TestCaseResult("Ns.C.A", false, "Assert.Equal() Failure: Values differ",
+            "Assert.Equal() Failure: Values differ\nExpected: 50\nActual:   100\nextra")]);
+        Assert.Contains("Expected: 50", f.Text);
+        Assert.Contains("Actual:   100", f.Text);
+        Assert.DoesNotContain("extra", f.Text);
+    }
+
     [Fact]
     public void Feedback_Rejections_RenderReasons()
     {

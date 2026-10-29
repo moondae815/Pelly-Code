@@ -39,6 +39,17 @@ public sealed class RetentionTests
     }
 
     [Fact]
+    public void Prune_KeepsRunWithPendingCharTestMarker()
+    {
+        var old = _fs.Path.Combine(_runs, "20260901-000000-aaaa"); // 46 days old, but unresolved
+        _fs.AddFile(_fs.Path.Combine(old, PellyCoder.Core.CharTests.CharTestPending.FileName), new MockFileData("[]"));
+
+        new RunLogger(_fs, _time).Prune(_ws, 30, "20261017-093015-abcd");
+
+        Assert.True(_fs.File.Exists(_fs.Path.Combine(old, PellyCoder.Core.CharTests.CharTestPending.FileName)));
+    }
+
+    [Fact]
     public void Prune_NeverDeletesCurrentRun()
     {
         var current = "20200101-000000-cccc"; // older than the cutoff, yet it is this run

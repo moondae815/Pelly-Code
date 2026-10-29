@@ -88,6 +88,8 @@ public sealed class CharTestOrchestratorTests : IDisposable
     /// <summary>Runs when a test process starts, with whether the target is mutated (<see cref="_testRuns"/> is this run's index).</summary>
     private Action<bool>? _onTestRun;
 
+    private readonly List<string> _readOnlyDirs = [];
+
     private int _testRuns;
     private readonly List<string> _testFileAtRuns = [];
 
@@ -106,6 +108,8 @@ public sealed class CharTestOrchestratorTests : IDisposable
 
     public void Dispose()
     {
+        foreach (var dir in _readOnlyDirs)
+            if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(dir, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         try { Directory.Delete(_root, recursive: true); }
         catch (IOException) { }
     }
@@ -610,5 +614,48 @@ public sealed class CharTestOrchestratorTests : IDisposable
         Assert.Equal(4, exit);
         Assert.Empty(_backend.Requests);
         Assert.Contains(_ui.Warnings, w => w.Contains("힌트가 너무 깁니다", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task MarkerUpdateFailsBeforeMutation_Exit4_TargetNeverWritten()
+    {
+        Assert.SkipWhen(OperatingSystem.IsWindows(), "Unix file modes make the run folder read-only");
+        var calcBytes = File.ReadAllBytes(CalcPath);
+        var testBytes = File.ReadAllBytes(TestPath);
+        _onTestRun = _ =>
+        {
+            if (_testRuns != 2 || OperatingSystem.IsWindows()) return; // the rerun: the next step is the mutation, whose marker update must fail
+            var runDir = Path.GetDirectoryName(Directory.EnumerateFiles(Path.Combine(_root, ".pelly", "runs"), CharTestPending.FileName,
+                SearchOption.AllDirectories).Single())!;
+            File.SetUnixFileMode(runDir, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+            _readOnlyDirs.Add(runDir);
+        };
+        _backend.Enqueue(Members(Three));
+
+        var exit = await Run(Req(CalcPath));
+
+        Assert.Equal(4, exit);
+        Assert.Equal(3, _testRuns); // baseline, current, rerun: no mutation run
+        Assert.Equal(calcBytes, File.ReadAllBytes(CalcPath));
+        Assert.Equal(testBytes, File.ReadAllBytes(TestPath));
+        Assert.Contains(_ui.Warnings, w => w.Contains("미완료 표시", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task StoppedInPreflight_LogsKindCSharpTest()
+    {
+        var oldRun = Path.Combine(_root, ".pelly", "runs", "20260101-000000-aaaa");
+        Directory.CreateDirectory(oldRun);
+        File.WriteAllText(Path.Combine(oldRun, CharTestPending.FileName), "[]");
+
+        var exit = await Run(Req(CalcPath));
+
+        Assert.Equal(4, exit);
+        Assert.Empty(_backend.Requests);
+        var summary = Assert.Single(Directory.GetFiles(Path.Combine(_root, ".pelly", "runs"), "summary.json", SearchOption.AllDirectories));
+        var root = JsonDocument.Parse(File.ReadAllText(summary)).RootElement;
+        Assert.Equal("CSharpTest", root.GetProperty("kind").GetString());
+        Assert.Equal("CharTestPending", root.GetProperty("failureKind").GetString());
+        Assert.True(File.Exists(Path.Combine(oldRun, CharTestPending.FileName))); // never pruned
     }
 }

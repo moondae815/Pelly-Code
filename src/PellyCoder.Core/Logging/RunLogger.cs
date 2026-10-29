@@ -78,6 +78,8 @@ public sealed class RunLogger(IFileSystem fs, TimeProvider time)
                 if (!DateTime.TryParseExact(name[..StampFormat.Length], StampFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out var stamp))
                     continue;
                 if (stamp >= cutoff) continue;
+                // An unfinished `pelly test` run stays until a person resolves it (its marker blocks cs, sql, test and apply).
+                if (fs.File.Exists(fs.Path.Combine(dir, CharTestPending.FileName))) continue;
                 try { fs.Directory.Delete(dir, recursive: true); }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { /* retried at the next run */ }
             }
@@ -131,9 +133,11 @@ public sealed class RunLogger(IFileSystem fs, TimeProvider time)
         var first = gen is null ? null : gen.ThinkUsed && gen.ThinkUsage is not null ? gen.ThinkUsage : gen.CodeUsage;
         var queue = first?.Queue.TotalSeconds ?? 0;
         var ttft = first is null ? 0 : (first.Ttft - first.Queue).TotalSeconds;
+        // A `pelly test` run is CSharpTest from its start, also when it stops before LOCATE sets the target.
+        var kind = ctx.CharTest is not null ? EditKind.CSharpTest : ctx.Target?.Kind ?? ctx.Request.Kind;
         return new RunSummary(
-            ctx.RunId, PellyInfo.Version, ctx.ServerStatus?.Version, ctx.Options.Llm.Model, Prompts.Value.VersionFor(ctx.Target?.Kind ?? ctx.Request.Kind),
-            ctx.Target?.Kind ?? ctx.Request.Kind, ctx.ProjectStyle, ctx.ExitCode, ctx.Attempt,
+            ctx.RunId, PellyInfo.Version, ctx.ServerStatus?.Version, ctx.Options.Llm.Model, Prompts.Value.VersionFor(kind),
+            kind, ctx.ProjectStyle, ctx.ExitCode, ctx.Attempt,
             new Dictionary<RunPhase, double>(ctx.PhaseSeconds), ttft, queue,
             ctx.Options.Llm.ThinkMode.ToString(), gen?.ThinkTokens ?? 0, gen?.ThinkTruncated ?? false,
             ctx.Prompt?.Tokens ?? 0, gen?.CodeUsage.PromptEvalCount, gen?.CodeUsage.PromptEvalCachedCount,

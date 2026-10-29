@@ -148,23 +148,35 @@ public sealed class RunLoggerTests
             Framework = PellyCoder.Core.CharTests.TestFrameworks.Info(PellyCoder.Core.CharTests.TestFramework.XunitV3),
             NewTestNames = ["CalcTests.A", "CalcTests.B"],
             Generated = 2, PassedOnCurrent = 2, StableOnRerun = true, KilledByMutation = 1,
-            RejectedBy = "CharTestSurvivesMutation",
+            RejectedBy = "7:CharTestSurvivesMutation",
         };
         ctx.Target = new EditTarget(EditKind.CSharpTest, P(@"C:\ws\Calc.cs"), "Calc.Divide", new TextSpanInfo(1, 2), null);
         var logger = new RunLogger(_fs, _time);
         logger.Start(ctx);
         logger.Complete(ctx);
 
-        Assert.Equal(new PellyCoder.Core.CharTests.CharTestSummary(3, 2, 0, 2, true, 1, "CharTestSurvivesMutation", "XunitV3", false),
+        Assert.Equal(new PellyCoder.Core.CharTests.CharTestSummary(3, 2, 0, 2, true, 1, "7:CharTestSurvivesMutation", "XunitV3", false),
             RunLogger.Summarize(ctx).CharTest);
         var summary = JsonDocument.Parse(_fs.File.ReadAllText(_fs.Path.Combine(_runs, ctx.RunId, "summary.json"))).RootElement;
         Assert.Equal("CSharpTest", summary.GetProperty("kind").GetString());
         Assert.Equal("cs-test-v1", summary.GetProperty("promptVersion").GetString());
         var block = summary.GetProperty("charTest");
         Assert.Equal(0, block.GetProperty("kept").GetInt32());
-        Assert.Equal("CharTestSurvivesMutation", block.GetProperty("rejectedBy").GetString());
+        Assert.Equal("7:CharTestSurvivesMutation", block.GetProperty("rejectedBy").GetString());
 
         ctx.CharTest.Kept = true;
         Assert.Equal(2, RunLogger.Summarize(ctx).CharTest!.Kept);
+    }
+
+    [Fact]
+    public void Summary_CharTestRunWithoutTarget_RecordsCSharpTest()
+    {
+        var ctx = NewContext();
+        ctx.CharTest = new PellyCoder.Core.CharTests.CharTestState(3);
+
+        var summary = RunLogger.Summarize(ctx);
+
+        Assert.Equal(EditKind.CSharpTest, summary.Kind);
+        Assert.Equal("cs-test-v1", summary.PromptVersion);
     }
 }

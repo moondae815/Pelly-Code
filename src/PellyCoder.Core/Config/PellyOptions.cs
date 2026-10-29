@@ -15,6 +15,14 @@ public sealed class PellyOptions
     public BuildOptions Build { get; set; } = new();
     public SqlOptions Sql { get; set; } = new();
     public TestOptions Test { get; set; } = new();
+
+    /// <summary>A shallow copy with <paramref name="test"/> as the test section; every other section is shared.</summary>
+    public PellyOptions WithTest(TestOptions test)
+    {
+        var copy = (PellyOptions)MemberwiseClone();
+        copy.Test = test;
+        return copy;
+    }
 }
 
 public sealed class LlmOptions
@@ -96,4 +104,12 @@ public sealed class TestOptions
     public List<string> Projects { get; set; } = new();
     /// <summary>Time limit of one test run, separate from the build limit (R11).</summary>
     public int TimeoutSeconds { get; set; } = 300;
+
+    /// <summary>A copy with <paramref name="projects"/> as <see cref="Projects"/>; every other setting is kept.</summary>
+    public TestOptions WithProjects(List<string> projects)
+    {
+        var copy = (TestOptions)MemberwiseClone();
+        copy.Projects = projects;
+        return copy;
+    }
 }

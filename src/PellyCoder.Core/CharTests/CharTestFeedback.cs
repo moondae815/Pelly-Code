@@ -29,7 +29,9 @@ public sealed class CharTestFeedback(FeedbackBuilder builder, ITokenCounter toke
 
     public Feedback ForRegression(IReadOnlyList<TestCaseResult> failures) =>
         Fit($"EXISTING TESTS NEWLY FAIL ({failures.Count})",
-            failures.Select(f => string.Join("\n", new[] { f.FullName }.Concat(FirstLines(f.Message, 1)))).ToList(), RegressionRequest);
+            failures.Count == 0
+                ? ["existing tests failed (exit code only, no names)"]
+                : failures.Select(f => string.Join("\n", new[] { f.FullName }.Concat(FirstLines(f.Message, 1)))).ToList(), RegressionRequest);
 
     public Feedback ForFlaky(IReadOnlyList<string> names) => Fit($"FLAKY TESTS ({names.Count})", names, FlakyRequest);
 

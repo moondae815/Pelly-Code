@@ -119,4 +119,54 @@ public sealed class CharTestRunJudgeTests
     [Fact]
     public void Baseline_OnlyTestFailures_Usable() =>
         Assert.Null(CharTestRunJudge.BaselineUsable(Baseline));
+
+    [Fact]
+    public void OnCurrent_RunnerError_Unverifiable()
+    {
+        var v = CharTestRunJudge.OnCurrent(Baseline, Run([], error: "launch failed"), New, TestFile);
+        Assert.Equal(FailureKinds.BuildUnverifiable, v.FailureKind);
+        Assert.Equal("launch failed", v.Detail);
+    }
+
+    [Fact]
+    public void OnCurrent_TimedOutNoResults_Unverifiable() =>
+        Assert.Equal(FailureKinds.BuildUnverifiable, CharTestRunJudge.OnCurrent(Baseline, Run([], timedOut: true), New, TestFile).FailureKind);
+
+    [Fact]
+    public void Stable_SecondRunErrors_Unverifiable()
+    {
+        var first = Run([R("Ns.CalcCharTests.A", true), R("Ns.CalcCharTests.B", true)]);
+        Assert.Equal(FailureKinds.BuildUnverifiable, CharTestRunJudge.Stable(first, Run([], error: "x"), New).FailureKind);
+    }
+
+    [Fact]
+    public void Stable_MissingInSecond_Flaky()
+    {
+        var first = Run([R("Ns.CalcCharTests.A", true), R("Ns.CalcCharTests.B", true)]);
+        var second = Run([R("Ns.CalcCharTests.A", true)]);
+        Assert.Equal(FailureKinds.CharTestFlaky, CharTestRunJudge.Stable(first, second, New).FailureKind);
+    }
+
+    [Fact]
+    public void UnderMutation_TheoryRowSurvives_Survivor()
+    {
+        var m = Run([R("Ns.CalcCharTests.A(x: 1)", false), R("Ns.CalcCharTests.A(x: 2)", true), R("Ns.CalcCharTests.B", false)]);
+        Assert.Equal(["Ns.CalcCharTests.A"], CharTestRunJudge.UnderMutation(m, New).FailingTests);
+    }
+
+    [Fact]
+    public void OnCurrent_OneTheoryRowFails_FailsOnCurrent()
+    {
+        var after = Run([R("Ns.OldTests.Old1", true), R("Ns.CalcCharTests.A(x: 1)", true), R("Ns.CalcCharTests.A(x: 2)", false, "m"), R("Ns.CalcCharTests.B", true)]);
+        Assert.Equal(FailureKinds.CharTestFailsOnCurrent, CharTestRunJudge.OnCurrent(Baseline, after, New, TestFile).FailureKind);
+    }
+
+    [Fact]
+    public void Baseline_Unusable_Reasons()
+    {
+        Assert.NotNull(CharTestRunJudge.BaselineUsable(Run([], [Err("/a.cs")])));
+        Assert.NotNull(CharTestRunJudge.BaselineUsable(Run([], aborted: true)));
+        Assert.NotNull(CharTestRunJudge.BaselineUsable(Run([], timedOut: true)));
+        Assert.Contains("boom", CharTestRunJudge.BaselineUsable(Run([], error: "boom")));
+    }
 }

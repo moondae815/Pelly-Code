@@ -51,4 +51,8 @@ public sealed class CharTestFeedbackTests
         Assert.True(fb.ForParse(long1).Tokens <= 296);
         Assert.True(fb.ForRejections(names.Select(n => new CharTestRejection("k", n, long1)).ToList()).Tokens <= 296);
     }
+
+    [Fact]
+    public void Feedback_Regression_ExitOnly_SaysSo() =>
+        Assert.Contains("exit code only", Make().ForRegression([]).Text);
 }

@@ -6,7 +6,7 @@ using PellyCoder.Core.Testing;
 namespace PellyCoder.Core.CharTests;
 
 /// <summary>Outcome of one run judgment; <paramref name="FailureKind"/> null means the run passed the check.</summary>
-public sealed record RunVerdict(string? FailureKind, IReadOnlyList<string> FailingTests, IReadOnlyList<TestCaseResult> Details)
+public sealed record RunVerdict(string? FailureKind, IReadOnlyList<string> FailingTests, IReadOnlyList<TestCaseResult> Details, string? Detail = null)
 {
     public static readonly RunVerdict Ok = new(null, [], []);
 }
@@ -23,11 +23,13 @@ public static class CharTestRunJudge
             return new RunVerdict(inTestFile ? FailureKinds.CharTestBuild : FailureKinds.BuildUnverifiable, [], []);
         }
 
+        if (Environment(after) is { } env) return env;
+
         var failing = new List<TestCaseResult>();
         foreach (var name in newTestFullNames)
         {
             var rows = Rows(after, name);
-            if (rows.Count == 0) failing.Add(new TestCaseResult(name, false, "not run (no result for this test)"));
+            if (rows.Count == 0) failing.Add(new TestCaseResult(name, false, after.TimedOut ? "timed out (the test run did not finish)" : "not run (no result for this test)"));
             else failing.AddRange(rows.Where(r => !r.Passed));
         }
         if (failing.Count > 0)
@@ -42,6 +44,7 @@ public static class CharTestRunJudge
     /// <summary>Verdict 6: a new test whose pass state differs between two runs is flaky.</summary>
     public static RunVerdict Stable(TestRun first, TestRun second, IReadOnlyList<string> newTestFullNames)
     {
+        if ((Environment(first) ?? Environment(second)) is { } env) return env;
         var flaky = newTestFullNames.Where(n => Passed(first, n) != Passed(second, n)).ToList();
         if (flaky.Count == 0) return RunVerdict.Ok;
         var details = flaky.Select(n => new TestCaseResult(n, false, "passed in one run and failed in the other")).ToList();
@@ -53,7 +56,7 @@ public static class CharTestRunJudge
     {
         if (mutated.BuildErrors.Count > 0 || newTestFullNames.Any(n => Rows(mutated, n).Count == 0))
             return new RunVerdict(FailureKinds.CharTestMutationUnbuildable, [], []);
-        var survivors = newTestFullNames.Where(n => Passed(mutated, n)).ToList();
+        var survivors = newTestFullNames.Where(n => Rows(mutated, n).Any(r => r.Passed)).ToList();
         if (survivors.Count == 0) return RunVerdict.Ok;
         return new RunVerdict(FailureKinds.CharTestSurvivesMutation, survivors,
             survivors.Select(n => new TestCaseResult(n, true, null)).ToList());
@@ -62,11 +65,21 @@ public static class CharTestRunJudge
     /// <summary>Why the baseline run cannot be compared with, or null (failing existing tests alone are fine).</summary>
     public static string? BaselineUsable(TestRun baseline)
     {
-        if (baseline.BuildErrors.Count > 0) return "the test project does not build before the change";
-        if (baseline.ReportMissing) return "the baseline run wrote no test report";
-        if (baseline.RunAborted) return "the baseline run was aborted";
-        if (baseline.TimedOut) return "the baseline run timed out";
-        if (baseline.Error is not null) return "the baseline run failed: " + baseline.Error;
+        if (baseline.BuildErrors.Count > 0) return "변경 전 테스트 프로젝트가 빌드되지 않습니다";
+        if (baseline.ReportMissing) return "원본 테스트 실행이 결과 파일을 만들지 않았습니다";
+        if (baseline.RunAborted) return "원본 테스트 실행이 중단되었습니다";
+        if (baseline.TimedOut) return "원본 테스트 실행이 시간 초과되었습니다";
+        if (baseline.Error is not null) return "원본 테스트 실행에 실패했습니다: " + baseline.Error;
+        return null;
+    }
+
+    /// <summary>An after-run that never reached the tests (runner error, or a timeout with no results) is the environment's fault, not the model's.</summary>
+    private static RunVerdict? Environment(TestRun run)
+    {
+        if (run.Error is not null && !run.ReportMissing)
+            return new RunVerdict(FailureKinds.BuildUnverifiable, [], [], run.Error);
+        if (run.TimedOut && run.Results.Count == 0)
+            return new RunVerdict(FailureKinds.BuildUnverifiable, [], [], "테스트 실행이 시간 초과되었습니다");
         return null;
     }
 

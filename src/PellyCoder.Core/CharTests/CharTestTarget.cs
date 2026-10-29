@@ -36,7 +36,9 @@ public static class CharTestTarget
         var mods = method.Modifiers;
         var isPublic = mods.Any(SyntaxKind.PublicKeyword);
         var isInternal = mods.Any(SyntaxKind.InternalKeyword) && !mods.Any(SyntaxKind.PrivateKeyword);
-        if (!isPublic && !(isInternal && internalsVisibleToAssembly is not null))
+        var hasIvt = internalsVisibleToAssembly is not null;
+        var typesReachable = types.All(t => TypeReachable(t, hasIvt));
+        if (!(isPublic || (isInternal && hasIvt)) || !typesReachable)
             return (name, typeName, "테스트 프로젝트에서 부를 수 없는 메서드입니다. 이 메서드를 부르는 public 메서드를 대상으로 하세요");
 
         if (mods.Any(SyntaxKind.ExternKeyword))
@@ -102,7 +104,19 @@ public static class CharTestTarget
         if (declared is null) return false;
         var comma = declared.IndexOf(',');
         var name = (comma >= 0 ? declared[..comma] : declared).Trim();
-        return string.Equals(name, assembly, StringComparison.Ordinal);
+        return string.Equals(name, assembly, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Public types always; internal types (the default for top-level types) only with InternalsVisibleTo; private, protected and private protected never (nested types default to private).</summary>
+    private static bool TypeReachable(TypeDeclarationSyntax type, bool hasIvt)
+    {
+        var m = type.Modifiers;
+        if (m.Any(SyntaxKind.PrivateKeyword)) return false;
+        if (m.Any(SyntaxKind.PublicKeyword)) return true;
+        if (m.Any(SyntaxKind.InternalKeyword)) return hasIvt;
+        if (m.Any(SyntaxKind.ProtectedKeyword)) return false;
+        return type.Parent is TypeDeclarationSyntax { RawKind: not (int)SyntaxKind.InterfaceDeclaration } ? false
+            : type.Parent is TypeDeclarationSyntax ? true : hasIvt;
     }
 
     private static MemberDeclarationSyntax? FindNode(SyntaxTree tree, MemberCandidate target)

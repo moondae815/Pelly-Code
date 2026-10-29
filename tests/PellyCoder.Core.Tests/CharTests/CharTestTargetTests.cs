@@ -67,6 +67,38 @@ public sealed class CharTestTargetTests
     }
 
     [Fact]
+    public void Check_InternalType_PublicMethod_NeedsIvt()
+    {
+        const string src = "internal class A\n{\n    public int F() { return 1; }\n}\n";
+        Assert.Contains("부를 수 없는 메서드입니다", Check(src, "F").Error);
+        Assert.Null(Check(src, "F", "Shop.Tests").Error);
+        const string implicitInternal = "class A\n{\n    public int F() { return 1; }\n}\n";
+        Assert.NotNull(Check(implicitInternal, "F").Error);
+        Assert.Null(Check(implicitInternal, "F", "Shop.Tests").Error);
+    }
+
+    [Fact]
+    public void Check_NestedPrivateType_PublicMethod_Error()
+    {
+        const string src = "public class A\n{\n    private class B { public int F() { return 1; } }\n}\n";
+        Assert.NotNull(Check(src, "F").Error);
+        Assert.NotNull(Check(src, "F", "Shop.Tests").Error);
+        const string implicitPrivate = "public class A\n{\n    class B { public int F() { return 1; } }\n}\n";
+        Assert.NotNull(Check(implicitPrivate, "F").Error);
+        const string prot = "public class A\n{\n    protected class B { public int F() { return 1; } }\n}\n";
+        Assert.NotNull(Check(prot, "F").Error);
+    }
+
+    [Fact]
+    public void Check_IvtName_IsCaseInsensitive()
+    {
+        var fs = new MockFileSystem();
+        fs.AddFile("/w/Api/Api.csproj", new MockFileData("<Project />"));
+        fs.AddFile("/w/Api/X.cs", new MockFileData("[assembly: InternalsVisibleTo(\"api.tests\")]\n"));
+        Assert.True(CharTestTarget.HasInternalsVisibleTo(fs, "/w/Api/Api.csproj", "Api.Tests"));
+    }
+
+    [Fact]
     public void Check_GenericType_Error()
     {
         Assert.NotNull(Check("public class A<T>\n{\n    public int F() { return 1; }\n}\n", "F").Error);

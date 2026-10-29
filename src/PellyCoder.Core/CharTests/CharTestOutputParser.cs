@@ -7,12 +7,16 @@ namespace PellyCoder.Core.CharTests;
 /// <summary>Parsed model output: <c>using</c> lines and the raw text of each new class member.</summary>
 public sealed record CharTestOutput(IReadOnlyList<string> Usings, IReadOnlyList<string> Members);
 
-/// <summary>Parses the model's "### USINGS / ### MEMBERS" output. Pelly prefills the "### USINGS" header.</summary>
+/// <summary>Parses the model's "### USINGS / ### MEMBERS" output. Pelly prefills the "### USINGS" header. A USINGS line is a
+/// using (plain, <c>static</c> or alias) with an optional trailing comment; comment-only lines are skipped.</summary>
 public static class CharTestOutputParser
 {
     private const string UsingsHeader = "### USINGS";
     private const string MembersHeader = "### MEMBERS";
-    private static readonly Regex UsingLine = new(@"^using\s+(static\s+)?[A-Za-z_][\w.]*\s*;$", RegexOptions.Compiled);
+    private static readonly Regex UsingLine = new(
+        @"^using\s+(?:static\s+[A-Za-z_][\w.]*|[A-Za-z_]\w*\s*=\s*[A-Za-z_][\w.<>, ]*|[A-Za-z_][\w.]*)\s*;$", RegexOptions.Compiled);
+
+    private static readonly Regex TrailingComment = new(@"\s*(//.*|/\*.*?\*/\s*)$", RegexOptions.Compiled);
 
     public static (CharTestOutput? Output, string? Error) Parse(string output, LanguageVersion version)
     {
@@ -29,6 +33,8 @@ public static class CharTestOutputParser
             if (!inMembers)
             {
                 if (line == MembersHeader) { inMembers = true; continue; }
+                // A comment after a using, or a comment-only line, is not content.
+                line = TrailingComment.Replace(line, "").Trim();
                 if (line.Length == 0) continue;
                 if (!UsingLine.IsMatch(line)) return (null, $"USINGS 구역에 using 줄이 아닌 내용이 있습니다: {line}");
                 usings.Add(line);

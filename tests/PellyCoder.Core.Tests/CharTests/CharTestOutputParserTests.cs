@@ -62,4 +62,29 @@ public sealed class CharTestOutputParserTests
         Assert.Null(o);
         Assert.NotNull(e);
     }
+
+    [Fact]
+    public void Parse_UsingWithTrailingComment_AndCommentLine_Ok()
+    {
+        var (o, e) = CharTestOutputParser.Parse(
+            "### USINGS\nusing System; // for DateTime\n// the models\nusing Shop.Api.Models;   /* ok */\n### MEMBERS\npublic void A() { }", V);
+        Assert.Null(e);
+        Assert.Equal(["using System;", "using Shop.Api.Models;"], o!.Usings);
+    }
+
+    [Fact]
+    public void Parse_AliasUsing_Ok()
+    {
+        var (o, e) = CharTestOutputParser.Parse("### USINGS\nusing M = Shop.Api.Models;\nusing L = System.Collections.Generic.List<int>;\n### MEMBERS\npublic void A() { }", V);
+        Assert.Null(e);
+        Assert.Equal(["using M = Shop.Api.Models;", "using L = System.Collections.Generic.List<int>;"], o!.Usings);
+    }
+
+    [Fact]
+    public void Parse_Prose_StillRejected()
+    {
+        var (o, e) = CharTestOutputParser.Parse("### USINGS\nusing these namespaces the tests compile;\n### MEMBERS\npublic void A() { }", V);
+        Assert.Null(o);
+        Assert.NotNull(e);
+    }
 }

@@ -72,8 +72,9 @@ public static class CharTestStaticJudge
             return n == fw.TestAttribute || fw.DataTestAttributes.Contains(n);
         });
 
+    /// <summary>Private, or no access modifier (a class member's default is private).</summary>
     private static bool IsPrivate(MemberDeclarationSyntax m) =>
-        m.Modifiers.Any(SyntaxKind.PrivateKeyword) && !m.Modifiers.Any(SyntaxKind.ProtectedKeyword);
+        !m.Modifiers.Any(t => t.Kind() is SyntaxKind.PublicKeyword or SyntaxKind.ProtectedKeyword or SyntaxKind.InternalKeyword);
 
     private static readonly TestLibraries[] MockingLibraries = [TestLibraries.Moq, TestLibraries.NSubstitute, TestLibraries.FakeItEasy];
 

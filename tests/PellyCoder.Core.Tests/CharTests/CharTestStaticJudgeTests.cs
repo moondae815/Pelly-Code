@@ -217,4 +217,12 @@ public sealed class CharTestStaticJudgeTests
         Assert.Contains(JudgeWith(TestLibraries.Shouldly, Fact("A", "sut.CalculateRefundAsync(1); 5.ShouldBe(5);")),
             x => x.Kind == FailureKinds.CharTestNoAssert);
     }
+
+    [Fact]
+    public void Shape_MembersWithoutModifier_CountAsPrivate() =>
+        Assert.Empty(Judge(Fact("A", "var r = Run(); Assert.Equal(5, r);") + "\nint Run() => sut.CalculateRefundAsync(1);\nclass Fake { }"));
+
+    [Fact]
+    public void Shape_InternalHelper_StillRejected() =>
+        Assert.Contains(Judge(Fact("A") + "\ninternal int Helper() => 1;"), x => x.Kind == FailureKinds.CharTestShape && x.TestName == "Helper");
 }

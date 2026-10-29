@@ -194,4 +194,16 @@ public sealed class TestClassWriterTests
         var result = TestClassWriter.AddCompileInclude(text, "C.cs");
         Assert.Equal(text.Replace("    </Compile>\n", "    </Compile>\n    <Compile Include=\"C.cs\" />\n"), result);
     }
+
+    [Fact]
+    public void Insert_AliasAndStaticUsings_AddedOnce()
+    {
+        const string text = "using M = Shop.Models;\nusing static System.Math;\n\nnamespace N;\n\npublic class CTests\n{\n}\n";
+
+        var result = TestClassWriter.Insert(text, "CTests", ["using M=Shop.Models;", "using static System.Math;", "using X = Shop.Other;"], ["public void A() { }"]);
+
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(result, "using M ?= ?Shop.Models;"));
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(result, "using static System.Math;"));
+        Assert.Contains("using X = Shop.Other;\n", result);
+    }
 }

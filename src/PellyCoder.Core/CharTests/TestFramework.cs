@@ -129,7 +129,9 @@ public static class TestFrameworks
         if (id.StartsWith("xunit.v3", StringComparison.OrdinalIgnoreCase)) return TestFramework.XunitV3;
         if (id.Equals("xunit", StringComparison.OrdinalIgnoreCase)
             || id.Equals("xunit.core", StringComparison.OrdinalIgnoreCase)) return TestFramework.XunitV2;
-        if (id.Equals("MSTest.TestFramework", StringComparison.OrdinalIgnoreCase)) return TestFramework.MsTest;
+        if (id.Equals("MSTest.TestFramework", StringComparison.OrdinalIgnoreCase)
+            || id.Equals("MSTest", StringComparison.OrdinalIgnoreCase)
+            || id.Equals("MSTest.Sdk", StringComparison.OrdinalIgnoreCase)) return TestFramework.MsTest;
         if (id.Equals("NUnit", StringComparison.OrdinalIgnoreCase)) return TestFramework.NUnit;
         return null;
     }

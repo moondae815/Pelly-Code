@@ -102,4 +102,14 @@ public sealed class TestFrameworkTests
     [InlineData(TestFramework.NUnit, "Assert.That(result, Is.EqualTo(\"Hi Kim\"));")]
     public void AssertEqual_FrameworkForm(TestFramework framework, string expected) =>
         Assert.Equal(expected, TestFrameworks.Info(framework).AssertEqual("\"Hi Kim\"", "result"));
+
+    [Theory]
+    [InlineData("MSTest")]
+    [InlineData("MSTest.Sdk")]
+    public void Detect_MsTestMetapackages(string id)
+    {
+        var (framework, error) = TestFrameworks.Detect(WithPackages(id), Csproj);
+        Assert.Null(error);
+        Assert.Equal(TestFramework.MsTest, framework);
+    }
 }

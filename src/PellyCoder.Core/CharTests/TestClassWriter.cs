@@ -62,16 +62,18 @@ public static class TestClassWriter
 
     private static void InsertUsings(StringBuilder sb, string text, CompilationUnitSyntax root, IReadOnlyList<string> usings, string eol)
     {
+        // Keys: "Ns", "static Ns.Type" or "Alias = Ns.Type", whitespace normalized, so each using is written once.
         var existing = root.DescendantNodes().OfType<UsingDirectiveSyntax>()
-            .Where(u => u.Alias is null && u.StaticKeyword.IsKind(SyntaxKind.None) && u.Name is not null)
-            .Select(u => u.Name!.ToString())
+            .Where(u => u.GlobalKeyword.IsKind(SyntaxKind.None))
+            .Select(u => UsingKey((u.StaticKeyword.IsKind(SyntaxKind.None) ? "" : "static ")
+                + (u.Alias is { } alias ? alias.Name.Identifier.ValueText + " = " : "") + u.NamespaceOrType.ToString()))
             .ToHashSet(StringComparer.Ordinal);
         var missing = new List<string>();
         foreach (var raw in usings)
         {
             var name = raw.Trim();
             if (name.StartsWith("using ", StringComparison.Ordinal)) name = name[6..];
-            name = name.TrimEnd(';').Trim();
+            name = UsingKey(name.TrimEnd(';'));
             if (name.Length > 0 && existing.Add(name)) missing.Add(name);
         }
         if (missing.Count == 0) return;
@@ -94,6 +96,9 @@ public static class TestClassWriter
         if (at == 0 && text.Length > 0 && text[0] == '﻿') at = 1;
         sb.Insert(at, string.Concat(missing.Select(m => "using " + m + ";" + eol)) + eol);
     }
+
+    private static string UsingKey(string text) =>
+        Regex.Replace(Regex.Replace(text.Trim(), @"\s*=\s*", " = "), @"\s+", " ");
 
     /// <summary>
     /// A new test file in the legacy-compatible shape: LF, block namespace, public class. <paramref name="extraUsings"/> (namespace

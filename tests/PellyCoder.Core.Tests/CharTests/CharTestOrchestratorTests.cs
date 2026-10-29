@@ -381,7 +381,7 @@ public sealed class CharTestOrchestratorTests : IDisposable
     [Fact]
     public async Task NewFile_SkeletonCarriesTargetUsingsAndNamespace()
     {
-        File.WriteAllText(CalcPath, "using System.Collections.Generic;\n" + CalcSource);
+        File.WriteAllText(CalcPath, "using System.Collections.Generic;\nusing Dapper;\n" + CalcSource);
         File.Delete(TestPath);
         _backend.Enqueue(Members(Three));
 
@@ -389,6 +389,7 @@ public sealed class CharTestOrchestratorTests : IDisposable
 
         Assert.Equal(0, exit);
         Assert.StartsWith("using System.Collections.Generic;\nusing Demo;\nusing Xunit;\n\n", File.ReadAllText(TestPath));
+        Assert.DoesNotContain("Dapper", File.ReadAllText(TestPath));
         Assert.Contains("[READ-ONLY: test usings]\nusing System.Collections.Generic;\nusing Demo;\nusing Xunit;\n", Prompt(0));
     }
 

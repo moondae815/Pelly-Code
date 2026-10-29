@@ -300,9 +300,11 @@ public sealed class CharTestOrchestrator(
             }
             else
             {
-                // The skeleton sees what the target file sees (its usings and namespace), so the model need not guess them (C1).
+                // The skeleton takes the target's namespace and those of its usings the test project surely sees (workspace-declared
+                // namespaces, core BCL), so the model need not guess them (C1) and never inherits an unreferenced package's using.
+                var declared = TestClassWriter.DeclaredNamespaces(Fs, _ctx.Workspace!.Root);
                 _baseText = TestClassWriter.NewFile(location.Namespace, location.ClassName, _framework,
-                    TestClassWriter.TargetUsings(_ctx.Current.Text, _ctx.Language!.Version));
+                    TestClassWriter.TargetUsings(_ctx.Current.Text, _ctx.Language!.Version, declared));
                 FileSnapshot csproj;
                 try
                 {

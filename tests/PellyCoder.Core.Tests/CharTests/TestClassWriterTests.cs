@@ -109,20 +109,76 @@ public sealed class TestClassWriterTests
         Assert.Single(System.Text.RegularExpressions.Regex.Matches(text, "using Xunit;"));
     }
 
+    private static readonly IReadOnlySet<string> ShopApi = new HashSet<string> { "Shop.Api.Models", "Shop.Api.Controllers" };
+
     [Fact]
     public void TargetUsings_FileUsingsThenNamespace_NoAliasStaticOrGlobal()
     {
         const string source = "using System;\nusing static System.Math;\nusing M = System.Text;\nglobal using System.Linq;\n"
             + "using Shop.Api.Models;\n\nnamespace Shop.Api.Controllers\n{\n    using Inner;\n    public class C { }\n}\n";
 
-        var usings = TestClassWriter.TargetUsings(source, Microsoft.CodeAnalysis.CSharp.LanguageVersion.CSharp12);
+        var usings = TestClassWriter.TargetUsings(source, Microsoft.CodeAnalysis.CSharp.LanguageVersion.CSharp12, ShopApi);
 
         Assert.Equal(["System", "Shop.Api.Models", "Shop.Api.Controllers"], usings);
     }
 
     [Fact]
     public void TargetUsings_GlobalNamespace_OnlyFileUsings() =>
-        Assert.Equal(["System"], TestClassWriter.TargetUsings("using System;\npublic class C { }\n", Microsoft.CodeAnalysis.CSharp.LanguageVersion.CSharp12));
+        Assert.Equal(["System"], TestClassWriter.TargetUsings("using System;\npublic class C { }\n", Microsoft.CodeAnalysis.CSharp.LanguageVersion.CSharp12, ShopApi));
+
+    /// <summary>Shaped like Legacy Shop.Data/OrderDao.cs: a non-SDK test project does not inherit Dapper or System.Data.SqlClient.</summary>
+    [Fact]
+    public void TargetUsings_KeepsWorkspaceAndCoreBcl_DropsThirdPartyAndOtherFramework()
+    {
+        const string source = "using System;\nusing System.Collections.Generic;\nusing System.Data;\nusing System.Data.SqlClient;\nusing System.Linq;\n"
+            + "using System.Text;\nusing System.Threading.Tasks;\nusing System.Web.Mvc;\nusing Dapper;\nusing Shop.Data.Dto;\n\nnamespace Shop.Data\n{\n    public class OrderDao { }\n}\n";
+
+        var usings = TestClassWriter.TargetUsings(source, Microsoft.CodeAnalysis.CSharp.LanguageVersion.CSharp7_3,
+            new HashSet<string> { "Shop.Data", "Shop.Data.Dto" });
+
+        Assert.Equal(["System", "System.Collections.Generic", "System.Linq", "System.Threading.Tasks", "Shop.Data.Dto", "Shop.Data"], usings);
+    }
+
+    [Fact]
+    public void TargetUsings_ParentOrChildOfDeclaredNamespace_Kept()
+    {
+        const string source = "using Shop.Api.Models;\nusing Shop;\nusing Shopify.Client;\n\nnamespace Demo { public class C { } }\n";
+
+        var usings = TestClassWriter.TargetUsings(source, Microsoft.CodeAnalysis.CSharp.LanguageVersion.CSharp12, new HashSet<string> { "Shop.Api" });
+
+        Assert.Equal(["Shop.Api.Models", "Shop", "Demo"], usings);
+    }
+
+    [Theory]
+    [InlineData("Legacy/Shop.Data/OrderDao.cs", "OrderDaoTests", new[] { "Shop.Data.Dto", "Shop.Data" }, new[] { "Dapper", "System.Data.SqlClient" })]
+    [InlineData("Legacy/Shop.Web/Controllers/OrderController.cs", "OrderControllerTests", new[] { "Shop.Web.Services", "Shop.Web.Controllers" }, new[] { "System.Web.Mvc" })]
+    public void NewFile_LegacyCorpusTarget_NoNonWorkspaceUsings(string target, string className, string[] kept, string[] dropped)
+    {
+        var fs = new System.IO.Abstractions.FileSystem();
+        var source = File.ReadAllText(CorpusLocation.Get(target)).Replace("\r\n", "\n");
+        var declared = TestClassWriter.DeclaredNamespaces(fs, CorpusLocation.Get("Legacy"), ct: TestContext.Current.CancellationToken);
+
+        var text = TestClassWriter.NewFile("Shop.Tests", className, TestFrameworks.Info(TestFramework.MsTest),
+            TestClassWriter.TargetUsings(source, Microsoft.CodeAnalysis.CSharp.LanguageVersion.CSharp7_3, declared));
+
+        Assert.All(kept, k => Assert.Contains($"using {k};\n", text));
+        Assert.All(dropped, d => Assert.DoesNotContain($"using {d};", text));
+        Assert.Contains("using System;\n", text);
+        Assert.Contains("using Microsoft.VisualStudio.TestTools.UnitTesting;\n", text);
+    }
+
+    [Fact]
+    public void DeclaredNamespaces_BlockAndFileScoped()
+    {
+        var fs = new System.IO.Abstractions.TestingHelpers.MockFileSystem();
+        fs.AddFile("/repo/A.cs", new System.IO.Abstractions.TestingHelpers.MockFileData("namespace Demo.Models\n{\n    namespace Inner { }\n}\n"));
+        fs.AddFile("/repo/B.cs", new System.IO.Abstractions.TestingHelpers.MockFileData("using X;\nnamespace Demo.Other;\npublic class C { } // namespace Fake\n"));
+        fs.AddFile("/repo/bin/G.cs", new System.IO.Abstractions.TestingHelpers.MockFileData("namespace Generated { }"));
+
+        var declared = TestClassWriter.DeclaredNamespaces(fs, "/repo", ct: TestContext.Current.CancellationToken);
+
+        Assert.Equal(["Demo.Models", "Demo.Models.Inner", "Demo.Other"], declared.Order(StringComparer.Ordinal));
+    }
 
     [Fact]
     public void NewFile_ThenInsert_Parses()

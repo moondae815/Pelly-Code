@@ -101,9 +101,11 @@ public sealed class CharTestIntegrationTests(ITestOutputHelper output) : IDispos
         }
         """;
 
-    /// <summary>A new <c>OrdersControllerTests</c> file. No <c>using</c> lines: <c>Task</c>, <c>OrdersController</c>, <c>IOrderService</c>,
-    /// <c>Order</c> and <c>OkObjectResult</c> resolve only because the new-file skeleton carries the target file's usings and namespace.</summary>
+    /// <summary>A new <c>OrdersControllerTests</c> file. Its only <c>using</c> is the framework one the skeleton leaves out (not declared in
+    /// the workspace): <c>Task</c>, <c>List</c>, <c>OrdersController</c>, <c>IOrderService</c> and <c>Order</c> resolve only because the
+    /// skeleton carries the target's workspace and core BCL usings and its namespace.</summary>
     private const string ControllerAnswer = """
+        using Microsoft.AspNetCore.Mvc;
         ### MEMBERS
         [Fact]
         public async Task Get_MatchingOrder_ReturnsOk()
@@ -232,6 +234,9 @@ public sealed class CharTestIntegrationTests(ITestOutputHelper output) : IDispos
         var tests = File.ReadAllText(newFile);
         Assert.Contains("using Shop.Api.Controllers;", tests, StringComparison.Ordinal);
         Assert.Contains("using Shop.Api.Services;", tests, StringComparison.Ordinal);
+        Assert.Contains("using Shop.Api.Models;", tests, StringComparison.Ordinal);
+        Assert.Contains("using System.Threading.Tasks;", tests, StringComparison.Ordinal);
+        Assert.Single(Regex.Matches(tests, "using Microsoft.AspNetCore.Mvc;"));
         Assert.Contains("Get_NoMatch_ReturnsNotFound", tests, StringComparison.Ordinal);
         Assert.Equal(before, File.ReadAllBytes(target));
         AssertNoMarker(run);

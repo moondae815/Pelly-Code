@@ -1,8 +1,11 @@
+using System.IO.Abstractions;
 using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using PellyCoder.Core.CSharp;
+using PellyCoder.Core.Files;
 
 namespace PellyCoder.Core.CharTests;
 
@@ -116,20 +119,59 @@ public static class TestClassWriter
         return sb.ToString();
     }
 
+    /// <summary>Core BCL namespaces kept from the target file even though no workspace file declares them.</summary>
+    private static readonly string[] CoreNamespaces = ["System", "System.Collections.Generic", "System.Linq", "System.Threading.Tasks"];
+
     /// <summary>
-    /// The namespaces a new test file needs to see what the target file sees: the target file's own top-level <c>using</c>
-    /// directives (no alias, <c>static</c> or <c>global</c> ones; namespace-level usings may be relative and are left out), then the
-    /// target's namespace.
+    /// The namespaces a new test file can safely take from the target file: its top-level <c>using</c> directives (no alias,
+    /// <c>static</c> or <c>global</c> ones; namespace-level usings may be relative and are left out) whose namespace, or a parent or
+    /// child of it, is in <paramref name="declaredNamespaces"/>, or that are one of the core BCL namespaces; then the target's
+    /// namespace. A third-party or framework using (Dapper, System.Web.Mvc) is dropped: a legacy test project does not inherit the
+    /// production project's references, and the model can still add it under <c>### USINGS</c>.
     /// </summary>
-    public static IReadOnlyList<string> TargetUsings(string targetSourceLf, LanguageVersion version)
+    public static IReadOnlyList<string> TargetUsings(string targetSourceLf, LanguageVersion version, IReadOnlySet<string> declaredNamespaces)
     {
         var root = (CompilationUnitSyntax)CSharpSyntaxTree.ParseText(targetSourceLf, new CSharpParseOptions(version)).GetRoot();
         var names = root.Usings
             .Where(u => u.Alias is null && u.StaticKeyword.IsKind(SyntaxKind.None) && u.GlobalKeyword.IsKind(SyntaxKind.None) && u.Name is not null)
             .Select(u => u.Name!.ToString())
+            .Where(n => CoreNamespaces.Contains(n, StringComparer.Ordinal) || declaredNamespaces.Any(d => d == n
+                || d.StartsWith(n + ".", StringComparison.Ordinal) || n.StartsWith(d + ".", StringComparison.Ordinal)))
             .ToList();
         if (root.DescendantNodes().OfType<BaseNamespaceDeclarationSyntax>().FirstOrDefault() is { } ns) names.Add(ns.Name.ToString());
         return names.Distinct(StringComparer.Ordinal).ToList();
+    }
+
+    /// <summary>
+    /// Every namespace declared in a <c>.cs</c> file under <paramref name="root"/> (nested ones joined), with the
+    /// <see cref="DtoCollector"/> bounded walk and limits. Never throws: an unreadable file is skipped.
+    /// </summary>
+    public static IReadOnlySet<string> DeclaredNamespaces(IFileSystem fs, string root, DtoLimits? limits = null, CancellationToken ct = default)
+    {
+        limits ??= new DtoLimits();
+        var result = new HashSet<string>(StringComparer.Ordinal);
+        try
+        {
+            foreach (var file in BoundedWalker.Files(fs, root, "*.cs", limits.MaxDirectories, ct).Take(limits.MaxFiles))
+            {
+                try
+                {
+                    var text = DtoCollector.ReadText(fs, file, limits.MaxFileBytes);
+                    if (text is null || !text.Contains("namespace", StringComparison.Ordinal)) continue;
+                    foreach (var ns in CSharpSyntaxTree.ParseText(text, cancellationToken: ct).GetRoot().DescendantNodes().OfType<BaseNamespaceDeclarationSyntax>())
+                        result.Add(DtoCollector.NamespaceOf(ns) is { } outer ? outer + "." + ns.Name : ns.Name.ToString());
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    // One unreadable or unparsable file never stops the scan.
+                }
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // A failed walk yields what was found so far.
+        }
+        return result;
     }
 
     /// <summary>

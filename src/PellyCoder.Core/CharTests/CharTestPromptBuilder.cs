@@ -26,12 +26,13 @@ public sealed class CharTestPromptBuilder(ITokenCounter tokens, BudgetOptions bu
 {
     public const string RequestSentence = "Write {0} tests that pin the CURRENT behavior of the target. Assert what it does now, even if it looks wrong.";
 
-    /// <summary>System prompt plus few-shot with the framework's test attribute and the language version filled in.</summary>
+    /// <summary>System prompt plus few-shot with the framework's test attribute, equality assertion and the language version filled in.</summary>
     public static string SystemText(PromptResources resources, FrameworkInfo framework, string langVersion) =>
         Fill(resources.SystemCsTest, framework, langVersion) + "\n\n" + Fill(resources.FewShotCsTest, framework, langVersion);
 
     private static string Fill(string text, FrameworkInfo framework, string langVersion) =>
-        text.Replace("{TestAttribute}", framework.TestAttribute).Replace("{LangVersion}", langVersion);
+        text.Replace("{TestAttribute}", framework.TestAttribute).Replace("{LangVersion}", langVersion)
+            .Replace("{AssertEqual}", framework.AssertEqual("\"Hi Kim\"", "result"));
 
     public PromptBuildResult Build(CharTestPromptInput input)
     {

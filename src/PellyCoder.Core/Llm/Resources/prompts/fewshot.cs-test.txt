@@ -1,30 +1,25 @@
 # version: 1
-Example (format only; never copy its code; assert in the style of [READ-ONLY: example test]).
+Example (format only; assert in the style of [READ-ONLY: example test]):
 
 Example input:
-### TARGET
-Greeter.Greet(string) — type: Greeter, namespace: Demo
-### CONTEXT
 [READ-ONLY: target]
-public string Greet(string name)
-{
-    return _prefix.Get() + name;
-}
-[READ-ONLY: construction]
-public Greeter(IPrefix prefix)
-private readonly IPrefix _prefix;
+public async Task<string> GreetAsync(string name) => await _prefix.GetAsync() + name;
 [READ-ONLY: dependencies]
-interface IPrefix { string Get(); }
-### REQUEST
-Write 1 tests that pin the CURRENT behavior of the target. Assert what it does now, even if it looks wrong.
+Demo.Text: interface IPrefix { Task<string> GetAsync(); int Count(); }
 
 Example output:
 ### USINGS
+using System.Threading.Tasks;
+using Demo.Text;
 ### MEMBERS
 [{TestAttribute}]
-public void Greet_Name_PrependsPrefix()
+public async Task GreetAsync_Name_PrependsPrefix()
 {
-    var sut = new Greeter(new FakePrefix());
-    Assert.Equal("Hi Kim", sut.Greet("Kim"));
+    var result = await new Greeter(new FakePrefix()).GreetAsync("Kim");
+    {AssertEqual}
 }
-private sealed class FakePrefix : IPrefix { public string Get() => "Hi "; }
+private sealed class FakePrefix : IPrefix
+{
+    public Task<string> GetAsync() => Task.FromResult("Hi ");
+    public int Count() => throw new System.NotImplementedException();
+}

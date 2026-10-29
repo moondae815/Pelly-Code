@@ -84,4 +84,22 @@ public sealed class TestFrameworkTests
         Assert.Equal(["DataTestMethod"], TestFrameworks.Info(TestFramework.MsTest).DataTestAttributes);
         Assert.Equal(["TestCase", "TestCaseSource"], TestFrameworks.Info(TestFramework.NUnit).DataTestAttributes);
     }
+
+    [Fact]
+    public void Libraries_DetectsMockingAndAssertionPackages()
+    {
+        var fs = WithPackages("xunit.v3", "Moq", "fluentassertions", "Shouldly", "NSubstitute", "FakeItEasy", "Other");
+        Assert.Equal(TestLibraries.Moq | TestLibraries.NSubstitute | TestLibraries.FakeItEasy | TestLibraries.FluentAssertions | TestLibraries.Shouldly,
+            TestFrameworks.Libraries(fs, Csproj));
+    }
+
+    [Fact]
+    public void Libraries_None() => Assert.Equal(TestLibraries.None, TestFrameworks.Libraries(WithPackages("xunit.v3"), Csproj));
+
+    [Theory]
+    [InlineData(TestFramework.XunitV3, "Assert.Equal(\"Hi Kim\", result);")]
+    [InlineData(TestFramework.MsTest, "Assert.AreEqual(\"Hi Kim\", result);")]
+    [InlineData(TestFramework.NUnit, "Assert.That(result, Is.EqualTo(\"Hi Kim\"));")]
+    public void AssertEqual_FrameworkForm(TestFramework framework, string expected) =>
+        Assert.Equal(expected, TestFrameworks.Info(framework).AssertEqual("\"Hi Kim\"", "result"));
 }

@@ -199,6 +199,32 @@ public sealed class CharTestPromptBuilderTests
         Assert.True(tokens <= new BudgetOptions().System, $"cs-test system prompt is {tokens} tokens; budget.system is {new BudgetOptions().System}");
     }
 
+    [Theory]
+    [InlineData(TestFramework.XunitV3, "Assert.Equal(\"Hi Kim\", result);")]
+    [InlineData(TestFramework.MsTest, "Assert.AreEqual(\"Hi Kim\", result);")]
+    [InlineData(TestFramework.NUnit, "Assert.That(result, Is.EqualTo(\"Hi Kim\"));")]
+    public void FewShot_UsesFrameworkAssertion(TestFramework framework, string assertion)
+    {
+        var text = CharTestPromptBuilder.SystemText(Resources, TestFrameworks.Info(framework), "C# 12");
+
+        Assert.Contains(assertion, text);
+        Assert.DoesNotContain("{AssertEqual}", text);
+        if (framework != TestFramework.XunitV3) Assert.DoesNotContain("Assert.Equal(", text);
+    }
+
+    [Fact]
+    public void SystemText_RulesForFakesMockingAndAsync()
+    {
+        var text = CharTestPromptBuilder.SystemText(Resources, Xunit, "C# 12");
+
+        Assert.Contains("private nested classes", text);
+        Assert.Contains("Do not use Moq, NSubstitute or FakeItEasy unless they appear in [READ-ONLY: test usings]", text);
+        Assert.Contains("=> throw new System.NotImplementedException()", text);
+        Assert.Contains("Task<T>", text);
+        Assert.Contains("public async Task", text);
+        Assert.Matches(@"### USINGS\nusing [\w.]+;\n", text[text.IndexOf("Example output", StringComparison.Ordinal)..]);
+    }
+
     [Fact]
     public void Build_TokensWithinInputTotal()
     {

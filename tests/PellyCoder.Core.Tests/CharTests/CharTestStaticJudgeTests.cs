@@ -15,6 +15,9 @@ public sealed class CharTestStaticJudgeTests
         CharTestStaticJudge.Judge(new CharTestOutput([], [members]), fw ?? X, count, Target,
             existing.ToHashSet(), V);
 
+    private static IReadOnlyList<CharTestRejection> JudgeWith(TestLibraries libraries, string members, params string[] usings) =>
+        CharTestStaticJudge.Judge(new CharTestOutput(usings, [members]), X, 3, Target, new HashSet<string>(), V, libraries);
+
     private static string Fact(string name, string body = "var r = sut.CalculateRefundAsync(1); Assert.Equal(5, r);") =>
         $"[Fact]\npublic void {name}() {{ {body} }}";
 
@@ -154,5 +157,64 @@ public sealed class CharTestStaticJudgeTests
         var fw = TestFrameworks.Info(TestFramework.NUnit);
         var src = "[TestCase(1)]\npublic void A(int a) { var r = sut.CalculateRefundAsync(a); Assert.That(r, Is.EqualTo(5)); }";
         Assert.Empty(Judge(src, fw));
+    }
+
+    [Theory]
+    [InlineData("var m = new Mock<IOrderService>(); var r = sut.CalculateRefundAsync(1); Assert.Equal(5, r);", "Moq")]
+    [InlineData("var m = Substitute.For<IOrderService>(); var r = sut.CalculateRefundAsync(1); Assert.Equal(5, r);", "NSubstitute")]
+    [InlineData("var m = A.Fake<IOrderService>(); var r = sut.CalculateRefundAsync(1); Assert.Equal(5, r);", "FakeItEasy")]
+    public void Mocking_NotReferenced_RejectedAsShape(string body, string library)
+    {
+        var r = JudgeWith(TestLibraries.None, Fact("A", body));
+        Assert.Contains(r, x => x.Kind == FailureKinds.CharTestShape && x.Reason.Contains(library, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Mocking_UsingNotReferenced_RejectedAsShape()
+    {
+        var r = JudgeWith(TestLibraries.None, Fact("A"), "using Moq;");
+        Assert.Contains(r, x => x.Kind == FailureKinds.CharTestShape && x.Reason.Contains("Moq", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Mocking_Referenced_Allowed() =>
+        Assert.Empty(JudgeWith(TestLibraries.Moq, Fact("A", "var m = new Mock<IOrderService>(); var r = sut.CalculateRefundAsync(1); Assert.Equal(5, r);"), "using Moq;"));
+
+    [Fact]
+    public void Moq_Verify_CountsAsAssertion_WhenReferenced()
+    {
+        const string body = "var m = new Mock<IRepo>(); sut.CalculateRefundAsync(1); m.Verify(x => x.Save(1), Times.Once());";
+        Assert.Empty(JudgeWith(TestLibraries.Moq, Fact("A", body)));
+    }
+
+    [Fact]
+    public void NSubstitute_Received_CountsAsAssertion_WhenReferenced() =>
+        Assert.Empty(JudgeWith(TestLibraries.NSubstitute, Fact("A", "sut.CalculateRefundAsync(1); repo.Received(1).Save(1);")));
+
+    [Fact]
+    public void Verify_NotCounted_WithoutMoq() =>
+        Assert.Contains(JudgeWith(TestLibraries.None, Fact("A", "sut.CalculateRefundAsync(1); m.Verify(x => x.Save(1));")),
+            x => x.Kind == FailureKinds.CharTestNoAssert);
+
+    [Fact]
+    public void FluentAssertions_Should_CountsAsAssertion_WhenReferenced()
+    {
+        const string body = "var r = sut.CalculateRefundAsync(1); r.Should().Be(5);";
+        Assert.Empty(JudgeWith(TestLibraries.FluentAssertions, Fact("A", body)));
+        Assert.Contains(JudgeWith(TestLibraries.None, Fact("A", body)), x => x.Kind == FailureKinds.CharTestNoAssert);
+    }
+
+    [Fact]
+    public void FluentAssertions_LiteralSubject_Rejected() =>
+        Assert.Contains(JudgeWith(TestLibraries.FluentAssertions, Fact("A", "sut.CalculateRefundAsync(1); 5.Should().Be(5);")),
+            x => x.Kind == FailureKinds.CharTestNoAssert);
+
+    [Fact]
+    public void Shouldly_ShouldBe_CountsAsAssertion_WhenReferenced()
+    {
+        Assert.Empty(JudgeWith(TestLibraries.Shouldly, Fact("A", "var r = sut.CalculateRefundAsync(1); r.ShouldBe(5);")));
+        Assert.Empty(JudgeWith(TestLibraries.Shouldly, Fact("A", "Should.Throw<System.Exception>(() => sut.CalculateRefundAsync(1));")));
+        Assert.Contains(JudgeWith(TestLibraries.Shouldly, Fact("A", "sut.CalculateRefundAsync(1); 5.ShouldBe(5);")),
+            x => x.Kind == FailureKinds.CharTestNoAssert);
     }
 }

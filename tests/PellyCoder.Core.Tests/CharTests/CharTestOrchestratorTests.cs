@@ -404,6 +404,31 @@ public sealed class CharTestOrchestratorTests : IDisposable
     }
 
     [Fact]
+    public async Task MockingLibraryNotReferenced_RejectedWithReason_ThenRetried()
+    {
+        _backend.Enqueue("### MEMBERS\n[Fact]\npublic void Divide_Mocked()\n{\n    var m = new Mock<Demo.Calc>();\n    var result = m.Object.Divide(6, 2);\n    Assert.Equal(3, result);\n}\n");
+        _backend.Enqueue(Members(Three));
+
+        var exit = await Run(Req(CalcPath));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Moq 패키지가 없습니다", Prompt(1));
+    }
+
+    [Fact]
+    public async Task MockingLibraryReferenced_VerifyCountsAsAssertion()
+    {
+        File.WriteAllText(TestCsprojPath, SdkTestCsproj.Replace("<PackageReference Include=\"xunit\" Version=\"2.9.3\" />",
+            "<PackageReference Include=\"xunit\" Version=\"2.9.3\" />\n    <PackageReference Include=\"Moq\" Version=\"4.20.72\" />", StringComparison.Ordinal));
+        _backend.Enqueue("using Moq;\n### MEMBERS\n[Fact]\npublic void Divide_Verified()\n{\n    var m = new Mock<Demo.Calc>();\n    m.Object.Divide(6, 2);\n    m.Verify(c => c.Divide(6, 2));\n}\n");
+
+        var exit = await Run(Req(CalcPath));
+
+        Assert.True(exit == 0, string.Join("\n", _ui.Warnings.Concat(_ui.Statuses.Select(x => x.Message))));
+        Assert.Single(_backend.Requests);
+    }
+
+    [Fact]
     public async Task DryRun_Exit0_Restored()
     {
         var testBytes = File.ReadAllBytes(TestPath);

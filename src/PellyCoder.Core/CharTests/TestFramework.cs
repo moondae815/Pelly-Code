@@ -5,8 +5,21 @@ namespace PellyCoder.Core.CharTests;
 
 public enum TestFramework { XunitV2, XunitV3, MsTest, NUnit }
 
+/// <summary>Mocking and assertion packages the test project references (they decide what the static checks allow and count).</summary>
+[Flags]
+public enum TestLibraries
+{
+    None = 0,
+    Moq = 1,
+    NSubstitute = 2,
+    FakeItEasy = 4,
+    FluentAssertions = 8,
+    Shouldly = 16,
+}
+
 /// <summary>Per-framework facts used to prompt for, check and count tests. <c>DataTestAttributes</c> are the
-/// data-driven attributes (Theory, TestCase, ...) that count as test methods besides <c>TestAttribute</c>.</summary>
+/// data-driven attributes (Theory, TestCase, ...) that count as test methods besides <c>TestAttribute</c>.
+/// <c>AssertEqualFormat</c> is the equality assertion with <c>{0}</c> = expected and <c>{1}</c> = actual.</summary>
 public sealed record FrameworkInfo(
     TestFramework Framework,
     string TestAttribute,
@@ -15,7 +28,12 @@ public sealed record FrameworkInfo(
     IReadOnlyList<string> SkipMarkers,
     IReadOnlyList<string> ThrowsAssertions,
     string ExampleTest,
-    IReadOnlyList<string> DataTestAttributes);
+    IReadOnlyList<string> DataTestAttributes,
+    string AssertEqualFormat)
+{
+    public string AssertEqual(string expected, string actual) =>
+        string.Format(System.Globalization.CultureInfo.InvariantCulture, AssertEqualFormat, expected, actual);
+}
 
 public static class TestFrameworks
 {
@@ -38,7 +56,8 @@ public static class TestFrameworks
             Assert.AreEqual(5, result);
         }
         """,
-        ["DataTestMethod"]);
+        ["DataTestMethod"],
+        "Assert.AreEqual({0}, {1});");
 
     private static readonly FrameworkInfo NUnit = new(
         TestFramework.NUnit, "Test", "TestFixture",
@@ -56,7 +75,8 @@ public static class TestFrameworks
             Assert.That(result, Is.EqualTo(5));
         }
         """,
-        ["TestCase", "TestCaseSource"]);
+        ["TestCase", "TestCaseSource"],
+        "Assert.That({1}, Is.EqualTo({0}));");
 
     private static FrameworkInfo Xunit(TestFramework framework) => new(
         framework, "Fact", null,
@@ -74,7 +94,8 @@ public static class TestFrameworks
             Assert.Equal(5, result);
         }
         """,
-        ["Theory"]);
+        ["Theory"],
+        "Assert.Equal({0}, {1});");
 
     public static FrameworkInfo Info(TestFramework f) => f switch
     {
@@ -111,6 +132,19 @@ public static class TestFrameworks
         if (id.Equals("MSTest.TestFramework", StringComparison.OrdinalIgnoreCase)) return TestFramework.MsTest;
         if (id.Equals("NUnit", StringComparison.OrdinalIgnoreCase)) return TestFramework.NUnit;
         return null;
+    }
+
+    /// <summary>The mocking and assertion packages among the project's package ids (case-insensitive).</summary>
+    public static TestLibraries Libraries(IFileSystem fs, string testCsproj)
+    {
+        var found = TestLibraries.None;
+        foreach (var id in PackageIds(fs, testCsproj))
+        {
+            foreach (var library in Enum.GetValues<TestLibraries>())
+                if (library != TestLibraries.None && id.Equals(library.ToString(), StringComparison.OrdinalIgnoreCase))
+                    found |= library;
+        }
+        return found;
     }
 
     private static IEnumerable<string> PackageIds(IFileSystem fs, string testCsproj)

@@ -26,19 +26,23 @@ public static class CharTestStaticJudge
 
     private static readonly string[] EnvTypes = ["SqlConnection", "HttpClient"];
 
+    /// <param name="libraries">Mocking and assertion packages the test project references: an unreferenced mocking library is a
+    /// shape rejection; a referenced one's verification calls (Moq <c>Verify</c>, NSubstitute <c>Received</c>) and a referenced
+    /// assertion library's calls (FluentAssertions <c>Should()</c>, Shouldly <c>Should*</c>) count as assertions.</param>
     public static IReadOnlyList<CharTestRejection> Judge(
         CharTestOutput output, FrameworkInfo fw, int count, string targetMethodName,
-        IReadOnlySet<string> existingMemberNames, LanguageVersion version)
+        IReadOnlySet<string> existingMemberNames, LanguageVersion version, TestLibraries libraries = TestLibraries.None)
     {
         var tree = CSharpSyntaxTree.ParseText(
             "class __P {\n" + string.Join("\n", output.Members) + "\n}", new CSharpParseOptions(version));
         var cls = tree.GetCompilationUnitRoot().Members.OfType<ClassDeclarationSyntax>().First();
 
         var shape = JudgeShape(cls, fw, count, existingMemberNames);
+        shape.AddRange(JudgeMocking(cls, output.Usings, libraries));
         if (shape.Count > 0) return shape;
 
         var tests = cls.Members.OfType<MethodDeclarationSyntax>().Where(m => IsTest(m, fw)).ToList();
-        var calls = JudgeCallsAndAsserts(cls, tests, fw, targetMethodName);
+        var calls = JudgeCallsAndAsserts(cls, tests, fw, targetMethodName, libraries);
         if (calls.Count > 0) return calls;
 
         return JudgeEnvironment(cls);
@@ -70,6 +74,35 @@ public static class CharTestStaticJudge
 
     private static bool IsPrivate(MemberDeclarationSyntax m) =>
         m.Modifiers.Any(SyntaxKind.PrivateKeyword) && !m.Modifiers.Any(SyntaxKind.ProtectedKeyword);
+
+    private static readonly TestLibraries[] MockingLibraries = [TestLibraries.Moq, TestLibraries.NSubstitute, TestLibraries.FakeItEasy];
+
+    /// <summary>Uses of a mocking library the test project does not reference (its using, <c>Mock&lt;T&gt;</c>,
+    /// <c>Substitute.For</c>, <c>A.Fake</c>/<c>A.CallTo</c>): one rejection per library.</summary>
+    private static List<CharTestRejection> JudgeMocking(ClassDeclarationSyntax cls, IReadOnlyList<string> usings, TestLibraries libraries)
+    {
+        var hits = new List<(TestLibraries Library, string? Owner)>();
+        foreach (var u in usings)
+        {
+            var name = u.Trim().TrimEnd(';').Replace("using ", "", StringComparison.Ordinal).Trim();
+            foreach (var library in MockingLibraries)
+                if (name == library.ToString() || name.StartsWith(library + ".", StringComparison.Ordinal)) hits.Add((library, null));
+        }
+        foreach (var g in cls.DescendantNodes().OfType<GenericNameSyntax>())
+            if (g.Identifier.Text == "Mock") hits.Add((TestLibraries.Moq, OwnerName(g)));
+        foreach (var ma in cls.DescendantNodes().OfType<MemberAccessExpressionSyntax>())
+        {
+            if (ma.Expression is not IdentifierNameSyntax { Identifier.Text: var receiver }) continue;
+            var member = ma.Name.Identifier.Text;
+            if (receiver == "Substitute" && member is "For" or "ForPartsOf") hits.Add((TestLibraries.NSubstitute, OwnerName(ma)));
+            else if (receiver == "A" && member is "Fake" or "CallTo") hits.Add((TestLibraries.FakeItEasy, OwnerName(ma)));
+        }
+
+        return hits.Where(h => (libraries & h.Library) == 0).DistinctBy(h => h.Library)
+            .Select(h => new CharTestRejection(FailureKinds.CharTestShape, h.Owner,
+                $"테스트 프로젝트에 {h.Library} 패키지가 없습니다. 대역은 private 중첩 클래스로 직접 만드세요"))
+            .ToList();
+    }
 
     private static List<CharTestRejection> JudgeShape(
         ClassDeclarationSyntax cls, FrameworkInfo fw, int count, IReadOnlySet<string> existing)
@@ -171,14 +204,34 @@ public static class CharTestStaticJudge
         return nodes;
     }
 
-    private static bool IsAssertionInvocation(InvocationExpressionSyntax inv, FrameworkInfo fw)
+    /// <summary>
+    /// The expressions that must not all be literals when <paramref name="inv"/> is an assertion (the arguments of an
+    /// <c>Assert.*</c> call, the receiver of a <c>Should()</c>/<c>Should*</c>/<c>Verify</c>/<c>Received</c> call), or null when it
+    /// is not one.
+    /// </summary>
+    private static IReadOnlyList<ExpressionSyntax>? AssertionSubjects(InvocationExpressionSyntax inv, FrameworkInfo fw, TestLibraries libraries)
     {
+        var arguments = inv.ArgumentList.Arguments.Select(a => a.Expression).ToList();
         var text = NoSpace(inv.Expression);
         var plain = System.Text.RegularExpressions.Regex.Replace(text, "<[^<>]*>", "");
         var segments = plain.Split('.');
         if (segments.Length >= 2 && segments[..^1].Any(s => s is "Assert" or "CollectionAssert" or "StringAssert"))
-            return true;
-        return fw.ThrowsAssertions.Any(t => t.Contains('.') && plain.StartsWith(t, StringComparison.Ordinal));
+            return arguments;
+        if (fw.ThrowsAssertions.Any(t => t.Contains('.') && plain.StartsWith(t, StringComparison.Ordinal)))
+            return arguments;
+
+        if (inv.Expression is not MemberAccessExpressionSyntax ma) return null;
+        var name = ma.Name.Identifier.Text;
+        var receiver = ma.Expression;
+        if (libraries.HasFlag(TestLibraries.FluentAssertions) && name == "Should") return [receiver];
+        if (libraries.HasFlag(TestLibraries.Shouldly))
+        {
+            if (receiver is IdentifierNameSyntax { Identifier.Text: "Should" }) return arguments; // Should.Throw(() => ...)
+            if (name.StartsWith("Should", StringComparison.Ordinal) && name.Length > "Should".Length) return [receiver];
+        }
+        if (libraries.HasFlag(TestLibraries.Moq) && name is "Verify" or "VerifyAll") return [receiver];
+        if (libraries.HasFlag(TestLibraries.NSubstitute) && name is "Received" or "DidNotReceive") return [receiver];
+        return null;
     }
 
     private static bool IsLiteral(ExpressionSyntax e) => e switch
@@ -190,7 +243,7 @@ public static class CharTestStaticJudge
     };
 
     private static List<CharTestRejection> JudgeCallsAndAsserts(
-        ClassDeclarationSyntax cls, List<MethodDeclarationSyntax> tests, FrameworkInfo fw, string target)
+        ClassDeclarationSyntax cls, List<MethodDeclarationSyntax> tests, FrameworkInfo fw, string target, TestLibraries libraries)
     {
         var result = new List<CharTestRejection>();
         foreach (var test in tests)
@@ -206,10 +259,10 @@ public static class CharTestStaticJudge
             }
 
             var attrAssert = Attrs(test).Any(a => fw.ThrowsAssertions.Contains(AttrName(a)));
-            var asserts = invocations.Where(i => IsAssertionInvocation(i, fw)).ToList();
+            var asserts = invocations.Select(i => AssertionSubjects(i, fw, libraries)).OfType<IReadOnlyList<ExpressionSyntax>>().ToList();
             if (!attrAssert && asserts.Count == 0)
                 result.Add(new(FailureKinds.CharTestNoAssert, name, "테스트에 단언이 없습니다"));
-            else if (!attrAssert && asserts.All(a => a.ArgumentList.Arguments.All(x => IsLiteral(x.Expression))))
+            else if (!attrAssert && asserts.All(a => a.All(IsLiteral)))
                 result.Add(new(FailureKinds.CharTestNoAssert, name, "단언의 인자가 모두 리터럴입니다 (대상의 결과를 단언해야 함)"));
         }
 

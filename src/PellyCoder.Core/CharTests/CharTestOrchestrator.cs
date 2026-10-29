@@ -260,6 +260,7 @@ public sealed class CharTestOrchestrator(
                 return Stop(ExitCodes.EnvError, FailureKinds.TestUnverifiable, $"{frameworkError}: {single}");
             _framework = TestFrameworks.Info(fw);
             _state.Framework = _framework;
+            _libraries = TestFrameworks.Libraries(Fs, single);
 
             try
             {
@@ -328,6 +329,7 @@ public sealed class CharTestOrchestrator(
         }
 
         private string _methodName = "";
+        private TestLibraries _libraries;
         private string _typeName = "";
         private FileSnapshot? _newFileLike;
 
@@ -449,7 +451,8 @@ public sealed class CharTestOrchestrator(
 
             var names = TestClassContext.TestMethodNames(output, _framework, _testLanguage.Version);
             _state.Generated = names.Count;
-            var rejections = CharTestStaticJudge.Judge(output, _framework, _request.Count, _methodName, parts.TestClass.MemberNames, _testLanguage.Version);
+            var rejections = CharTestStaticJudge.Judge(output, _framework, _request.Count, _methodName, parts.TestClass.MemberNames, _testLanguage.Version,
+                _libraries);
             if (rejections.Count > 0)
             {
                 var kind = rejections[0].Kind;

@@ -2,6 +2,7 @@ using System.Globalization;
 using System.IO.Abstractions;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using PellyCoder.Core.CharTests;
 using PellyCoder.Core.Fsm;
 using PellyCoder.Core.Llm;
 using PellyCoder.Core.Models;
@@ -19,7 +20,7 @@ public sealed record RunSummary(
     int InputTokensLocal, int? InputTokensServer, int? InputTokensCached,
     IReadOnlyList<MatchStage> MatchStages, IReadOnlyList<string> ErrorCodes, int FormatErrors, string? FailureKind,
     IReadOnlyList<string>? RulesIncluded = null, IReadOnlyList<string>? RulesDropped = null,
-    TestFirstSummary? TestFirst = null, SqlProdCheckSummary? SqlProd = null);
+    TestFirstSummary? TestFirst = null, SqlProdCheckSummary? SqlProd = null, CharTestSummary? CharTest = null);
 
 /// <summary>
 /// Production comparison recorded in the run summary: the outcome name and the three normalized hashes (no definition text).
@@ -143,7 +144,8 @@ public sealed class RunLogger(IFileSystem fs, TimeProvider time)
             ctx.SqlProd is { } p
                 ? new SqlProdCheckSummary(p.Outcome.ToString(), p.FileHash, p.ProdHash, p.PulledHash,
                     ctx.Sql?.RecordRefresh is { } refresh && ctx.Current is { } current && refresh.IsIn(current.Text))
-                : null);
+                : null,
+            ctx.CharTest?.Summary());
     }
 
     private static TestFirstSummary? SummarizeTestFirst(RunContext ctx)

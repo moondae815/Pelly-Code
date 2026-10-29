@@ -1,6 +1,7 @@
 using System.IO.Abstractions;
 using PellyCoder.Core.Abstractions;
 using PellyCoder.Core.Builds;
+using PellyCoder.Core.CharTests;
 using PellyCoder.Core.Config;
 using PellyCoder.Core.Feedbacks;
 using PellyCoder.Core.Files;
@@ -42,6 +43,30 @@ public static class FsmOrchestratorFactory
             new ReviewPhase(ui),
         ];
         return new FsmOrchestrator(phases, fileGuard, logger, fs, options, ui, time);
+    }
+
+    /// <summary>
+    /// <c>pelly test</c>: the same PREFLIGHT and LOCATE (with the baseline tests), then the characterization-test steps (design
+    /// §3, §4). <paramref name="isWindows"/> decides whether legacy projects can be built and tested.
+    /// </summary>
+    public static CharTestOrchestrator CreateCharTest(IFileSystem fs, ILlmBackend backend, IUserInteraction ui, PellyOptions options,
+        TimeProvider time, IProcessRunner processes, Func<bool>? isWindows = null)
+    {
+        var tokens = QwenTokenCounter.Shared;
+        var template = options.Llm.Template is { } path ? QwenChatTemplate.LoadFromFile(fs, path) : QwenChatTemplate.LoadDefault();
+        var fileGuard = new FileGuard(fs, time);
+        var logger = new RunLogger(fs, time);
+        var resources = PromptResources.LoadDefault();
+        var client = new QwenStreamClient(backend, template, options.Llm, options.Budget, options.Sampling, time);
+        var builds = new BuildVerifier(processes, options.Build);
+        var tests = new TestRunner(processes, options.Build, options.Test);
+        var preflight = new PreflightPhase(fs, fileGuard, backend, options.Llm, tokens.SpecialTokens);
+        var locate = new LocatePhase(fs, ui, new BuildToolResolver(fs, processes, options.Build, isWindows), builds,
+            new ModelMemberPicker(backend, template, resources, options.Llm, options.Sampling), isWindows, tests);
+        var prompts = new CharTestPromptBuilder(tokens, options.Budget, template, resources);
+        var feedback = new CharTestFeedback(new FeedbackBuilder(tokens, options.Budget.Feedback), tokens, options.Budget.Feedback);
+        return new CharTestOrchestrator(fs, preflight, locate, fileGuard, logger, client, prompts, feedback, tests, tokens,
+            tokens.SpecialTokens, ui, options, time);
     }
 
     /// <summary>The SQL pipeline: same EDIT/REVIEW, SQL-specific preflight, locate, slice, apply and verify.</summary>

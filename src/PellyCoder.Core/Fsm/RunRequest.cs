@@ -285,6 +285,9 @@ public sealed class RunContext(string runId, RunRequest request, PellyOptions op
     /// <summary>Set by LOCATE in a test-first run (in a dry run without hashes); null otherwise.</summary>
     public TestFirstState? TestFirst { get; set; }
 
+    /// <summary>Set by <c>pelly test</c> (<see cref="PellyCoder.Core.CharTests.CharTestOrchestrator"/>); null in other runs.</summary>
+    public PellyCoder.Core.CharTests.CharTestState? CharTest { get; set; }
+
     public SliceResult SliceResult { get; set; } = null!;
     public PromptBuildResult? Prompt { get; set; }
     public string? ModelOutput { get; set; }

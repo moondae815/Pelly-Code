@@ -108,8 +108,8 @@ public static class TestClassWriter
     }
 
     /// <summary>
-    /// Adds a <c>Compile Include</c> item to a non-SDK csproj after the last one (same indent and line break). Null for an SDK
-    /// project (globbing needs no change). Without any <c>Compile Include</c>, a new <c>ItemGroup</c> goes before <c>&lt;/Project&gt;</c>.
+    /// Adds a <c>Compile Include</c> item to a non-SDK csproj after the last one (same indent and line break). Null only for an SDK
+    /// project (globbing needs no change); throws <see cref="InvalidOperationException"/> when there is no <c>&lt;/Project&gt;</c>. Without a placeable <c>Compile Include</c>, a new <c>ItemGroup</c> goes before <c>&lt;/Project&gt;</c>.
     /// </summary>
     public static string? AddCompileInclude(string csprojText, string relativePath)
     {
@@ -119,24 +119,21 @@ public static class TestClassWriter
         var escaped = System.Security.SecurityElement.Escape(relativePath);
         var item = $"<Compile Include=\"{escaped}\" />";
 
-        var matches = Regex.Matches(csprojText, @"^([ \t]*)<Compile\s+Include=[^\r\n]*(?=\r?$)", RegexOptions.Multiline);
-        if (matches.Count > 0)
+        // Whole elements, so attributes may spread over lines; the last Include item that starts its own line is the anchor.
+        var elements = Regex.Matches(csprojText, @"<Compile\b[^>]*?/>|<Compile\b[^>]*>[\s\S]*?</Compile>")
+            .Where(m => Regex.IsMatch(m.Value, @"^<Compile\b[^>]*\bInclude\s*=")
+                && IsBlank(csprojText, LineStart(csprojText, m.Index), m.Index))
+            .ToList();
+        if (elements.Count > 0)
         {
-            var last = matches[^1];
-            var end = last.Index + last.Length; // before the line break (a trailing \r is part of the match when CRLF)
-            var lineText = last.Value.TrimEnd('\r');
-            var insertAt = last.Index + lineText.Length;
-            if (!lineText.TrimEnd().EndsWith("/>", StringComparison.Ordinal) && !lineText.Contains("</Compile>"))
-            {
-                var close = csprojText.IndexOf("</Compile>", end, StringComparison.Ordinal);
-                if (close < 0) return null;
-                insertAt = close + "</Compile>".Length;
-            }
-            return csprojText.Insert(insertAt, eol + last.Groups[1].Value + item);
+            var last = elements[^1];
+            var indent = csprojText[LineStart(csprojText, last.Index)..last.Index];
+            return csprojText.Insert(last.Index + last.Length, eol + indent + item);
         }
 
+        // No Include item we can place safely: a new ItemGroup is always valid.
         var projectEnd = csprojText.LastIndexOf("</Project>", StringComparison.Ordinal);
-        if (projectEnd < 0) return null;
+        if (projectEnd < 0) throw new InvalidOperationException("csproj에 </Project>가 없습니다: " + relativePath);
         var at = LineStart(csprojText, projectEnd);
         var block = $"  <ItemGroup>{eol}    {item}{eol}  </ItemGroup>{eol}";
         return csprojText.Insert(at, block);

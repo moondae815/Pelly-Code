@@ -146,4 +146,27 @@ public sealed class TestClassWriterTests
         var result = TestClassWriter.AddCompileInclude(text, "C.cs");
         Assert.Equal("<Project ToolsVersion=\"15.0\">\n  <PropertyGroup />\n  <ItemGroup>\n    <Compile Include=\"C.cs\" />\n  </ItemGroup>\n</Project>\n", result);
     }
+
+    [Fact]
+    public void AddCompileInclude_MultiLineCompileWithoutClosingTag_NewItemGroup()
+    {
+        var text = "<Project>\n  <ItemGroup>\n    <Compile Include=\"A.cs\"\n      Link=\"x\">\n  </ItemGroup>\n</Project>\n";
+        var result = TestClassWriter.AddCompileInclude(text, "C.cs");
+        Assert.Equal(text.Replace("</Project>", "  <ItemGroup>\n    <Compile Include=\"C.cs\" />\n  </ItemGroup>\n</Project>"), result);
+    }
+
+    [Fact]
+    public void AddCompileInclude_NoProjectEnd_Throws()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() => TestClassWriter.AddCompileInclude("<Project>\n  <PropertyGroup />\n", "C.cs"));
+        Assert.Contains("</Project>", ex.Message);
+    }
+
+    [Fact]
+    public void AddCompileInclude_AttributesSpreadAcrossLines_InsertsAfterWholeElement()
+    {
+        var text = "<Project>\n  <ItemGroup>\n    <Compile Include=\"A.cs\" />\n    <Compile\n      Include=\"B.cs\"\n      Link=\"b\">\n      <Dep>A.cs</Dep>\n    </Compile>\n  </ItemGroup>\n</Project>\n";
+        var result = TestClassWriter.AddCompileInclude(text, "C.cs");
+        Assert.Equal(text.Replace("    </Compile>\n", "    </Compile>\n    <Compile Include=\"C.cs\" />\n"), result);
+    }
 }

@@ -124,12 +124,12 @@ public sealed class RunReportTests
         Assert.Equal(3, RunReport.Build([new RunRecord(a, DateTimeOffset.UnixEpoch), new RunRecord(b, DateTimeOffset.UnixEpoch)]).TestFirst!.BreaksExcluded);
     }
 
-    private static RunRecord CtRec(int i, int exit, int attempts, string? failure = null)
+    private static RunRecord CtRec(int i, int exit, int attempts, string? failure = null, bool dryRun = false)
     {
         var s = RunHistoryTests.Summary($"20261001-10102{i}-aaaa", exit, attempts, failure: failure, kind: EditKind.CSharpTest) with
         {
             PromptVersion = "cs-test-v1",
-            CharTest = new PellyCoder.Core.CharTests.CharTestSummary(3, 3, exit == 0 ? 3 : 0, 3, true, 3, null, "xUnit", false),
+            CharTest = new PellyCoder.Core.CharTests.CharTestSummary(3, 3, exit == 0 && !dryRun ? 3 : 0, 3, true, 3, null, "xUnit", false),
         };
         return new RunRecord(s, DateTimeOffset.UnixEpoch);
     }
@@ -169,6 +169,16 @@ public sealed class RunReportTests
         Assert.Equal(new Dictionary<string, int> { ["CharTestBuild"] = 1, ["CharTestFlaky"] = 1 }, ct.FailureKinds);
         Assert.Equal("특성 테스트: 실행 4건, 남김 2건(성공률 50.0%), 평균 시도 2.0, 실패 유형 CharTestBuild 1, CharTestFlaky 1", ct.Line());
         Assert.Equal(0, d.RunCount);
+    }
+
+    [Fact]
+    public void Build_CharTestDryRun_NotCountedAsKept()
+    {
+        var d = RunReport.Build([CtRec(1, 0, 1), CtRec(2, 0, 1, dryRun: true)]);
+
+        Assert.Equal(2, d.CharTest!.Runs);
+        Assert.Equal(1, d.CharTest.Kept);
+        Assert.Contains("남김 1건(성공률 50.0%)", d.CharTest.Line());
     }
 
     [Fact]

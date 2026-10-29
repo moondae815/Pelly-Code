@@ -318,11 +318,22 @@ public class ReportCommandTests
         Assert.Contains("2건", RowOf(output, "테스트로 검증되지 않은 수용 기준"));
     }
 
-    private static void AddCharTestRun(MockFileSystem fs, string id, int exit, int attempts, string? failure = null)
+    private static void AddCharTestRun(MockFileSystem fs, string id, int exit, int attempts, string? failure = null, bool dryRun = false)
     {
         var s = new RunSummary(id, "1.0", null, "m", "cs-test-v1", EditKind.CSharpTest, "Sdk", exit, attempts,
-            new Dictionary<RunPhase, double> { [RunPhase.Edit] = 2 }, 0.8, 0.1, "Retry", 100, false, 10, null, null, [], [], 0, failure);
+            new Dictionary<RunPhase, double> { [RunPhase.Edit] = 2 }, 0.8, 0.1, "Retry", 100, false, 10, null, null, [], [], 0, failure,
+            CharTest: new PellyCoder.Core.CharTests.CharTestSummary(3, 3, exit == 0 && !dryRun ? 3 : 0, 3, true, 3, null, "xUnit", false));
         fs.AddFile($"/w/.pelly/runs/{id}/summary.json", new MockFileData(JsonSerializer.Serialize(s, Json)));
+    }
+
+    [Fact]
+    public void Report_CharTestDryRun_NotKept()
+    {
+        var (app, _, fs) = Build();
+        AddCharTestRun(fs, "20261002-101010-bbbb", 0, 1);
+        AddCharTestRun(fs, "20261003-101010-cccc", 0, 1, dryRun: true);
+
+        Assert.Contains("실행 2건, 남김 1건(성공률 50.0%)", app.Run("report").Output);
     }
 
     [Fact]

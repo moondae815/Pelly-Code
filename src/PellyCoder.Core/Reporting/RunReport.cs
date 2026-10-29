@@ -34,7 +34,7 @@ public sealed record RunReportData(
     CharTestCounts? CharTest = null);
 
 /// <summary>
-/// <c>pelly test</c> runs (kind <c>CSharpTest</c>): runs, runs that kept tests (exit 0), mean attempts and failure kinds.
+/// <c>pelly test</c> runs (kind <c>CSharpTest</c>): runs, runs that kept tests (CharTest.Kept > 0; a dry-run exits 0 but keeps nothing), mean attempts and failure kinds.
 /// These runs are not edits, so they stay out of every other figure in <see cref="RunReportData"/>.
 /// </summary>
 public sealed record CharTestCounts(int Runs, int Kept, double MeanAttempts, IReadOnlyDictionary<string, int> FailureKinds)
@@ -98,7 +98,7 @@ public static class RunReport
             .GroupBy(x => FailureKinds.IsKnown(x.FailureKind) ? x.FailureKind! : "Other")
             .OrderByDescending(g => g.Count()).ThenBy(g => g.Key, StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => g.Count());
-        return new CharTestCounts(s.Count, s.Count(x => x.ExitCode == ExitCodes.Success), s.Average(x => x.Attempts), failures);
+        return new CharTestCounts(s.Count, s.Count(x => x.CharTest is { Kept: > 0 }), s.Average(x => x.Attempts), failures);
     }
 
     private static TestFirstCounts? CountTestFirst(List<RunSummary> s)

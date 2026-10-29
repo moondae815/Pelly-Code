@@ -320,6 +320,26 @@ public sealed class ReportSanitizerTests
     }
 
     [Fact]
+    public void Sanitize_OnlyCharTestRuns_DryRunNotKept()
+    {
+        var kept = RunHistoryTests.Summary("20261018-101010-abcd", 0, 1, kind: EditKind.CSharpTest) with
+        {
+            PromptVersion = "cs-test-v1",
+            CharTest = new PellyCoder.Core.CharTests.CharTestSummary(3, 3, 3, 3, true, 3, null, "xUnit", false),
+        };
+        var dry = kept with { RunId = "20261018-101011-abcd", CharTest = kept.CharTest! with { Kept = 0 } };
+        var runs = new[] { Rec(kept), Rec(dry) };
+
+        var report = ReportSanitizer.Sanitize(runs, RunReport.Build(runs));
+
+        Assert.Equal(0, report.Aggregate.RunCount);
+        Assert.Equal(2, report.Aggregate.CharTest!.Runs);
+        Assert.Equal(1, report.Aggregate.CharTest.Kept);
+        Assert.Contains("특성 테스트: 실행 2건, 남김 1건(성공률 50.0%), 평균 시도 1.0, 실패 유형 없음", report.ToMarkdown());
+        Assert.DoesNotContain("invalid", report.ToJson());
+    }
+
+    [Fact]
     public void Sanitize_WithoutCharTestRuns_HasNoCharTestOutput()
     {
         var runs = new[] { Rec(Injected()) };

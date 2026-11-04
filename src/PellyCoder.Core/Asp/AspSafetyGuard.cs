@@ -94,7 +94,7 @@ public static class AspSafetyGuard
     /// </summary>
     private static Dictionary<int, VariableState> Walk(
         AspPage page, HashSet<string> sanitizers, Dictionary<int, HashSet<string>> permanent, bool collect,
-        Action<VbStatement, int?>? onStatement)
+        Action<VbStatement, int?>? onStatement, Dictionary<int, HashSet<string>>? everSql = null)
     {
         var states = new Dictionary<int, VariableState>();
         var depths = new Dictionary<int, int>();
@@ -118,6 +118,13 @@ public static class AspSafetyGuard
                 analyzer.CollectSqlVariables();
             var sqlLine = analyzer.Process(conditional: depth > 0);
             onStatement?.Invoke(statement, sqlLine);
+            if (everSql is not null)
+            {
+                // A later reset (`w = ""` after the last SQL use) must not drop a variable that was SQL at any point.
+                if (!everSql.TryGetValue(scope, out var ever))
+                    everSql[scope] = ever = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                ever.UnionWith(state.Sql);
+            }
             if (OpensBlock(statement.Tokens))
                 depth++;
             depths[scope] = depth;
@@ -140,11 +147,13 @@ public static class AspSafetyGuard
         do
         {
             changed = false;
-            foreach (var (scope, state) in Walk(page, sanitizers, permanent, collect: true, onStatement: null))
+            var everSql = new Dictionary<int, HashSet<string>>();
+            Walk(page, sanitizers, permanent, collect: true, onStatement: null, everSql);
+            foreach (var (scope, ever) in everSql)
             {
                 if (!permanent.TryGetValue(scope, out var names))
                     permanent[scope] = names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                foreach (var name in state.Sql)
+                foreach (var name in ever)
                     changed |= names.Add(name);
             }
         }

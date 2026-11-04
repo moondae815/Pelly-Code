@@ -342,4 +342,17 @@ public class AspSafetyGuardTests
 
         Assert.Empty(New(original, patched));
     }
+    [Theory]
+    [InlineData("Request(\"a\")")]
+    [InlineData("\"\" & Request(\"a\")")]
+    [InlineData("\" WHERE 1=1\"")]
+    public void Accumulator_TrailingReset_NewTaintedFragment_Rejected(string initial)
+    {
+        const string tail = "sql = \"SELECT * FROM t\" & w\nrs.Open sql, conn\nw = \"\"\n%>";
+        var original = "<%\nw = " + initial + "\n" + tail;
+        var patched = "<%\nw = " + initial + "\nw = w & \" AND b='\" & Request(\"b\") & \"'\"\n" + tail;
+
+        var finding = Assert.Single(New(original, patched));
+        Assert.Equal(("SqlConcatRequest", 3), (finding.Rule, finding.Line));
+    }
 }

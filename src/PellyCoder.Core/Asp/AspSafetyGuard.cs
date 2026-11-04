@@ -67,7 +67,7 @@ public static class AspSafetyGuard
     private static List<Keyed> Collect(AspPage page, IReadOnlyList<string> sanitizers, bool includeFileSystemObject)
     {
         var siteSanitizers = new HashSet<string>(sanitizers, StringComparer.OrdinalIgnoreCase);
-        var states = new Dictionary<int, VariableState>();
+        var states = SqlVariablePrePass(page, siteSanitizers);
         var depths = new Dictionary<int, int>();
         var result = new List<Keyed>();
         for (var i = 0; i < page.Statements.Count; i++)
@@ -84,8 +84,7 @@ public static class AspSafetyGuard
             if (OnErrorResumeNextLine(statement.Tokens) is { } errorLine)
                 Add(OnErrorResumeNext, errorLine);
             var scope = ScopeOf(page, statement);
-            if (!states.TryGetValue(scope, out var state))
-                states[scope] = state = new VariableState();
+            var state = states[scope];
             // Statements of a scope are walked in order; inside an If/Select/loop block assignments only add state.
             var depth = depths.GetValueOrDefault(scope);
             if (ClosesBlock(statement.Tokens))
@@ -98,6 +97,32 @@ public static class AspSafetyGuard
             depths[scope] = depth;
         }
         return result;
+    }
+
+    /// <summary>
+    /// Per scope, the variables that are SQL text from their first assignment (fixpoint): assigned an expression with a
+    /// SQL-word literal or SQL variable, or used as an operand of a concatenation with a SQL literal or SQL variable.
+    /// A WHERE accumulator (<c>w = " WHERE 1=1"</c> … <c>sql = "SELECT …" &amp; w</c>) is therefore SQL on every
+    /// fragment line, so a tainted fragment is flagged on its own statement.
+    /// </summary>
+    private static Dictionary<int, VariableState> SqlVariablePrePass(AspPage page, HashSet<string> sanitizers)
+    {
+        var states = new Dictionary<int, VariableState>();
+        foreach (var group in page.Statements.GroupBy(s => ScopeOf(page, s)))
+        {
+            var state = new VariableState();
+            states[group.Key] = state;
+            bool changed;
+            do
+            {
+                changed = false;
+                foreach (var statement in group)
+                    changed |= new ConcatAnalyzer(statement.Tokens, sanitizers, state).CollectSqlVariables();
+            }
+            while (changed);
+            state.PermanentSql.UnionWith(state.Sql);
+        }
+        return states;
     }
 
     /// <summary>Multi-line <c>If … Then</c>, <c>Select Case</c>, <c>For</c>, <c>Do</c> or <c>While</c>.</summary>
@@ -175,6 +200,12 @@ public static class AspSafetyGuard
     {
         public HashSet<string> Tainted { get; } = new(StringComparer.OrdinalIgnoreCase);
         public HashSet<string> Sql { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>SQL variables from the pre-pass: never cleared by a non-SQL assignment.</summary>
+        public HashSet<string> PermanentSql { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Tainted variables whose every taint came from a statement already reported as SQL concatenation.</summary>
+        public HashSet<string> TaintReported { get; } = new(StringComparer.OrdinalIgnoreCase);
     }
 
     private sealed class ConcatAnalyzer(IReadOnlyList<VbToken> tokens, HashSet<string> sanitizers, VariableState state)
@@ -204,8 +235,9 @@ public static class AspSafetyGuard
                         continue;
                 }
                 var partEnd = !atEnd && IsWord(tokens[k], "Then") ? k + 1 : k;
-                found ??= FindSqlConcat(partStart, partEnd);
-                ApplyAssignment(partStart, partEnd, conditional || afterThen);
+                var hit = FindSqlConcat(partStart, partEnd);
+                found ??= hit;
+                ApplyAssignment(partStart, partEnd, conditional || afterThen, hit is not null);
                 if (!atEnd && IsWord(tokens[k], "Then"))
                     afterThen = true;
                 partStart = k + 1;
@@ -217,21 +249,127 @@ public static class AspSafetyGuard
         /// <c>x = …</c> or <c>Set x = …</c>: x is tainted when the right side contains a tainted operand and a SQL
         /// variable when it contains a SQL-word literal or a SQL variable. A conditional assignment never clears.
         /// </summary>
-        private void ApplyAssignment(int start, int end, bool conditional)
+        private void ApplyAssignment(int start, int end, bool conditional, bool reported)
         {
             var p = start < end && IsWord(tokens[start], "Set") ? start + 1 : start;
             if (p + 2 >= end || tokens[p].Kind != VbTokenKind.Identifier || !IsOperator(tokens[p + 1], "="))
                 return;
             var name = tokens[p].Text;
             var tainted = ContainsTaint(p + 2, end);
-            var sql = false;
-            for (var k = p + 2; k < end; k++)
-                sql |= (tokens[k].Kind == VbTokenKind.String && SqlWord.IsMatch(Unescape(tokens[k].Text)))
-                    || (tokens[k].Kind == VbTokenKind.Identifier && tokens[k - 1].Kind != VbTokenKind.Dot
-                        && state.Sql.Contains(tokens[k].Text));
+            var sql = AssignsSql(p + 2, end);
+            // Taint introduced by a reported statement is not reported again where the variable is used; taint from
+            // an unreported assignment (e.g. `n = Request("n")`) still is.
+            var wasUnreported = state.Tainted.Contains(name) && !state.TaintReported.Contains(name);
+            if (!tainted)
+                Set(state.TaintReported, name, false, conditional);
+            else if (!reported || (conditional && wasUnreported))
+                state.TaintReported.Remove(name);
+            else
+                state.TaintReported.Add(name);
             Set(state.Tainted, name, tainted, conditional);
-            Set(state.Sql, name, sql, conditional);
+            Set(state.Sql, name, sql, conditional || state.PermanentSql.Contains(name));
         }
+
+        private bool AssignsSql(int start, int end)
+        {
+            for (var k = start; k < end; k++)
+            {
+                if ((tokens[k].Kind == VbTokenKind.String && SqlWord.IsMatch(Unescape(tokens[k].Text)))
+                    || (tokens[k].Kind == VbTokenKind.Identifier && tokens[k - 1].Kind != VbTokenKind.Dot
+                        && state.Sql.Contains(tokens[k].Text)))
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Pre-pass step: adds to the SQL set every assignment target whose right side holds SQL text and every
+        /// plain-variable operand of a concatenation with a SQL literal or SQL variable. Returns whether the set grew.
+        /// </summary>
+        public bool CollectSqlVariables()
+        {
+            var before = state.Sql.Count;
+            for (var start = 0; start < tokens.Count; start++)
+            {
+                // Every part start (statement start, after `:`/`Then`/`Else`) may begin an assignment.
+                if (start > 0 && !(IsOperator(tokens[start - 1], ":") || IsWord(tokens[start - 1], "Then")
+                    || IsWord(tokens[start - 1], "Else")))
+                    continue;
+                var q = start < tokens.Count && IsWord(tokens[start], "Set") ? start + 1 : start;
+                if (q + 2 < tokens.Count && tokens[q].Kind == VbTokenKind.Identifier && IsOperator(tokens[q + 1], "=")
+                    && AssignsSql(q + 2, PartEnd(q + 2)))
+                    state.Sql.Add(tokens[q].Text);
+            }
+            CollectChainOperands(0, tokens.Count);
+            return state.Sql.Count != before;
+        }
+
+        private int PartEnd(int start)
+        {
+            var depth = 0;
+            for (var k = start; k < tokens.Count; k++)
+            {
+                if (tokens[k].Kind == VbTokenKind.OpenParen)
+                    depth++;
+                else if (tokens[k].Kind == VbTokenKind.CloseParen)
+                    depth--;
+                else if (depth <= 0 && (IsOperator(tokens[k], ":") || IsWord(tokens[k], "Else")))
+                    return k;
+            }
+            return tokens.Count;
+        }
+
+        private void CollectChainOperands(int start, int end)
+        {
+            var i = start;
+            while (i < end)
+            {
+                var termEnd = TermEnd(i, end);
+                if (termEnd == i)
+                {
+                    i++;
+                    continue;
+                }
+                var terms = new List<(int Start, int End)> { (i, termEnd) };
+                var plus = false;
+                while (termEnd < end && (IsOperator(tokens[termEnd], "&") || IsOperator(tokens[termEnd], "+")))
+                {
+                    plus |= IsOperator(tokens[termEnd], "+");
+                    var next = TermEnd(termEnd + 1, end);
+                    if (next == termEnd + 1)
+                        break;
+                    terms.Add((termEnd + 1, next));
+                    termEnd = next;
+                }
+                if (IsSqlChain(terms, plus))
+                {
+                    foreach (var t in terms)
+                    {
+                        if (t.End == t.Start + 1 && tokens[t.Start].Kind == VbTokenKind.Identifier
+                            && (t.Start == 0 || tokens[t.Start - 1].Kind != VbTokenKind.Dot))
+                            state.Sql.Add(tokens[t.Start].Text);
+                    }
+                }
+                foreach (var t in terms)
+                {
+                    for (var k = t.Start; k < t.End; k++)
+                    {
+                        if (tokens[k].Kind != VbTokenKind.OpenParen)
+                            continue;
+                        var close = Close(k, t.End);
+                        CollectChainOperands(k + 1, close);
+                        k = close;
+                    }
+                }
+                i = termEnd;
+            }
+        }
+
+        /// <summary>Two or more terms concatenated with a SQL literal or SQL variable among them.</summary>
+        private bool IsSqlChain(List<(int Start, int End)> terms, bool plus) =>
+            terms.Count >= 2
+            && (!plus || terms.Any(t => IsStringToken(t.Start, t.End) || IsSqlVariable(t.Start, t.End)))
+            && terms.Any(t => IsSqlString(t.Start, t.End) || IsSqlVariable(t.Start, t.End));
 
         private static void Set(HashSet<string> set, string name, bool value, bool conditional)
         {
@@ -276,13 +414,11 @@ public static class AspSafetyGuard
                     termEnd = next;
                 }
                 // `+` concatenates only when a string literal or SQL variable is involved; otherwise it is arithmetic.
-                if (terms.Count >= 2
-                    && (!plus || terms.Any(t => IsStringToken(t.Start, t.End) || IsSqlVariable(t.Start, t.End)))
-                    && terms.Any(t => IsSqlString(t.Start, t.End) || IsSqlVariable(t.Start, t.End)))
+                if (IsSqlChain(terms, plus))
                 {
-                    // The SQL variable being extended is the accumulator, not a new taint source: its own taint was
-                    // reported where it was introduced.
-                    var bad = terms.FindIndex(t => !IsSqlVariable(t.Start, t.End) && Tainted(t.Start, t.End));
+                    // A SQL variable whose taint was reported where it was introduced (the accumulator being
+                    // extended, a WHERE fragment variable) is not a new taint source.
+                    var bad = terms.FindIndex(t => !IsReportedSqlVariable(t.Start, t.End) && Tainted(t.Start, t.End));
                     if (bad >= 0)
                         return tokens[terms[bad].Start].Line;
                 }
@@ -296,6 +432,10 @@ public static class AspSafetyGuard
 
         private bool IsSqlVariable(int start, int end) =>
             end == start + 1 && tokens[start].Kind == VbTokenKind.Identifier && state.Sql.Contains(tokens[start].Text);
+
+        private bool IsReportedSqlVariable(int start, int end) =>
+            IsSqlVariable(start, end)
+            && (!state.Tainted.Contains(tokens[start].Text) || state.TaintReported.Contains(tokens[start].Text));
 
         private bool IsSqlString(int start, int end) =>
             end == start + 1 && tokens[start].Kind == VbTokenKind.String && SqlWord.IsMatch(Unescape(tokens[start].Text));

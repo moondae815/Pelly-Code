@@ -266,4 +266,25 @@ public class AspSafetyGuardTests
         Assert.Single(Of("<% id = Request(\"id\") : sql = " + Select + " & id %>"));
         Assert.Single(Of("<% If c Then id = Request(\"id\") : sql = " + Select + " & id %>"));
     }
+    [Fact]
+    public void WhereAccumulator_DirtyBaseline_NewTaintedFragment_Rejected()
+    {
+        const string original = "<%\nw = \" WHERE 1=1\"\n"
+            + "If Request(\"a\") <> \"\" Then w = w & \" AND a='\" & Request(\"a\") & \"'\"\n"
+            + "sql = \"SELECT * FROM t\" & w\n%>";
+        const string patched = "<%\nw = \" WHERE 1=1\"\n"
+            + "If Request(\"a\") <> \"\" Then w = w & \" AND a='\" & Request(\"a\") & \"'\"\n"
+            + "If Request(\"b\") <> \"\" Then w = w & \" AND b='\" & Request(\"b\") & \"'\"\n"
+            + "sql = \"SELECT * FROM t\" & w\n%>";
+        var finding = Assert.Single(New(original, patched));
+        Assert.Equal("SqlConcatRequest", finding.Rule);
+        Assert.Equal(4, finding.Line);
+        Assert.Single(Of(original));
+    }
+
+    [Fact]
+    public void WhereAccumulator_CleanFragment_Allowed()
+    {
+        Assert.Empty(Of("<%\nw = \" WHERE 1=1\"\nw = w & \" AND b=\" & CLng(Request(\"b\"))\nsql = \"SELECT * FROM t\" & w\n%>"));
+    }
 }

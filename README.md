@@ -297,6 +297,8 @@ pelly asp admin/member/edit.asp "휴대폰 번호 저장 전에 하이픈 제거
   * `Trim(Request("id"))`처럼 허용 목록 밖의 함수로 감싼 값은 여전히 위험한 값입니다.
   * 순서를 봅니다. 변수의 상태는 그 문장 앞의 마지막 대입으로 정해지므로 `id = CLng(id)` 뒤의 `id`는 안전합니다. 다만 조건 안(`If … Then` 한 줄, `If`·`Select Case` 블록)의 대입은 위험을 더할 수만 있고 지우지는 못합니다.
   * `sql = sql & " AND x='" & Request("x") & "'"`처럼 같은 범위에서 SQL 문자열을 받은 변수에 이어 붙이는 것도 연결로 셉니다.
+  * `w = " WHERE 1=1"` … `w = w & " AND b='" & Request("b") & "'"` … `sql = "SELECT …" & w`처럼 나중에 SQL 문자열과 이어지는 변수(WHERE 조각 변수)는 처음 대입부터 SQL 변수로 보므로, 조각을 붙이는 줄마다 따로 셉니다.
+  * 범위는 `Sub`·`Function` 하나(또는 페이지 수준 코드)입니다. 페이지 수준(`Sub`·`Function` 밖)에서 위험한 값을 받은 전역 변수를 `Sub`·`Function` 안에서 쓰는 경우는 따라가지 않습니다.
   * 원본에 이미 있던 같은 문장은 막지 않습니다(「새로 늘리지 않음」). 하지만 **이미 위험한 줄을 고치면 그 줄은 새 문장**이 되어 거부되고, 피드백이 그 값을 감싸라고 알려 줍니다.
 * **그 밖의 안전 규칙:** `CreateObject`·`Server.CreateObject`의 `WScript.Shell`·`Shell.Application`·`WScript.Network`, 원본 파일이 쓰지 않던 `Scripting.FileSystemObject`(`ShellObject`), `Execute`·`ExecuteGlobal`·`Eval`(`DynamicCode`), 새 `On Error Resume Next`(`OnErrorResumeNext`).
 * **인코딩과 줄 끝:** 편집 영역 밖은 원본 **바이트 그대로**입니다(줄 끝이 섞인 파일, 끝 줄바꿈 유무 포함). 인코딩은 BOM → `<%@ … CodePage=N %>`(65001 → UTF-8, 949 → CP949, 그 밖은 종료 4) → ASCII 아닌 바이트가 엄격한 UTF-8이면 UTF-8, 아니면 CP949 → 순수 ASCII면 `asp.encoding`(기본 `cp949`) 순서로 정합니다. 정한 인코딩으로 원본을 엄격하게 읽지 못하면(예: `CodePage=949`인데 UTF-8 한글) 종료 4이고, UTF-16 파일은 지원하지 않습니다(종료 4).

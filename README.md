@@ -283,7 +283,8 @@ pelly asp admin/member/edit.asp "휴대폰 번호 저장 전에 하이픈 제거
   | :-: | :--- | :--- |
   | 1 | 패치 적용: 편집 영역 밖 SEARCH, 일치 실패, 변경 없음 | 재시도 |
   | 2 | 인코딩: 새 텍스트를 파일 인코딩으로 쓸 수 있는가(예: CP949 파일의 이모지) | 재시도, 끝내 `AspEncoding` |
-  | 3 | 구조: `<% %>`·`<script runat>` 짝, VBScript 블록 짝(`If`·`For`·`Do`·`Select`·`With`·`Sub`·`Function`·`Class` 등), 닫히지 않은 문자열, HTML 태그 짝, 지시문·include 줄 불변, 프로시저 대상이면 이름·매개변수 그대로 | 재시도, 끝내 `AspStructureErrors` |
+  | 3 | 구조: `<% %>`·`<script runat>` 짝, VBScript 블록 짝(`If`·`For`·`Do`·`Select`·`With`·`Sub`·`Function`·`Class` 등), 닫히지 않은 문자열, HTML 태그 짝 | 재시도, 끝내 `AspStructureErrors` |
+  | 3′ | 모양: 지시문·include 줄 불변, 프로시저 대상이면 이름·종류·매개변수 그대로(요청과 상관없이) | 재시도, 끝내 `ShapeRejected` |
   | 4 | 안전: `ShellObject`, `DynamicCode`, `OnErrorResumeNext`, `SqlConcatRequest`(아래) | 재시도, 끝내 종료 5 `AspSafetyRejected` |
   | 5 | 이름: 새로 쓴 이름이 VBScript 내장, ASP 내장 개체, 파일과 include의 선언, 매개변수 어디에도 없으면 오류 | 재시도, 끝내 `AspUnknownNames` |
   | 6 | 규칙: 프로젝트 규칙의 금지 패턴(`pelly rules`) | 재시도 |
@@ -303,7 +304,7 @@ pelly asp admin/member/edit.asp "휴대폰 번호 저장 전에 하이픈 제거
   * 범위는 `Sub`·`Function` 하나(또는 페이지 수준 코드)입니다. 페이지 수준(`Sub`·`Function` 밖)에서 위험한 값을 받은 전역 변수를 `Sub`·`Function` 안에서 쓰는 경우는 따라가지 않습니다.
   * 원본에 이미 있던 같은 문장은 막지 않습니다(「새로 늘리지 않음」). 하지만 **이미 위험한 줄을 고치면 그 줄은 새 문장**이 되어 거부되고, 피드백이 그 값을 감싸라고 알려 줍니다.
 * **그 밖의 안전 규칙:** `CreateObject`·`Server.CreateObject`의 `WScript.Shell`·`Shell.Application`·`WScript.Network`, 원본 파일이 쓰지 않던 `Scripting.FileSystemObject`(`ShellObject`), `Execute`·`ExecuteGlobal`·`Eval`(`DynamicCode`), 새 `On Error Resume Next`(`OnErrorResumeNext`).
-* **인코딩과 줄 끝:** 편집 영역 밖은 원본 **바이트 그대로**입니다(줄 끝이 섞인 파일, 끝 줄바꿈 유무 포함). 인코딩은 BOM → `<%@ … CodePage=N %>`(65001 → UTF-8, 949 → CP949, 그 밖은 종료 4) → ASCII 아닌 바이트가 엄격한 UTF-8이면 UTF-8, 아니면 CP949 → 순수 ASCII면 `asp.encoding`(기본 `cp949`) 순서로 정합니다. 정한 인코딩으로 원본을 엄격하게 읽지 못하면(예: `CodePage=949`인데 UTF-8 한글) 종료 4이고, UTF-16 파일은 지원하지 않습니다(종료 4).
+* **인코딩과 줄 끝:** 편집 영역 밖은 원본 **바이트 그대로**입니다(줄 끝이 섞인 파일, 끝 줄바꿈 유무 포함). 인코딩은 BOM → `<%@ … CodePage=N %>`(65001 → UTF-8, 949 → CP949, 그 밖은 종료 4) → ASCII 아닌 바이트가 엄격한 UTF-8이면 UTF-8, 아니면 CP949 → 순수 ASCII면 `asp.encoding`(기본 `cp949`) 순서로 정합니다. 그래서 **`asp.encoding`은 사이트의 실제 인코딩과 같아야 합니다**: 순수 ASCII 파일에 한글을 넣으면 이 값으로 저장됩니다(include 파일은 각자 자기 바이트로 판정). 정한 인코딩으로 원본을 엄격하게 읽지 못하면(예: `CodePage=949`인데 UTF-8 한글) 종료 4이고, UTF-16 파일은 지원하지 않습니다(종료 4).
 * **해석기 동작:** 블록 짝은 HTML을 사이에 두고 파일 전체로 셉니다(`<% If a Then %> … <% Else %> … <% End If %>`의 일부만 줄 범위로 고쳐도 됩니다). IIS와 같이 VBScript 문자열 안의 `%>`도 코드 블록을 끝냅니다(그래서 레거시 코드에 `"%" & ">"`가 쓰입니다).
 * **설정(`asp.*`, 작업 공간 `pelly.json`):**
 

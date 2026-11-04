@@ -22,6 +22,7 @@ public sealed class ReviewPhase(IUserInteraction ui) : IPhase
         ("AspNames", "이름"),
         ("AspCompile", "컴파일"),
         ("AspSp", "SP"),
+        (AspApplyPhase.LogicCheck, "논리"),
     ];
 
     public RunPhase Phase => RunPhase.Review;

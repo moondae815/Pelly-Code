@@ -12,7 +12,8 @@ namespace PellyCoder.Core.Fsm.Phases;
 /// <summary>
 /// ASP APPLY (design §4.5 steps 1–4): applies the blocks in memory, then judges the patched page before anything is written —
 /// the file encoding must store every new character, the page structure must not gain parse problems, the include list,
-/// directives and target procedure must keep their shape, and no new unsafe statement may appear. Each check is recorded
+/// directives and target procedure must keep their shape, and no new unsafe statement may appear; new
+/// <see cref="AspLogicWarnings"/> are recorded as the <c>Logic</c> warning for the review. Each check is recorded
 /// in <see cref="AspRunState.Checks"/>. After a write the target span follows the change in line count.
 /// </summary>
 public sealed class AspApplyPhase(FileGuard fileGuard, FeedbackBuilder feedback, IUserInteraction ui, AspOptions options, ITextFileCodec codec) : IPhase
@@ -20,6 +21,7 @@ public sealed class AspApplyPhase(FileGuard fileGuard, FeedbackBuilder feedback,
     public const string EncodingCheck = "Encoding";
     public const string StructureCheck = "Structure";
     public const string SafetyCheck = "Safety";
+    public const string LogicCheck = "Logic";
 
     public RunPhase Phase => RunPhase.Apply;
 
@@ -84,6 +86,17 @@ public sealed class AspApplyPhase(FileGuard fileGuard, FeedbackBuilder feedback,
             return PhaseOutcome.SafetyRejected;
         }
         state.Record(SafetyCheck, AspCheckStatus.Passed);
+
+        // Review warnings only: they never reject, they tell the reviewer where to look.
+        var patchedSpan = state.CurrentSpan with
+        {
+            EndLine = state.CurrentSpan.EndLine + LineCount(newText) - LineCount(ctx.Current.Text),
+        };
+        var warnings = AspLogicWarnings.New(state.OriginalPage, state.OriginalSpan, patched, patchedSpan);
+        if (warnings.Count > 0)
+            state.Record(LogicCheck, AspCheckStatus.Warned, string.Join("; ", warnings));
+        else
+            state.Record(LogicCheck, AspCheckStatus.Passed);
 
         // Compared with the original, not the last write: undoing an earlier attempt is no change either.
         if (newText == ctx.Original.Text)

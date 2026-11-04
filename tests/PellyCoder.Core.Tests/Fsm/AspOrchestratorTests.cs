@@ -94,6 +94,7 @@ public sealed class AspOrchestratorTests
         Assert.Equal("passed", checks.GetProperty("AspNames").GetString());
         Assert.Equal("skipped", checks.GetProperty("AspCompile").GetString());
         Assert.Equal("skipped", checks.GetProperty("AspSp").GetString());
+        Assert.Equal("passed", checks.GetProperty("Logic").GetString());
         Assert.Equal("dbo.usp_GetOrder", Assert.Single(asp.GetProperty("storedProcedures").EnumerateArray()).GetString());
         Assert.Equal(0, asp.GetProperty("includesFound").GetInt32());
         Assert.Equal(0, asp.GetProperty("includesMissing").GetInt32());
@@ -175,11 +176,27 @@ public sealed class AspOrchestratorTests
         var line = Assert.Single(_ui.Warnings, w => w.StartsWith("검사: ", StringComparison.Ordinal));
         Assert.Equal(
             "검사: 구조 통과, 안전 통과, 인코딩 통과, 이름 통과, 컴파일 건너뜀(Windows가 아님), "
-            + "SP 건너뜀(개발 DB 연결(sql.connectionString)이 설정되지 않았습니다)", line);
+            + "SP 건너뜀(개발 DB 연결(sql.connectionString)이 설정되지 않았습니다), 논리 통과", line);
         Assert.Contains(Banner, _ui.Warnings);
         Assert.True(_ui.Warnings.IndexOf(line) < _ui.Warnings.IndexOf(Banner));
         var messages = _fs.File.ReadAllText(Assert.Single(_fs.Directory.GetFiles(Root + "/.pelly/runs", "messages.txt", SearchOption.AllDirectories)));
         Assert.Contains(Banner, messages);
+    }
+
+    [Fact]
+    public async Task Review_LogicWarning_ShownAndApproved()
+    {
+        Prepare();
+        const string checkAndConvert = "  If IsNumeric(qty) And CLng(qty) > 0 Then GetTotal = qty * price";
+        _backend.Enqueue(Block(Body, checkAndConvert));
+
+        var exit = await Run(yes: true);
+
+        Assert.Equal(0, exit); // a warning, never a rejection
+        Assert.Equal(Page.Replace(Body, checkAndConvert), _fs.File.ReadAllText(PagePath));
+        var line = Assert.Single(_ui.Warnings, w => w.StartsWith("검사: ", StringComparison.Ordinal));
+        Assert.EndsWith(", 논리 경고(And/Or는 단축 평가를 하지 않습니다: qty를 같은 조건에서 검사·변환합니다)", line);
+        Assert.Equal("warned", Summary().GetProperty("asp").GetProperty("checks").GetProperty("Logic").GetString());
     }
 
     [Fact]

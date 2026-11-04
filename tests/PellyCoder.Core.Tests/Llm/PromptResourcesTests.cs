@@ -21,4 +21,12 @@ public sealed class PromptResourcesTests
         Assert.Contains("VBScript built-in functions and the site SQL functions named in RULES", Resources.SystemAsp);
         Assert.Contains("Methods of ADO objects such as conn.Execute or cmd.Execute are fine.", Resources.SystemAsp);
     }
+
+    [Fact]
+    public void SystemAsp_NoShortCircuitRule()
+    {
+        // Premeasure (docs/asp-premeasure.md): "If IsNumeric(x) And CLng(x) > 0" fails at run time on non-numbers.
+        Assert.Contains("VBScript And/Or do not short-circuit: never convert or index a value in the same condition that "
+            + "checks it (IsNumeric, IsDate, IsNull, IsEmpty, = \"\"); check first, convert inside a nested If.", Resources.SystemAsp);
+    }
 }

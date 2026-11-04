@@ -206,7 +206,8 @@ ADO 호출 모양 몇 가지를 문자열 수준에서 알아본다(Claude 결�
   1. `winver` — Windows 11 24H2 이상·Server 2025면 VBScript가 선택적 기능이다(`Get-WindowsCapability -Online | Where-Object Name -like 'VBSCRIPT*'`가 `Installed`여야 함). 그보다 오래된 버전은 그 항목이 없고 기본 포함이다.
   2. `echo WScript.Echo "ok" > %TEMP%\t.vbs` 후 `cscript //Nologo %TEMP%\t.vbs` → `ok`.
   3. `echo If x Then > %TEMP%\bad.vbs` 후 `cscript //Nologo %TEMP%\bad.vbs` → 컴파일 오류 메시지(한국어 Windows는 한국어 문구, 그 문구를 해석 규칙에 반영).
-  - 2026-11-04 사람 확인: Windows 11 23H2 PC에서 2·3 모두 기대대로 나옴(현장 PC인지는 별도 확인).
+  - 2026-11-04 사람 확인: 현장 개발 PC가 아닌 별도 Windows 11 23H2 PC에서 2·3 모두 기대대로 나옴. 현장 개발 PC 확인은 아직이다.
+  - 그 PC의 3번 출력(사용자 폴더는 가림): `C:\Users\<사용자>\AppData\Local\Temp\bad.vbs(2, 1) Microsoft VBScript 컴파일 오류: 'End'가 필요합니다.` 형식은 `<경로>(<줄>, <열>) Microsoft VBScript <종류>: <내용>`이다. 영어 Windows는 `compilation error`, 한국어는 `컴파일 오류`이므로 해석은 `(<줄>, <열>)`과 `Microsoft VBScript` 위치로 하고 종류 문구는 두 언어 모두 알아본다. 오류 줄이 파일의 마지막 줄 다음(파일 끝)일 수 있다(한 줄짜리 `If x Then`이 2번 줄로 보고됨) — 원본 줄로 바꿀 때 마지막 줄로 붙인다.
 - A3: SP를 부르는 실제 모양(직접 `Command`인가, 공용 래퍼 함수인가 → `asp.spCallFunctions`), SQL 문자열을 만들 때 쓰는 현장 sanitizer 함수 이름(→ `asp.sqlSanitizers`).
 - A4: 실제 요청 3건(줄 범위 2, 프로시저 1)을 돌린 결과와, 사람이 화면에서 확인했을 때 문제가 있었는지.
 

@@ -17,6 +17,9 @@ public static class DoctorFacts
     public const string ServerSettings = "서버 설정 확인 필요";
     public const string Sql = "SQL 연결";
     public const string SqlProduction = "SQL 운영(읽기 전용)";
+    public const string AspCscript = "ASP 구문 검사(cscript)";
+    public const string AspSiteRoot = "ASP 사이트 루트";
+    public const string AspSanitizers = "ASP SQL 처리 함수";
     public const string SemanticAnalysis = SemanticCheck.Name;
 
     public const string OllamaVersion = "ollamaVersion";

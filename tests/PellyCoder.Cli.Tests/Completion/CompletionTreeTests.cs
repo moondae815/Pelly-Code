@@ -36,6 +36,15 @@ public class CompletionTreeTests
     }
 
     [Fact]
+    public void Asp_HasThreeTargetOptions()
+    {
+        var asp = Node("asp");
+        Assert.True(asp.AcceptsPositional);
+        foreach (var name in new[] { "proc", "line", "lines" })
+            Assert.Contains(name, OptionNames(asp));
+    }
+
+    [Fact]
     public void SpecBranch_IsUsageOnly()
     {
         var spec = Node("spec");

@@ -94,6 +94,14 @@ public static class Composition
                 return FsmOrchestratorFactory.CreateSql(fs, backend, ui, options, time, new SqlServerExecutor(options.Sql.ConnectionString),
                         SqlReaders.Production(options.Sql, readerFactory))
                     .RunDetailedAsync(request, ct);
+            if (request.Kind == EditKind.Asp)
+            {
+                // Only the dev connection; never sql.production.
+                ISqlExecutor? aspSql = string.IsNullOrWhiteSpace(options.Sql.ConnectionString)
+                    ? null
+                    : new SqlServerExecutor(options.Sql.ConnectionString);
+                return FsmOrchestratorFactory.CreateAsp(fs, backend, ui, options, time, processes, aspSql).RunDetailedAsync(request, ct);
+            }
             return FsmOrchestratorFactory.Create(fs, backend, ui, options, time, processes).RunDetailedAsync(request, ct);
         }
     }

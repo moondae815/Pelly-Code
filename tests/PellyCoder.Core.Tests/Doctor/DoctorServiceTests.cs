@@ -296,6 +296,102 @@ public sealed class DoctorServiceTests
         Assert.Equal("레거시 .NET Framework 프로젝트를 고치려면 Visual Studio Build Tools가 필요합니다", c.Action);
     }
 
+    [Fact]
+    public async Task Doctor_AspRows_OnlyWhenConfigured()
+    {
+        EnqueueProbes();
+        var without = await Create().RunAsync(CancellationToken.None);
+        Assert.DoesNotContain(without, c => c.Name.StartsWith("ASP"));
+
+        _options.Asp.Configured = true;
+        _windows = false;
+        EnqueueProbes();
+        var with = await Create().RunAsync(CancellationToken.None);
+        Assert.Equal(["ASP 구문 검사(cscript)", "ASP 사이트 루트", "ASP SQL 처리 함수"], with.Where(c => c.Name.StartsWith("ASP")).Select(c => c.Name));
+    }
+
+    [Fact]
+    public async Task Doctor_Cscript_NotWindows_Warn()
+    {
+        _options.Asp.Configured = true;
+        _windows = false;
+        EnqueueProbes();
+
+        var c = Get(await Create().RunAsync(CancellationToken.None), "ASP 구문 검사(cscript)");
+
+        Assert.Equal(DoctorStatus.Warn, c.Status);
+        Assert.Contains("컴파일 검사는 건너뜁니다", c.Detail);
+    }
+
+    [Fact]
+    public async Task Doctor_Cscript_WindowsOk_RunsProbeAndDeletesIt()
+    {
+        _options.Asp.Configured = true;
+        _windows = true;
+        EnqueueProbes();
+        _options.Build.MsbuildPath = "/tools/MSBuild.exe";
+        _fs.AddFile("/tools/MSBuild.exe", new MockFileData(""));
+        _processes.Enqueue(Proc(0, "10.0.100\n"));
+        _dotnetQueued = true;
+        var probeExisted = false;
+        _processes.Enqueue((spec, _) =>
+        {
+            probeExisted = _fs.File.Exists(spec.Arguments[2]);
+            return Task.FromResult(Proc(0, "ok\r\n"));
+        });
+
+        var checks = await Create().RunAsync(CancellationToken.None);
+
+        var call = _processes.Calls.Single(p => p.FileName == "cscript");
+        Assert.Equal(["//Nologo", "//E:vbscript"], call.Arguments.Take(2));
+        Assert.EndsWith("ok.vbs", call.Arguments[2]);
+        Assert.True(probeExisted);
+        Assert.False(_fs.File.Exists(call.Arguments[2]));
+        Assert.Equal(DoctorStatus.Ok, Get(checks, "ASP 구문 검사(cscript)").Status);
+    }
+
+    [Fact]
+    public async Task Doctor_SiteRootMissing_Fail()
+    {
+        _options.Asp.Configured = true;
+        _options.Asp.SiteRoot = "/no/such/site";
+        EnqueueProbes();
+
+        var c = Get(await Create().RunAsync(CancellationToken.None), "ASP 사이트 루트");
+
+        Assert.Equal(DoctorStatus.Fail, c.Status);
+    }
+
+    [Fact]
+    public async Task Doctor_SiteRoot_ExistsOk_UnsetUsesWorkspace()
+    {
+        _options.Asp.Configured = true;
+        _fs.AddDirectory("/site");
+        _options.Asp.SiteRoot = "/site";
+        EnqueueProbes();
+        Assert.Equal(DoctorStatus.Ok, Get(await Create().RunAsync(CancellationToken.None), "ASP 사이트 루트").Status);
+
+        _options.Asp.SiteRoot = null;
+        EnqueueProbes();
+        var c = Get(await Create().RunAsync(CancellationToken.None), "ASP 사이트 루트");
+        Assert.Equal(DoctorStatus.Ok, c.Status);
+        Assert.Contains("작업 공간 루트를 씁니다", c.Detail);
+    }
+
+    [Fact]
+    public async Task Doctor_NoSanitizers_Warn()
+    {
+        _options.Asp.Configured = true;
+        EnqueueProbes();
+        var c = Get(await Create().RunAsync(CancellationToken.None), "ASP SQL 처리 함수");
+        Assert.Equal(DoctorStatus.Warn, c.Status);
+        Assert.Contains("현장 SQL 처리 함수가 설정되지 않음", c.Detail);
+
+        _options.Asp.SqlSanitizers = ["SafeSql"];
+        EnqueueProbes();
+        Assert.Equal(DoctorStatus.Ok, Get(await Create().RunAsync(CancellationToken.None), "ASP SQL 처리 함수").Status);
+    }
+
     private void SqlOptionsAllowed(string cs = "Server=localhost,14333;Database=PellyCorpus;User Id=sa;Password=Secret!1")
     {
         _options.Sql.ConnectionString = cs;

@@ -108,6 +108,12 @@ public sealed class DoctorService(
             "서버 관리자에게 PRD §7.1 값을 확인하세요"));
         checks.Add(await CheckSqlAsync(ct));
         checks.Add(await CheckSqlProductionAsync(ct));
+        if (options.Asp.Configured)
+        {
+            checks.Add(await CheckCscriptAsync(ct));
+            checks.Add(CheckAspSiteRoot());
+            checks.Add(CheckAspSanitizers());
+        }
         return checks;
     }
 
@@ -209,6 +215,51 @@ public sealed class DoctorService(
                 "운영 연결 문자열과 서버 상태를 확인하세요");
         }
     }
+
+    private async Task<DoctorCheck> CheckCscriptAsync(CancellationToken ct)
+    {
+        const string name = DoctorFacts.AspCscript;
+        const string action = "Windows에서 cscript를 쓸 수 있는지 확인하세요";
+        if (!_isWindows())
+            return new(name, DoctorStatus.Warn, "Windows에서만 확인합니다. 컴파일 검사는 건너뜁니다", null);
+
+        var dir = fs.Path.Combine(fs.Path.GetTempPath(), "pelly-doctor-" + Guid.NewGuid().ToString("N"));
+        var probe = fs.Path.Combine(dir, "ok.vbs");
+        try
+        {
+            fs.Directory.CreateDirectory(dir);
+            fs.File.WriteAllText(probe, "WScript.Echo \"ok\"");
+            var result = await processes.RunAsync(
+                new ProcessSpec("cscript", ["//Nologo", "//E:vbscript", probe], dir, DotnetTimeout), ct);
+            return result.ExitCode == 0 && !result.TimedOut && result.StdOut.Trim() == "ok"
+                ? new(name, DoctorStatus.Ok, "cscript로 VBScript를 컴파일 검사할 수 있습니다", null)
+                : new(name, DoctorStatus.Warn, "cscript가 예상대로 동작하지 않음. 컴파일 검사는 건너뜁니다", action);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return new(name, DoctorStatus.Warn, "cscript를 실행할 수 없음. 컴파일 검사는 건너뜁니다", action);
+        }
+        finally
+        {
+            try { if (fs.Directory.Exists(dir)) fs.Directory.Delete(dir, true); } catch (Exception) { /* best effort */ }
+        }
+    }
+
+    private DoctorCheck CheckAspSiteRoot()
+    {
+        const string name = DoctorFacts.AspSiteRoot;
+        var root = options.Asp.SiteRoot;
+        if (string.IsNullOrWhiteSpace(root))
+            return new(name, DoctorStatus.Ok, "작업 공간 루트를 씁니다", null);
+        return fs.Directory.Exists(root)
+            ? new(name, DoctorStatus.Ok, root, null)
+            : new(name, DoctorStatus.Fail, $"{root} 폴더가 없음", "asp.siteRoot 설정을 확인하세요");
+    }
+
+    private DoctorCheck CheckAspSanitizers() =>
+        options.Asp.SqlSanitizers.Length == 0
+            ? new(DoctorFacts.AspSanitizers, DoctorStatus.Warn, "현장 SQL 처리 함수가 설정되지 않음", "asp.sqlSanitizers에 현장 함수 이름을 넣으세요")
+            : new(DoctorFacts.AspSanitizers, DoctorStatus.Ok, string.Join(", ", options.Asp.SqlSanitizers), null);
 
     private async Task<DoctorCheck> CheckDotnetAsync(CancellationToken ct)
     {

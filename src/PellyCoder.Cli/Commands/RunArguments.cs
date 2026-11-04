@@ -64,6 +64,39 @@ public static class RunArguments
         return errors;
     }
 
+    public static IReadOnlyList<string> ValidateAsp(AspSettings s)
+    {
+        var errors = new List<string>();
+        if ((s.Proc is not null ? 1 : 0) + (s.Line is not null ? 1 : 0) + (s.Lines is not null ? 1 : 0) > 1)
+            errors.Add("--proc, --line, --lines 중 하나만 쓸 수 있습니다");
+        if (s.Lines is not null && ParseLines(s.Lines) is null)
+            errors.Add("--lines는 A-B 형식입니다 (1 ≤ A ≤ B)");
+        if (s.Line is <= 0)
+            errors.Add("--line은 1 이상이어야 합니다");
+        if (s.MaxRetries is < 0)
+            errors.Add("--max-retries는 0 이상이어야 합니다");
+        return errors;
+    }
+
+    /// <summary>"A-B" with 1 ≤ A ≤ B, else null.</summary>
+    private static TextSpanInfo? ParseLines(string text)
+    {
+        var parts = text.Split('-');
+        if (parts.Length != 2
+            || !int.TryParse(parts[0], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var a)
+            || !int.TryParse(parts[1], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var b)
+            || a < 1 || a > b)
+            return null;
+        return new TextSpanInfo(a, b);
+    }
+
+    public static (PreparedRun? Run, IReadOnlyList<string> Errors) PrepareAsp(AspSettings s, IFileSystem fs, OptionsResolver resolver) =>
+        Prepare(s.File, fs, file => resolver.Resolve(file, s.Config, s.Think, s.Model, s.Endpoint));
+
+    public static RunRequest AspRequest(AspSettings s, string file, string requestText) =>
+        new(file, null, s.Proc, s.Line, requestText, s.Yes, s.DryRun, s.MaxRetries,
+            Kind: EditKind.Asp, Verbose: s.Verbose, Lines: s.Lines is null ? null : ParseLines(s.Lines));
+
     public static (PreparedRun? Run, IReadOnlyList<string> Errors) PrepareCs(CsSettings s, IFileSystem fs, OptionsResolver resolver) =>
         Prepare(s.File, fs, file => resolver.Resolve(
             file, s.Config, s.Think, s.Model, s.Endpoint, s.StrictBaseline, s.WarnAsError));

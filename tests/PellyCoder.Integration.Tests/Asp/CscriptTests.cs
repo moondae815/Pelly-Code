@@ -184,7 +184,7 @@ public sealed class CscriptTests : IDisposable
     public async Task Cscript_ClassOnFirstLine_Compiles()
     {
         // "Class C" may not follow ":" on a line; each fragment is its own script line, so this compiles.
-        const string page = "<% Class C %>\n<% Public Name %>\n<% End Class %>\n<% Dim c : Set c = New C %>\n";
+        const string page = "<% Class C %>\n<% Public Name %>\n<% End Class %>\n<% Dim obj : Set obj = New C %>\n";
         Assert.StartsWith("WScript.Quit 0\nClass C\n", VbsCompileScript.Build(AspPage.Parse(page), page).Text);
 
         var errors = await CompilePageAsync(page);

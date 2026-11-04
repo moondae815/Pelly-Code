@@ -238,7 +238,7 @@ public sealed class AspLocatePhaseTests
         Assert.Equal(
             [new EditableRegion(new TextSpanInfo(2, 4), "target"), new EditableRegion(new TextSpanInfo(6, 8), "target")],
             ctx.Asp!.EditableRegions());
-        Assert.Equal(["/w/lib.inc"], ctx.Asp.Includes.Files.Select(f => f.Path));
+        Assert.Equal([_fs.Path.GetFullPath("/w/lib.inc")], ctx.Asp.Includes.Files.Select(f => f.Path));
     }
 
     [Fact]
@@ -250,7 +250,7 @@ public sealed class AspLocatePhaseTests
         var (outcome, ctx) = await Locate(text);
 
         Assert.Equal(PhaseOutcome.Ok, outcome);
-        Assert.Equal("/w/site", ctx.Asp!.SiteRoot);
+        Assert.Equal(_fs.Path.GetFullPath("/w/site"), ctx.Asp!.SiteRoot);
         Assert.Contains("include를 찾지 못했습니다: inc/missing.inc (asp.siteRoot 확인)", ctx.Messages);
     }
 

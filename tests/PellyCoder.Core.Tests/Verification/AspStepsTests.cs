@@ -179,10 +179,11 @@ public sealed class AspStepsTests
         Assert.Equal(2, _processes.Calls.Count);
         var spec = _processes.Calls[1];
         Assert.Equal("cscript", spec.FileName);
-        var script = Root + "/.pelly/runs/r1/asp-compile-2.vbs";
-        Assert.Equal(["//Nologo", "//T:10", "//E:vbscript", script], spec.Arguments);
+        var script = spec.Arguments[^1];
+        Assert.Equal(["//Nologo", "//T:10", "//E:vbscript"], spec.Arguments.Take(3));
+        Assert.EndsWith("/w/.pelly/runs/r1/asp-compile-2.vbs", script.Replace('\\', '/'));
         Assert.Equal(TimeSpan.FromSeconds(30), spec.Timeout);
-        Assert.Equal(Root + "/.pelly/runs/r1/asp-compile-1.vbs", _processes.Calls[0].Arguments[^1]);
+        Assert.EndsWith("/w/.pelly/runs/r1/asp-compile-1.vbs", _processes.Calls[0].Arguments[^1].Replace('\\', '/'));
         var bytes = _fs.File.ReadAllBytes(script);
         Assert.Equal(new byte[] { 0xFF, 0xFE }, bytes[..2]);
         var text = Encoding.Unicode.GetString(bytes, 2, bytes.Length - 2);

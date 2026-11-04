@@ -22,6 +22,8 @@ public class AspIncludeResolverTests
         return AspIncludeResolver.Resolve(fs, path, page, Root, Codec, maxDepth, maxFiles);
     }
 
+    private static string Full(string path) => new MockFileSystem().Path.GetFullPath(path);
+
     private static string Inc(string kind, string path) => $"<!-- #include {kind}=\"{path}\" -->\n";
 
     [Fact]
@@ -31,7 +33,7 @@ public class AspIncludeResolverTests
 
         var set = Run(fs, "/w/site/a/main.asp");
 
-        Assert.Equal(["/w/site/lib/util.inc"], set.Files.Select(f => f.Path));
+        Assert.Equal([Full("/w/site/lib/util.inc")], set.Files.Select(f => f.Path));
         Assert.Empty(set.Unresolved);
         Assert.False(set.Truncated);
     }
@@ -43,7 +45,7 @@ public class AspIncludeResolverTests
 
         var set = Run(fs, "/w/site/a/main.asp");
 
-        Assert.Equal(["/w/site/lib/util.inc"], set.Files.Select(f => f.Path));
+        Assert.Equal([Full("/w/site/lib/util.inc")], set.Files.Select(f => f.Path));
     }
 
     [Fact]
@@ -65,7 +67,7 @@ public class AspIncludeResolverTests
 
         var set = Run(fs, "/w/site/a.asp");
 
-        Assert.Equal(["/w/site/b.inc"], set.Files.Select(f => f.Path));
+        Assert.Equal([Full("/w/site/b.inc")], set.Files.Select(f => f.Path));
         Assert.Empty(set.Unresolved);
         Assert.False(set.Truncated);
     }

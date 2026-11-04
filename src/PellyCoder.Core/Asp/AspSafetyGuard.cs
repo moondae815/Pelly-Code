@@ -394,13 +394,16 @@ public static class AspSafetyGuard
                     terms.Add((termEnd + 1, next));
                     termEnd = next;
                 }
-                if (IsSqlChain(terms, plus))
+                if (IsSqlChain(terms, plus, null))
                 {
+                    // A raw input value joins the SQL set only through a SQL literal (it is then known to be SQL text
+                    // for a later self-append), never through another variable, so echoes and URL chains do not spread.
+                    var literal = terms.Any(t => IsSqlString(t.Start, t.End));
                     foreach (var t in terms)
                     {
                         if (t.End == t.Start + 1 && tokens[t.Start].Kind == VbTokenKind.Identifier
                             && (t.Start == 0 || tokens[t.Start - 1].Kind != VbTokenKind.Dot)
-                            && !IsRawInput(tokens[t.Start].Text))
+                            && (literal || !IsRawInput(tokens[t.Start].Text)))
                             state.Sql.Add(tokens[t.Start].Text);
                     }
                 }
@@ -420,14 +423,33 @@ public static class AspSafetyGuard
         }
 
         /// <summary>
-        /// Two or more terms concatenated with SQL evidence among them: a SQL literal, or a SQL variable that is not a
-        /// raw input value (tainted and not reported), which would only be an echo of user input.
+        /// Two or more terms concatenated with SQL evidence among them: a SQL literal, a SQL variable that is not a raw
+        /// input value (tainted and not reported; otherwise it would only be an echo of user input), or the
+        /// <paramref name="selfAccumulator"/> term (a pre-pass SQL variable assigned back into itself, <c>w = w &amp; …</c>).
         /// </summary>
-        private bool IsSqlChain(List<(int Start, int End)> terms, bool plus) =>
+        private bool IsSqlChain(List<(int Start, int End)> terms, bool plus, string? selfAccumulator) =>
             terms.Count >= 2
             && (!plus || terms.Any(t => IsStringToken(t.Start, t.End) || IsSqlVariable(t.Start, t.End)))
             && terms.Any(t => IsSqlString(t.Start, t.End)
-                || (IsSqlVariable(t.Start, t.End) && !IsRawInput(tokens[t.Start].Text)));
+                || (IsSqlVariable(t.Start, t.End) && !IsRawInput(tokens[t.Start].Text))
+                || IsSelf(t, selfAccumulator));
+
+        private bool IsSelf((int Start, int End) term, string? selfAccumulator) =>
+            selfAccumulator is not null && term.End == term.Start + 1 && tokens[term.Start].Kind == VbTokenKind.Identifier
+            && tokens[term.Start].Text.Equals(selfAccumulator, StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// The target of an assignment part when it is a pre-pass SQL variable (used in a SQL-literal chain somewhere in
+        /// the scope): appending to it builds SQL even while it holds a raw input value.
+        /// </summary>
+        private string? SqlAssignmentTarget(int start, int end)
+        {
+            var p = start < end && IsWord(tokens[start], "Set") ? start + 1 : start;
+            return p + 2 < end && tokens[p].Kind == VbTokenKind.Identifier && IsOperator(tokens[p + 1], "=")
+                && state.PermanentSql.Contains(tokens[p].Text)
+                ? tokens[p].Text
+                : null;
+        }
 
         /// <summary>A variable holding user input whose taint was not reported where it came in.</summary>
         private bool IsRawInput(string name) => state.Tainted.Contains(name) && !state.TaintReported.Contains(name);
@@ -442,17 +464,17 @@ public static class AspSafetyGuard
 
         private int? FindSqlConcat(int start, int end)
         {
-            if (FindInRange(start, end) is { } line)
+            if (FindInRange(start, end, SqlAssignmentTarget(start, end)) is { } line)
                 return line;
             for (var i = start; i < end; i++)
             {
-                if (tokens[i].Kind == VbTokenKind.OpenParen && FindInRange(i + 1, Close(i, end)) is { } inner)
+                if (tokens[i].Kind == VbTokenKind.OpenParen && FindInRange(i + 1, Close(i, end), null) is { } inner)
                     return inner;
             }
             return null;
         }
 
-        private int? FindInRange(int start, int end)
+        private int? FindInRange(int start, int end, string? selfAccumulator)
         {
             var i = start;
             while (i < end)
@@ -475,11 +497,13 @@ public static class AspSafetyGuard
                     termEnd = next;
                 }
                 // `+` concatenates only when a string literal or SQL variable is involved; otherwise it is arithmetic.
-                if (IsSqlChain(terms, plus))
+                if (IsSqlChain(terms, plus, selfAccumulator))
                 {
                     // A SQL variable whose taint was reported where it was introduced (the accumulator being
-                    // extended, a WHERE fragment variable) is not a new taint source.
-                    var bad = terms.FindIndex(t => !IsReportedSqlVariable(t.Start, t.End) && Tainted(t.Start, t.End));
+                    // extended, a WHERE fragment variable) is not a new taint source; nor is the self-appended
+                    // accumulator, whose own taint counts where it is used in SQL.
+                    var bad = terms.FindIndex(t => !IsReportedSqlVariable(t.Start, t.End) && !IsSelf(t, selfAccumulator)
+                        && Tainted(t.Start, t.End));
                     if (bad >= 0)
                         return tokens[terms[bad].Start].Line;
                 }

@@ -320,4 +320,26 @@ public class AspSafetyGuardTests
 
         Assert.Equal(3, Assert.Single(Of(text)).Line);
     }
+    [Theory]
+    [InlineData("Request(\"a\")")]
+    [InlineData("\"\" & Request(\"a\")")]
+    public void RawAccumulator_DirtyBaseline_NewTaintedFragment_Rejected(string initial)
+    {
+        var original = "<%\nw = " + initial + "\nsql = \"SELECT * FROM t WHERE \" & w\n%>";
+        var patched = "<%\nw = " + initial + "\nw = w & \" AND b='\" & Request(\"b\") & \"'\"\n"
+            + "sql = \"SELECT * FROM t WHERE \" & w\n%>";
+
+        var finding = Assert.Single(New(original, patched));
+        Assert.Equal(("SqlConcatRequest", 3), (finding.Rule, finding.Line));
+    }
+
+    [Fact]
+    public void RawAccumulator_CleanFragmentAppended_Allowed()
+    {
+        const string original = "<%\nw = Request(\"a\")\nsql = \"SELECT * FROM t WHERE \" & w\n%>";
+        const string patched = "<%\nw = Request(\"a\")\nw = w & \" AND b=\" & CLng(Request(\"b\"))\n"
+            + "sql = \"SELECT * FROM t WHERE \" & w\n%>";
+
+        Assert.Empty(New(original, patched));
+    }
 }

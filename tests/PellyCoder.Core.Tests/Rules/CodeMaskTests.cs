@@ -99,4 +99,27 @@ public class CodeMaskTests
     [Fact]
     public void Sql_LexError_ReturnsNull() =>
         Assert.Null(CodeMask.Sql("SELECT 'unclosed\n", 160, quotedIdentifier: true));
+
+    [Fact]
+    public void Rules_Asp_MaskedHtmlAndStrings()
+    {
+        var rule = new ProjectRule(1, [], "Response.Redirect 금지", @"Response\.Redirect");
+        const string original = "<html>\n<%\nx = 1\n%>\n</html>\n";
+        const string onlyInText =
+            "<html>\n<p>Response.Redirect</p>\n<%\nx = \"Response.Redirect\" ' Response.Redirect\nRem Response.Redirect\n%>\n</html>\n";
+
+        var masked = CodeMask.Asp(onlyInText);
+
+        Assert.Equal(onlyInText.Length, masked.Length);
+        Assert.Equal(onlyInText.Split('\n').Length, masked.Split('\n').Length);
+        Assert.Contains("x = \"", masked);
+        Assert.DoesNotContain("Redirect", masked);
+        Assert.DoesNotContain("<p>", masked);
+        Assert.Empty(ForbiddenPatternChecker.Check([rule], ForbiddenPatternChecker.AddedLines(original, onlyInText, masked)));
+
+        const string inCode = "<html>\n<%\nx = 1\nResponse.Redirect \"a.asp\"\n%>\n</html>\n";
+        var violations = ForbiddenPatternChecker.Check([rule], ForbiddenPatternChecker.AddedLines(original, inCode, CodeMask.Asp(inCode)));
+        Assert.Single(violations);
+        Assert.Equal(CodeMask.Asp(inCode).IndexOf("Response.Redirect", StringComparison.Ordinal), inCode.IndexOf("Response.Redirect", StringComparison.Ordinal));
+    }
 }

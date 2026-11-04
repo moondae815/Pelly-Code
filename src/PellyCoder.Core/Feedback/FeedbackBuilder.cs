@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.RegularExpressions;
 using PellyCoder.Core.Abstractions;
+using PellyCoder.Core.Asp;
 using PellyCoder.Core.Models;
 using PellyCoder.Core.Rules;
 using PellyCoder.Core.Testing;
@@ -170,7 +171,78 @@ public sealed partial class FeedbackBuilder(ITokenCounter tokens, int budget)
         return Done(Prefix + Truncate(reason, r => Prefix + r));
     }
 
-    /// <summary>Per violation <c>RULE VIOLATION: &lt;rule text&gt;\n  added: &lt;trimmed line&gt;</c>; over budget the entries are dropped from the back.</summary>
+    /// <summary>
+    /// <c>ASP SAFETY REJECTED (n new findings)</c>, one <c>line N: Rule: statement</c> per finding, then one hint line per rule
+    /// that occurs. Over budget: drop findings from the back, then cut the first statement; the hints stay.
+    /// </summary>
+    public Feedback ForAspSafety(IReadOnlyList<AspSafetyFinding> findings, IReadOnlyList<string> sanitizers)
+    {
+        var unique = findings.DistinctBy(f => (f.Line, f.Rule, f.Statement)).ToList();
+        var head = $"ASP SAFETY REJECTED ({unique.Count} new {(unique.Count == 1 ? "finding" : "findings")})";
+        if (unique.Count == 0) return Done(head);
+        var hints = unique.Select(f => f.Rule).Distinct(StringComparer.Ordinal).Select(r => AspSafetyHint(r, sanitizers)).ToList();
+        string Compose(IEnumerable<string> entries) => string.Join("\n", new[] { head }.Concat(entries).Concat(hints));
+
+        static string EntryOf(AspSafetyFinding f, string statement) => $"line {f.Line}: {f.Rule}: {statement}";
+        var all = unique.Select(f => EntryOf(f, f.Statement.Trim())).ToList();
+        for (var count = all.Count; count >= 1; count--)
+        {
+            var text = Compose(all.Take(count));
+            if (Fits(text)) return Done(text);
+        }
+        var only = unique[0];
+        var cut = Truncate(only.Statement.Trim(), s => Compose([EntryOf(only, s)]));
+        return Done(Compose([EntryOf(only, cut)]));
+    }
+
+    private static string AspSafetyHint(string rule, IReadOnlyList<string> sanitizers) => rule switch
+    {
+        AspSafetyGuard.SqlConcatRequest =>
+            "Do not concatenate Request values into SQL text. Use ADODB.Command parameters, or wrap the value: "
+            + string.Join(", ", sanitizers.Select(s => s + "(x)").Concat(["CLng(x)", "CInt(x)", "CDbl(x)", "CBool(x)", "CDate(x)", "Replace(x, \"'\", \"''\")"]))
+            + ".",
+        AspSafetyGuard.ShellObject => "Do not create shell, network or file system objects.",
+        AspSafetyGuard.DynamicCode => "Do not use Execute, ExecuteGlobal or Eval.",
+        AspSafetyGuard.OnErrorResumeNext => "Do not add On Error Resume Next.",
+        _ => $"Remove the new {rule} statement.",
+    };
+
+    /// <summary>
+    /// <c>ASP UNKNOWN NAMES (n names)</c>, one <c>line N: Name</c> per name, then the instruction to use only the listed
+    /// procedures and VBScript built-ins. Over budget: drop names from the back; the last line stays.
+    /// </summary>
+    public Feedback ForAspNames(IReadOnlyList<AspUnknownName> unknown)
+    {
+        const string Instruction = "[READ-ONLY: procedures]와 VBScript 내장 함수만 쓰십시오.";
+        var unique = unknown.DistinctBy(u => (u.Line, u.Name)).ToList();
+        var head = $"ASP UNKNOWN NAMES ({unique.Count} {(unique.Count == 1 ? "name" : "names")})";
+        var entries = unique.Select(u => $"line {u.Line}: {u.Name}").ToList();
+        for (var count = entries.Count; count >= 1; count--)
+        {
+            var text = string.Join("\n", new[] { head }.Concat(entries.Take(count)).Append(Instruction));
+            if (Fits(text)) return Done(text);
+        }
+        return Done(head + "\n" + Instruction);
+    }
+
+    /// <summary>
+    /// <c>ENCODING ERROR: 이 파일은 &lt;encoding&gt;입니다. 다음 문자를 쓸 수 없습니다: 'c' (U+XXXX)</c>, then the patched line
+    /// (cut to the budget). <paramref name="character"/> is one character or a surrogate pair.
+    /// </summary>
+    public Feedback ForEncoding(string encodingName, string character, int line, string lineText)
+    {
+        var codePoint = character.Length switch
+        {
+            0 => "?",
+            2 when char.IsSurrogatePair(character[0], character[1]) => $"U+{char.ConvertToUtf32(character[0], character[1]):X4}",
+            _ => $"U+{(int)character[0]:X4}",
+        };
+        var head = $"ENCODING ERROR: 이 파일은 {encodingName}입니다. 다음 문자를 쓸 수 없습니다: '{character}' ({codePoint})";
+        string Compose(string l) => $"{head}\n  line {line}: {l}";
+        return Done(Compose(Truncate(lineText.Trim(), Compose)));
+    }
+
+    /// <summary>Per violation <c>RULE VIOLATION:&lt;rule text&gt;\n  added: &lt;trimmed line&gt;</c>; over budget the entries are dropped from the back.</summary>
     public Feedback ForRuleViolations(IReadOnlyList<RuleViolation> violations)
     {
         var entries = violations.Select(v => $"RULE VIOLATION: {v.Rule.Text}\n  added: {v.AddedLine.Trim()}").Distinct().ToList();

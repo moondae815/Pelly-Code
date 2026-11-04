@@ -32,13 +32,15 @@ public sealed class RulesStep(FeedbackBuilder feedback) : IVerifierStep
     }
 
     /// <summary>
-    /// The patched file with comments and literals masked, so forbid patterns match code only (Roslyn for C#, ScriptDom for SQL).
+    /// The patched file with comments and literals masked, so forbid patterns match code only (Roslyn for C#, ScriptDom for SQL, the ASP page parser for ASP).
     /// Null — check the raw text, which is stricter — when the SQL does not lex or masking fails for any reason.
     /// </summary>
     private static string? CodeOf(RunContext ctx)
     {
         try
         {
+            if (ctx.Target?.Kind == EditKind.Asp)
+                return CodeMask.Asp(ctx.Current.Text);
             if (ctx.Target?.Kind == EditKind.Sql)
                 return ctx.Sql is { } sql ? CodeMask.Sql(ctx.Current.Text, sql.CompatLevel, sql.Settings.QuotedIdentifier) : null;
             return CodeMask.CSharp(ctx.Current.Text, ctx.Language?.Version ?? Microsoft.CodeAnalysis.CSharp.LanguageVersion.Preview);

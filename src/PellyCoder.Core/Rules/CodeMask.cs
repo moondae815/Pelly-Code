@@ -2,6 +2,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Text;
 using Microsoft.SqlServer.TransactSql.ScriptDom;
+using PellyCoder.Core.Asp;
 using PellyCoder.Core.Sql;
 
 namespace PellyCoder.Core.Rules;
@@ -52,6 +53,39 @@ public static class CodeMask
                 || (!quotedIdentifier && t.TokenType == TSqlTokenType.AsciiStringOrQuotedIdentifier))
             .Select(t => (t.Offset, t.Text.Length));
         return Blank(text, spans);
+    }
+
+    /// <summary>
+    /// Masks everything of a Classic ASP page except VBScript code tokens: HTML, directives, includes, <c>&lt;% %&gt;</c>
+    /// delimiters, comments (<c>'</c>, <c>Rem</c>) and the text inside string literals (the quotes stay). Token positions come
+    /// from <see cref="AspPage"/>'s statements, so line N of the mask is line N of the page.
+    /// </summary>
+    public static string Asp(string textLf)
+    {
+        var page = AspPage.Parse(textLf);
+        var lineStarts = new List<int> { 0 };
+        for (var i = 0; i < textLf.Length; i++)
+            if (textLf[i] == '\n') lineStarts.Add(i + 1);
+
+        var chars = textLf.ToCharArray();
+        for (var i = 0; i < chars.Length; i++)
+            if (chars[i] is not ('\n' or '\r')) chars[i] = ' ';
+        foreach (var token in page.Statements.SelectMany(s => s.Tokens))
+        {
+            if (token.Line < 1 || token.Line > lineStarts.Count) continue;
+            var start = lineStarts[token.Line - 1] + token.Column - 1;
+            var keep = token.Text.Length;
+            if (start < 0 || start + keep > textLf.Length || string.CompareOrdinal(textLf, start, token.Text, 0, keep) != 0) continue;
+            if (token.Kind == VbTokenKind.String)
+            {
+                chars[start] = textLf[start];
+                var last = start + keep - 1;
+                if (keep > 1 && textLf[last] == '"') chars[last] = '"';
+                continue;
+            }
+            for (var i = start; i < start + keep; i++) chars[i] = textLf[i];
+        }
+        return new string(chars);
     }
 
     private static bool IsCSharpLiteralText(SyntaxKind kind) => kind is SyntaxKind.StringLiteralToken or SyntaxKind.CharacterLiteralToken

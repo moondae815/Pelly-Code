@@ -287,4 +287,37 @@ public class AspSafetyGuardTests
     {
         Assert.Empty(Of("<%\nw = \" WHERE 1=1\"\nw = w & \" AND b=\" & CLng(Request(\"b\"))\nsql = \"SELECT * FROM t\" & w\n%>"));
     }
+    private const string DirtyId = "<%\nid = Request(\"id\")\nsql = \"SELECT * FROM t WHERE id=\" & id\n";
+
+    [Fact]
+    public void DirtyIdPage_NewResponseWriteOfId_NotFlagged()
+    {
+        const string patched = DirtyId
+            + "Response.Write \"<a href='edit.asp?id=\" & id & \"'>edit</a>\"\n"
+            + "Response.Redirect \"view.asp?id=\" & id\n%>";
+
+        Assert.Empty(New(DirtyId + "%>", patched));
+        Assert.Single(Of(DirtyId + "%>")); // the raw SQL concatenation itself is still a finding
+    }
+
+    [Fact]
+    public void DirtyIdPage_UrlChain_DoesNotSpread()
+    {
+        const string original = "<%\nq = Request(\"q\")\npage = Request(\"page\")\n"
+            + "sql = \"SELECT * FROM t WHERE q='\" & q & \"'\"\n%>";
+        const string patched = "<%\nq = Request(\"q\")\npage = Request(\"page\")\n"
+            + "sql = \"SELECT * FROM t WHERE q='\" & q & \"'\"\n"
+            + "url = \"list.asp?p=\" & page & \"&q=\" & q\n"
+            + "Response.Write \"<a href='\" & url & \"'>\" & q & \"</a>\"\n%>";
+
+        Assert.Empty(New(original, patched));
+    }
+    [Fact]
+    public void ConcatAssignedInput_ThenSql_RejectedOnce_EchoAllowed()
+    {
+        const string text = "<%\nname = \"Mr \" & Request(\"n\")\nsql = \"SELECT * FROM t WHERE n='\" & name & \"'\"\n"
+            + "Response.Write \"<b>\" & name & \"</b>\"\n%>";
+
+        Assert.Equal(3, Assert.Single(Of(text)).Line);
+    }
 }

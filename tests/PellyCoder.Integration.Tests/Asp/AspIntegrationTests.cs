@@ -109,7 +109,7 @@ public sealed class AspIntegrationTests(ITestOutputHelper output) : IDisposable
     // ---- save.asp: pure ASCII, mixed line ends, no final line feed ----
 
     [Fact]
-    public async Task Cp949MixedFile_Approved_OutsideBytesIdentical()
+    public async Task AsciiMixedEndingsFile_Approved_OutsideBytesIdentical()
     {
         const string Alert = "Response.Write \"<script type=\"\"text/javascript\"\">alert('Order cancelled.');location.href='list.asp';</script>\"";
         var korean = Alert.Replace("Order cancelled.", "주문을 취소했습니다.", StringComparison.Ordinal);

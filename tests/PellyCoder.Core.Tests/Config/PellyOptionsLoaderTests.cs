@@ -285,4 +285,53 @@ public class PellyOptionsLoaderTests
         var r = Load(new MockFileSystem());
         Assert.Equal("db/pulled", r.Options!.Sql.PullDirectory);
     }
+
+    [Fact]
+    public void Asp_Defaults()
+    {
+        var r = Load(new MockFileSystem());
+        Assert.Empty(r.Errors);
+        var asp = r.Options!.Asp;
+        Assert.False(asp.Configured);
+        Assert.Null(asp.SiteRoot);
+        Assert.Equal("cp949", asp.Encoding);
+        Assert.Equal([".asp", ".inc"], asp.Extensions);
+        Assert.Empty(asp.SqlSanitizers);
+        Assert.Empty(asp.SpCallFunctions);
+    }
+
+    [Fact]
+    public void Asp_SectionPresent_Configured()
+    {
+        var fs = WsFile("""{"asp":{"siteRoot":"site","encoding":"UTF-8","extensions":[".asp"],"sqlSanitizers":["SafeSql"]}}""");
+        var r = Load(fs, ws: P(@"C:\w\pelly.json"));
+        Assert.Empty(r.Errors);
+        var asp = r.Options!.Asp;
+        Assert.True(asp.Configured);
+        Assert.Equal("site", asp.SiteRoot);
+        Assert.Equal("utf-8", asp.Encoding);
+        Assert.Equal([".asp"], asp.Extensions);
+        Assert.Equal(["SafeSql"], asp.SqlSanitizers);
+    }
+
+    [Fact]
+    public void Asp_BadEncoding_Error()
+    {
+        var fs = WsFile("""{"asp":{"encoding":"euc-kr"}}""");
+        var r = Load(fs, ws: P(@"C:\w\pelly.json"));
+        Assert.Null(r.Options);
+        Assert.Contains("asp.encoding은 cp949 또는 utf-8입니다", r.Errors);
+    }
+
+    [Fact]
+    public void Asp_SpCallFunctions_Bound()
+    {
+        var fs = WsFile("""{"asp":{"spCallFunctions":[{"name":"ExecSP","argument":1},{"name":"RunProc","argument":2}]}}""");
+        var r = Load(fs, ws: P(@"C:\w\pelly.json"));
+        Assert.Empty(r.Errors);
+        var f = r.Options!.Asp.SpCallFunctions;
+        Assert.Equal(2, f.Length);
+        Assert.Equal(("ExecSP", 1), (f[0].Name, f[0].Argument));
+        Assert.Equal(("RunProc", 2), (f[1].Name, f[1].Argument));
+    }
 }

@@ -9,6 +9,7 @@ namespace PellyCoder.Core.Files;
 /// <see cref="Sha256"/>은 디스크 바이트(정규화 전)의 소문자 hex 해시입니다.
 /// <see cref="MixedNewLines"/>는 CRLF와 단독 LF가 함께 있을 때 true이며, 쓸 때는 <see cref="NewLine"/>(다수 쪽)으로 통일됩니다.
 /// <see cref="Encoding"/>은 BOM을 스스로 내보내지 않으며 BOM 여부는 <see cref="HasBom"/>만 결정합니다.
+/// <see cref="Raw"/>는 바이트 이어 붙이기 코덱(ASP)이 채우는 디스크 바이트이며, 기본 코덱은 비워 둡니다.
 /// </summary>
 public sealed record FileSnapshot(
     string Path,
@@ -18,7 +19,8 @@ public sealed record FileSnapshot(
     bool EndsWithNewLine,
     string Sha256,
     string Text,
-    bool MixedNewLines = false);
+    bool MixedNewLines = false,
+    byte[]? Raw = null);
 
 /// <summary>수정 텍스트에 파일 인코딩으로 표현할 수 없는 문자가 있을 때 던집니다. <see cref="Line"/>은 1부터 시작합니다.</summary>
 public sealed class UnencodableTextException(int line, char character, string encodingName)

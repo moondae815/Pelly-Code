@@ -57,6 +57,16 @@ public static class FailureKinds
     public const string RulesInvalid = "RulesInvalid";
     public const string RulesErrors = "RulesErrors";
 
+    // Classic ASP edits (pelly asp).
+    public const string AspStructureErrors = "AspStructureErrors";
+    public const string AspUnknownNames = "AspUnknownNames";
+    public const string AspCompileErrors = "AspCompileErrors";
+    public const string AspSafetyRejected = "AspSafetyRejected";
+    public const string AspEncoding = "AspEncoding";
+    public const string AspSpNotFound = "AspSpNotFound";
+    public const string AspUnsupportedLanguage = "AspUnsupportedLanguage";
+    public const string AspUnsupportedFile = "AspUnsupportedFile";
+
     public const string EnvError = "EnvError";
     public const string BudgetExceeded = "BudgetExceeded";
     public const string Rejected = "Rejected";
@@ -83,6 +93,7 @@ public static class FailureKinds
         TestGreenFailed, TestRegression, TestNotFound, TestAmbiguous, TestUnverifiable, TestRedDeclined, TestFileChanged,
         GroupTestGreenFailed, GroupTestRegression, GroupTestUnverifiable, GroupTestFileChanged,
         RulesInvalid, RulesErrors,
+        AspStructureErrors, AspUnknownNames, AspCompileErrors, AspSafetyRejected, AspEncoding, AspSpNotFound, AspUnsupportedLanguage, AspUnsupportedFile,
         EnvError, BudgetExceeded, Rejected, Cancelled,
         CharTestShape, CharTestNoAssert, CharTestEnvDependent, CharTestBuild, CharTestFailsOnCurrent, CharTestRegression, CharTestFlaky, CharTestSurvivesMutation, CharTestMutationUnbuildable, CharTestBaselineUnusable, CharTestPending,
     };

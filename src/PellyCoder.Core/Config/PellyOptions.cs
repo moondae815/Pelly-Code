@@ -15,6 +15,7 @@ public sealed class PellyOptions
     public BuildOptions Build { get; set; } = new();
     public SqlOptions Sql { get; set; } = new();
     public TestOptions Test { get; set; } = new();
+    public AspOptions Asp { get; set; } = new();
 
     /// <summary>A shallow copy with <paramref name="test"/> as the test section; every other section is shared.</summary>
     public PellyOptions WithTest(TestOptions test)
@@ -112,4 +113,27 @@ public sealed class TestOptions
         copy.Projects = projects;
         return copy;
     }
+}
+
+/// <summary>Classic ASP edits (<c>pelly asp</c>).</summary>
+public sealed class AspOptions
+{
+    /// <summary>True when the config has an <c>asp</c> section (for doctor). Computed by the loader, not a config key.</summary>
+    public bool Configured { get; set; }
+    /// <summary>Site root for <c>include virtual=</c>; null means the workspace root.</summary>
+    public string? SiteRoot { get; set; }
+    /// <summary>Encoding of pure ASCII files: <c>cp949</c> or <c>utf-8</c>.</summary>
+    public string Encoding { get; set; } = "cp949";
+    public string[] Extensions { get; set; } = [".asp", ".inc"];
+    /// <summary>Site functions that make a value safe inside a SQL string.</summary>
+    public string[] SqlSanitizers { get; set; } = [];
+    public AspSpCallFunction[] SpCallFunctions { get; set; } = [];
+}
+
+/// <summary>A site wrapper function that calls a stored procedure, e.g. <c>ExecSP "usp_X", …</c>.</summary>
+public sealed class AspSpCallFunction
+{
+    public string Name { get; set; } = "";
+    /// <summary>1-based position of the stored procedure name argument.</summary>
+    public int Argument { get; set; } = 1;
 }

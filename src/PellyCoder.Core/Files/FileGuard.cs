@@ -9,12 +9,14 @@ public enum FileWriteStatus { Written, ExternallyChanged, Locked, Unencodable }
 public sealed record FileWriteResult(FileWriteStatus Status, FileSnapshot? Snapshot, string? Detail);
 
 /// <summary>인코딩·줄바꿈을 보존하는 원자적 쓰기, 백업/복원, 외부 변경 감지 (설계 §8.8).</summary>
-public sealed class FileGuard(IFileSystem fs, TimeProvider time)
+public sealed class FileGuard(IFileSystem fs, TimeProvider time, ITextFileCodec? codec = null)
 {
+    private readonly ITextFileCodec _codec = codec ?? DefaultTextFileCodec.Instance;
+
     private const int MaxAttempts = 5;
     private static readonly TimeSpan RetryDelay = TimeSpan.FromMilliseconds(200);
 
-    public FileSnapshot Read(string path) => TextFileCodec.Read(fs, path);
+    public FileSnapshot Read(string path) => _codec.Decode(path, fs.File.ReadAllBytes(path));
 
     /// <summary>디스크의 원본 바이트를 그대로 <c>.pelly/backup/&lt;runId&gt;/&lt;루트 기준 상대 경로&gt;</c>에 복사한다.</summary>
     public string Backup(Workspace ws, string runId, FileSnapshot original)
@@ -51,7 +53,7 @@ public sealed class FileGuard(IFileSystem fs, TimeProvider time)
         byte[] bytes;
         try
         {
-            bytes = TextFileCodec.Encode(current, newTextLf);
+            bytes = _codec.Encode(current, newTextLf);
         }
         catch (UnencodableTextException ex)
         {
@@ -61,12 +63,7 @@ public sealed class FileGuard(IFileSystem fs, TimeProvider time)
         var (status, detail) = await ReplaceAsync(current.Path, current.Sha256, bytes, ct);
         if (status != FileWriteStatus.Written) return new FileWriteResult(status, null, detail);
 
-        var written = current with
-        {
-            Sha256 = TextFileCodec.HashHex(bytes),
-            Text = TextFileCodec.NormalizeTail(current, newTextLf),
-        };
-        return new FileWriteResult(FileWriteStatus.Written, written, null);
+        return new FileWriteResult(FileWriteStatus.Written, _codec.AfterWrite(current, newTextLf, bytes), null);
     }
 
     public async Task<FileWriteResult> RestoreAsync(string backupPath, FileSnapshot lastKnown, CancellationToken ct)
@@ -76,7 +73,7 @@ public sealed class FileGuard(IFileSystem fs, TimeProvider time)
         if (status == FileWriteStatus.ExternallyChanged)
             detail = $"{detail} Original is kept at {backupPath}.";
         if (status != FileWriteStatus.Written) return new FileWriteResult(status, null, detail);
-        return new FileWriteResult(FileWriteStatus.Written, TextFileCodec.Decode(lastKnown.Path, bytes), null);
+        return new FileWriteResult(FileWriteStatus.Written, _codec.Decode(lastKnown.Path, bytes), null);
     }
 
     /// <summary>심볼릭 링크면 최종 대상 파일 경로, 아니면 그대로. 링크 자체는 건드리지 않는다.</summary>

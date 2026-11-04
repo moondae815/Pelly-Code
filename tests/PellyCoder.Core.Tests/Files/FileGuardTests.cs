@@ -1,5 +1,6 @@
 using System.IO.Abstractions;
 using System.Text;
+using PellyCoder.Core.Asp;
 using PellyCoder.Core.Files;
 using PellyCoder.Core.Workspaces;
 
@@ -151,5 +152,42 @@ public sealed class FileGuardTests : IDisposable
         await _guard.WriteAsync(snap, "c\n", TestContext.Current.CancellationToken);
 
         Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(path)!, ".*.pelly-tmp", SearchOption.AllDirectories));
+    }
+
+    [Fact]
+    public async Task Write_WithAspCodec_SpliceBytes()
+    {
+        var cp949 = Encoding.GetEncoding(949);
+        byte[] Bytes(string s) => cp949.GetBytes(s);
+        byte[] original = [.. Bytes("<% ' 주문\r\n"), .. Bytes("a = 1\n"), .. Bytes("b = \"가격\"\r\n"), .. Bytes("%>\n")];
+        string path = Put(original, "site/order.asp");
+        var guard = new FileGuard(new FileSystem(), TimeProvider.System, new AspTextCodec("cp949"));
+        var snap = guard.Read(path);
+
+        var result = await guard.WriteAsync(snap, snap.Text.Replace("a = 1", "a = \"수정\""), TestContext.Current.CancellationToken);
+
+        Assert.Equal(FileWriteStatus.Written, result.Status);
+        byte[] expected = [.. Bytes("<% ' 주문\r\n"), .. Bytes("a = \"수정\"\n"), .. Bytes("b = \"가격\"\r\n"), .. Bytes("%>\n")];
+        Assert.Equal(expected, File.ReadAllBytes(path));
+        Assert.Equal(expected, result.Snapshot!.Raw);
+        Assert.Equal(TextFileCodec.HashHex(expected), result.Snapshot.Sha256);
+    }
+
+    [Fact]
+    public async Task Restore_WithAspCodec_DecodesViaCodec()
+    {
+        byte[] original = "<%\r\nx = 1\r\n%>\r\n"u8.ToArray();
+        string path = Put(original, "site/list.asp");
+        var guard = new FileGuard(new FileSystem(), TimeProvider.System, new AspTextCodec("cp949"));
+        var snap = guard.Read(path);
+        string backup = guard.Backup(Ws, "run1", snap);
+        var written = await guard.WriteAsync(snap, "<%\nx = \"취소\"\n%>\n", TestContext.Current.CancellationToken);
+
+        var restored = await guard.RestoreAsync(backup, written.Snapshot!, TestContext.Current.CancellationToken);
+
+        Assert.Equal(FileWriteStatus.Written, restored.Status);
+        Assert.Equal(original, File.ReadAllBytes(path));
+        Assert.Equal(original, restored.Snapshot!.Raw);
+        Assert.Equal(949, restored.Snapshot.Encoding.CodePage);
     }
 }

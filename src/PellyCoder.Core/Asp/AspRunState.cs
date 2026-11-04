@@ -35,8 +35,19 @@ public sealed class AspRunState(
     /// <summary>Compile errors of the original page (set by the first VERIFY); only errors beyond these count.</summary>
     public IReadOnlyList<Diagnostic>? OriginalCompileErrors { get; set; }
 
-    /// <summary>Stored procedure calls found in the original target (set by ASP LOCATE or the first VERIFY).</summary>
-    public IReadOnlyList<AspSpCall> OriginalSpCalls { get; set; } = [];
+    /// <summary>Stored procedure calls found in the whole original page (set once, by the first SLICE).</summary>
+    public IReadOnlyList<AspSpCall> OriginalSpCalls
+    {
+        get;
+        set
+        {
+            field = value;
+            OriginalSpCallsSet = true;
+        }
+    } = [];
+
+    /// <summary>True once <see cref="OriginalSpCalls"/> has been set (it may legitimately be empty).</summary>
+    public bool OriginalSpCallsSet { get; private set; }
 
     /// <summary>Latest result of each check by name.</summary>
     public Dictionary<string, AspCheck> Checks { get; } = new(StringComparer.Ordinal);

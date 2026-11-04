@@ -101,6 +101,7 @@ public sealed class AspSlicePhaseTests
         Assert.Equal([new EditableRegion(new TextSpanInfo(11, 16), "target")], ctx.SliceResult.Regions);
         Assert.False(ctx.SliceResult.TargetTooLarge);
         Assert.Equal("dbo.usp_ItemTotal", Assert.Single(ctx.Asp!.OriginalSpCalls).Name.Display);
+        Assert.True(ctx.Asp.OriginalSpCallsSet);
     }
 
     [Fact]
@@ -115,6 +116,8 @@ public sealed class AspSlicePhaseTests
         Assert.Equal("x20 = 20\nx21 = 21\nx22 = 22", PartText(ctx, "target"));
         var around = PartText(ctx, "around");
         Assert.StartsWith("x10 = 10\n", around);
+        Assert.Contains("x19 = 19\n... (target lines) ...\nx23 = 23", around);
+        Assert.DoesNotContain("[EDITABLE", around);
         Assert.Contains("x19 = 19\n", around);
         Assert.EndsWith("x32 = 32", around);
         Assert.DoesNotContain("x9 = 9", around);
@@ -181,18 +184,54 @@ public sealed class AspSlicePhaseTests
     [Fact]
     public async Task Slice_Budget_DropsAroundFirst()
     {
-        var text = string.Concat(Enumerable.Range(1, 40).Select(i => i == 1 ? "<%\n" : i == 40 ? "%>\n" : $"value{i} = \"some longer text {i}\"\n"));
-        var ctx = await Located(text, lines: new TextSpanInfo(20, 22));
-        var full = await Phase().ExecuteAsync(ctx, TestContext.Current.CancellationToken);
-        Assert.Equal(PhaseOutcome.Ok, full);
-        var target = ctx.SliceResult.Slice.Included.Single(p => p.Kind == "target").Tokens;
-        var page = ctx.SliceResult.Slice.Included.Single(p => p.Kind == "page").Tokens;
+        // A line range with every part present: around, sql, variables, procedures and page.
+        var body = string.Concat(Enumerable.Range(1, 12).Select(i => $"filler{i} = \"some longer text {i}\"\n"));
+        var text = "<%@ Language=\"VBScript\" %>\n<!--#include file=\"util.inc\"-->\n<%\nDim total\ntotal = 0\n" + body
+            + "Set rs = conn.Execute(\"exec dbo.usp_ItemTotal \" & CLng(total))\ntotal = Pad(rs(0))\n" + body + "%>\n";
+        _sql.Signatures.Add(ItemTotal());
+        var ctx = await Located(text, lines: new TextSpanInfo(18, 19));
+        Assert.Equal(PhaseOutcome.Ok, await Phase().ExecuteAsync(ctx, TestContext.Current.CancellationToken));
+        Assert.Equal(["target", "page", "procedures", "variables", "sql", "around"], ctx.SliceResult.Slice.Included.Select(p => p.Kind));
+        var tokens = ctx.SliceResult.Slice.Included.ToDictionary(p => p.Kind, p => p.Tokens);
 
-        var outcome = await Phase(new BudgetOptions { Context = target + page }).ExecuteAsync(ctx, TestContext.Current.CancellationToken);
+        string[] order = ["around", "sql", "variables", "procedures", "page"];
+        for (var dropped = 1; dropped <= order.Length; dropped++)
+        {
+            var kept = tokens.Where(t => !order.Take(dropped).Contains(t.Key)).Sum(t => t.Value);
+            var outcome = await Phase(new BudgetOptions { Context = kept }).ExecuteAsync(ctx, TestContext.Current.CancellationToken);
+
+            Assert.Equal(PhaseOutcome.Ok, outcome);
+            Assert.Equal(order.Take(dropped), ctx.SliceResult.Slice.Omitted.Select(p => p.Kind));
+            Assert.DoesNotContain(ctx.SliceResult.Slice.Included, p => order.Take(dropped).Contains(p.Kind));
+            Assert.Equal(6 - dropped, ctx.SliceResult.Slice.Included.Count);
+        }
+    }
+
+    [Fact]
+    public async Task Slice_LinesTarget_LockedLineInside_SeparatorShown()
+    {
+        const string text = "<%\nx = 1\n%>\n<!--#include file=\"util.inc\"-->\n<%\ny = 2\n%>\n";
+        var ctx = await Located(text, lines: new TextSpanInfo(2, 6));
+
+        var outcome = await Phase().ExecuteAsync(ctx, TestContext.Current.CancellationToken);
 
         Assert.Equal(PhaseOutcome.Ok, outcome);
-        Assert.Equal(["target", "page"], ctx.SliceResult.Slice.Included.Select(p => p.Kind));
-        Assert.Equal("around", Assert.Single(ctx.SliceResult.Slice.Omitted).Kind);
+        Assert.Equal("x = 1\n%>\n... (locked include/directive line — not editable) ...\n<%\ny = 2", PartText(ctx, "target"));
+        Assert.Equal(
+            [new EditableRegion(new TextSpanInfo(2, 3), "target"), new EditableRegion(new TextSpanInfo(5, 6), "target")],
+            ctx.SliceResult.Regions);
+    }
+
+    [Fact]
+    public async Task Slice_LinesInsideFunction_IncludesLocalDims()
+    {
+        const string text = "<%\nFunction Calc(a)\n  Dim t, u\n  Const K = 3\n  t = a + K\n  Calc = t\nEnd Function\n%>\n";
+        var ctx = await Located(text, lines: new TextSpanInfo(5, 5));
+
+        var outcome = await Phase().ExecuteAsync(ctx, TestContext.Current.CancellationToken);
+
+        Assert.Equal(PhaseOutcome.Ok, outcome);
+        Assert.Equal("Function Calc(a)\n  Dim t, u\n  Const K = 3", PartText(ctx, "variables"));
     }
 
     [Fact]
@@ -242,7 +281,7 @@ public sealed class AspSlicePhaseTests
     public async Task Slice_ProcRemoved_TargetNotFound()
     {
         var ctx = await Located(ProcPage, proc: "Total");
-        _fs.File.WriteAllBytes(PagePath, Encoding.UTF8.GetBytes(ProcPage.Replace("Function Total(id)", "Function Other(id)").Replace("End Function\n%>", "End Function\n%>")));
+        _fs.File.WriteAllBytes(PagePath, Encoding.UTF8.GetBytes(ProcPage.Replace("Function Total(id)", "Function Other(id)")));
         ctx.Current = _guard.Read(PagePath);
 
         var outcome = await Phase().ExecuteAsync(ctx, TestContext.Current.CancellationToken);

@@ -18,6 +18,7 @@ public sealed class AspSlicePhase(FileGuard fileGuard, ITokenCounter tokens, Bud
 {
     public const string SqlContextCheck = "SqlContext";
     private const int AroundLines = 10;
+    public const string LockedSeparator = "... (locked include/directive line — not editable) ...";
 
     // Dropped from the front when the budget is short; the earlier, the lower the priority.
     private static readonly string[] DropOrder = ["around", "sql", "variables", "procedures", "page"];
@@ -39,7 +40,7 @@ public sealed class AspSlicePhase(FileGuard fileGuard, ITokenCounter tokens, Bud
         ctx.Current = current;
 
         var state = ctx.Asp!;
-        if (state.OriginalSpCalls.Count == 0)
+        if (!state.OriginalSpCallsSet)
             state.OriginalSpCalls = AspSpCallFinder.Find(state.OriginalPage, options.SpCallFunctions);
 
         var page = AspPage.Parse(current.Text);
@@ -58,7 +59,9 @@ public sealed class AspSlicePhase(FileGuard fileGuard, ITokenCounter tokens, Bud
         ctx.Target = ctx.Target! with { MemberSpan = span };
 
         var regions = state.EditableRegions(page);
-        var targetText = string.Join('\n', regions.SelectMany(r => Lines(page, r.Span.StartLine, r.Span.EndLine)));
+        // Locked lines inside the span split it; the separator tells the model the chunks are not contiguous.
+        var targetText = string.Join("\n" + LockedSeparator + "\n",
+            regions.Select(r => string.Join('\n', Lines(page, r.Span.StartLine, r.Span.EndLine))));
         var targetPart = new SlicePart("target", targetText, tokens.Count(targetText), int.MaxValue);
 
         var candidates = new List<SlicePart>();
@@ -157,22 +160,30 @@ public sealed class AspSlicePhase(FileGuard fileGuard, ITokenCounter tokens, Bud
 
     /// <summary>
     /// Module-level declaration lines and the first module-level assignment line of the page names the target uses
-    /// (lines inside the target are not repeated). Names declared locally in the target procedure are skipped.
+    /// (lines inside the target are not repeated). Names local to the target procedure are skipped; for a line range inside a
+    /// procedure, that procedure's local declarations (Dim, Const, parameters) outside the range are shown instead.
     /// </summary>
     private static string Variables(AspPage page, AspRunState state, TextSpanInfo span, AspProcedure? target)
     {
-        var scope = target is null ? null : target.ClassName is null ? target.Name : target.ClassName + "." + target.Name;
-        var local = scope is null
-            ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            : page.Declarations.Where(d => d.Procedure == scope).Select(d => d.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var enclosing = target ?? page.Procedures
+            .Where(p => p.StartLine <= span.StartLine && span.EndLine <= p.EndLine)
+            .OrderBy(p => p.EndLine - p.StartLine)
+            .FirstOrDefault();
+        var scope = enclosing is null ? null : enclosing.ClassName is null ? enclosing.Name : enclosing.ClassName + "." + enclosing.Name;
+        var localDeclarations = scope is null ? [] : page.Declarations.Where(d => d.Procedure == scope).ToList();
         var used = UsedNames(page, span);
-        used.ExceptWith(local);
-        if (target is not null) used.Remove(target.Name);
-
-        var lines = new List<string>();
-        bool Outside(int line) => line < span.StartLine || line > span.EndLine;
+        if (enclosing is not null) used.Remove(enclosing.Name);
 
         var pageLines = new SortedSet<int>();
+        bool Outside(int line) => line < span.StartLine || line > span.EndLine;
+        foreach (var d in localDeclarations)
+        {
+            if (!used.Contains(d.Name)) continue;
+            if (target is null && Outside(d.Line)) pageLines.Add(d.Line);
+        }
+        used.ExceptWith(localDeclarations.Select(d => d.Name));
+
+        var lines = new List<string>();
         foreach (var name in used)
         {
             var declared = page.Declarations.FirstOrDefault(d => d.Procedure is null && VariableKinds.Contains(d.Kind)
@@ -216,9 +227,9 @@ public sealed class AspSlicePhase(FileGuard fileGuard, ITokenCounter tokens, Bud
         {
             signatures = await sql.GetProcedureSignaturesAsync(names, ct);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is SqlUnavailableException or Microsoft.Data.SqlClient.SqlException)
         {
-            // The SQL context is optional: an unreachable server (or an error it did not classify) only skips it.
+            // The SQL context is optional: an unreachable server or a failed metadata query only skips it.
             state.Record(SqlContextCheck, AspCheckStatus.Skipped,
                 $"SQL 서버를 사용할 수 없습니다: {SqlConnectionText.MaskInText(ex.Message, ctx.Options.Sql.ConnectionString)}");
             return "";
@@ -243,7 +254,7 @@ public sealed class AspSlicePhase(FileGuard fileGuard, ITokenCounter tokens, Bud
         var after = Lines(page, span.EndLine + 1, Math.Min(lineCount, span.EndLine + AroundLines)).ToList();
         if (before.Count == 0 && after.Count == 0)
             return "";
-        return string.Join('\n', before.Append("... [EDITABLE: target] ...").Concat(after));
+        return string.Join('\n', before.Append("... (target lines) ...").Concat(after));
     }
 
     /// <summary>Names used inside <paramref name="span"/>.</summary>

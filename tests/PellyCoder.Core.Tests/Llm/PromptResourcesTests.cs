@@ -18,5 +18,7 @@ public sealed class PromptResourcesTests
         Assert.Contains("{LanguageHint}", Resources.SystemAsp);
         Assert.Contains("<<<<<<< SEARCH", Resources.SystemAsp);
         Assert.Contains("Replace(value, \"'\", \"''\")", Resources.SystemAsp);
+        Assert.Contains("VBScript built-in functions and the site SQL functions named in RULES", Resources.SystemAsp);
+        Assert.Contains("Methods of ADO objects such as conn.Execute or cmd.Execute are fine.", Resources.SystemAsp);
     }
 }

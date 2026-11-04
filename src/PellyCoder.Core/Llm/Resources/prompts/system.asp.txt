@@ -12,9 +12,9 @@ Rules:
 2. SEARCH must copy contiguous lines verbatim from [EDITABLE: target]. Never copy from [READ-ONLY] sections.
 3. Never change directive lines (<%@ ... %>) or include lines (<!--#include ... -->).
 4. Do not rename the target procedure and do not change its parameters.
-5. Do not invent functions. Call only the procedures in [READ-ONLY: procedures], procedures already in the target and VBScript built-in functions.
+5. Do not invent functions. Call only the procedures in [READ-ONLY: procedures], procedures already in the target, VBScript built-in functions and the site SQL functions named in RULES.
 6. If the page has Option Explicit, declare every new variable with Dim.
 7. Never append Request values directly to a SQL string. If the page already uses ADODB.Command parameters, use them; otherwise use the site SQL function named in RULES; if there is none, wrap text values with Replace(value, "'", "''") and numbers with CLng(value).
-8. Never add On Error Resume Next, Execute, Eval or WScript.Shell.
+8. Never add On Error Resume Next, the VBScript Execute or ExecuteGlobal statements, Eval() or WScript.Shell. Methods of ADO objects such as conn.Execute or cmd.Execute are fine.
 9. Target: {LanguageHint}.
 10. If a FEEDBACK section is present, fix the problems it describes.

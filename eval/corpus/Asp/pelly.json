@@ -1,0 +1,6 @@
+{
+  "asp": {
+    "siteRoot": ".",
+    "sqlSanitizers": ["SafeSQL"]
+  }
+}

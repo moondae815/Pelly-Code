@@ -209,15 +209,15 @@ public sealed class AspIntegrationTests(ITestOutputHelper output) : IDisposable
         foreach (var path in files)
         {
             var textLf = AspE2E.DecodeLf(File.ReadAllBytes(path));
-            var page = AspPage.Parse(textLf);
+            var compileScript = VbsCompileScript.Build(AspPage.Parse(textLf), textLf);
             var script = Path.Combine(_copy.Root, Path.GetFileNameWithoutExtension(path) + "-compile.vbs");
             File.WriteAllBytes(script, [.. Encoding.Unicode.GetPreamble(),
-                .. Encoding.Unicode.GetBytes(VbsCompileScript.Build(page, textLf).ReplaceLineEndings("\r\n"))]);
+                .. Encoding.Unicode.GetBytes(compileScript.Text.ReplaceLineEndings("\r\n"))]);
             var result = await processes.RunAsync(
                 new ProcessSpec("cscript", ["//Nologo", "//T:10", "//E:vbscript", script], _copy.Root, TimeSpan.FromSeconds(30)),
                 TestContext.Current.CancellationToken);
             var text = TextDecoding.Decode(result.StdOutBytes) + "\n" + TextDecoding.Decode(result.StdErrBytes ?? []);
-            var errors = CscriptOutput.Parse(text, script, page.LineCount);
+            var errors = CscriptOutput.Parse(text, script, compileScript);
             output.WriteLine($"{Path.GetRelativePath(CorpusPaths.Get("Asp"), path)}: exit {result.ExitCode}, {errors.Count} errors");
             if (errors.Count > 0 || result.ExitCode != 0)
                 failures.Add($"{path} (exit {result.ExitCode}):\n{string.Join("\n", errors)}\n{text}");

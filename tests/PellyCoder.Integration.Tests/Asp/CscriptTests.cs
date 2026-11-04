@@ -47,9 +47,9 @@ public sealed class CscriptTests : IDisposable
 
     private async Task<IReadOnlyList<Diagnostic>> CompilePageAsync(string pageLf)
     {
-        var page = AspPage.Parse(pageLf);
-        var (_, path, output) = await RunAsync(VbsCompileScript.Build(page, pageLf));
-        return CscriptOutput.Parse(output, path, page.LineCount);
+        var script = VbsCompileScript.Build(AspPage.Parse(pageLf), pageLf);
+        var (_, path, output) = await RunAsync(script.Text);
+        return CscriptOutput.Parse(output, path, script);
     }
 
     [WindowsFact]
@@ -67,7 +67,7 @@ public sealed class CscriptTests : IDisposable
         var (result, path, output) = await RunAsync("x = 1\nIf x Then\n");
 
         Assert.Equal(1, result.ExitCode);
-        var error = Assert.Single(CscriptOutput.Parse(output, path, 2));
+        var error = Assert.Single(CscriptOutput.Parse(output, path, new VbsScript("", [1, 2], 2)));
         Assert.Equal("VBS", error.Code);
         Assert.Equal(2, error.Line);
     }
@@ -136,7 +136,7 @@ public sealed class CscriptTests : IDisposable
     [WindowsFact]
     public async Task Cscript_DoesNotExecute_WithOptionExplicit()
     {
-        // Option Explicit page: the script reads "Option Explicit : WScript.Quit 0".
+        // Option Explicit page: the script reads "Option Explicit", then "WScript.Quit 0" on its own line.
         var marker = Path.Combine(_dir, "executed-explicit.txt");
         var page =
             "<% Option Explicit %>\n" +
@@ -145,7 +145,7 @@ public sealed class CscriptTests : IDisposable
             "Set fso = CreateObject(\"Scripting.FileSystemObject\")\n" +
             "fso.CreateTextFile(\"" + marker + "\")\n" +
             "%>\n";
-        Assert.Contains("Option Explicit : WScript.Quit 0", VbsCompileScript.Build(AspPage.Parse(page), page));
+        Assert.Contains("Option Explicit\nWScript.Quit 0\n", VbsCompileScript.Build(AspPage.Parse(page), page).Text);
 
         var errors = await CompilePageAsync(page);
 
@@ -156,12 +156,55 @@ public sealed class CscriptTests : IDisposable
     [WindowsFact]
     public async Task Cscript_SubOnFirstLine_Compiles()
     {
-        // The page has no Option Explicit, so the script starts with "WScript.Quit 0 : Sub Hello()".
+        // The page has no Option Explicit, so the script starts with "WScript.Quit 0" and then "Sub Hello()".
         const string page = "<% Sub Hello() %>\n<b>hi</b>\n<% End Sub %>\n<% Hello %>\n";
 
         var errors = await CompilePageAsync(page);
 
         Assert.True(errors.Count == 0, string.Join("\n", errors));
+    }
+
+    [WindowsFact]
+    public async Task Cscript_ClassOnFirstLine_Compiles()
+    {
+        // "Class C" may not follow ":" on a line; each fragment is its own script line, so this compiles.
+        const string page = "<% Class C %>\n<% Public Name %>\n<% End Class %>\n<% Dim c : Set c = New C %>\n";
+        Assert.StartsWith("WScript.Quit 0\nClass C\n", VbsCompileScript.Build(AspPage.Parse(page), page).Text);
+
+        var errors = await CompilePageAsync(page);
+
+        Assert.True(errors.Count == 0, string.Join("\n", errors));
+    }
+
+    [WindowsFact]
+    public async Task Cscript_RemOptionExplicit_DoesNotExecute()
+    {
+        // A Rem line mentioning Option Explicit must not swallow the Quit: the page still does not run.
+        var marker = Path.Combine(_dir, "executed-rem.txt");
+        var page =
+            "<%\n" +
+            "Rem Option Explicit is below\n" +
+            "Option Explicit\n" +
+            "Dim fso\n" +
+            "Set fso = CreateObject(\"Scripting.FileSystemObject\")\n" +
+            "fso.CreateTextFile(\"" + marker + "\")\n" +
+            "%>\n";
+
+        var errors = await CompilePageAsync(page);
+
+        Assert.True(errors.Count == 0, string.Join("\n", errors));
+        Assert.False(File.Exists(marker));
+    }
+
+    [WindowsFact]
+    public async Task Cscript_ErrorLine_MappedToPageLine()
+    {
+        // HTML lines produce no script line; the reported error must still name the page line of the bad code.
+        const string page = "<%@ Language=\"VBScript\" %>\n<html>\n<body>\n<% If x Then %>\n<p>a</p>\n<% x = ( %>\n<% End If %>\n";
+
+        var error = Assert.Single(await CompilePageAsync(page));
+
+        Assert.Equal(6, error.Line);
     }
 
     [WindowsFact]

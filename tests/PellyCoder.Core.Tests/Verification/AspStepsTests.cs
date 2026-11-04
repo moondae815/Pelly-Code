@@ -161,8 +161,9 @@ public sealed class AspStepsTests
     public async Task Compile_NewError_Fails()
     {
         _processes.Enqueue(Result(0));
+        // Script: Option Explicit(3), WScript.Quit 0(3), Dim(4), Function(5), conn.Execute(6), If…(7), End Function(8).
         _processes.Enqueue((spec, _) => Task.FromResult(Result(1,
-            stderr: spec.Arguments[^1] + "(7, 3) Microsoft VBScript 컴파일 오류: 'End'가 필요합니다.\r\n")));
+            stderr: spec.Arguments[^1] + "(6, 3) Microsoft VBScript 컴파일 오류: 'End'가 필요합니다.\r\n")));
         var ctx = Ctx(Original.Replace("  Total = id", "  If id Then Total = id Else"));
 
         var result = await CompileStep().VerifyAsync(ctx, Ct);
@@ -186,7 +187,7 @@ public sealed class AspStepsTests
         Assert.Equal(new byte[] { 0xFF, 0xFE }, bytes[..2]);
         var text = Encoding.Unicode.GetString(bytes, 2, bytes.Length - 2);
         Assert.Contains("If id Then Total = id Else", text);
-        Assert.Contains("Option Explicit : WScript.Quit 0", text);
+        Assert.Contains("Option Explicit\r\nWScript.Quit 0\r\nDim conn, total\r\n", text);
     }
 
     [Fact]
@@ -202,7 +203,9 @@ public sealed class AspStepsTests
 
         Assert.True(result.Passed);
         Assert.Single(ctx.Asp!.OriginalCompileErrors!);
-        Assert.Equal(AspCheckStatus.Passed, ctx.Asp.Checks["AspCompile"].Status);
+        var check = ctx.Asp.Checks["AspCompile"];
+        Assert.Equal(AspCheckStatus.Warned, check.Status);
+        Assert.Equal("원본에 컴파일 오류가 있어 첫 오류 뒤는 검사하지 못했습니다", check.Detail);
     }
 
     [Fact]
@@ -215,6 +218,7 @@ public sealed class AspStepsTests
         await CompileStep().VerifyAsync(ctx, Ct);
 
         Assert.Equal(3, _processes.Calls.Count);
+        Assert.Equal(AspCheckStatus.Passed, ctx.Asp!.Checks["AspCompile"].Status);
     }
 
     // ---- stored procedures ----

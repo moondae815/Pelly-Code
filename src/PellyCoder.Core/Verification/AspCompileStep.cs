@@ -21,6 +21,9 @@ public sealed class AspCompileStep(IProcessRunner processes, FeedbackBuilder fee
 {
     private static readonly TimeSpan ProcessTimeout = TimeSpan.FromSeconds(30);
 
+    /// <summary>Detail of the warning when the original page already fails to compile.</summary>
+    public const string OriginalErrorsDetail = "원본에 컴파일 오류가 있어 첫 오류 뒤는 검사하지 못했습니다";
+
     public string Name => "AspCompile";
 
     public async Task<StepResult> VerifyAsync(RunContext ctx, CancellationToken ct)
@@ -49,7 +52,11 @@ public sealed class AspCompileStep(IProcessRunner processes, FeedbackBuilder fee
         var newErrors = BaselineDiff.New(state.OriginalCompileErrors, current.Errors);
         if (newErrors.Count == 0)
         {
-            state.Record(Name, AspCheckStatus.Passed);
+            // cscript stops at the first compile error, so a broken original hides everything after it.
+            if (state.OriginalCompileErrors.Count > 0)
+                state.Record(Name, AspCheckStatus.Warned, OriginalErrorsDetail);
+            else
+                state.Record(Name, AspCheckStatus.Passed);
             return StepResult.Pass;
         }
         state.Record(Name, AspCheckStatus.Failed, string.Join(", ", newErrors.Select(e => e.Message).Distinct()));
@@ -73,7 +80,7 @@ public sealed class AspCompileStep(IProcessRunner processes, FeedbackBuilder fee
         var runDir = fs.Path.Combine(workspace.PellyDir, "runs", ctx.RunId);
         fs.Directory.CreateDirectory(runDir);
         var path = NextScriptPath(runDir);
-        var body = Encoding.Unicode.GetBytes(script.Replace("\n", "\r\n", StringComparison.Ordinal));
+        var body = Encoding.Unicode.GetBytes(script.Text.Replace("\n", "\r\n", StringComparison.Ordinal));
         fs.File.WriteAllBytes(path, [.. Encoding.Unicode.GetPreamble(), .. body]);
 
         ProcessResult result;
@@ -96,7 +103,7 @@ public sealed class AspCompileStep(IProcessRunner processes, FeedbackBuilder fee
             return new Compiled([], FirstLine(output) ?? "cscript 종료 코드 1");
 
         var file = Path.GetFileName(ctx.FilePath);
-        var errors = CscriptOutput.Parse(output, path, page.LineCount).Select(e => e with { File = file }).ToList();
+        var errors = CscriptOutput.Parse(output, path, script).Select(e => e with { File = file }).ToList();
         return new Compiled(errors, null);
     }
 

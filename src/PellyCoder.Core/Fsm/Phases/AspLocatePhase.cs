@@ -89,9 +89,7 @@ public sealed class AspLocatePhase(IFileSystem fs, IUserInteraction ui, AspOptio
             return NotFound(ctx, $"대상 범위를 해석할 수 없습니다: {broken.Message} (줄 {broken.Line})");
 
         var root = ctx.Workspace!.Root;
-        var siteRoot = options.SiteRoot is { Length: > 0 } configured
-            ? fs.Path.GetFullPath(fs.Path.IsPathRooted(configured) ? configured : fs.Path.Combine(root, configured))
-            : root;
+        var siteRoot = AspSiteRoot.Resolve(fs, options.SiteRoot, root);
         var includes = AspIncludeResolver.Resolve(fs, ctx.FilePath, page, siteRoot, codec);
         if (includes.Unresolved.Count > 0)
             ctx.Messages.Add($"include를 찾지 못했습니다: {string.Join(", ", includes.Unresolved)} (asp.siteRoot 확인)");

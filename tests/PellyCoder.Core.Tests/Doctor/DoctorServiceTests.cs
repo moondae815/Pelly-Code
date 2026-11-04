@@ -379,6 +379,28 @@ public sealed class DoctorServiceTests
     }
 
     [Fact]
+    public async Task Doctor_SiteRoot_Relative_ResolvedAgainstWorkspaceRoot()
+    {
+        // Same rule as pelly asp LOCATE: a relative asp.siteRoot is under the workspace root (the pelly.json folder).
+        _options.Asp.Configured = true;
+        _context = new DoctorContext(null, "/w/pelly.json");
+        _fs.AddDirectory("/w/site");
+        _options.Asp.SiteRoot = "site";
+        EnqueueProbes();
+
+        var c = Get(await Create().RunAsync(CancellationToken.None), "ASP 사이트 루트");
+
+        Assert.Equal(DoctorStatus.Ok, c.Status);
+        Assert.Equal(_fs.Path.GetFullPath("/w/site"), c.Detail);
+
+        _options.Asp.SiteRoot = "missing";
+        EnqueueProbes();
+        c = Get(await Create().RunAsync(CancellationToken.None), "ASP 사이트 루트");
+        Assert.Equal(DoctorStatus.Fail, c.Status);
+        Assert.Contains(_fs.Path.GetFullPath("/w/missing"), c.Detail);
+    }
+
+    [Fact]
     public async Task Doctor_NoSanitizers_Warn()
     {
         _options.Asp.Configured = true;

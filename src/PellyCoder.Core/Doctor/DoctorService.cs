@@ -1,5 +1,6 @@
 using System.IO.Abstractions;
 using PellyCoder.Core.Abstractions;
+using PellyCoder.Core.Asp;
 using PellyCoder.Core.Builds;
 using PellyCoder.Core.Config;
 using PellyCoder.Core.Impact;
@@ -248,9 +249,13 @@ public sealed class DoctorService(
     private DoctorCheck CheckAspSiteRoot()
     {
         const string name = DoctorFacts.AspSiteRoot;
-        var root = options.Asp.SiteRoot;
-        if (string.IsNullOrWhiteSpace(root))
+        if (string.IsNullOrWhiteSpace(options.Asp.SiteRoot))
             return new(name, DoctorStatus.Ok, "작업 공간 루트를 씁니다", null);
+        // The workspace root is the folder of the workspace pelly.json (as pelly asp LOCATE resolves it).
+        var workspaceRoot = context is not null && fs.Path.GetDirectoryName(fs.Path.GetFullPath(context.WorkspaceConfigPath)) is { } dir
+            ? dir
+            : fs.Directory.GetCurrentDirectory();
+        var root = AspSiteRoot.Resolve(fs, options.Asp.SiteRoot, workspaceRoot);
         return fs.Directory.Exists(root)
             ? new(name, DoctorStatus.Ok, root, null)
             : new(name, DoctorStatus.Fail, $"{root} 폴더가 없음", "asp.siteRoot 설정을 확인하세요");

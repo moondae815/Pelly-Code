@@ -280,6 +280,13 @@ public sealed class FsmOrchestrator(
                 { Line: { } line } => $"대상 찾기: {line}번 줄",
                 _ => "대상 찾기: 파일에서",
             },
+            RunPhase.Locate when ctx.Request.Kind == EditKind.Asp => ctx.Request switch
+            {
+                { MethodName: { } proc } => $"대상 찾기: {proc}",
+                { Line: { } line } => $"대상 찾기: {line}번 줄",
+                { Lines: { } lines } => $"대상 찾기: 줄 {lines.StartLine}-{lines.EndLine}",
+                _ => "대상 찾기: 파일에서",
+            },
             RunPhase.Locate => ctx.Request switch
             {
                 { Line: { } line } => $"대상 찾기: {line}번 줄",
@@ -290,6 +297,7 @@ public sealed class FsmOrchestrator(
             RunPhase.Edit => $"수정 생성 (시도 {ctx.Attempt + 1}/{1 + ctx.MaxRetries})",
             RunPhase.Apply => ctx.Request.DryRun ? "패치 미리 보기" : "패치 적용",
             RunPhase.Verify when ctx.Request.Kind == EditKind.Sql => "객체 존재·컴파일 검사",
+            RunPhase.Verify when ctx.Request.Kind == EditKind.Asp => "이름·컴파일·SP 검사",
             RunPhase.Verify => ctx.BuildTool is null ? "구문 검사" : ctx.TestProjects.Count > 0 ? "구문 검사·빌드·테스트" : "구문 검사·빌드",
             RunPhase.Review => "변경 검토",
             _ => phase.ToString(),

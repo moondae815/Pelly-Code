@@ -138,4 +138,94 @@ public class AspSafetyGuardTests
         Assert.Equal("SqlConcatRequest", finding.Rule);
         Assert.Equal(4, finding.Line);
     }
+
+    private const string Select = "\"SELECT * FROM t WHERE id = \"";
+
+    [Fact]
+    public void TaintedVariable_ViaTrim_Rejected()
+    {
+        var finding = Assert.Single(Of("<%\nn = Trim(Request(\"n\"))\nsql = \"SELECT * FROM t WHERE n = '\" & n & \"'\"\n%>"));
+        Assert.Equal(3, finding.Line);
+    }
+
+    [Fact]
+    public void Variable_ViaReplaceQuotes_Allowed()
+    {
+        Assert.Empty(Of("<%\nn = Replace(Request(\"n\"), \"'\", \"''\")\nsql = \"SELECT * FROM t WHERE n = '\" & n & \"'\"\n%>"));
+    }
+
+    [Fact]
+    public void Variable_ConcatLiteral_Rejected()
+    {
+        Assert.Single(Of("<%\nn = Request(\"n\") & \"\"\nsql = " + Select + " & n\n%>"));
+    }
+
+    [Fact]
+    public void Reassigned_ThroughClng_Allowed()
+    {
+        Assert.Empty(Of("<%\nid = Request(\"id\")\nid = CLng(id)\nsql = " + Select + " & id\n%>"));
+    }
+
+    [Fact]
+    public void UseBeforeTaintingAssignment_NotFlagged()
+    {
+        Assert.Empty(Of("<%\nsql = " + Select + " & id\nid = Request(\"id\")\n%>"));
+    }
+
+    [Fact]
+    public void IncrementalSql_RequestAppended_Rejected()
+    {
+        var finding = Assert.Single(Of("<%\nsql = \"SELECT * FROM t\"\nsql = sql & \" WHERE id = \" & Request(\"id\")\n%>"));
+        Assert.Equal("SqlConcatRequest", finding.Rule);
+        Assert.Equal(3, finding.Line);
+    }
+
+    [Fact]
+    public void IncrementalSql_TaintedVariableAppended_Rejected()
+    {
+        const string text = "<%\nn = Request(\"n\")\nsql = \"SELECT * FROM t WHERE 1 = 1\"\n"
+            + "If n <> \"\" Then sql = sql & \" AND n = '\" & n & \"'\"\nsql = sql & \" ORDER BY n\"\n%>";
+        var finding = Assert.Single(Of(text));
+        Assert.Equal(4, finding.Line);
+    }
+
+    [Fact]
+    public void IncrementalSql_ClngAppended_Allowed()
+    {
+        Assert.Empty(Of("<%\nsql = \"SELECT * FROM t\"\nsql = sql & \" WHERE id = \" & CLng(Request(\"id\"))\n%>"));
+    }
+
+    [Fact]
+    public void PlusConcat_Rejected()
+    {
+        Assert.Single(Of("<% sql = " + Select + " + Request(\"id\") %>"));
+        Assert.Single(Of("<%\nsql = \"SELECT * FROM t\"\nsql = sql + Request(\"id\")\n%>"));
+        Assert.Empty(Of("<%\nid = Request(\"id\")\ntotal = id + 1\n%>"));
+    }
+
+    [Fact]
+    public void NonSqlVariable_Append_Allowed()
+    {
+        Assert.Empty(Of("<%\nhtml = \"<ul>\"\nhtml = html & Request(\"q\")\nhtml = html & \"</ul>\"\n%>"));
+    }
+
+    [Fact]
+    public void DottedSanitizer_Allowed()
+    {
+        Assert.Empty(Of("<% sql = " + Select + " & Util.SafeSQL(Request(\"id\")) %>", "SafeSQL"));
+        Assert.Empty(Of("<%\nWith Util\n  sql = " + Select + " & .SafeSQL(Request(\"id\"))\nEnd With\n%>", "SafeSQL"));
+        Assert.Single(Of("<% sql = " + Select + " & Util.CLng(Request(\"id\")) %>"));
+    }
+
+    [Fact]
+    public void ConcatInsideCallArgument_Rejected()
+    {
+        Assert.Single(Of("<% Set rs = conn.Execute(" + Select + " & Request(\"x\")) %>"));
+    }
+
+    [Fact]
+    public void SingleLineIf_TaintsVariable()
+    {
+        Assert.Single(Of("<%\nIf c Then id = Request(\"id\")\nsql = " + Select + " & id\n%>"));
+    }
 }

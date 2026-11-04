@@ -66,16 +66,8 @@ public static class AspSafetyGuard
 
     private static List<Keyed> Collect(AspPage page, IReadOnlyList<string> sanitizers, bool includeFileSystemObject)
     {
-        var wrappers = new HashSet<string>(DefaultWrappers.Concat(sanitizers), StringComparer.OrdinalIgnoreCase);
-        var scopes = page.Statements.Select(s => ScopeOf(page, s)).ToArray();
-        var taintedByScope = new Dictionary<int, HashSet<string>>();
-        for (var i = 0; i < page.Statements.Count; i++)
-        {
-            if (!taintedByScope.TryGetValue(scopes[i], out var set))
-                taintedByScope[scopes[i]] = set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            CollectTaintedAssignments(page.Statements[i].Tokens, set);
-        }
-
+        var siteSanitizers = new HashSet<string>(sanitizers, StringComparer.OrdinalIgnoreCase);
+        var states = new Dictionary<int, VariableState>();
         var result = new List<Keyed>();
         for (var i = 0; i < page.Statements.Count; i++)
         {
@@ -90,9 +82,15 @@ public static class AspSafetyGuard
                 Add(DynamicCode, dynamicLine);
             if (OnErrorResumeNextLine(statement.Tokens) is { } errorLine)
                 Add(OnErrorResumeNext, errorLine);
-            var analyzer = new ConcatAnalyzer(statement.Tokens, wrappers, taintedByScope[scopes[i]]);
+            var scope = ScopeOf(page, statement);
+            if (!states.TryGetValue(scope, out var state))
+                states[scope] = state = new VariableState();
+            // Uses see the variable states left by earlier statements of the same scope; this statement's own
+            // assignments take effect afterwards.
+            var analyzer = new ConcatAnalyzer(statement.Tokens, siteSanitizers, state);
             if (analyzer.FindSqlConcat() is { } sqlLine)
                 Add(SqlConcatRequest, sqlLine);
+            analyzer.ApplyAssignments();
         }
         return result;
     }
@@ -150,25 +148,73 @@ public static class AspSafetyGuard
         return null;
     }
 
-    /// <summary>Adds variables assigned an unwrapped Request value directly (<c>x = Request("a")</c>).</summary>
-    private static void CollectTaintedAssignments(IReadOnlyList<VbToken> tokens, HashSet<string> tainted)
+    /// <summary>
+    /// Per-scope variable states in statement order: tainted (holds a Request value not cleared by an allowed wrapper)
+    /// and SQL (holds text built from a SQL-word literal). The last assignment before a statement decides.
+    /// </summary>
+    private sealed class VariableState
     {
-        var analyzer = new ConcatAnalyzer(tokens, new HashSet<string>(), new HashSet<string>());
-        for (var p = 0; p + 2 < tokens.Count; p++)
-        {
-            if (tokens[p].Kind != VbTokenKind.Identifier || !IsOperator(tokens[p + 1], "="))
-                continue;
-            if (p > 0 && !IsWord(tokens[p - 1], "Then") && !IsWord(tokens[p - 1], "Else") && !IsOperator(tokens[p - 1], ":"))
-                continue;
-            var end = analyzer.TermEnd(p + 2, tokens.Count);
-            if (end > p + 2 && analyzer.IsRequestRef(p + 2, end)
-                && (end == tokens.Count || IsOperator(tokens[end], ":") || IsWord(tokens[end], "Else")))
-                tainted.Add(tokens[p].Text);
-        }
+        public HashSet<string> Tainted { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public HashSet<string> Sql { get; } = new(StringComparer.OrdinalIgnoreCase);
     }
 
-    private sealed class ConcatAnalyzer(IReadOnlyList<VbToken> tokens, HashSet<string> wrappers, HashSet<string> tainted)
+    private sealed class ConcatAnalyzer(IReadOnlyList<VbToken> tokens, HashSet<string> sanitizers, VariableState state)
     {
+        /// <summary>
+        /// Applies the statement's assignments (<c>x = …</c> / <c>Set x = …</c> at the start, or after
+        /// <c>Then</c>/<c>Else</c>/<c>:</c>) in order: x is tainted when the right side contains a tainted operand and
+        /// a SQL variable when it contains a SQL-word literal or a SQL variable.
+        /// </summary>
+        public void ApplyAssignments()
+        {
+            for (var p = 0; p + 2 < tokens.Count; p++)
+            {
+                if (tokens[p].Kind != VbTokenKind.Identifier || !IsOperator(tokens[p + 1], "="))
+                    continue;
+                if (p > 0 && !IsWord(tokens[p - 1], "Then") && !IsWord(tokens[p - 1], "Else")
+                    && !IsWord(tokens[p - 1], "Set") && !IsOperator(tokens[p - 1], ":"))
+                    continue;
+                if (p > 1 && IsWord(tokens[p - 1], "Set") && !IsWord(tokens[p - 2], "Then")
+                    && !IsWord(tokens[p - 2], "Else") && !IsOperator(tokens[p - 2], ":"))
+                    continue;
+                var end = RightSideEnd(p + 2);
+                var name = tokens[p].Text;
+                var tainted = ContainsTaint(p + 2, end);
+                var sql = false;
+                for (var k = p + 2; k < end; k++)
+                    sql |= (tokens[k].Kind == VbTokenKind.String && SqlWord.IsMatch(Unescape(tokens[k].Text)))
+                        || (tokens[k].Kind == VbTokenKind.Identifier && (k == 0 || tokens[k - 1].Kind != VbTokenKind.Dot)
+                            && state.Sql.Contains(tokens[k].Text));
+                Set(state.Tainted, name, tainted);
+                Set(state.Sql, name, sql);
+                p = end - 1;
+            }
+        }
+
+        private static void Set(HashSet<string> set, string name, bool value)
+        {
+            if (value)
+                set.Add(name);
+            else
+                set.Remove(name);
+        }
+
+        /// <summary>End of an assignment's right side: the first top-level <c>:</c> or <c>Else</c>, or the statement end.</summary>
+        private int RightSideEnd(int start)
+        {
+            var depth = 0;
+            for (var k = start; k < tokens.Count; k++)
+            {
+                if (tokens[k].Kind == VbTokenKind.OpenParen)
+                    depth++;
+                else if (tokens[k].Kind == VbTokenKind.CloseParen)
+                    depth--;
+                else if (depth <= 0 && (IsOperator(tokens[k], ":") || IsWord(tokens[k], "Else")))
+                    return k;
+            }
+            return tokens.Count;
+        }
+
         /// <summary>Line of the first tainted operand of a SQL concatenation in the statement, or null.</summary>
         public int? FindSqlConcat()
         {
@@ -194,17 +240,24 @@ public static class AspSafetyGuard
                     continue;
                 }
                 var terms = new List<(int Start, int End)> { (i, termEnd) };
-                while (termEnd < end && IsOperator(tokens[termEnd], "&"))
+                var plus = false;
+                while (termEnd < end && (IsOperator(tokens[termEnd], "&") || IsOperator(tokens[termEnd], "+")))
                 {
+                    plus |= IsOperator(tokens[termEnd], "+");
                     var next = TermEnd(termEnd + 1, end);
                     if (next == termEnd + 1)
                         break;
                     terms.Add((termEnd + 1, next));
                     termEnd = next;
                 }
-                if (terms.Count >= 2 && terms.Any(t => IsSqlString(t.Start, t.End)))
+                // `+` concatenates only when a string literal or SQL variable is involved; otherwise it is arithmetic.
+                if (terms.Count >= 2
+                    && (!plus || terms.Any(t => IsStringToken(t.Start, t.End) || IsSqlVariable(t.Start, t.End)))
+                    && terms.Any(t => IsSqlString(t.Start, t.End) || IsSqlVariable(t.Start, t.End)))
                 {
-                    var bad = terms.FindIndex(t => Tainted(t.Start, t.End));
+                    // The SQL variable being extended is the accumulator, not a new taint source: its own taint was
+                    // reported where it was introduced.
+                    var bad = terms.FindIndex(t => !IsSqlVariable(t.Start, t.End) && Tainted(t.Start, t.End));
                     if (bad >= 0)
                         return tokens[terms[bad].Start].Line;
                 }
@@ -212,6 +265,12 @@ public static class AspSafetyGuard
             }
             return null;
         }
+
+        private bool IsStringToken(int start, int end) =>
+            end == start + 1 && tokens[start].Kind == VbTokenKind.String;
+
+        private bool IsSqlVariable(int start, int end) =>
+            end == start + 1 && tokens[start].Kind == VbTokenKind.Identifier && state.Sql.Contains(tokens[start].Text);
 
         private bool IsSqlString(int start, int end) =>
             end == start + 1 && tokens[start].Kind == VbTokenKind.String && SqlWord.IsMatch(Unescape(tokens[start].Text));
@@ -222,7 +281,7 @@ public static class AspSafetyGuard
                 return false;
             if (IsRequestRef(start, end))
                 return true;
-            if (end == start + 1 && tokens[start].Kind == VbTokenKind.Identifier && tainted.Contains(tokens[start].Text))
+            if (end == start + 1 && tokens[start].Kind == VbTokenKind.Identifier && state.Tainted.Contains(tokens[start].Text))
                 return true;
             for (var i = start; i < end; i++)
             {
@@ -255,7 +314,7 @@ public static class AspSafetyGuard
         }
 
         /// <summary><c>Request</c>, <c>Request.Form</c>, <c>Request.QueryString</c> or <c>Request.Cookies</c>, with or without arguments.</summary>
-        public bool IsRequestRef(int start, int end)
+        private bool IsRequestRef(int start, int end)
         {
             if (!IsIdentifier(tokens[start], "Request") || (start > 0 && tokens[start - 1].Kind == VbTokenKind.Dot))
                 return false;
@@ -265,18 +324,31 @@ public static class AspSafetyGuard
             return j == end || (tokens[j].Kind == VbTokenKind.OpenParen && Close(j, end) == end - 1);
         }
 
-        /// <summary>A whole-term call of CLng/CInt/… or a site sanitizer, or <c>Replace(x, "'", "''")</c>.</summary>
+        /// <summary>
+        /// A whole-term call of CLng/CInt/… or <c>Replace(x, "'", "''")</c>, or of a site sanitizer, which may also be
+        /// called through members (<c>Util.SafeSQL(x)</c>, <c>.SafeSQL(x)</c>) and matches on the last name.
+        /// </summary>
         private bool IsAllowedWrapper(int start, int end)
         {
-            if (start + 1 >= end || tokens[start].Kind != VbTokenKind.Identifier
-                || tokens[start + 1].Kind != VbTokenKind.OpenParen || Close(start + 1, end) != end - 1)
+            var nameIndex = tokens[start].Kind == VbTokenKind.Dot ? start + 1 : start;
+            if (nameIndex >= end || tokens[nameIndex].Kind != VbTokenKind.Identifier)
                 return false;
-            var name = tokens[start].Text;
-            if (wrappers.Contains(name))
+            while (nameIndex + 2 < end && tokens[nameIndex + 1].Kind == VbTokenKind.Dot
+                && tokens[nameIndex + 2].Kind is VbTokenKind.Identifier or VbTokenKind.Keyword)
+                nameIndex += 2;
+            if (nameIndex + 1 >= end || tokens[nameIndex + 1].Kind != VbTokenKind.OpenParen
+                || Close(nameIndex + 1, end) != end - 1)
+                return false;
+            var name = tokens[nameIndex].Text;
+            if (sanitizers.Contains(name))
+                return true;
+            if (nameIndex != start)
+                return false;
+            if (DefaultWrappers.Contains(name, StringComparer.OrdinalIgnoreCase))
                 return true;
             if (!name.Equals("Replace", StringComparison.OrdinalIgnoreCase))
                 return false;
-            var args = Arguments(start + 2, end - 1);
+            var args = Arguments(nameIndex + 2, end - 1);
             return args.Count == 3 && IsStringLiteral(args[1], "'") && IsStringLiteral(args[2], "''");
         }
 
@@ -306,7 +378,7 @@ public static class AspSafetyGuard
         /// End (exclusive) of the operand starting at <paramref name="start"/>: a literal, a parenthesized group, or a
         /// name with member accesses and argument lists. Returns <paramref name="start"/> when no operand starts there.
         /// </summary>
-        public int TermEnd(int start, int end)
+        private int TermEnd(int start, int end)
         {
             if (start >= end)
                 return start;

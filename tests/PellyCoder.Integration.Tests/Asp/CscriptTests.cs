@@ -154,6 +154,22 @@ public sealed class CscriptTests : IDisposable
     }
 
     [WindowsFact]
+    public async Task Cscript_OptionExplicitSameLineStatements_DoesNotExecute()
+    {
+        // Statements sharing the Option Explicit line come after WScript.Quit 0, so they never run.
+        var marker = Path.Combine(_dir, "executed-same-line.txt");
+        var page =
+            "<% Option Explicit : Dim f : Set f = CreateObject(\"Scripting.FileSystemObject\") : f.CreateTextFile \""
+            + marker + "\" %>\n";
+        Assert.StartsWith("Option Explicit\nWScript.Quit 0\nDim f : ", VbsCompileScript.Build(AspPage.Parse(page), page).Text);
+
+        var errors = await CompilePageAsync(page);
+
+        Assert.True(errors.Count == 0, string.Join("\n", errors));
+        Assert.False(File.Exists(marker));
+    }
+
+    [WindowsFact]
     public async Task Cscript_SubOnFirstLine_Compiles()
     {
         // The page has no Option Explicit, so the script starts with "WScript.Quit 0" and then "Sub Hello()".

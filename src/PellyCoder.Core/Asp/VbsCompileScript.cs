@@ -29,7 +29,7 @@ public static class VbsCompileScript
     public static VbsScript Build(AspPage page, string textLf)
     {
         var lineStarts = LineStarts(textLf);
-        var anchor = OptionExplicitToken(page);
+        var anchor = OptionExplicitEnd(page);
         var fragments = new List<(int Line, int Column, string Text, bool Anchor)>();
         foreach (var segment in page.Segments)
         {
@@ -49,7 +49,17 @@ public static class VbsCompileScript
                 var line = firstLine + k;
                 if (line > page.LineCount || pieces[k].Length == 0)
                     continue;
-                fragments.Add((line, k == 0 ? segment.StartColumn : 1, pieces[k], holdsAnchor && line == anchor!.Line));
+                var column = k == 0 ? segment.StartColumn : 1;
+                if (holdsAnchor && line == anchor!.Line)
+                {
+                    // Quit must come right after the Option Explicit statement, before anything sharing its fragment.
+                    var (head, rest) = SplitAfter(page, segment, k, pieces[k], anchor);
+                    fragments.Add((line, column, head, true));
+                    if (rest.Length > 0)
+                        fragments.Add((line, column, rest, false));
+                    continue;
+                }
+                fragments.Add((line, column, pieces[k], false));
             }
         }
 
@@ -82,11 +92,37 @@ public static class VbsCompileScript
         return new VbsScript(string.Join('\n', text), pageLines, Math.Max(1, page.LineCount));
     }
 
-    /// <summary>The <c>Option</c> token of the first <c>Option Explicit</c> statement (comments and strings are not statements).</summary>
-    private static VbToken? OptionExplicitToken(AspPage page) =>
+    /// <summary>
+    /// The last token (<c>Explicit</c>) of the first <c>Option Explicit</c> statement (comments and strings are not
+    /// statements).
+    /// </summary>
+    private static VbToken? OptionExplicitEnd(AspPage page) =>
         page.Statements
             .Select(s => s.Tokens)
-            .FirstOrDefault(t => t.Count >= 2 && IsWord(t[0], "Option") && IsWord(t[1], "Explicit"))?[0];
+            .FirstOrDefault(t => t.Count >= 2 && IsWord(t[0], "Option") && IsWord(t[1], "Explicit"))?[1];
+
+    /// <summary>
+    /// Splits the fragment holding the <c>Option Explicit</c> statement right after its last token: the head ends with
+    /// that statement, the rest (leading <c>:</c> dropped) runs only after <c>WScript.Quit 0</c>. Positions come from the
+    /// parsed statement; the fragment is located in the page line, so strings and comments cannot mislead the split.
+    /// </summary>
+    private static (string Head, string Tail) SplitAfter(AspPage page, AspSegment segment, int k, string fragment, VbToken last)
+    {
+        var lineText = page.LineText(last.Line);
+        var raw = segment.Text.Split('\n')[k];
+        var searchFrom = k == 0 ? Math.Max(0, segment.StartColumn - 1) : 0;
+        var rawIndex = raw.Length == 0 ? -1 : lineText.IndexOf(raw, Math.Min(searchFrom, lineText.Length), StringComparison.Ordinal);
+        if (rawIndex < 0)
+            return (fragment, "");
+        var fragmentStart = rawIndex + (raw.Length - raw.TrimStart().Length); // 0-based page column of the fragment
+        var split = last.Column - 1 + last.Text.Length - fragmentStart;
+        if (split <= 0 || split >= fragment.Length)
+            return (fragment, "");
+        var rest = fragment[split..].TrimStart();
+        if (rest.StartsWith(':'))
+            rest = rest[1..].TrimStart();
+        return (fragment[..split].TrimEnd(), rest);
+    }
 
     private static bool IsWord(VbToken token, string text) =>
         token.Kind is VbTokenKind.Identifier or VbTokenKind.Keyword && token.Text.Equals(text, StringComparison.OrdinalIgnoreCase);

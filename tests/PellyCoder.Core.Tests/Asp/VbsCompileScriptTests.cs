@@ -110,6 +110,26 @@ public class VbsCompileScriptTests
     }
 
     [Fact]
+    public void Build_OptionExplicitSharedLine_QuitBeforeRest()
+    {
+        const string text =
+            "<html>\n" +
+            "<% Option Explicit : Dim f : Set f = CreateObject(\"Scripting.FileSystemObject\") : f.CreateTextFile \"x\" %>\n" +
+            "<%   option   explicit:Dim g %>";
+
+        var script = Script(text);
+
+        Assert.Equal(["Option Explicit", "WScript.Quit 0",
+            "Dim f : Set f = CreateObject(\"Scripting.FileSystemObject\") : f.CreateTextFile \"x\"", "option   explicit:Dim g"],
+            Lines(script));
+        Assert.Equal([2, 2, 2, 3], script.PageLines);
+
+        // A trailing comment is dropped, so nothing follows the statement and nothing is split off.
+        var lines = Lines(Script("<%\n  Option Explicit ' first\n%>"));
+        Assert.Equal(["Option Explicit", "WScript.Quit 0"], lines);
+    }
+
+    [Fact]
     public void Build_MultipleChunksOneLine_SeparateLines()
     {
         const string text = "<%@ Language=\"VBScript\" %>\n<% If a Then %><b>예</b><% Else %><%= b %><% End If %>";

@@ -20,7 +20,7 @@ public static class VbLexer
     {
         "And", "As", "ByRef", "ByVal", "Call", "Case", "Class", "Const", "Default", "Dim", "Do", "Each", "Else",
         "ElseIf", "Empty", "End", "Eqv", "Erase", "Error", "Exit", "Explicit", "False", "For", "Function", "Get",
-        "GoTo", "If", "Imp", "In", "Is", "Let", "Loop", "Mod", "New", "Next", "Not", "Nothing", "Null", "On",
+        "GoTo", "If", "Imp", "In", "Is", "Let", "Loop", "Me", "Mod", "New", "Next", "Not", "Nothing", "Null", "On",
         "Option", "Optional", "Or", "Preserve", "Private", "Property", "Public", "ReDim", "Rem", "Resume", "Select",
         "Set", "Step", "Stop", "Sub", "Then", "To", "True", "Until", "Wend", "While", "With", "Xor",
     };

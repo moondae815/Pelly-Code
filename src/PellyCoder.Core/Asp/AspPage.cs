@@ -30,7 +30,12 @@ public sealed class AspPage
 {
     private readonly string[] _lines;
 
-    private AspPage(string textLf) => _lines = textLf.Split('\n');
+    private AspPage(string textLf)
+    {
+        var lines = textLf.Split('\n');
+        // A final line feed ends the last line; it does not start a new one.
+        _lines = lines.Length > 1 && lines[^1].Length == 0 ? lines[..^1] : lines;
+    }
 
     public IReadOnlyList<AspSegment> Segments { get; private set; } = [];
     public IReadOnlyList<AspInclude> Includes { get; private set; } = [];
@@ -127,7 +132,7 @@ public sealed class AspPage
 
     private sealed record CodeChunk(int Line, int Column, string Text, bool IsOutput);
 
-    /// <summary>Splits page text into segments; aware of VBScript strings so a <c>%&gt;</c> inside a string does not end a block.</summary>
+    /// <summary>Splits page text into segments. As in IIS, <c>%&gt;</c> ends a block wherever it appears.</summary>
     private sealed class PageScanner(string text, List<AspProblem> problems)
     {
         private readonly List<int> _lineStarts = LineStarts(text);
@@ -223,36 +228,9 @@ public sealed class AspPage
             return end;
         }
 
-        private int FindAspClose(int from)
-        {
-            bool inString = false, inComment = false;
-            for (var j = from; j < text.Length; j++)
-            {
-                var c = text[j];
-                if (inString)
-                {
-                    if (c == '"')
-                    {
-                        if (j + 1 < text.Length && text[j + 1] == '"')
-                            j++;
-                        else
-                            inString = false;
-                    }
-                    else if (c == '\n')
-                        inString = false;
-                    continue;
-                }
-                if (c == '%' && j + 1 < text.Length && text[j + 1] == '>')
-                    return j;
-                if (c == '\n')
-                    inComment = false;
-                else if (!inComment && c == '"')
-                    inString = true;
-                else if (c == '\'')
-                    inComment = true;
-            }
-            return -1;
-        }
+        /// <summary>Like IIS, the first <c>%&gt;</c> ends the block, even inside a string or comment.</summary>
+        private int FindAspClose(int from) =>
+            from >= text.Length ? -1 : text.IndexOf("%>", from, StringComparison.Ordinal);
 
         private void AddChunk(int offset, string chunkText, bool isOutput)
         {
@@ -347,10 +325,12 @@ public sealed class AspPage
         private sealed class ProcBuilder(string name, string? className, string keyword, List<string> parameters, int declLine, string declaration)
         {
             public string Name { get; } = name;
+            public string? ClassName { get; } = className;
+            public string Scope { get; } = className is null ? name : className + "." + name;
             public int EndLine { get; set; }
 
             public AspProcedure Build(int startLine) =>
-                new(Name, className, keyword, parameters, startLine, declLine, EndLine, declaration);
+                new(Name, ClassName, keyword, parameters, startLine, declLine, EndLine, declaration);
 
             public int DeclLine => declLine;
         }
@@ -365,7 +345,8 @@ public sealed class AspPage
         public IReadOnlyList<AspNameUse> NameUses => _uses;
         public bool OptionExplicit { get; private set; }
 
-        private string? CurrentProcedure => _stack.LastOrDefault(b => b.Procedure is not null)?.Procedure!.Name;
+        /// <summary>Scope of names: <c>Proc</c>, <c>Class.Proc</c> for class methods, <c>Class</c> for class fields, null at module level.</summary>
+        private string? CurrentScope => _stack.LastOrDefault(b => b.Procedure is not null)?.Procedure!.Scope ?? CurrentClass;
         private string? CurrentClass => _stack.LastOrDefault(b => b.ClassName is not null)?.ClassName;
 
         public void Run(IReadOnlyList<VbStatement> statements, HashSet<VbStatement> outputs)
@@ -373,7 +354,7 @@ public sealed class AspPage
             foreach (var statement in statements)
             {
                 if (outputs.Contains(statement))
-                    CollectUses(statement.Tokens, new HashSet<int>(), CurrentProcedure, expressionOnly: true);
+                    CollectUses(statement.Tokens, new HashSet<int>(), CurrentScope, expressionOnly: true);
                 else
                     Analyze(statement);
             }
@@ -412,7 +393,7 @@ public sealed class AspPage
             else if (modifiers == 0)
                 CountBlock(statement);
 
-            CollectUses(t, excluded, CurrentProcedure, expressionOnly: false);
+            CollectUses(t, excluded, CurrentScope, expressionOnly: false);
         }
 
         private void CountBlock(VbStatement statement)
@@ -514,7 +495,7 @@ public sealed class AspPage
             }
             var proc = new ProcBuilder(name, CurrentClass, keyword, parameters, statement.StartLine, statement.Text);
             foreach (var parameter in parameters)
-                _declarations.Add(new AspDeclaration(parameter, "Param", statement.StartLine, name));
+                _declarations.Add(new AspDeclaration(parameter, "Param", statement.StartLine, proc.Scope));
             _procedures.Add(proc);
             var blockName = keyword.Split(' ')[0];
             _stack.Add(new OpenBlock(blockName, "End " + blockName, statement) { Procedure = proc });
@@ -545,7 +526,7 @@ public sealed class AspPage
                 else if (expectName && depth == 0 && token.Kind == VbTokenKind.Identifier)
                 {
                     excluded.Add(k);
-                    _declarations.Add(new AspDeclaration(token.Text, kind, token.Line, CurrentProcedure));
+                    _declarations.Add(new AspDeclaration(token.Text, kind, token.Line, CurrentScope));
                     expectName = false;
                 }
             }
@@ -679,16 +660,17 @@ public sealed class AspPage
             };
     }
 
-    /// <summary>ASP006: opening/closing counts of a few structural tags, counted in HTML segments only.</summary>
+    /// <summary>
+    /// ASP006: one problem per surplus tag of a few structural tags, counted in HTML segments only. A closer
+    /// matches the latest open tag of its name; messages carry no counts so problems compare as a multiset.
+    /// </summary>
     private static class HtmlTagBalance
     {
         private static readonly string[] Tags = ["table", "form", "select", "div", "textarea", "script"];
 
         public static void Check(IReadOnlyList<AspSegment> segments, List<AspProblem> problems)
         {
-            var opens = Tags.ToDictionary(t => t, _ => new List<(int Line, int Column)>());
-            var closes = Tags.ToDictionary(t => t, _ => 0);
-            var firstExcess = new Dictionary<string, (int Line, int Column)>();
+            var open = Tags.ToDictionary(t => t, _ => new Stack<(int Line, int Column)>());
             foreach (var segment in segments.Where(s => s.Kind == AspSegmentKind.Html))
             {
                 var text = segment.Text;
@@ -698,13 +680,9 @@ public sealed class AspPage
                     if (text[i] == '<' && TagAt(text, i) is var (tag, closing))
                     {
                         if (!closing)
-                            opens[tag].Add((line, column));
-                        else
-                        {
-                            closes[tag]++;
-                            if (closes[tag] > opens[tag].Count)
-                                firstExcess.TryAdd(tag, (line, column));
-                        }
+                            open[tag].Push((line, column));
+                        else if (!open[tag].TryPop(out _))
+                            problems.Add(new AspProblem(line, column, "ASP006", $"`<{tag}>` 여는 태그 없이 닫혔습니다"));
                     }
                     if (text[i] == '\n')
                     {
@@ -716,13 +694,8 @@ public sealed class AspPage
                 }
             }
             foreach (var tag in Tags)
-            {
-                int open = opens[tag].Count, close = closes[tag];
-                if (open == close)
-                    continue;
-                var at = open > close ? opens[tag][close] : firstExcess[tag];
-                problems.Add(new AspProblem(at.Line, at.Column, "ASP006", $"`<{tag}>` 여는 수 {open}, 닫는 수 {close}"));
-            }
+                foreach (var (line, column) in open[tag])
+                    problems.Add(new AspProblem(line, column, "ASP006", $"`<{tag}>` 닫는 태그가 모자랍니다"));
         }
 
         private static (string Tag, bool Closing)? TagAt(string text, int i)

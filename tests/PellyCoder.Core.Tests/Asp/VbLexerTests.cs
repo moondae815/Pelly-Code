@@ -72,8 +72,15 @@ public class VbLexerTests
         Assert.Equal("ASP003", problem.Code);
         Assert.Equal(4, problem.Line);
         Assert.Equal(5, problem.Column);
-        Assert.DoesNotContain("4", problem.Message);
+        Assert.Equal("문자열이 닫히지 않았습니다", problem.Message);
         Assert.Equal(3, statements.Count);
         Assert.Equal(5, statements[2].StartLine);
+    }
+
+    [Fact]
+    public void Me_IsKeyword()
+    {
+        var stmt = Assert.Single(Lex("Me.Total = 0"));
+        Assert.Equal(VbTokenKind.Keyword, stmt.Tokens[0].Kind);
     }
 }

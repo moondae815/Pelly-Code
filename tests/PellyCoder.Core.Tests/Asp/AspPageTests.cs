@@ -26,13 +26,16 @@ public class AspPageTests
     }
 
     [Fact]
-    public void PercentGreaterInsideString_NotSegmentEnd()
+    public void PercentGreaterInsideString_EndsSegment()
     {
-        var page = AspPage.Parse("<% s = \"a %> b\" %>tail");
+        var page = AspPage.Parse("<% s = \"a %> b\" %>");
         Assert.Equal(2, page.Segments.Count);
-        Assert.Equal(" s = \"a %> b\" ", page.Segments[0].Text);
-        Assert.Equal("tail", page.Segments[1].Text);
-        Assert.Empty(page.Problems);
+        Assert.Equal(AspSegmentKind.Code, page.Segments[0].Kind);
+        Assert.Equal(" s = \"a ", page.Segments[0].Text);
+        Assert.Equal(AspSegmentKind.Html, page.Segments[1].Kind);
+        Assert.Equal(" b\" %>", page.Segments[1].Text);
+        var problem = Assert.Single(page.Problems);
+        Assert.Equal(("ASP003", 1, 8), (problem.Code, problem.Line, problem.Column));
     }
 
     [Fact]
@@ -158,8 +161,8 @@ public class AspPageTests
         Assert.Equal("Property Get", page.Procedures[0].Keyword);
         Assert.Equal("Add", page.Procedures[1].Name);
         Assert.Contains(new AspDeclaration("Cart", "Class", 2, null), page.Declarations);
-        Assert.Contains(new AspDeclaration("m_items", "Private", 3, null), page.Declarations);
-        Assert.Contains(new AspDeclaration("n", "Dim", 8, "Add"), page.Declarations);
+        Assert.Contains(new AspDeclaration("m_items", "Private", 3, "Cart"), page.Declarations);
+        Assert.Contains(new AspDeclaration("n", "Dim", 8, "Cart.Add"), page.Declarations);
     }
 
     [Fact]
@@ -195,6 +198,57 @@ public class AspPageTests
         var page = AspPage.Parse("<table>\n<tr><td><div>a</div>\n<% If x Then %><TABLE><% End If %>\n</table>");
         var problem = Assert.Single(page.Problems);
         Assert.Equal("ASP006", problem.Code);
-        Assert.Equal("`<table>` 여는 수 2, 닫는 수 1", problem.Message);
+        Assert.Equal("`<table>` 닫는 태그가 모자랍니다", problem.Message);
+
+        var stray = AspPage.Parse("<form>\n</form></form>");
+        Assert.Equal(("`<form>` 여는 태그 없이 닫혔습니다", 2), (Assert.Single(stray.Problems).Message, stray.Problems[0].Line));
+    }
+
+    [Fact]
+    public void HtmlTagBalance_AddedBalancedTag_SameProblemMultiset()
+    {
+        static string[] Asp006(string text) => AspPage.Parse(text).Problems
+            .Where(p => p.Code == "ASP006").Select(p => p.Code + "|" + p.Message).Order().ToArray();
+
+        var original = "<div>a\n<div>b</div>\n<div>c</div>\n";
+        var patched = "<div>a\n<div>new</div>\n<div>b</div>\n<div>c</div>\n";
+        Assert.Equal(["ASP006|`<div>` 닫는 태그가 모자랍니다"], Asp006(original));
+        Assert.Equal(Asp006(original), Asp006(patched));
+    }
+
+    [Fact]
+    public void ClassScopes_SameMethodNameInTwoClasses_Distinct()
+    {
+        var page = AspPage.Parse(
+            "<%\nClass A\n  Sub Add(x)\n    Dim t\n    t = x\n  End Sub\nEnd Class\nClass B\n  Sub Add(x)\n    Dim t\n  End Sub\nEnd Class\nSub Add(x)\nEnd Sub\n%>");
+        Assert.Empty(page.Problems);
+        Assert.Contains(new AspDeclaration("t", "Dim", 4, "A.Add"), page.Declarations);
+        Assert.Contains(new AspDeclaration("t", "Dim", 10, "B.Add"), page.Declarations);
+        Assert.Contains(new AspDeclaration("x", "Param", 3, "A.Add"), page.Declarations);
+        Assert.Contains(new AspDeclaration("x", "Param", 9, "B.Add"), page.Declarations);
+        Assert.Contains(new AspDeclaration("x", "Param", 13, "Add"), page.Declarations);
+        Assert.Contains(new AspNameUse("t", 5, true, false, "A.Add"), page.NameUses);
+        Assert.Equal(["Add", "Add", "Add"], page.Procedures.Select(p => p.Name));
+    }
+
+    [Fact]
+    public void ClassField_ScopedToClass()
+    {
+        var page = AspPage.Parse("<%\nDim g\nClass Cart\n  Private m_x\n  Public y\n  Dim z\nEnd Class\n%>");
+        Assert.Contains(new AspDeclaration("g", "Dim", 2, null), page.Declarations);
+        Assert.Contains(new AspDeclaration("Cart", "Class", 3, null), page.Declarations);
+        Assert.Contains(new AspDeclaration("m_x", "Private", 4, "Cart"), page.Declarations);
+        Assert.Contains(new AspDeclaration("y", "Public", 5, "Cart"), page.Declarations);
+        Assert.Contains(new AspDeclaration("z", "Dim", 6, "Cart"), page.Declarations);
+    }
+
+    [Fact]
+    public void TrailingNewline_NoPhantomLine()
+    {
+        var page = AspPage.Parse("<%\nSub Open()\n  x = 1\n%>\n");
+        Assert.Equal(4, Assert.Single(page.Procedures).EndLine);
+        Assert.Equal("%>", page.LineText(4));
+        Assert.Throws<IndexOutOfRangeException>(() => page.LineText(5));
+        Assert.Equal(4, page.Segments[^1].EndLine);
     }
 }

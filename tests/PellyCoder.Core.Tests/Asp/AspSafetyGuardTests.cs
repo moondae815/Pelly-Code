@@ -228,4 +228,42 @@ public class AspSafetyGuardTests
     {
         Assert.Single(Of("<%\nIf c Then id = Request(\"id\")\nsql = " + Select + " & id\n%>"));
     }
+
+    [Fact]
+    public void BranchElse_DoesNotClearTaint_Rejected()
+    {
+        Assert.Single(Of("<%\nIf c Then id = Request(\"id\") Else id = 0\nsql = " + Select + " & id\n%>"));
+        Assert.Single(Of("<%\nid = Request(\"id\")\nIf c Then id = CLng(id)\nsql = " + Select + " & id\n%>"));
+    }
+
+    [Fact]
+    public void MultiLineIfElse_DoesNotClearTaint_Rejected()
+    {
+        const string text = "<%\nIf c Then\n  id = Request(\"id\")\nElse\n  id = 0\nEnd If\nsql = " + Select + " & id\n%>";
+        var finding = Assert.Single(Of(text));
+        Assert.Equal(7, finding.Line);
+        Assert.Single(Of("<%\nid = Request(\"id\")\nSelect Case m\n  Case 1\n    id = CLng(id)\nEnd Select\nsql = " + Select + " & id\n%>"));
+        Assert.Single(Of("<%\nid = Request(\"id\")\nFor i = 1 To 2\n  id = CLng(id)\nNext\nsql = " + Select + " & id\n%>"));
+    }
+
+    [Fact]
+    public void UnconditionalClngAfterBlock_Allowed()
+    {
+        const string text = "<%\nIf c Then\n  id = Request(\"id\")\nElse\n  id = 0\nEnd If\nid = CLng(id)\nsql = " + Select + " & id\n%>";
+        Assert.Empty(Of(text));
+    }
+
+    [Fact]
+    public void ColonJoined_SqlVariable_Rejected()
+    {
+        Assert.Single(Of("<% sql = \"SELECT * FROM t\" : sql = sql & Request(\"x\") %>"));
+        Assert.Single(Of("<% If c Then sql = \"SELECT * FROM t\" : sql = sql & Request(\"x\") %>"));
+    }
+
+    [Fact]
+    public void ColonJoined_Taint_Rejected()
+    {
+        Assert.Single(Of("<% id = Request(\"id\") : sql = " + Select + " & id %>"));
+        Assert.Single(Of("<% If c Then id = Request(\"id\") : sql = " + Select + " & id %>"));
+    }
 }

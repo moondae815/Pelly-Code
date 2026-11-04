@@ -68,6 +68,7 @@ public static class AspSafetyGuard
     {
         var siteSanitizers = new HashSet<string>(sanitizers, StringComparer.OrdinalIgnoreCase);
         var states = new Dictionary<int, VariableState>();
+        var depths = new Dictionary<int, int>();
         var result = new List<Keyed>();
         for (var i = 0; i < page.Statements.Count; i++)
         {
@@ -85,15 +86,32 @@ public static class AspSafetyGuard
             var scope = ScopeOf(page, statement);
             if (!states.TryGetValue(scope, out var state))
                 states[scope] = state = new VariableState();
-            // Uses see the variable states left by earlier statements of the same scope; this statement's own
-            // assignments take effect afterwards.
+            // Statements of a scope are walked in order; inside an If/Select/loop block assignments only add state.
+            var depth = depths.GetValueOrDefault(scope);
+            if (ClosesBlock(statement.Tokens))
+                depth = Math.Max(0, depth - 1);
             var analyzer = new ConcatAnalyzer(statement.Tokens, siteSanitizers, state);
-            if (analyzer.FindSqlConcat() is { } sqlLine)
+            if (analyzer.Process(conditional: depth > 0) is { } sqlLine)
                 Add(SqlConcatRequest, sqlLine);
-            analyzer.ApplyAssignments();
+            if (OpensBlock(statement.Tokens))
+                depth++;
+            depths[scope] = depth;
         }
         return result;
     }
+
+    /// <summary>Multi-line <c>If … Then</c>, <c>Select Case</c>, <c>For</c>, <c>Do</c> or <c>While</c>.</summary>
+    private static bool OpensBlock(IReadOnlyList<VbToken> tokens) =>
+        tokens.Count > 0
+        && ((IsWord(tokens[0], "If") && IsWord(tokens[^1], "Then"))
+            || (IsWord(tokens[0], "Select") && tokens.Count > 1 && IsWord(tokens[1], "Case"))
+            || IsWord(tokens[0], "For") || IsWord(tokens[0], "Do") || IsWord(tokens[0], "While"));
+
+    /// <summary><c>End If</c>, <c>End Select</c>, <c>Next</c>, <c>Loop</c> or <c>Wend</c>.</summary>
+    private static bool ClosesBlock(IReadOnlyList<VbToken> tokens) =>
+        tokens.Count > 0
+        && ((IsWord(tokens[0], "End") && tokens.Count > 1 && (IsWord(tokens[1], "If") || IsWord(tokens[1], "Select")))
+            || IsWord(tokens[0], "Next") || IsWord(tokens[0], "Loop") || IsWord(tokens[0], "Wend"));
 
     /// <summary>Index of the innermost procedure holding the statement, or -1 for page-level code.</summary>
     private static int ScopeOf(AspPage page, VbStatement statement)
@@ -150,7 +168,8 @@ public static class AspSafetyGuard
 
     /// <summary>
     /// Per-scope variable states in statement order: tainted (holds a Request value not cleared by an allowed wrapper)
-    /// and SQL (holds text built from a SQL-word literal). The last assignment before a statement decides.
+    /// and SQL (holds text built from a SQL-word literal). The last unconditional assignment before a use decides;
+    /// assignments in a branch or loop body only add.
     /// </summary>
     private sealed class VariableState
     {
@@ -161,68 +180,74 @@ public static class AspSafetyGuard
     private sealed class ConcatAnalyzer(IReadOnlyList<VbToken> tokens, HashSet<string> sanitizers, VariableState state)
     {
         /// <summary>
-        /// Applies the statement's assignments (<c>x = …</c> / <c>Set x = …</c> at the start, or after
-        /// <c>Then</c>/<c>Else</c>/<c>:</c>) in order: x is tainted when the right side contains a tainted operand and
-        /// a SQL variable when it contains a SQL-word literal or a SQL variable.
+        /// Walks the statement's parts in order (split at top-level <c>:</c>, after <c>Then</c> and at <c>Else</c>):
+        /// each part is checked against the state left by the earlier parts, then its assignment is applied. Parts
+        /// after a single-line <c>Then</c>, and every part when <paramref name="conditional"/>, only add state.
+        /// Returns the line of the first SQL concatenation hit, or null.
         /// </summary>
-        public void ApplyAssignments()
+        public int? Process(bool conditional)
         {
-            for (var p = 0; p + 2 < tokens.Count; p++)
+            int? found = null;
+            var afterThen = false;
+            var partStart = 0;
+            var depth = 0;
+            for (var k = 0; k <= tokens.Count; k++)
             {
-                if (tokens[p].Kind != VbTokenKind.Identifier || !IsOperator(tokens[p + 1], "="))
-                    continue;
-                if (p > 0 && !IsWord(tokens[p - 1], "Then") && !IsWord(tokens[p - 1], "Else")
-                    && !IsWord(tokens[p - 1], "Set") && !IsOperator(tokens[p - 1], ":"))
-                    continue;
-                if (p > 1 && IsWord(tokens[p - 1], "Set") && !IsWord(tokens[p - 2], "Then")
-                    && !IsWord(tokens[p - 2], "Else") && !IsOperator(tokens[p - 2], ":"))
-                    continue;
-                var end = RightSideEnd(p + 2);
-                var name = tokens[p].Text;
-                var tainted = ContainsTaint(p + 2, end);
-                var sql = false;
-                for (var k = p + 2; k < end; k++)
-                    sql |= (tokens[k].Kind == VbTokenKind.String && SqlWord.IsMatch(Unescape(tokens[k].Text)))
-                        || (tokens[k].Kind == VbTokenKind.Identifier && (k == 0 || tokens[k - 1].Kind != VbTokenKind.Dot)
-                            && state.Sql.Contains(tokens[k].Text));
-                Set(state.Tainted, name, tainted);
-                Set(state.Sql, name, sql);
-                p = end - 1;
+                var atEnd = k == tokens.Count;
+                if (!atEnd)
+                {
+                    if (tokens[k].Kind == VbTokenKind.OpenParen)
+                        depth++;
+                    else if (tokens[k].Kind == VbTokenKind.CloseParen)
+                        depth--;
+                    if (depth > 0 || !(IsOperator(tokens[k], ":") || IsWord(tokens[k], "Then") || IsWord(tokens[k], "Else")))
+                        continue;
+                }
+                var partEnd = !atEnd && IsWord(tokens[k], "Then") ? k + 1 : k;
+                found ??= FindSqlConcat(partStart, partEnd);
+                ApplyAssignment(partStart, partEnd, conditional || afterThen);
+                if (!atEnd && IsWord(tokens[k], "Then"))
+                    afterThen = true;
+                partStart = k + 1;
             }
+            return found;
         }
 
-        private static void Set(HashSet<string> set, string name, bool value)
+        /// <summary>
+        /// <c>x = …</c> or <c>Set x = …</c>: x is tainted when the right side contains a tainted operand and a SQL
+        /// variable when it contains a SQL-word literal or a SQL variable. A conditional assignment never clears.
+        /// </summary>
+        private void ApplyAssignment(int start, int end, bool conditional)
+        {
+            var p = start < end && IsWord(tokens[start], "Set") ? start + 1 : start;
+            if (p + 2 >= end || tokens[p].Kind != VbTokenKind.Identifier || !IsOperator(tokens[p + 1], "="))
+                return;
+            var name = tokens[p].Text;
+            var tainted = ContainsTaint(p + 2, end);
+            var sql = false;
+            for (var k = p + 2; k < end; k++)
+                sql |= (tokens[k].Kind == VbTokenKind.String && SqlWord.IsMatch(Unescape(tokens[k].Text)))
+                    || (tokens[k].Kind == VbTokenKind.Identifier && tokens[k - 1].Kind != VbTokenKind.Dot
+                        && state.Sql.Contains(tokens[k].Text));
+            Set(state.Tainted, name, tainted, conditional);
+            Set(state.Sql, name, sql, conditional);
+        }
+
+        private static void Set(HashSet<string> set, string name, bool value, bool conditional)
         {
             if (value)
                 set.Add(name);
-            else
+            else if (!conditional)
                 set.Remove(name);
         }
 
-        /// <summary>End of an assignment's right side: the first top-level <c>:</c> or <c>Else</c>, or the statement end.</summary>
-        private int RightSideEnd(int start)
+        private int? FindSqlConcat(int start, int end)
         {
-            var depth = 0;
-            for (var k = start; k < tokens.Count; k++)
-            {
-                if (tokens[k].Kind == VbTokenKind.OpenParen)
-                    depth++;
-                else if (tokens[k].Kind == VbTokenKind.CloseParen)
-                    depth--;
-                else if (depth <= 0 && (IsOperator(tokens[k], ":") || IsWord(tokens[k], "Else")))
-                    return k;
-            }
-            return tokens.Count;
-        }
-
-        /// <summary>Line of the first tainted operand of a SQL concatenation in the statement, or null.</summary>
-        public int? FindSqlConcat()
-        {
-            if (FindInRange(0, tokens.Count) is { } line)
+            if (FindInRange(start, end) is { } line)
                 return line;
-            for (var i = 0; i < tokens.Count; i++)
+            for (var i = start; i < end; i++)
             {
-                if (tokens[i].Kind == VbTokenKind.OpenParen && FindInRange(i + 1, Close(i, tokens.Count)) is { } inner)
+                if (tokens[i].Kind == VbTokenKind.OpenParen && FindInRange(i + 1, Close(i, end)) is { } inner)
                     return inner;
             }
             return null;

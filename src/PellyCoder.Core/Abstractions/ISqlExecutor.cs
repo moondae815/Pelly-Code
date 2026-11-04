@@ -18,11 +18,22 @@ public interface ISqlExecutor
 
     /// <summary>Compiles one batch under <c>SET NOEXEC ON</c> inside a rolled-back transaction; returns severity 11+ errors (Line is batch-relative).</summary>
     Task<IReadOnlyList<SqlCompileError>> CompileWithNoExecAsync(string batch, SqlSessionSettings settings, CancellationToken ct);
+
+    /// <summary>
+    /// Parameters and first result set of the stored procedures among <paramref name="names"/>, in input order. Names that are
+    /// not procedures (or do not exist) are dropped.
+    /// </summary>
+    Task<IReadOnlyList<SqlProcedureSignature>> GetProcedureSignaturesAsync(IReadOnlyList<SqlObjectName> names, CancellationToken ct);
 }
 
 public sealed record SqlServerProbe(string Version, string Database, bool CanViewDefinition, string? LoginName = null);
 
 public sealed record SqlColumnInfo(string Name, string TypeDisplay, bool Nullable, bool IsPrimaryKey);
+
+public sealed record SqlParameterInfo(string Name, string Type, bool IsOutput);
+
+/// <param name="FirstResultSet">Columns of the first result set; null when the server cannot describe it (temp tables, errors).</param>
+public sealed record SqlProcedureSignature(SqlObjectName Name, IReadOnlyList<SqlParameterInfo> Parameters, IReadOnlyList<SqlColumnInfo>? FirstResultSet);
 
 public sealed record SqlIndexInfo(string Name, IReadOnlyList<string> KeyColumns, bool IsUnique);
 

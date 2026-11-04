@@ -3,13 +3,14 @@ using PellyCoder.Core.Models;
 namespace PellyCoder.Core.Llm;
 
 /// <summary>
-/// Embedded C# prompt texts. Bodies have the leading "# version: N" line and one trailing newline removed.
+/// Embedded prompt texts (C#, SQL, ASP). Bodies have the leading "# version: N" line and one trailing newline removed.
 /// <paramref name="Version"/> covers the edit prompts only (<paramref name="CsTestVersion"/> the <c>cs-test</c> pair); <paramref name="Locate"/> (target pick) is versioned on its own.
 /// </summary>
 public sealed record PromptResources(
     string SystemCs, string FewShotCs, string Version, string Locate,
     string SystemSql = "", string FewShotSql = "", string SqlVersion = "", string SystemCsGroup = "",
-    string SystemCsTest = "", string FewShotCsTest = "", string CsTestVersion = "cs-test-v1")
+    string SystemCsTest = "", string FewShotCsTest = "", string CsTestVersion = "cs-test-v1",
+    string SystemAsp = "", string FewShotAsp = "", string AspVersion = "")
 {
     private const string Prefix = "PellyCoder.Core.Llm.Resources.";
     private const string VersionPrefix = "# version:";
@@ -36,8 +37,13 @@ public sealed record PromptResources(
         if (systemTestVersion != fewShotTestVersion)
             throw new InvalidOperationException(
                 $"Prompt resource versions differ: system.cs-test.txt={systemTestVersion}, fewshot.cs-test.txt={fewShotTestVersion}.");
+        var (systemAsp, systemAspVersion) = Load("system.asp.txt");
+        var (fewShotAsp, fewShotAspVersion) = Load("fewshot.asp.txt");
+        if (systemAspVersion != fewShotAspVersion)
+            throw new InvalidOperationException(
+                $"Prompt resource versions differ: system.asp.txt={systemAspVersion}, fewshot.asp.txt={fewShotAspVersion}.");
         return new PromptResources(system, fewShot, "cs-v" + systemVersion, locate, systemSql, fewShotSql, "sql-v" + systemSqlVersion, systemGroup,
-            systemTest, fewShotTest, "cs-test-v" + systemTestVersion);
+            systemTest, fewShotTest, "cs-test-v" + systemTestVersion, systemAsp, fewShotAsp, "asp-v" + systemAspVersion);
     }
 
     /// <summary>Prompt version recorded in the run summary for the edit kind.</summary>
@@ -45,6 +51,7 @@ public sealed record PromptResources(
     {
         EditKind.Sql => SqlVersion,
         EditKind.CSharpTest => CsTestVersion,
+        EditKind.Asp => AspVersion,
         _ => Version,
     };
 

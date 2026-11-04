@@ -237,5 +237,6 @@ public sealed class SqlSliceFlowTests : IDisposable
         public Task<IReadOnlyList<SqlTableSchema>> GetSchemasAsync(IReadOnlyList<SqlObjectName> names, CancellationToken ct) => throw new SqlUnavailableException("down");
         public Task<IReadOnlyList<SqlObjectName>> GetReferencedEntitiesAsync(SqlObjectName obj, CancellationToken ct) => throw new SqlUnavailableException("down");
         public Task<IReadOnlyList<SqlCompileError>> CompileWithNoExecAsync(string batch, SqlSessionSettings settings, CancellationToken ct) => throw new SqlUnavailableException("down");
+        public Task<IReadOnlyList<SqlProcedureSignature>> GetProcedureSignaturesAsync(IReadOnlyList<SqlObjectName> names, CancellationToken ct) => throw new SqlUnavailableException("down");
     }
 }

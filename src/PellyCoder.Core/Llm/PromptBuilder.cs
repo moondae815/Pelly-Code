@@ -35,6 +35,16 @@ public sealed class PromptBuilder(QwenChatTemplate template, PromptResources res
         ("target", "[EDITABLE: target]"),
     };
 
+    private static readonly (string Kind, string Header)[] AspContextOrder =
+    {
+        ("page", "[READ-ONLY: page]"),
+        ("procedures", "[READ-ONLY: procedures]"),
+        ("variables", "[READ-ONLY: variables]"),
+        ("sql", "[READ-ONLY: sql]"),
+        ("around", "[READ-ONLY: around]"),
+        ("target", "[EDITABLE: target]"),
+    };
+
     public PromptBuildResult BuildCSharp(EditTarget target, Slice slice, string request, Feedback? feedback, IReadOnlyList<ProjectRule>? rules = null, bool group = false)
     {
         var requestText = request.Trim();
@@ -94,15 +104,46 @@ public sealed class PromptBuilder(QwenChatTemplate template, PromptResources res
         return Finish(system, lines, requestText, feedback, selection);
     }
 
-    private RuleSelection? AddRules(List<string> lines, IReadOnlyList<ProjectRule>? rules, Slice slice)
+    /// <param name="sqlSanitizers"><c>asp.sqlSanitizers</c>: named on a "Site SQL functions" line at the top of <c>### RULES</c> (system rule 7).</param>
+    public PromptBuildResult BuildAsp(EditTarget target, Slice slice, string request, Feedback? feedback, IReadOnlyList<ProjectRule>? rules = null,
+        IReadOnlyList<string>? sqlSanitizers = null)
     {
-        if (rules is null) return null;
-        var selection = RuleSelector.Select(rules, slice, tokens, budget.Rules);
-        if (selection.Included.Count > 0)
+        var requestText = request.Trim();
+        var system = resources.SystemAsp.Replace(HintPlaceholder, slice.LanguageHint) + "\n\n" + resources.FewShotAsp;
+
+        var lines = new List<string>
         {
-            lines.Add("### RULES");
-            lines.Add(RuleSelector.Render(selection.Included));
+            "### TARGET",
+            $"{target.SymbolDisplay} — file: {Path.GetFileName(target.FilePath.Replace('\\', '/'))}",
+            "### CONTEXT",
+        };
+        foreach (var (partKind, header) in AspContextOrder)
+        {
+            var part = slice.Included.FirstOrDefault(p => p.Kind == partKind);
+            if (part is null) continue;
+            lines.Add(header);
+            lines.Add(part.Text);
         }
+        var siteLine = sqlSanitizers is { Count: > 0 } ? $"Site SQL functions: {string.Join(", ", sqlSanitizers)}" : null;
+        var selection = AddRules(lines, rules, slice, siteLine);
+        lines.Add("### REQUEST");
+        lines.Add(requestText);
+        if (feedback is not null)
+        {
+            lines.Add("### FEEDBACK");
+            lines.Add(feedback.Text);
+        }
+        return Finish(system, lines, requestText, feedback, selection);
+    }
+
+    /// <param name="leadLine">A fixed line placed first under <c>### RULES</c> (the section is written even when no rule is selected).</param>
+    private RuleSelection? AddRules(List<string> lines, IReadOnlyList<ProjectRule>? rules, Slice slice, string? leadLine = null)
+    {
+        var selection = rules is null ? null : RuleSelector.Select(rules, slice, tokens, budget.Rules);
+        if (leadLine is null && selection is not { Included.Count: > 0 }) return selection;
+        lines.Add("### RULES");
+        if (leadLine is not null) lines.Add(leadLine);
+        if (selection is { Included.Count: > 0 }) lines.Add(RuleSelector.Render(selection.Included));
         return selection;
     }
 

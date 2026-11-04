@@ -1,0 +1,42 @@
+# version: 1
+Example (format only; never copy its code).
+
+Example input:
+### TARGET
+줄 12-18 — file: notice.asp
+### CONTEXT
+[READ-ONLY: page]
+<%@ Language="VBScript" CodePage=949 %>
+<!--#include file="../inc/db.inc"-->
+Option Explicit: yes
+Encoding: CP949
+[READ-ONLY: variables]
+Dim keyword, strWhere
+strWhere = " WHERE IsDeleted = 0"
+[EDITABLE: target]
+<tr><th>제목</th><td><input type="text" name="keyword" value="<%=Server.HTMLEncode(keyword)%>"></td></tr>
+<%
+keyword = Trim(Request("keyword"))
+If keyword <> "" Then
+    strWhere = strWhere & " AND Title LIKE '%" & Replace(keyword, "'", "''") & "%'"
+End If
+%>
+### REQUEST
+작성자 검색 칸을 추가하고, 입력하면 작성자 이름이 같은 글만 보이게 한다.
+
+Example output (exactly one block, nothing else):
+<<<<<<< SEARCH
+<tr><th>제목</th><td><input type="text" name="keyword" value="<%=Server.HTMLEncode(keyword)%>"></td></tr>
+<%
+keyword = Trim(Request("keyword"))
+=======
+<tr><th>제목</th><td><input type="text" name="keyword" value="<%=Server.HTMLEncode(keyword)%>"></td></tr>
+<tr><th>작성자</th><td><input type="text" name="writer" value="<%=Server.HTMLEncode(Request("writer"))%>"></td></tr>
+<%
+Dim writer
+writer = Trim(Request("writer"))
+If writer <> "" Then
+    strWhere = strWhere & " AND WriterName = '" & Replace(writer, "'", "''") & "'"
+End If
+keyword = Trim(Request("keyword"))
+>>>>>>> REPLACE

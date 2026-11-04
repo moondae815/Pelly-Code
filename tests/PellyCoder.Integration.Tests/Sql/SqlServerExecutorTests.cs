@@ -106,6 +106,41 @@ public class SqlServerExecutorTests
     });
 
     [SqlServerFact]
+    public Task ProcedureSignatures_SearchOrders() => WithUnchangedDefinition(async () =>
+    {
+        var signature = Assert.Single(await Executor().GetProcedureSignaturesAsync(
+            [SqlObjectName.Parse("dbo.usp_SearchOrders")], CancellationToken.None));
+
+        Assert.Equal("dbo.usp_SearchOrders", signature.Name.Display);
+        Assert.Equal(
+            [
+                new SqlParameterInfo("@CustomerId", "int", false),
+                new SqlParameterInfo("@Status", "tinyint", false),
+                new SqlParameterInfo("@From", "datetime2(0)", false),
+                new SqlParameterInfo("@To", "datetime2(0)", false),
+            ],
+            signature.Parameters);
+        Assert.NotNull(signature.FirstResultSet);
+        Assert.Equal(["OrderId", "CustomerId", "CustomerName", "Status", "TotalAmount", "ShippingFee", "OrderedAt"],
+            signature.FirstResultSet.Select(c => c.Name));
+        Assert.Equal("int", signature.FirstResultSet[0].TypeDisplay);
+        Assert.Equal("decimal(18,2)", signature.FirstResultSet.Single(c => c.Name == "TotalAmount").TypeDisplay);
+    });
+
+    [SqlServerFact]
+    public Task ProcedureSignatures_Missing_Omitted() => WithUnchangedDefinition(async () =>
+    {
+        var signatures = await Executor().GetProcedureSignaturesAsync(
+            [SqlObjectName.Parse("dbo.usp_NoSuchProcedure"), SqlObjectName.Parse(CancelOrder), SqlObjectName.Parse("dbo.Orders")],
+            CancellationToken.None);
+
+        var signature = Assert.Single(signatures);
+        Assert.Equal(CancelOrder, signature.Name.Display);
+        Assert.Equal(["@OrderId", "@Reason"], signature.Parameters.Select(p => p.Name));
+        Assert.Equal("nvarchar(200)", signature.Parameters[1].Type);
+    });
+
+    [SqlServerFact]
     public Task ReferencedEntities_OfCancelOrder_IncludeOrders() => WithUnchangedDefinition(async () =>
     {
         var refs = await Executor().GetReferencedEntitiesAsync(SqlObjectName.Parse(CancelOrder), CancellationToken.None);

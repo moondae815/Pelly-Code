@@ -51,6 +51,9 @@ public sealed class AspPage
     public bool UsesDynamicCode { get; private set; }
     public IReadOnlySet<int> LockedLines { get; private set; } = new HashSet<int>();
 
+    /// <summary>Number of lines (a final line feed does not start a new line).</summary>
+    public int LineCount => _lines.Length;
+
     /// <summary>Text of a 1-based line without the line feed.</summary>
     public string LineText(int line) => _lines[line - 1];
 

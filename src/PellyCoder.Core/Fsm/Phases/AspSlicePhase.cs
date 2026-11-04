@@ -1,0 +1,266 @@
+using PellyCoder.Core.Abstractions;
+using PellyCoder.Core.Asp;
+using PellyCoder.Core.Config;
+using PellyCoder.Core.CSharp;
+using PellyCoder.Core.Files;
+using PellyCoder.Core.Models;
+using PellyCoder.Core.Reporting;
+using PellyCoder.Core.Sql;
+
+namespace PellyCoder.Core.Fsm.Phases;
+
+/// <summary>
+/// Re-reads the ASP page, re-finds the target (an earlier attempt may have shifted it) and builds the budgeted context
+/// (design §4.4): the editable target, the page head, called procedure declarations, page variables, the signatures of the
+/// stored procedures the target calls and, for a line range, the lines around it.
+/// </summary>
+public sealed class AspSlicePhase(FileGuard fileGuard, ITokenCounter tokens, BudgetOptions budget, ISqlExecutor? sql, AspOptions options) : IPhase
+{
+    public const string SqlContextCheck = "SqlContext";
+    private const int AroundLines = 10;
+
+    // Dropped from the front when the budget is short; the earlier, the lower the priority.
+    private static readonly string[] DropOrder = ["around", "sql", "variables", "procedures", "page"];
+
+    private static readonly HashSet<string> VariableKinds = new(StringComparer.Ordinal) { "Dim", "ReDim", "Const", "Public", "Private" };
+
+    public RunPhase Phase => RunPhase.Slice;
+
+    public async Task<PhaseOutcome> ExecuteAsync(RunContext ctx, CancellationToken ct)
+    {
+        var current = fileGuard.Read(ctx.FilePath);
+        if (current.Sha256 != ctx.Current.Sha256)
+        {
+            // Keep ctx.Current as the last content pelly knows, so rollback sees the change and does not overwrite it.
+            ctx.Messages.Add($"pelly 실행 중에 파일이 다른 곳에서 바뀌었습니다. 더 진행하지 않습니다: {ctx.FilePath}");
+            ctx.FailureKind = FailureKinds.FileChangedExternally;
+            return PhaseOutcome.EnvError;
+        }
+        ctx.Current = current;
+
+        var state = ctx.Asp!;
+        if (state.OriginalSpCalls.Count == 0)
+            state.OriginalSpCalls = AspSpCallFinder.Find(state.OriginalPage, options.SpCallFunctions);
+
+        var page = AspPage.Parse(current.Text);
+        AspProcedure? procedure = null;
+        if (state.Unit == AspTargetUnit.Procedure)
+        {
+            procedure = Refind(page, state);
+            if (procedure is null)
+                return NotFound(ctx);
+            state.CurrentSpan = new TextSpanInfo(procedure.StartLine, procedure.EndLine);
+        }
+        var span = state.CurrentSpan;
+        var lineCount = page.LineCount;
+        if (span.StartLine < 1 || span.EndLine > lineCount || span.EndLine < span.StartLine)
+            return NotFound(ctx);
+        ctx.Target = ctx.Target! with { MemberSpan = span };
+
+        var regions = state.EditableRegions(page);
+        var targetText = string.Join('\n', regions.SelectMany(r => Lines(page, r.Span.StartLine, r.Span.EndLine)));
+        var targetPart = new SlicePart("target", targetText, tokens.Count(targetText), int.MaxValue);
+
+        var candidates = new List<SlicePart>();
+        void Add(string kind, string text, int priority)
+        {
+            if (text.Length > 0) candidates.Add(new SlicePart(kind, text, tokens.Count(text), priority));
+        }
+        Add("page", PageHead(page, state.EncodingName), 5);
+        Add("procedures", Procedures(page, state, span, procedure), 4);
+        Add("variables", Variables(page, state, span, procedure), 3);
+        Add("sql", await SqlSignaturesAsync(ctx, page, state, span, ct), 2);
+        if (state.Unit == AspTargetUnit.Lines)
+            Add("around", Around(page, span, lineCount), 1);
+
+        var hint = $"Classic ASP (VBScript); file encoding {state.EncodingName}; Option Explicit: {(page.OptionExplicit ? "yes" : "no")}";
+        var tooLarge = targetPart.Tokens > budget.Context;
+        var omitted = new List<SlicePart>();
+        if (tooLarge)
+        {
+            omitted.AddRange(candidates);
+            candidates.Clear();
+        }
+        else
+        {
+            foreach (var kind in DropOrder)
+            {
+                if (targetPart.Tokens + candidates.Sum(p => p.Tokens) <= budget.Context) break;
+                var part = candidates.FirstOrDefault(p => p.Kind == kind);
+                if (part is null) continue;
+                candidates.Remove(part);
+                omitted.Add(part);
+            }
+        }
+
+        var included = new List<SlicePart> { targetPart };
+        included.AddRange(candidates);
+        ctx.SliceResult = new SliceResult(new Slice(included, omitted, hint), regions, tooLarge);
+        if (tooLarge)
+        {
+            ctx.Messages.Add($"대상이 문맥 예산보다 큽니다 ({targetPart.Tokens} > budget.context {budget.Context} 토큰). 범위를 나누거나 예산을 늘리세요.");
+            return PhaseOutcome.BudgetExceeded;
+        }
+        return PhaseOutcome.Ok;
+    }
+
+    /// <summary>The procedure with the original's name and class; among same-named ones, the one at the same position.</summary>
+    private static AspProcedure? Refind(AspPage page, AspRunState state)
+    {
+        var original = state.Procedure!;
+        bool Same(AspProcedure p) =>
+            p.Name.Equals(original.Name, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(p.ClassName, original.ClassName, StringComparison.OrdinalIgnoreCase);
+        var before = state.OriginalPage.Procedures.Where(Same).ToList();
+        var now = page.Procedures.Where(Same).ToList();
+        var index = before.FindIndex(p => p.StartLine == original.StartLine);
+        if (now.Count == 0 || now.Count != before.Count || index < 0)
+            return now.Count == 1 ? now[0] : null;
+        return now[index];
+    }
+
+    /// <summary>Directive, include and metadata lines verbatim, then Option Explicit and the encoding.</summary>
+    private static string PageHead(AspPage page, string encodingName)
+    {
+        var lines = page.LockedLines.Order().Select(page.LineText).ToList();
+        lines.Add($"Option Explicit: {(page.OptionExplicit ? "yes" : "no")}");
+        lines.Add($"Encoding: {encodingName}");
+        return string.Join('\n', lines);
+    }
+
+    /// <summary>Declaration lines (with the comments above) of the top-level procedures the target names, from the page and its includes.</summary>
+    private static string Procedures(AspPage page, AspRunState state, TextSpanInfo span, AspProcedure? target)
+    {
+        var used = UsedNames(page, span);
+        var lines = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (target is not null) seen.Add(target.Name);
+
+        void From(AspPage source, string? file, bool same)
+        {
+            foreach (var p in source.Procedures)
+            {
+                if (p.ClassName is not null || !used.Contains(p.Name)) continue;
+                // A procedure defined inside the target range is already in the target.
+                if (same && p.DeclLine >= span.StartLine && p.DeclLine <= span.EndLine) continue;
+                if (!seen.Add(p.Name)) continue;
+                if (file is not null) lines.Add($"' {file}");
+                lines.AddRange(Lines(source, p.StartLine, p.DeclLine));
+            }
+        }
+
+        From(page, null, same: true);
+        foreach (var include in state.Includes.Files)
+            From(include.Page, Path.GetFileName(include.Path.Replace('\\', '/')), same: false);
+        return string.Join('\n', lines);
+    }
+
+    /// <summary>
+    /// Module-level declaration lines and the first module-level assignment line of the page names the target uses
+    /// (lines inside the target are not repeated). Names declared locally in the target procedure are skipped.
+    /// </summary>
+    private static string Variables(AspPage page, AspRunState state, TextSpanInfo span, AspProcedure? target)
+    {
+        var scope = target is null ? null : target.ClassName is null ? target.Name : target.ClassName + "." + target.Name;
+        var local = scope is null
+            ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            : page.Declarations.Where(d => d.Procedure == scope).Select(d => d.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var used = UsedNames(page, span);
+        used.ExceptWith(local);
+        if (target is not null) used.Remove(target.Name);
+
+        var lines = new List<string>();
+        bool Outside(int line) => line < span.StartLine || line > span.EndLine;
+
+        var pageLines = new SortedSet<int>();
+        foreach (var name in used)
+        {
+            var declared = page.Declarations.FirstOrDefault(d => d.Procedure is null && VariableKinds.Contains(d.Kind)
+                && d.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+            var assigned = page.NameUses.FirstOrDefault(u => u.Procedure is null && u.IsAssignment
+                && u.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+            if (declared is not null && Outside(declared.Line)) pageLines.Add(declared.Line);
+            if (assigned is not null && Outside(assigned.Line)) pageLines.Add(assigned.Line);
+            if (declared is not null || assigned is not null) continue;
+
+            foreach (var include in state.Includes.Files)
+            {
+                var d = include.Page.Declarations.FirstOrDefault(x => x.Procedure is null && VariableKinds.Contains(x.Kind)
+                    && x.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+                if (d is null) continue;
+                lines.Add($"{include.Page.LineText(d.Line)} ' {Path.GetFileName(include.Path.Replace('\\', '/'))}");
+                break;
+            }
+        }
+        return string.Join('\n', pageLines.Select(page.LineText).Concat(lines.Distinct()));
+    }
+
+    /// <summary>Signatures of the stored procedures called inside the target range; empty when there are none or no SQL is available.</summary>
+    private async Task<string> SqlSignaturesAsync(RunContext ctx, AspPage page, AspRunState state, TextSpanInfo span, CancellationToken ct)
+    {
+        if (sql is null)
+        {
+            state.Record(SqlContextCheck, AspCheckStatus.Skipped, "개발 DB 연결(sql.connectionString)이 설정되지 않았습니다");
+            return "";
+        }
+        var names = new List<SqlObjectName>();
+        foreach (var call in AspSpCallFinder.Find(page, options.SpCallFunctions, span))
+        {
+            if (!names.Any(n => n.SameAs(call.Name))) names.Add(call.Name);
+        }
+        if (names.Count == 0)
+            return "";
+
+        IReadOnlyList<SqlProcedureSignature> signatures;
+        try
+        {
+            signatures = await sql.GetProcedureSignaturesAsync(names, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // The SQL context is optional: an unreachable server (or an error it did not classify) only skips it.
+            state.Record(SqlContextCheck, AspCheckStatus.Skipped,
+                $"SQL 서버를 사용할 수 없습니다: {SqlConnectionText.MaskInText(ex.Message, ctx.Options.Sql.ConnectionString)}");
+            return "";
+        }
+
+        var lines = new List<string>();
+        foreach (var name in names)
+        {
+            if (signatures.FirstOrDefault(s => s.Name.SameAs(name)) is not { } s) continue;
+            var parameters = s.Parameters.Select(p => $"{p.Name} {p.Type}{(p.IsOutput ? " OUTPUT" : "")}");
+            lines.Add($"PROCEDURE {s.Name.Display} ({string.Join(", ", parameters)})");
+            if (s.FirstResultSet is { Count: > 0 } columns)
+                lines.Add($"  RESULT ({string.Join(", ", columns.Select(c => $"{c.Name} {c.TypeDisplay}"))})");
+        }
+        return string.Join('\n', lines);
+    }
+
+    /// <summary>Ten lines before and after a line range target, with a marker where the target sits.</summary>
+    private static string Around(AspPage page, TextSpanInfo span, int lineCount)
+    {
+        var before = Lines(page, Math.Max(1, span.StartLine - AroundLines), span.StartLine - 1).ToList();
+        var after = Lines(page, span.EndLine + 1, Math.Min(lineCount, span.EndLine + AroundLines)).ToList();
+        if (before.Count == 0 && after.Count == 0)
+            return "";
+        return string.Join('\n', before.Append("... [EDITABLE: target] ...").Concat(after));
+    }
+
+    /// <summary>Names used inside <paramref name="span"/>.</summary>
+    private static HashSet<string> UsedNames(AspPage page, TextSpanInfo span) =>
+        page.NameUses.Where(u => u.Line >= span.StartLine && u.Line <= span.EndLine)
+            .Select(u => u.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    private static IEnumerable<string> Lines(AspPage page, int from, int to)
+    {
+        for (var line = from; line <= to; line++)
+            yield return page.LineText(line);
+    }
+
+    private static PhaseOutcome NotFound(RunContext ctx)
+    {
+        ctx.Messages.Add($"수정 중인 대상 '{ctx.Target!.SymbolDisplay}'을(를) 다시 찾을 수 없습니다.");
+        ctx.FailureKind = FailureKinds.TargetNotFound;
+        return PhaseOutcome.NotFound;
+    }
+}

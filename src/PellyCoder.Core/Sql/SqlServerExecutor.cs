@@ -147,6 +147,49 @@ public sealed class SqlServerExecutor(string? connectionString) : ISqlExecutor
             return errors;
         }, ct);
 
+    public async Task<IReadOnlyList<SqlProcedureSignature>> GetProcedureSignaturesAsync(IReadOnlyList<SqlObjectName> names, CancellationToken ct)
+        => await RunAsync<IReadOnlyList<SqlProcedureSignature>>(async conn =>
+        {
+            var result = new List<SqlProcedureSignature>();
+            foreach (var name in names)
+            {
+                var obj = await conn.QuerySingleOrDefaultAsync<(int ObjectId, string Schema, string Name)?>(Cmd(
+                    "SELECT o.object_id, SCHEMA_NAME(o.schema_id), o.name FROM sys.objects o " +
+                    "WHERE o.object_id = OBJECT_ID(@name) AND o.type IN ('P', 'PC')", new { name = Quote(name) }, ct));
+                if (obj is not { } o)
+                    continue;
+
+                var parameters = (await conn.QueryAsync<ParameterRow>(Cmd(
+                    "SELECT p.name AS Name, TYPE_NAME(p.user_type_id) AS TypeName, p.max_length AS MaxLength, p.precision AS [Precision], " +
+                    "p.scale AS Scale, p.is_output AS IsOutput FROM sys.parameters p " +
+                    "WHERE p.object_id = @id AND p.parameter_id > 0 ORDER BY p.parameter_id", new { id = o.ObjectId }, ct)))
+                    .Select(p => new SqlParameterInfo(p.Name, TypeDisplay(p.TypeName, p.MaxLength, p.Precision, p.Scale), p.IsOutput))
+                    .ToList();
+
+                result.Add(new SqlProcedureSignature(new SqlObjectName(o.Schema, o.Name), parameters, await FirstResultSetAsync(conn, o.ObjectId, ct)));
+            }
+            return result;
+        }, ct);
+
+    /// <summary>Null when the server cannot describe the first result set (temp tables, dynamic SQL, a broken object) or there is none.</summary>
+    private static async Task<IReadOnlyList<SqlColumnInfo>?> FirstResultSetAsync(SqlConnection conn, int objectId, CancellationToken ct)
+    {
+        try
+        {
+            var rows = (await conn.QueryAsync<ResultColumnRow>(Cmd(
+                "SELECT name AS Name, system_type_name AS TypeName, CAST(ISNULL(is_nullable, 1) AS bit) AS IsNullable, error_number AS ErrorNumber " +
+                "FROM sys.dm_exec_describe_first_result_set_for_object(@id, 0) WHERE ISNULL(is_hidden, 0) = 0 ORDER BY column_ordinal",
+                new { id = objectId }, ct))).ToList();
+            if (rows.Count == 0 || rows.Any(r => r.ErrorNumber is not null))
+                return null;
+            return rows.Select(r => new SqlColumnInfo(r.Name ?? "", r.TypeName ?? "", r.IsNullable, false)).ToList();
+        }
+        catch (SqlException ex) when (!SqlCalls.IsConnectionLevel(ex, conn) && !ct.IsCancellationRequested)
+        {
+            return null;
+        }
+    }
+
     /// <summary>Shared execution path; internal so integration tests can run a slow command through the same cancellation mapping.</summary>
     internal Task<T> RunAsync<T>(Func<SqlConnection, Task<T>> body, CancellationToken ct)
         => SqlCalls.RunAsync(connectionString, body, ct);
@@ -172,25 +215,30 @@ public sealed class SqlServerExecutor(string? connectionString) : ISqlExecutor
         return name.Schema is null ? Part(name.Name) : $"{Part(name.Schema)}.{Part(name.Name)}";
     }
 
-    private static string TypeDisplay(ColumnRow c)
+    private static string TypeDisplay(ColumnRow c) => TypeDisplay(c.TypeName, c.MaxLength, c.Precision, c.Scale);
+
+    private static string TypeDisplay(string t, short maxLength, byte precision, byte scale)
     {
-        var t = c.TypeName;
         switch (t)
         {
             case "char" or "varchar" or "binary" or "varbinary":
-                return c.MaxLength == -1 ? $"{t}(max)" : $"{t}({c.MaxLength})";
+                return maxLength == -1 ? $"{t}(max)" : $"{t}({maxLength})";
             case "nchar" or "nvarchar":
-                return c.MaxLength == -1 ? $"{t}(max)" : $"{t}({c.MaxLength / 2})";
+                return maxLength == -1 ? $"{t}(max)" : $"{t}({maxLength / 2})";
             case "decimal" or "numeric":
-                return $"{t}({c.Precision},{c.Scale})";
+                return $"{t}({precision},{scale})";
             case "datetime2" or "time" or "datetimeoffset":
-                return $"{t}({c.Scale})";
+                return $"{t}({scale})";
             default:
                 return t;
         }
     }
 
     private sealed record ColumnRow(string Name, string TypeName, short MaxLength, byte Precision, byte Scale, bool IsNullable, bool IsPk);
+
+    private sealed record ParameterRow(string Name, string TypeName, short MaxLength, byte Precision, byte Scale, bool IsOutput);
+
+    private sealed record ResultColumnRow(string? Name, string? TypeName, bool IsNullable, int? ErrorNumber);
 
     private sealed record IndexRow(string Name, bool IsUnique, byte Ordinal, string Column);
 }

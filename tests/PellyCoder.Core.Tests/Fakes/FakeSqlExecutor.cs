@@ -13,6 +13,8 @@ public sealed class FakeSqlExecutor : ISqlExecutor
     public List<SqlTableSchema> Schemas { get; } = [];
     public Dictionary<string, IReadOnlyList<SqlObjectName>> Referenced { get; } = new(StringComparer.OrdinalIgnoreCase);
     public Exception? ReferencedFailure { get; set; }
+    public List<SqlProcedureSignature> Signatures { get; } = [];
+    public Exception? SignaturesFailure { get; set; }
     public Func<string, IReadOnlyList<SqlCompileError>> Compile { get; set; } = _ => [];
 
     public List<string> Compiled { get; } = [];
@@ -54,5 +56,14 @@ public sealed class FakeSqlExecutor : ISqlExecutor
         Compiled.Add(batch);
         CompiledSettings.Add(settings);
         return Task.FromResult(Compile(batch));
+    }
+
+    public Task<IReadOnlyList<SqlProcedureSignature>> GetProcedureSignaturesAsync(IReadOnlyList<SqlObjectName> names, CancellationToken ct)
+    {
+        Calls.Add("GetProcedureSignatures");
+        if (SignaturesFailure is not null) return Task.FromException<IReadOnlyList<SqlProcedureSignature>>(SignaturesFailure);
+        IReadOnlyList<SqlProcedureSignature> result = names
+            .Select(n => Signatures.FirstOrDefault(s => s.Name.SameAs(n))).OfType<SqlProcedureSignature>().ToList();
+        return Task.FromResult(result);
     }
 }

@@ -261,4 +261,49 @@ public sealed class PromptBuilderTests
         Assert.NotNull(unmatched.Rules);
         Assert.Empty(unmatched.Rules!.Included);
     }
+
+    private static Slice AspSlice() => new(
+        new[]
+        {
+            Part("target", "If q <> \"\" Then\n    w = w & \" AND Name LIKE '%\" & Replace(q, \"'\", \"''\") & \"%'\"\nEnd If"),
+            Part("page", "<%@ Language=\"VBScript\" CodePage=949 %>\nOption Explicit: yes\nEncoding: CP949"),
+            Part("procedures", "Function Pad(v)"),
+            Part("variables", "Dim q, w"),
+            Part("sql", "PROCEDURE dbo.usp_X (@Id int)"),
+            Part("around", "<table>"),
+        },
+        Array.Empty<SlicePart>(), "Classic ASP (VBScript); file encoding CP949; Option Explicit: yes");
+
+    private static EditTarget AspTarget() => new(EditKind.Asp, @"C:\site\admin\page.asp", "줄 10-12", new TextSpanInfo(10, 12), null);
+
+    [Fact]
+    public void BuildAsp_HeaderOrder()
+    {
+        var result = NewBuilder().BuildAsp(AspTarget(), AspSlice(), "작성자 조건을 추가한다", null);
+
+        Assert.Equal(PromptBudgetError.None, result.Error);
+        var user = User(result.BasePrompt);
+        Assert.StartsWith("### TARGET\n줄 10-12 — file: page.asp\n### CONTEXT\n", user);
+        string[] headers = ["[READ-ONLY: page]", "[READ-ONLY: procedures]", "[READ-ONLY: variables]", "[READ-ONLY: sql]",
+            "[READ-ONLY: around]", "[EDITABLE: target]", "### REQUEST"];
+        var positions = headers.Select(h => user.IndexOf(h, StringComparison.Ordinal)).ToList();
+        Assert.All(positions, p => Assert.True(p >= 0));
+        Assert.Equal(positions.Order(), positions);
+        Assert.Contains("Target: Classic ASP (VBScript); file encoding CP949; Option Explicit: yes", System(result.BasePrompt));
+        Assert.DoesNotContain("{LanguageHint}", result.BasePrompt);
+        Assert.DoesNotContain("Site SQL functions", result.BasePrompt);
+    }
+
+    [Fact]
+    public void BuildAsp_SiteSanitizersLine()
+    {
+        var rules = new[] { new ProjectRule(1, ["*"], "주석은 한국어로 작성한다", null) };
+        var with = NewBuilder().BuildAsp(AspTarget(), AspSlice(), "req", null, rules, ["SafeText", "SafeNum"]);
+        var without = NewBuilder().BuildAsp(AspTarget(), AspSlice(), "req", null, null, ["SafeText", "SafeNum"]);
+
+        Assert.Contains("### RULES\nSite SQL functions: SafeText, SafeNum\n- 주석은 한국어로 작성한다\n### REQUEST", User(with.BasePrompt));
+        Assert.Contains("### RULES\nSite SQL functions: SafeText, SafeNum\n### REQUEST", User(without.BasePrompt));
+        Assert.Equal(System(without.BasePrompt), System(with.BasePrompt));
+        Assert.DoesNotContain("Site SQL functions", NewBuilder().BuildAsp(AspTarget(), AspSlice(), "req", null, null, []).BasePrompt);
+    }
 }

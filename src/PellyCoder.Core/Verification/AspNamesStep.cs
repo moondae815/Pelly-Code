@@ -21,7 +21,7 @@ public sealed class AspNamesStep(FeedbackBuilder feedback) : IVerifierStep
     {
         var state = ctx.Asp ?? throw new InvalidOperationException("ASP verification needs the ASP run state.");
         var current = AspPage.Parse(ctx.Current.Text);
-        var result = AspNameCheck.NewUnknown(state.OriginalPage, current, state.Includes, AspBuiltins.Default);
+        var result = AspNameCheck.NewUnknown(state.OriginalPage, current, state.Includes, AspBuiltins.Default, state.AdoConstants);
         var names = string.Join(", ", result.Unknown.Select(u => u.Name).Distinct(StringComparer.OrdinalIgnoreCase));
 
         if (result.Downgraded)

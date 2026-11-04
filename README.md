@@ -292,6 +292,7 @@ pelly asp admin/member/edit.asp "휴대폰 번호 저장 전에 하이픈 제거
 
 * **「실행 검증 없음」:** 어떤 검사도 페이지를 실행하지 않습니다. 그래서 검토 화면에는 diff와 함께 판정 줄(예: `검사: 구조 통과, 안전 통과, 인코딩 통과, 이름 통과, 컴파일 건너뜀(Windows가 아님), SP 건너뜀(…)`)과 고정 문구 「ASP는 실행해서 확인하지 않았습니다. 화면에서 직접 확인하십시오.」가 나옵니다. `--yes`여도 이 두 줄은 화면과 실행 기록에 남습니다. 승인한 뒤 **화면을 직접 띄워 확인하십시오.**
 * **건너뛰는 검사:** Windows가 아니거나 `cscript`·VBScript를 쓸 수 없으면(Windows 11 24H2부터 VBScript는 선택적 기능) 컴파일 검사는 실패가 아니라 「건너뜀」입니다. 개발 DB 연결이 없으면 SP 확인과 SP 문맥도 건너뜁니다. 운영 연결(`sql.production`)은 ASP에서 쓰지 않습니다. 못 찾은 include가 있거나 `Execute`·동적 include가 있는 파일은 이름을 확신할 수 없어 이름 검사를 오류가 아니라 경고로 낮춥니다.
+* **ADO 상수(`adOpenStatic`·`adCmdStoredProc` 등):** 다음 중 하나면 정의된 이름으로 봅니다 — 페이지나 include에 `adovbs.inc` 또는 typelib `METADATA`가 있음, `<asp.siteRoot>/global.asa`에 typelib `METADATA`가 있음(읽기만 함), `asp.adoConstants`가 `true`, 원본 페이지가 이미 선언 없이 ADO 상수를 씀. 그 밖에는 새로 쓴 ADO 상수도 모르는 이름입니다.
 * **SQL 문자열 연결(`SqlConcatRequest`):** `SELECT`·`INSERT`·`UPDATE`·`DELETE`·`EXEC`·`EXECUTE`·`MERGE`를 단어로 담은 문자열에 `Request(…)`·`Request.Form`·`Request.QueryString`·`Request.Cookies` 값, 또는 그 값을 받은 변수를 `&`(문자열이나 SQL 변수와 함께 쓴 `+` 포함)로 붙이면 거부합니다.
   * 허용하는 감싸기: `CLng`·`CInt`·`CDbl`·`CBool`·`CDate`, `Replace(x, "'", "''")`(두 번째·세 번째 인수가 정확히 그 문자열), `asp.sqlSanitizers`의 현장 함수(`Util.SafeSQL(x)`처럼 점이 붙어도 마지막 이름으로 봄). `ADODB.Command`의 `CreateParameter`로 넘긴 값은 연결이 아니라 처음부터 대상이 아닙니다.
   * `Trim(Request("id"))`처럼 허용 목록 밖의 함수로 감싼 값은 여전히 위험한 값입니다.
@@ -312,6 +313,7 @@ pelly asp admin/member/edit.asp "휴대폰 번호 저장 전에 하이픈 제거
   | `asp.extensions` | `[".asp", ".inc"]` | 대상 확장자(대소문자 무시). `global.asa`는 넣어도 거부 |
   | `asp.sqlSanitizers` | `[]` | SQL 문자열에 넣어도 되는 현장 처리 함수 이름(예: `SafeSQL`). 프롬프트에도 알려 줌 |
   | `asp.spCallFunctions` | `[]` | SP를 부르는 공용 래퍼, 예: `[{"name":"ExecSP","argument":1}]`(SP 이름 인수 위치, 1부터) |
+  | `asp.adoConstants` | `false` | `true`면 ADO 상수(`adOpenStatic` 등)를 어디서나 정의된 이름으로 봄(사이트가 다른 방법으로 typelib을 쓸 때) |
 
   ```json
   { "asp": { "siteRoot": ".", "encoding": "cp949", "sqlSanitizers": ["SafeSQL"] } }

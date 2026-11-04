@@ -111,6 +111,27 @@ public class AspNameCheckTests
     }
 
     [Fact]
+    public void Names_AdoConstant_OptionEnabled_Ok()
+    {
+        const string body = "<%\nOption Explicit\nDim rs\n%>";
+        const string use = "<%\nOption Explicit\nDim rs\nrs.Open \"q\", 1, adOpenStatic\n%>";
+        var result = AspNameCheck.NewUnknown(AspPage.Parse(body), AspPage.Parse(use), NoIncludes, AspBuiltins.Default,
+            adoConstantsKnown: true);
+        Assert.Empty(result.Unknown);
+    }
+
+    [Fact]
+    public void Names_AdoConstant_OriginalAlreadyUses_Ok()
+    {
+        const string original = "<%\nOption Explicit\nDim rs\nrs.Open \"q\", 1, adOpenStatic\n%>";
+        const string patched = "<%\nOption Explicit\nDim rs\nrs.Open \"q\", 1, adOpenStatic\nrs.CursorLocation = adUseClient\n%>";
+        Assert.Empty(Check(original, patched).Unknown);
+        // A non-ADO unknown name in the original does not make ADO constants known.
+        Assert.Equal("adUseClient", Assert.Single(Check("<%\nOption Explicit\nDim x\nx = Legacy(1)\n%>",
+            "<%\nOption Explicit\nDim x\nx = Legacy(1)\nx = adUseClient\n%>").Unknown).Name);
+    }
+
+    [Fact]
     public void Names_ExistingUnknown_NotCounted()
     {
         var original = "<%\nOption Explicit\nx = Legacy1(a)\ny = Legacy1(b)\nResponse.Write z\n%>";

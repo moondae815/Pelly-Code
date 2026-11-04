@@ -20,6 +20,9 @@ public sealed class AspBuiltins
     public bool IsKnown(string name, bool adoConstants) =>
         _known.Contains(name) || (adoConstants && _ado.Contains(name));
 
+    /// <summary>True for a name of the <c>[ado-constants]</c> section.</summary>
+    public bool IsAdoConstant(string name) => _ado.Contains(name);
+
     private static AspBuiltins Load()
     {
         using var stream = typeof(AspBuiltins).Assembly.GetManifestResourceStream(ResourceName)

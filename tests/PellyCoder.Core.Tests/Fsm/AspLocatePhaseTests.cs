@@ -291,4 +291,46 @@ public sealed class AspLocatePhaseTests
 
         Assert.Equal(new AspCheck("Compile", AspCheckStatus.Passed, null), state.Checks["Compile"]);
     }
+    private const string AdoBody = "<%\nOption Explicit\nDim rs\n%>\n";
+    private const string AdoUse = "<%\nOption Explicit\nDim rs\nrs.Open \"q\", 1, adOpenStatic\n%>\n";
+
+    private static bool AdoUseUnknown(AspRunState state) =>
+        AspNameCheck.NewUnknown(state.OriginalPage, AspPage.Parse(AdoUse), state.Includes, AspBuiltins.Default,
+            state.AdoConstants).Unknown.Count > 0;
+
+    [Fact]
+    public async Task Names_AdoConstant_TypelibInGlobalAsa_Ok()
+    {
+        const string globalAsa = "<!--METADATA TYPE=\"TypeLib\" NAME=\"Microsoft ActiveX Data Objects 2.8 Library\" "
+            + "UUID=\"{2A75196C-D9EB-4129-B803-931327F72D5C}\" VERSION=\"2.8\"-->\n"
+            + "<SCRIPT LANGUAGE=\"VBScript\" RUNAT=\"Server\">\nSub Application_OnStart\nEnd Sub\n</SCRIPT>\n";
+        _options.SiteRoot = "site";
+
+        var (outcome, ctx) = await Locate(AdoBody, lines: new TextSpanInfo(1, 4), others: ("/w/site/global.asa", globalAsa));
+
+        Assert.Equal(PhaseOutcome.Ok, outcome);
+        Assert.True(ctx.Asp!.AdoConstants);
+        Assert.False(AdoUseUnknown(ctx.Asp!));
+    }
+
+    [Fact]
+    public async Task Names_AdoConstant_GlobalAsaWithoutTypelib_Unknown()
+    {
+        var (_, ctx) = await Locate(AdoBody, lines: new TextSpanInfo(1, 4),
+            others: ("/w/global.asa", "<SCRIPT LANGUAGE=\"VBScript\" RUNAT=\"Server\">\n</SCRIPT>\n"));
+
+        Assert.False(ctx.Asp!.AdoConstants);
+        Assert.True(AdoUseUnknown(ctx.Asp!));
+    }
+
+    [Fact]
+    public async Task Names_AdoConstant_OptionEnabled_SetsState()
+    {
+        _options.AdoConstants = true;
+
+        var (_, ctx) = await Locate(AdoBody, lines: new TextSpanInfo(1, 4));
+
+        Assert.True(ctx.Asp!.AdoConstants);
+        Assert.False(AdoUseUnknown(ctx.Asp!));
+    }
 }

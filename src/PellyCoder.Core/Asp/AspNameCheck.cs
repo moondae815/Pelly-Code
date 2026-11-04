@@ -16,15 +16,20 @@ public static class AspNameCheck
 
     /// <summary>
     /// Names whose count of unknown uses grew beyond the original, as many as it grew, with the patched page's
-    /// line numbers (the later occurrences of each name).
+    /// line numbers (the later occurrences of each name). ADO constants are known when <paramref name="adoConstantsKnown"/>
+    /// (option or global.asa typelib), when adovbs.inc or a typelib METADATA is in the page or its includes, or when
+    /// the original already uses an undeclared ADO constant name (the site gets them from somewhere).
     /// </summary>
-    public static AspNameResult NewUnknown(AspPage original, AspPage patched, AspIncludeSet includes, AspBuiltins builtins)
+    public static AspNameResult NewUnknown(
+        AspPage original, AspPage patched, AspIncludeSet includes, AspBuiltins builtins, bool adoConstantsKnown = false)
     {
-        var baseline = UnknownUses(original, includes, builtins)
+        var ado = adoConstantsKnown
+            || UnknownUses(original, includes, builtins, adoKnown: false).Any(u => builtins.IsAdoConstant(u.Name));
+        var baseline = UnknownUses(original, includes, builtins, ado)
             .GroupBy(u => u.Name, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
         var result = new List<AspUnknownName>();
-        foreach (var group in UnknownUses(patched, includes, builtins).GroupBy(u => u.Name, StringComparer.OrdinalIgnoreCase))
+        foreach (var group in UnknownUses(patched, includes, builtins, ado).GroupBy(u => u.Name, StringComparer.OrdinalIgnoreCase))
         {
             var extra = group.Count() - baseline.GetValueOrDefault(group.Key);
             if (extra > 0)
@@ -42,11 +47,14 @@ public static class AspNameCheck
         return new AspNameResult(result.OrderBy(u => u.Line).ToArray(), reason is not null, reason);
     }
 
-    private static IEnumerable<AspNameUse> UnknownUses(AspPage page, AspIncludeSet includes, AspBuiltins builtins)
+    /// <summary>True when the page has a typelib METADATA comment (e.g. the site's <c>global.asa</c>).</summary>
+    public static bool HasTypeLibMetadata(AspPage page) => page.Segments.Any(IsTypeLibMetadata);
+
+    private static IEnumerable<AspNameUse> UnknownUses(AspPage page, AspIncludeSet includes, AspBuiltins builtins, bool adoKnown)
     {
         var pages = new List<AspPage> { page };
         pages.AddRange(includes.Files.Select(f => f.Page));
-        var adoConstants = includes.Files.Any(f => IsAdovbs(f.Path))
+        var adoConstants = adoKnown || includes.Files.Any(f => IsAdovbs(f.Path))
             || pages.Any(p => p.Includes.Any(i => IsAdovbs(i.Path)) || p.Segments.Any(IsTypeLibMetadata));
 
         // Module-level declarations, every procedure and class name: visible from everywhere.

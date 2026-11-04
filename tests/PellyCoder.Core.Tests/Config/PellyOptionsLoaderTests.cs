@@ -298,12 +298,13 @@ public class PellyOptionsLoaderTests
         Assert.Equal([".asp", ".inc"], asp.Extensions);
         Assert.Empty(asp.SqlSanitizers);
         Assert.Empty(asp.SpCallFunctions);
+        Assert.False(asp.AdoConstants);
     }
 
     [Fact]
     public void Asp_SectionPresent_Configured()
     {
-        var fs = WsFile("""{"asp":{"siteRoot":"site","encoding":"UTF-8","extensions":[".asp"],"sqlSanitizers":["SafeSql"]}}""");
+        var fs = WsFile("""{"asp":{"siteRoot":"site","encoding":"UTF-8","extensions":[".asp"],"sqlSanitizers":["SafeSql"],"adoConstants":true}}""");
         var r = Load(fs, ws: P(@"C:\w\pelly.json"));
         Assert.Empty(r.Errors);
         var asp = r.Options!.Asp;
@@ -312,6 +313,7 @@ public class PellyOptionsLoaderTests
         Assert.Equal("utf-8", asp.Encoding);
         Assert.Equal([".asp"], asp.Extensions);
         Assert.Equal(["SafeSql"], asp.SqlSanitizers);
+        Assert.True(asp.AdoConstants);
     }
 
     [Fact]

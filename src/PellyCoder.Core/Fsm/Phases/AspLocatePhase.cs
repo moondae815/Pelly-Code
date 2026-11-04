@@ -100,8 +100,26 @@ public sealed class AspLocatePhase(IFileSystem fs, IUserInteraction ui, AspOptio
         ctx.Target = new EditTarget(EditKind.Asp, ctx.FilePath, display, span, null);
         ctx.ProjectStyle = "Asp";
         ctx.Asp = new AspRunState(page, request.Lines is null ? AspTargetUnit.Procedure : AspTargetUnit.Lines, span,
-            request.Lines is null ? procedure : null, includes, EncodingName(ctx.Original.Encoding), siteRoot);
+            request.Lines is null ? procedure : null, includes, EncodingName(ctx.Original.Encoding), siteRoot)
+        {
+            AdoConstants = options.AdoConstants || GlobalAsaHasTypeLib(siteRoot),
+        };
         return PhaseOutcome.Ok;
+    }
+
+    /// <summary><c>&lt;siteRoot&gt;/global.asa</c> declares a typelib METADATA (ADO constants for every page); read only.</summary>
+    private bool GlobalAsaHasTypeLib(string siteRoot)
+    {
+        var path = fs.Path.Combine(siteRoot, "global.asa");
+        try
+        {
+            return fs.File.Exists(path)
+                && AspNameCheck.HasTypeLibMetadata(AspPage.Parse(codec.Decode(path, fs.File.ReadAllBytes(path)).Text));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
+        {
+            return false;
+        }
     }
 
     /// <summary><c>Class.Name</c> matches that class member; a bare name matches top-level procedures, else class members.</summary>

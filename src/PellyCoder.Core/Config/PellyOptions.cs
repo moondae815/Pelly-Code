@@ -128,6 +128,8 @@ public sealed class AspOptions
     /// <summary>Site functions that make a value safe inside a SQL string.</summary>
     public string[] SqlSanitizers { get; set; } = [];
     public AspSpCallFunction[] SpCallFunctions { get; set; } = [];
+    /// <summary>ADO constants are defined site-wide (e.g. a typelib the name check cannot see).</summary>
+    public bool AdoConstants { get; set; }
 }
 
 /// <summary>A site wrapper function that calls a stored procedure, e.g. <c>ExecSP "usp_X", …</c>.</summary>

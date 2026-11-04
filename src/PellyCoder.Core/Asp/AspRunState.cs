@@ -32,6 +32,12 @@ public sealed class AspRunState(
     /// <summary>Full path the <c>include virtual=</c> paths resolve from.</summary>
     public string SiteRoot { get; } = siteRoot;
 
+    /// <summary>
+    /// ADO constants (<c>adOpenStatic</c> …) are known regardless of includes: <c>asp.adoConstants</c> is on or the site's
+    /// <c>global.asa</c> has a typelib METADATA (set by LOCATE).
+    /// </summary>
+    public bool AdoConstants { get; init; }
+
     /// <summary>Compile errors of the original page (set by the first VERIFY); only errors beyond these count.</summary>
     public IReadOnlyList<Diagnostic>? OriginalCompileErrors { get; set; }
 

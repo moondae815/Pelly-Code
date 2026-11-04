@@ -234,7 +234,7 @@ public sealed partial class FeedbackBuilder(ITokenCounter tokens, int budget)
     }
 
     /// <summary>
-    /// <c>ENCODING ERROR:이 파일은 &lt;encoding&gt;입니다. 다음 문자를 쓸 수 없습니다: 'c' (U+XXXX)</c>, then the patched line
+    /// <c>ENCODING ERROR: 이 파일은 &lt;encoding&gt;입니다. 다음 문자를 쓸 수 없습니다: 'c' (U+XXXX)</c>, then the patched line
     /// (cut to the budget). <paramref name="character"/> is one character or a surrogate pair.
     /// </summary>
     public Feedback ForEncoding(string encodingName, string character, int line, string lineText)

@@ -134,6 +134,26 @@ public sealed class CscriptTests : IDisposable
     }
 
     [WindowsFact]
+    public async Task Cscript_DoesNotExecute_WithOptionExplicit()
+    {
+        // Option Explicit page: the script reads "Option Explicit : WScript.Quit 0".
+        var marker = Path.Combine(_dir, "executed-explicit.txt");
+        var page =
+            "<% Option Explicit %>\n" +
+            "<%\n" +
+            "Dim fso\n" +
+            "Set fso = CreateObject(\"Scripting.FileSystemObject\")\n" +
+            "fso.CreateTextFile(\"" + marker + "\")\n" +
+            "%>\n";
+        Assert.Contains("Option Explicit : WScript.Quit 0", VbsCompileScript.Build(AspPage.Parse(page), page));
+
+        var errors = await CompilePageAsync(page);
+
+        Assert.Empty(errors);
+        Assert.False(File.Exists(marker));
+    }
+
+    [WindowsFact]
     public async Task Cscript_SubOnFirstLine_Compiles()
     {
         // The page has no Option Explicit, so the script starts with "WScript.Quit 0 : Sub Hello()".

@@ -69,7 +69,8 @@ public sealed class AspCompileStep(IProcessRunner processes, FeedbackBuilder fee
     {
         var page = AspPage.Parse(textLf);
         var script = VbsCompileScript.Build(page, textLf);
-        var runDir = fs.Path.Combine(ctx.Workspace!.PellyDir, "runs", ctx.RunId);
+        var workspace = ctx.Workspace ?? throw new InvalidOperationException("ASP compile verification needs the workspace.");
+        var runDir = fs.Path.Combine(workspace.PellyDir, "runs", ctx.RunId);
         fs.Directory.CreateDirectory(runDir);
         var path = NextScriptPath(runDir);
         var body = Encoding.Unicode.GetBytes(script.Replace("\n", "\r\n", StringComparison.Ordinal));

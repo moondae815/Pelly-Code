@@ -202,7 +202,11 @@ ADO 호출 모양 몇 가지를 문자열 수준에서 알아본다(Claude 결�
 ## 8. 사람이 확인할 것 (현장, `deploy/field-results.md` 새 절)
 
 - A1: ASP 소스가 어디 있는가(소스 관리 유무 — `.git`·`.svn`이 없으면 작업 공간 루트와 `.pelly` 위치가 파일 폴더가 된다), 파일 인코딩(CP949/UTF-8 섞임, `CodePage` 지시문 사용 여부 → `asp.encoding`), 줄 끝이 섞인 파일이 있는지, `include virtual`의 사이트 루트.
-- A2: 개발 PC에서 `cscript`로 VBScript를 쓸 수 있는가(Windows 버전, 그룹 정책으로 막혔는지, VBScript 선택적 기능).
+- A2: 개발 PC에서 `cscript`로 VBScript를 쓸 수 있는가(Windows 버전, 그룹 정책으로 막혔는지, VBScript 선택적 기능). 확인 절차(cmd):
+  1. `winver` — Windows 11 24H2 이상·Server 2025면 VBScript가 선택적 기능이다(`Get-WindowsCapability -Online | Where-Object Name -like 'VBSCRIPT*'`가 `Installed`여야 함). 그보다 오래된 버전은 그 항목이 없고 기본 포함이다.
+  2. `echo WScript.Echo "ok" > %TEMP%\t.vbs` 후 `cscript //Nologo %TEMP%\t.vbs` → `ok`.
+  3. `echo If x Then > %TEMP%\bad.vbs` 후 `cscript //Nologo %TEMP%\bad.vbs` → 컴파일 오류 메시지(한국어 Windows는 한국어 문구, 그 문구를 해석 규칙에 반영).
+  - 2026-11-04 사람 확인: Windows 11 23H2 PC에서 2·3 모두 기대대로 나옴(현장 PC인지는 별도 확인).
 - A3: SP를 부르는 실제 모양(직접 `Command`인가, 공용 래퍼 함수인가 → `asp.spCallFunctions`), SQL 문자열을 만들 때 쓰는 현장 sanitizer 함수 이름(→ `asp.sqlSanitizers`).
 - A4: 실제 요청 3건(줄 범위 2, 프로시저 1)을 돌린 결과와, 사람이 화면에서 확인했을 때 문제가 있었는지.
 

@@ -11,6 +11,7 @@ public sealed record ProcessSpec(
 /// <summary>
 /// Result of a finished process. <see cref="StdOut"/> is the UTF-8 decoding of <see cref="StdOutBytes"/>
 /// (kept raw so callers can re-decode e.g. CP949). On timeout <see cref="ExitCode"/> is -1 and <see cref="TimedOut"/> is true.
+/// <see cref="StdErrBytes"/> is the raw standard error (null when the runner does not keep it).
 /// </summary>
 public sealed record ProcessResult(
     int ExitCode,
@@ -18,7 +19,8 @@ public sealed record ProcessResult(
     string StdErr,
     byte[] StdOutBytes,
     TimeSpan Duration,
-    bool TimedOut);
+    bool TimedOut,
+    byte[]? StdErrBytes = null);
 
 /// <summary>Runs external processes. Cancellation kills the whole process tree, then throws <see cref="OperationCanceledException"/>.</summary>
 public interface IProcessRunner

@@ -225,8 +225,16 @@ public sealed partial class FeedbackBuilder(ITokenCounter tokens, int budget)
         return Done(head + "\n" + Instruction);
     }
 
+    /// <summary><c>ASP SP NOT FOUND</c> and <c>개발 DB에 없는 프로시저: a, b</c>; over budget the name list is cut.</summary>
+    public Feedback ForAspSpNotFound(IReadOnlyList<string> names)
+    {
+        const string Prefix = "ASP SP NOT FOUND\n개발 DB에 없는 프로시저: ";
+        var list = string.Join(", ", names.Distinct(StringComparer.OrdinalIgnoreCase));
+        return Done(Prefix + Truncate(list, l => Prefix + l));
+    }
+
     /// <summary>
-    /// <c>ENCODING ERROR: 이 파일은 &lt;encoding&gt;입니다. 다음 문자를 쓸 수 없습니다: 'c' (U+XXXX)</c>, then the patched line
+    /// <c>ENCODING ERROR:이 파일은 &lt;encoding&gt;입니다. 다음 문자를 쓸 수 없습니다: 'c' (U+XXXX)</c>, then the patched line
     /// (cut to the budget). <paramref name="character"/> is one character or a surrogate pair.
     /// </summary>
     public Feedback ForEncoding(string encodingName, string character, int line, string lineText)

@@ -75,13 +75,15 @@ public sealed class SystemProcessRunner(TimeProvider time) : IProcessRunner
         }
 
         var bytes = outBuf.Snapshot();
+        var errBytes = errBuf.Snapshot();
         return new ProcessResult(
             timedOut ? -1 : process.ExitCode,
             Encoding.UTF8.GetString(bytes),
-            Encoding.UTF8.GetString(errBuf.Snapshot()),
+            Encoding.UTF8.GetString(errBytes),
             bytes,
             time.GetElapsedTime(started),
-            timedOut);
+            timedOut,
+            errBytes);
     }
 
     private static Task PumpAsync(Stream stream, LockedBuffer sink) => Task.Run(async () =>

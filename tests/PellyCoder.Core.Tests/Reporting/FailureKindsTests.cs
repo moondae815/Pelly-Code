@@ -14,6 +14,13 @@ public sealed partial class FailureKindsTests
     [GeneratedRegex("string\\s+Name\\s*=>\\s*\"(?<v>[^\"]+)\"")]
     private static partial Regex StepName();
 
+    [GeneratedRegex("StepResult\\.Fail\\(")]
+    private static partial Regex StepFail();
+
+    // A Fail call whose last argument is a FailureKinds constant: VERIFY then never uses the {Name}Errors default.
+    [GeneratedRegex("StepResult\\.Fail\\([^;]*,\\s*FailureKinds\\.\\w+\\)+\\s*;")]
+    private static partial Regex StepFailWithKind();
+
     private static string RepoRoot()
     {
         for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
@@ -48,7 +55,9 @@ public sealed partial class FailureKindsTests
             foreach (Match m in Assigned().Matches(text)) found.Add(m.Groups["v"].Value);
             if (file.EndsWith("FsmOrchestrator.cs", StringComparison.Ordinal))
                 foreach (Match m in Label().Matches(text)) found.Add(m.Groups["v"].Value);
-            if (text.Contains("IVerifierStep", StringComparison.Ordinal))
+            var fails = StepFail().Count(text);
+            var labelUnused = fails > 0 && fails == StepFailWithKind().Count(text) && !text.Contains("StepResult.Environment(", StringComparison.Ordinal);
+            if (text.Contains("IVerifierStep", StringComparison.Ordinal) && !labelUnused)
                 foreach (Match m in StepName().Matches(text)) found.Add(m.Groups["v"].Value + "Errors");
         }
 

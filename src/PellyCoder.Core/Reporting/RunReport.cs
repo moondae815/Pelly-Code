@@ -31,7 +31,8 @@ public sealed record RunReportData(
     IReadOnlyDictionary<RunPhase, double> MeanPhaseSeconds,
     IReadOnlyDictionary<int, int> AttemptDistribution,
     TestFirstCounts? TestFirst = null,
-    CharTestCounts? CharTest = null);
+    CharTestCounts? CharTest = null,
+    AspCounts? Asp = null);
 
 /// <summary>
 /// <c>pelly test</c> runs (kind <c>CSharpTest</c>): runs, runs that kept tests (CharTest.Kept > 0; a dry-run exits 0 but keeps nothing), mean attempts and failure kinds.
@@ -44,6 +45,19 @@ public sealed record CharTestCounts(int Runs, int Kept, double MeanAttempts, IRe
         var rate = (100.0 * Kept / Runs).ToString("F1", CultureInfo.InvariantCulture);
         var kinds = FailureKinds.Count == 0 ? "없음" : string.Join(", ", FailureKinds.Select(f => $"{f.Key} {f.Value}"));
         return $"특성 테스트: 실행 {Runs}건, 남김 {Kept}건(성공률 {rate}%), 평균 시도 {MeanAttempts.ToString("F1", CultureInfo.InvariantCulture)}, 실패 유형 {kinds}";
+    }
+}
+
+/// <summary>
+/// <c>pelly asp</c> runs (kind <c>Asp</c>, also counted in the edit figures): runs, succeeded (exit 0 and not a dry-run, i.e. the run
+/// reached REVIEW), runs whose compile check was skipped, and failure kinds. Counts and known kinds only — no procedure names.
+/// </summary>
+public sealed record AspCounts(int Runs, int Succeeded, int CompileSkipped, IReadOnlyDictionary<string, int> FailureKinds)
+{
+    public string Line()
+    {
+        var kinds = FailureKinds.Count == 0 ? "없음" : string.Join(", ", FailureKinds.Select(f => $"{f.Key} {f.Value}"));
+        return $"ASP: 실행 {Runs}건, 성공 {Succeeded}건, 컴파일 검사 건너뜀 {CompileSkipped}건, 실패 유형 {kinds}";
     }
 }
 
@@ -88,8 +102,25 @@ public static class RunReport
             phases,
             s.GroupBy(x => x.Attempts).OrderBy(g => g.Key).ToDictionary(g => g.Key, g => g.Count()),
             CountTestFirst(s),
-            CountCharTests(charTests));
+            CountCharTests(charTests),
+            CountAsp(s));
     }
+
+    private static AspCounts? CountAsp(List<RunSummary> edits)
+    {
+        var s = edits.Where(x => x.Kind == EditKind.Asp).ToList();
+        if (s.Count == 0) return null;
+        // A dry-run exits 0 at APPLY; a run that kept its change was approved in REVIEW.
+        var succeeded = s.Count(x => x.ExitCode == ExitCodes.Success && x.PhaseSeconds.ContainsKey(RunPhase.Review));
+        var skipped = s.Count(x => x.Asp?.Checks.GetValueOrDefault("AspCompile") == "skipped");
+        return new AspCounts(s.Count, succeeded, skipped, CountFailures(s));
+    }
+
+    private static Dictionary<string, int> CountFailures(List<RunSummary> s) =>
+        s.Where(x => x.FailureKind is not null)
+            .GroupBy(x => FailureKinds.IsKnown(x.FailureKind) ? x.FailureKind! : "Other")
+            .OrderByDescending(g => g.Count()).ThenBy(g => g.Key, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.Count());
 
     private static CharTestCounts? CountCharTests(List<RunSummary> s)
     {

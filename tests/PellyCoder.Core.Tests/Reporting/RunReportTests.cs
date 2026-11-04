@@ -187,4 +187,39 @@ public sealed class RunReportTests
         Assert.Equal("특성 테스트: 실행 1건, 남김 1건(성공률 100.0%), 평균 시도 1.0, 실패 유형 없음",
             RunReport.Build([CtRec(1, 0, 1)]).CharTest!.Line());
     }
+
+    internal static RunRecord AspRec(int i, int exit, string? failure = null, bool dryRun = false, string compile = "skipped")
+    {
+        var phases = new Dictionary<RunPhase, double> { [RunPhase.Edit] = 2, [RunPhase.Apply] = 1 };
+        if (!dryRun && exit == 0) phases[RunPhase.Review] = 1; // a dry-run stops at APPLY
+        var s = RunHistoryTests.Summary($"20261104-10102{i}-aaaa", exit, 1, failure: failure, kind: EditKind.Asp) with
+        {
+            PromptVersion = "asp-v1",
+            ProjectStyle = "Asp",
+            PhaseSeconds = phases,
+            Asp = new AspSummary("Procedure", "CP949",
+                new Dictionary<string, string> { ["Structure"] = "passed", ["AspCompile"] = compile }, ["dbo.usp_SecretOrders"], 1, 0),
+        };
+        return new RunRecord(s, DateTimeOffset.UnixEpoch);
+    }
+
+    [Fact]
+    public void Report_AspLine()
+    {
+        var d = RunReport.Build([
+            Rec(1),
+            AspRec(1, 0), AspRec(2, 0, dryRun: true), AspRec(3, 1, "AspUnknownNames"), AspRec(4, 0, compile: "passed"),
+            AspRec(5, 5, "AspSafetyRejected"),
+        ]);
+
+        var asp = d.Asp!;
+        Assert.Equal(5, asp.Runs);
+        Assert.Equal(2, asp.Succeeded);
+        Assert.Equal(4, asp.CompileSkipped);
+        Assert.Equal("ASP: 실행 5건, 성공 2건, 컴파일 검사 건너뜀 4건, 실패 유형 AspSafetyRejected 1, AspUnknownNames 1", asp.Line());
+        Assert.Equal(6, d.RunCount); // ASP runs are edits: they stay in the edit KPIs too
+        Assert.Equal(5, d.RunsByKind[EditKind.Asp]);
+        Assert.Null(RunReport.Build([Rec(1)]).Asp);
+        Assert.Equal("ASP: 실행 1건, 성공 1건, 컴파일 검사 건너뜀 1건, 실패 유형 없음", RunReport.Build([AspRec(1, 0)]).Asp!.Line());
+    }
 }

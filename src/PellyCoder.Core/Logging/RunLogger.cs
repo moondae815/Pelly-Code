@@ -2,6 +2,7 @@ using System.Globalization;
 using System.IO.Abstractions;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using PellyCoder.Core.Asp;
 using PellyCoder.Core.CharTests;
 using PellyCoder.Core.Fsm;
 using PellyCoder.Core.Llm;
@@ -20,7 +21,16 @@ public sealed record RunSummary(
     int InputTokensLocal, int? InputTokensServer, int? InputTokensCached,
     IReadOnlyList<MatchStage> MatchStages, IReadOnlyList<string> ErrorCodes, int FormatErrors, string? FailureKind,
     IReadOnlyList<string>? RulesIncluded = null, IReadOnlyList<string>? RulesDropped = null,
-    TestFirstSummary? TestFirst = null, SqlProdCheckSummary? SqlProd = null, CharTestSummary? CharTest = null);
+    TestFirstSummary? TestFirst = null, SqlProdCheckSummary? SqlProd = null, CharTestSummary? CharTest = null,
+    AspSummary? Asp = null);
+
+/// <summary>
+/// The <c>asp</c> block of a <c>pelly asp</c> run: target unit (<c>Procedure</c> or <c>Lines</c>), file encoding, each recorded check
+/// as <c>passed</c>/<c>warned</c>/<c>skipped</c>/<c>failed</c>, the stored procedures the page calls as the run left it, and how many
+/// includes were found or missing. <paramref name="Executed"/> is whether pelly ran the page: always false (no check executes it).
+/// </summary>
+public sealed record AspSummary(string Unit, string Encoding, IReadOnlyDictionary<string, string> Checks, IReadOnlyList<string> StoredProcedures,
+    int IncludesFound, int IncludesMissing, bool Executed = false);
 
 /// <summary>
 /// Production comparison recorded in the run summary: the outcome name and the three normalized hashes (no definition text).
@@ -149,7 +159,24 @@ public sealed class RunLogger(IFileSystem fs, TimeProvider time)
                 ? new SqlProdCheckSummary(p.Outcome.ToString(), p.FileHash, p.ProdHash, p.PulledHash,
                     ctx.Sql?.RecordRefresh is { } refresh && ctx.Current is { } current && refresh.IsIn(current.Text))
                 : null,
-            ctx.CharTest?.Summary());
+            ctx.CharTest?.Summary(),
+            SummarizeAsp(ctx));
+    }
+
+    private static AspSummary? SummarizeAsp(RunContext ctx)
+    {
+        if (ctx.Asp is not { } asp) return null;
+        var checks = asp.Checks.Values.OrderBy(c => c.Name, StringComparer.Ordinal)
+            .ToDictionary(c => c.Name, c => c.Status.ToString().ToLowerInvariant(), StringComparer.Ordinal);
+        // The page as the run left it (restored to the original on a failed or rejected run).
+        var page = ctx.Current is { } current ? AspPage.Parse(current.Text) : asp.OriginalPage;
+        var procedures = new List<string>();
+        foreach (var call in AspSpCallFinder.Find(page, ctx.Options.Asp.SpCallFunctions))
+        {
+            if (!procedures.Contains(call.Name.Display, StringComparer.OrdinalIgnoreCase))
+                procedures.Add(call.Name.Display);
+        }
+        return new AspSummary(asp.Unit.ToString(), asp.EncodingName, checks, procedures, asp.Includes.Files.Count, asp.Includes.Unresolved.Count);
     }
 
     private static TestFirstSummary? SummarizeTestFirst(RunContext ctx)

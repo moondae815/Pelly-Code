@@ -31,7 +31,8 @@ public sealed record SanitizedAggregate(
     IReadOnlyDictionary<string, int> FailureKinds,
     IReadOnlyDictionary<string, double> MeanPhaseSeconds,
     IReadOnlyDictionary<string, int> AttemptDistribution,
-    ApplyCounts? Apply = null, TestFirstCounts? TestFirst = null, int UnverifiedAc = 0, CharTestCounts? CharTest = null);
+    ApplyCounts? Apply = null, TestFirstCounts? TestFirst = null, int UnverifiedAc = 0, CharTestCounts? CharTest = null,
+    AspCounts? Asp = null);
 
 /// <summary>
 /// Report that can leave a closed network (D11, design §8.12). Whitelist only: every string in it is a fixed literal,
@@ -87,6 +88,11 @@ public sealed record SanitizedReport(SanitizedAggregate Aggregate, IReadOnlyList
             sb.AppendLine("## 특성 테스트").AppendLine();
             sb.AppendLine(ct.Line()).AppendLine();
         }
+        if (a.Asp is { } asp)
+        {
+            sb.AppendLine("## ASP").AppendLine();
+            sb.AppendLine(asp.Line()).AppendLine();
+        }
         Table(sb, "종류", a.RunsByKind);
         Table(sb, "종료 코드", a.ExitCodes);
         Table(sb, "실패 유형", a.FailureKinds);
@@ -135,10 +141,10 @@ public static partial class ReportSanitizer
     [GeneratedRegex(@"\A[0-9][0-9A-Za-z.+\-]{0,39}\z", RegexOptions.CultureInvariant)]
     private static partial Regex VersionPattern { get; }
 
-    [GeneratedRegex(@"\A(cs|sql|cs-test)-v[0-9]{1,4}\z", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"\A(cs|sql|cs-test|asp)-v[0-9]{1,4}\z", RegexOptions.CultureInvariant)]
     private static partial Regex PromptVersionPattern { get; }
 
-    private static readonly string[] ProjectStyles = ["Sdk", "Legacy", "None", "Sql"];
+    private static readonly string[] ProjectStyles = ["Sdk", "Legacy", "None", "Sql", "Asp"];
     private static readonly string[] ThinkModes = ["Off", "Retry", "Always"];
 
     public static SanitizedReport Sanitize(IReadOnlyList<RunRecord> runs, RunReportData aggregate, ApplyReportData? apply = null)
@@ -207,7 +213,9 @@ public static partial class ReportSanitizer
             d.AttemptDistribution.ToDictionary(k => k.Key.ToString(CultureInfo.InvariantCulture), k => k.Value),
             TestFirst: d.TestFirst,
             // Counts and known kinds only (Build already folded unknown kinds into "Other").
-            CharTest: d.CharTest is { } ct ? ct with { MeanAttempts = Num(ct.MeanAttempts) } : null);
+            CharTest: d.CharTest is { } ct ? ct with { MeanAttempts = Num(ct.MeanAttempts) } : null,
+            // Counts and known kinds only: the summary's stored procedure names never reach the aggregate.
+            Asp: d.Asp);
     }
 
     private static Spread? Clean(Spread? s) => s is null ? null : new Spread(Num(s.Median), Num(s.P90));

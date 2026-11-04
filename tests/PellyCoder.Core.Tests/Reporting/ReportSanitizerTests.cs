@@ -348,6 +348,25 @@ public sealed class ReportSanitizerTests
         Assert.Null(report.Aggregate.CharTest);
         Assert.DoesNotContain("특성 테스트", report.ToMarkdown());
     }
+
+    [Fact]
+    public void Sanitize_AspHasNoProcedureNames()
+    {
+        var runs = new[] { RunReportTests.AspRec(1, 0), RunReportTests.AspRec(2, 1, "AspSpNotFound") };
+
+        var report = ReportSanitizer.Sanitize(runs, RunReport.Build(runs));
+
+        foreach (var text in new[] { report.ToJson(), report.ToMarkdown() })
+        {
+            Assert.DoesNotContain("usp_SecretOrders", text);
+            Assert.Contains("asp-v1", text);
+            Assert.Contains("Asp", text);
+            Assert.DoesNotContain("invalid", text);
+        }
+        Assert.Contains("ASP: 실행 2건, 성공 1건, 컴파일 검사 건너뜀 2건, 실패 유형 AspSpNotFound 1", report.ToMarkdown());
+        Assert.Equal(2, report.Aggregate.Asp!.Runs);
+        Assert.All(report.Runs, r => Assert.Equal("Asp", r.ProjectStyle));
+    }
 }
 
 /// <summary>File system whose read/open methods throw for any path that is not a summary.json.</summary>

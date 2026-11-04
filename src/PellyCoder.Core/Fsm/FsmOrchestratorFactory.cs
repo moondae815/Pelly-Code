@@ -1,5 +1,6 @@
 using System.IO.Abstractions;
 using PellyCoder.Core.Abstractions;
+using PellyCoder.Core.Asp;
 using PellyCoder.Core.Builds;
 using PellyCoder.Core.CharTests;
 using PellyCoder.Core.Config;
@@ -90,6 +91,40 @@ public static class FsmOrchestratorFactory
             new EditPhase(prompts, client, feedback, logger, ui),
             new SqlApplyPhase(fileGuard, feedback, ui),
             new VerifyPhase([new RulesStep(feedback), new SqlObjectStep(sql, feedback), new SqlCompileStep(sql, feedback)]),
+            new ReviewPhase(ui),
+        ];
+        return new FsmOrchestrator(phases, fileGuard, logger, fs, options, ui, time);
+    }
+
+    /// <summary>
+    /// <c>pelly asp</c>: the shared PREFLIGHT, EDIT and REVIEW with ASP locate, slice, apply and verify. One <see cref="AspTextCodec"/>
+    /// serves the file guard (read, write, rollback and restore) and the ASP phases, so every read and write keeps the page's encoding.
+    /// <paramref name="isWindows"/> decides whether the <c>cscript</c> compile check runs.
+    /// </summary>
+    public static FsmOrchestrator CreateAsp(IFileSystem fs, ILlmBackend backend, IUserInteraction ui, PellyOptions options, TimeProvider time,
+        IProcessRunner processes, ISqlExecutor? sql, Func<bool>? isWindows = null)
+    {
+        var tokens = QwenTokenCounter.Shared;
+        var template = options.Llm.Template is { } path ? QwenChatTemplate.LoadFromFile(fs, path) : QwenChatTemplate.LoadDefault();
+        var codec = new AspTextCodec(options.Asp.Encoding);
+        var fileGuard = new FileGuard(fs, time, codec);
+        var logger = new RunLogger(fs, time);
+        var feedback = new FeedbackBuilder(tokens, options.Budget.Feedback);
+        var resources = PromptResources.LoadDefault();
+        var prompts = new PromptBuilder(template, resources, tokens, options.Budget);
+        var client = new QwenStreamClient(backend, template, options.Llm, options.Budget, options.Sampling, time);
+
+        IPhase[] phases =
+        [
+            new PreflightPhase(fs, fileGuard, backend, options.Llm, tokens.SpecialTokens),
+            new AspLocatePhase(fs, ui, options.Asp, codec),
+            new AspSlicePhase(fileGuard, tokens, options.Budget, sql, options.Asp),
+            new EditPhase(prompts, client, feedback, logger, ui),
+            new AspApplyPhase(fileGuard, feedback, ui, options.Asp, codec),
+            new VerifyPhase([
+                new AspNamesStep(feedback), new RulesStep(feedback),
+                new AspCompileStep(processes, feedback, fs, isWindows ?? OperatingSystem.IsWindows), new AspSpStep(sql, feedback),
+            ]),
             new ReviewPhase(ui),
         ];
         return new FsmOrchestrator(phases, fileGuard, logger, fs, options, ui, time);

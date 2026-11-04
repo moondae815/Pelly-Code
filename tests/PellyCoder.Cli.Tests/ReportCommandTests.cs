@@ -373,4 +373,20 @@ public class ReportCommandTests
         Assert.Contains("특성 테스트: 실행 1건, 남김 1건(성공률 100.0%), 평균 시도 1.0, 실패 유형 없음", result.Output);
         Assert.DoesNotContain("최종 작업 성공률", result.Output);
     }
+
+    [Fact]
+    public void Report_AspLine()
+    {
+        var (app, _, fs) = Build();
+        var s = new RunSummary("20261004-101010-dddd", "1.0", null, "m", "asp-v1", EditKind.Asp, "Asp", 0, 1,
+            new Dictionary<RunPhase, double> { [RunPhase.Edit] = 2, [RunPhase.Review] = 1 }, 0.8, 0.1, "Retry", 100, false, 10, null, null,
+            [], [], 0, null,
+            Asp: new AspSummary("Procedure", "CP949", new Dictionary<string, string> { ["AspCompile"] = "skipped" }, ["dbo.usp_X"], 0, 0));
+        fs.AddFile($"/w/.pelly/runs/{s.RunId}/summary.json", new MockFileData(JsonSerializer.Serialize(s, Json)));
+
+        var result = app.Run("report");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("ASP: 실행 1건, 성공 1건, 컴파일 검사 건너뜀 1건, 실패 유형 없음", result.Output);
+    }
 }

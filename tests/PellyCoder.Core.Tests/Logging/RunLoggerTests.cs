@@ -179,4 +179,38 @@ public sealed class RunLoggerTests
         Assert.Equal(EditKind.CSharpTest, summary.Kind);
         Assert.Equal("cs-test-v1", summary.PromptVersion);
     }
+
+    [Fact]
+    public void Summary_AspBlock()
+    {
+        var ctx = NewContext();
+        Assert.Null(RunLogger.Summarize(ctx).Asp);
+
+        const string text = "<%\ncmd.CommandText = \"dbo.usp_A\"\ncmd.CommandType = 4\nconn.Execute(\"exec usp_B 1\")\n%>\n";
+        var codec = new PellyCoder.Core.Asp.AspTextCodec("cp949");
+        ctx.Original = codec.Decode(P(@"C:\ws\a.asp"), System.Text.Encoding.ASCII.GetBytes(text));
+        ctx.Current = ctx.Original;
+        var page = PellyCoder.Core.Asp.AspPage.Parse(text);
+        var includes = new PellyCoder.Core.Asp.AspIncludeSet([new(P(@"C:\ws\u.inc"), page)], ["missing.inc"], false);
+        var state = new PellyCoder.Core.Asp.AspRunState(page, PellyCoder.Core.Asp.AspTargetUnit.Lines, new TextSpanInfo(2, 3), null,
+            includes, "CP949", P(@"C:\ws"));
+        state.Record("Structure", PellyCoder.Core.Asp.AspCheckStatus.Passed);
+        state.Record("AspNames", PellyCoder.Core.Asp.AspCheckStatus.Warned, "x");
+        state.Record("AspCompile", PellyCoder.Core.Asp.AspCheckStatus.Skipped, "Windows가 아님");
+        state.Record("AspSp", PellyCoder.Core.Asp.AspCheckStatus.Failed, "usp_B");
+        ctx.Asp = state;
+
+        var asp = RunLogger.Summarize(ctx).Asp!;
+
+        Assert.Equal("Lines", asp.Unit);
+        Assert.Equal("CP949", asp.Encoding);
+        Assert.Equal(new Dictionary<string, string>
+        {
+            ["Structure"] = "passed", ["AspNames"] = "warned", ["AspCompile"] = "skipped", ["AspSp"] = "failed",
+        }, asp.Checks);
+        Assert.Equal(["dbo.usp_A", "usp_B"], asp.StoredProcedures);
+        Assert.Equal(1, asp.IncludesFound);
+        Assert.Equal(1, asp.IncludesMissing);
+        Assert.False(asp.Executed);
+    }
 }

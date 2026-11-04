@@ -1,0 +1,7 @@
+id: asp-003
+kind: proc
+file: inc/func_common.inc
+proc: WriteSelectOptions
+request: "값과 이름의 개수가 다르면 아무것도 쓰지 말고 끝내줘"
+mustContain: ["UBound(l)"]
+mustNotContain: []

@@ -1,0 +1,7 @@
+id: asp-008
+kind: lines
+file: admin/member/list_excel.asp
+lines: 15-18
+request: "회원 목록을 가입일(CreatedAt) 최신순으로 정렬해줘"
+mustContain: ["ORDER BY CreatedAt DESC"]
+mustNotContain: []

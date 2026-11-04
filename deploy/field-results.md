@@ -195,3 +195,37 @@ T3 표(메서드 종류만 적습니다. 예: 순수 계산 / 컨트롤러 / DAO
 ## 15. 메모
 
 막힌 명령, 이상한 출력, 문서와 다른 점을 적습니다.
+
+## 16. `pelly asp` 현장 확인 (V2-6)
+
+`pelly asp`(Classic ASP 페이지 수정)를 현장 백오피스 소스와 개발 PC에서 확인합니다(`deploy/usage.md`의 「`pelly asp`」). 경로·서버 이름·함수 본문·요청문은 이 양식에 적지 않고, 종류와 예/아니오만 적습니다.
+
+| 번호 | 확인할 것 | 결과 | 메모 |
+| :--- | :--- | :--- | :--- |
+| A1 | ASP 소스가 어디 있는가(소스 관리 유무 — `.git`·`.svn`이 없으면 작업 공간 루트와 `.pelly` 위치가 파일 폴더가 됨), 파일 인코딩(CP949/UTF-8 섞임, `<%@ … CodePage=N %>` 사용 여부 → `asp.encoding`), 줄 끝이 섞인 파일이 있는지, `include virtual`의 사이트 루트(→ `asp.siteRoot`) | 소스 관리: 있음 / 없음, 인코딩: CP949 / UTF-8 / 섞임, CodePage 지시문: 씀 / 안 씀, 줄 끝 섞임: 있음 / 없음 | `pelly doctor`의 「ASP 사이트 루트」 행 결과 |
+| A2 | 개발 PC에서 `cscript`로 VBScript를 쓸 수 있는가(Windows 버전, 그룹 정책으로 막혔는지, VBScript 선택적 기능) — 아래 절차 | 됨 / 안 됨 | Windows 버전, `pelly doctor`의 「ASP 구문 검사(cscript)」 행 결과, 3번 출력의 형식 |
+| A3 | SP를 부르는 실제 모양(직접 `ADODB.Command`인가, 공용 래퍼 함수인가 → `asp.spCallFunctions`), SQL 문자열을 만들 때 쓰는 현장 처리 함수 이름(→ `asp.sqlSanitizers`) | Command / 래퍼 / 둘 다, 처리 함수: 있음 / 없음 | 래퍼 함수의 SP 이름 인수 위치(이름은 적지 않아도 됨) |
+| A4 | 실제 요청 3건(줄 범위 2, 프로시저 1)을 돌린 결과와, 사람이 화면에서 확인했을 때 문제가 있었는지 | | 아래 표 |
+
+A2 확인 절차(cmd):
+
+1. `winver` — Windows 11 24H2 이상·Server 2025면 VBScript가 선택적 기능이다(PowerShell `Get-WindowsCapability -Online | Where-Object Name -like 'VBSCRIPT*'`가 `Installed`여야 함). 그보다 오래된 버전은 그 항목이 없고 기본 포함이다.
+2. `echo WScript.Echo "ok" > %TEMP%\t.vbs` 후 `cscript //Nologo %TEMP%\t.vbs` → `ok`.
+3. `echo If x Then > %TEMP%\bad.vbs` 후 `cscript //Nologo %TEMP%\bad.vbs` → 컴파일 오류 메시지(한국어 Windows는 한국어 문구).
+
+* 2026-11-04 사람 확인(현장 개발 PC가 아닌 별도 Windows 11 23H2 PC): 2·3 모두 기대대로 나옴. 3번 출력(임시 폴더 경로는 `%TEMP%`로 줄임): `%TEMP%\bad.vbs(2, 1) Microsoft VBScript 컴파일 오류: 'End'가 필요합니다.` 형식은 `<경로>(<줄>, <열>) Microsoft VBScript <종류>: <내용>`이고, 영어 Windows는 `compilation error`, 한국어는 `컴파일 오류`다. 오류 줄이 파일의 마지막 줄 다음일 수 있다(한 줄짜리 `If x Then`이 2번 줄로 보고됨). pelly는 두 언어를 모두 알아보고 마지막 줄로 붙인다.
+* **현장 개발 PC 확인은 아직이다.** 3번 출력이 위 형식과 다르면(종류 문구, 괄호 모양) 그대로 메모에 옮겨 적는다. 경로의 사용자 이름은 가린다.
+
+A4 표(대상 종류만 적습니다. 예: 목록 페이지 줄 범위 / 저장 처리 줄 범위 / include 함수):
+
+| 번호 | 대상 종류 | 단위 (줄 범위 / 프로시저) | 파일 인코딩 | 종료 코드 | 시도 수 | 검사 줄 (통과·경고·건너뜀) | 화면 확인 결과 | 판정 | 메모 |
+| :--- | :--- | :--- | :--- | :-: | :-: | :--- | :--- | :--- | :--- |
+| A4-1 | | 줄 범위 | | | | | 문제 없음 / 문제 있음 | 고치지 않고 씀 / 고쳐서 씀 / 못 씀 | |
+| A4-2 | | 줄 범위 | | | | | | | |
+| A4-3 | | 프로시저 | | | | | | | |
+
+* 실패했다면 실패 유형(`summary.json`의 `failureKind`, 예: `AspSafetyRejected`·`AspUnknownNames`·`AspCompileErrors`)과 그때 피드백이 맞았는지: ____
+* 정상 코드인데 이름 검사나 안전 검사가 막은 적이 있는가(무엇을 막았는지 종류만): ____
+* 실행 뒤 편집 범위 밖이 바뀌지 않았는가(버전 관리 diff, 한글이 깨지지 않았는지): ____
+* 판정은 통과했는데 화면에서 문제가 난 적이 있는가(런타임 오류, 기존 줄이 지워짐 등): ____
+* 외부 기준: Mac에서 현장 모델로 잰 예비 수치(12사례 × 3회, 컴파일 검사 건너뜀)는 `docs/asp-premeasure.md`입니다. 이 표는 그 수치와 같은 기준이 아니라 현장 소스에서의 사용 가능성을 보는 칸입니다.

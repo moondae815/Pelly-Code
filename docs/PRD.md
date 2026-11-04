@@ -31,6 +31,7 @@
 | v1.20 | 2026-10-27 | V2-4 `pelly spec draft` 구현: 모델이 변경 요청과 범위 색인(서명만)으로 작업 줄 초안을 쓰고, 기존 `spec check`(문법·대상·문구 안 이름)와 영향 탐색을 거친 뒤 **사람이 승인해야** `changes/<id>.md`로 씀. 호출부·구현체 전파는 모델이 아니라 영향 탐색이 작업 줄로 더함. §12.7 첫 줄 조정, §12.1에 초안 원칙과 토큰 예산 예외(계획 호출 생각 2048 + 답 1024), 새 §12.8. 근거는 S6 작업 분해 프로브(`docs/s6-planning-probe.md`), 설계 `docs/superpowers/specs/2026-10-27-spec-draft-design.md`. Windows 실행은 미확인 |
 | v1.21 | 2026-10-28 | M4 현장 모델 기준선: 질문지 회신으로 현장 모델이 `qwen3.6:35b-a3b-q4_K_M`(ID `07d35212591f`)임을 확인(Q10 해소)하고 같은 파일로 외부 기준선을 다시 잼 — 50건 × 3회 평균 47.00(94%), 위반 0, 모순 요청 우회 7/20. 기준선 문서 `docs/m4-field-model-baseline.md`(이전 `docs/m4-gguf-baseline.md`는 대체됨) |
 | v1.22 | 2026-10-29 | V2-5 `pelly test` 구현: 테스트가 없는 C# 메서드 하나의 현재 동작을 고정하는 테스트(특성 테스트) 1~5개를 모델이 쓰고, 코드가 형태·단언·환경 의존·빌드·현재 코드 통과·재실행 일치·변이 검출(본문 → 예외)로 판정한 뒤 **사람이 승인해야** 기존 테스트 프로젝트에 남김. §12.4 「테스트 작성」 줄 조정, §12.2에 V2-5 행, 새 §12.9. 근거는 2026-10-28 `Report_AndSanitize` 조사(`docs/m4-field-model-baseline.md` 3절), 설계 `docs/superpowers/specs/2026-10-29-pelly-test-characterization-design.md`, 예비 측정 `docs/chartest-premeasure.md`(Mac, Modern만). Windows 실행과 현장 모델 확인은 미확인 |
+| v1.23 | 2026-11-04 | V2-6 `pelly asp` 구현(1단계 A1): Classic ASP(VBScript) 파일(`.asp`·`.inc`) 하나에서 `Function`·`Sub` 하나 또는 줄 범위를 모델이 고치고, 코드가 실행 없이 패치·인코딩·구조·안전·이름·규칙·VBScript 컴파일(Windows `cscript`, 컴파일만)·SP 존재(개발 DB)로 판정한 뒤 **사람이 승인해야** 씀. 모든 검사는 원본 기준선 대비 새로 생긴 것만 셈. 편집 영역 밖은 원본 바이트 그대로(CP949, 줄 끝 섞임). 「실행 검증 없음」을 검토와 기록에 고정 문구로 남김. §1.4 범위 표에 ASP 줄, §12.2에 V2-6 행, 새 §12.10. 설계 `docs/superpowers/specs/2026-11-04-pelly-asp-design.md`, 예비 측정 `docs/asp-premeasure.md`(Mac, 컴파일 검사 건너뜀). Windows 실행과 현장 확인(`deploy/field-results.md` 16절)은 미확인 |
 
 ---
 
@@ -59,6 +60,7 @@
 | :--- | :--- | :--- |
 | **C#** | 단일 파일 내 메서드·생성자·프로퍼티 수정, 같은 파일의 `using` 추가, 같은 클래스 내 `private` 헬퍼 메서드 추가, 한 파일 내 다중 SEARCH/REPLACE 블록. **SDK 스타일 프로젝트와 레거시 .NET Framework 프로젝트 모두 빌드 검증** | 다중 파일 동시 수정, 새 파일 생성, DTO/인터페이스 시그니처 변경, 대규모 리팩터링 |
 | **SQL** | 리포지토리 내 `.sql` 파일의 단일 SP/함수/뷰 수정 | **DB 직접 배포(`ALTER` 실행)**, 다중 객체 동시 수정, 마이그레이션 생성 |
+| **Classic ASP** (V2-6에서 추가) | `.asp`·`.inc` 파일 하나의 VBScript `Function`·`Sub` 하나 또는 줄 범위 수정, 인코딩(CP949·UTF-8)과 줄 끝 보존, 실행 없는 판정(구조·안전·이름·`cscript` 컴파일·SP 존재) | **실행 검증(IIS·브라우저)**, `global.asa`, 서버 JScript, 다중 파일·새 파일·include·지시문 변경, XSS 검사, COM 구성 요소, ASP.NET 이전 |
 | **환경** | 폐쇄망 원격 Ollama 서버 연동, **인터넷 없이 완전 오프라인 동작** | 인터넷 접속이 필요한 기능 일체(자동 업데이트, 텔레메트리, 모델·토크나이저 다운로드), 외부 클라우드 LLM API |
 | **공통** | 단발성 명령 실행 | 대화형 채팅 모드, IDE 플러그인 |
 
@@ -605,6 +607,7 @@ v2는 Superpowers, OpenSpec 같은 개발 하네스의 아이디어를 가져오
   | V2-1d | 운영 정의 읽기·sql pull·SQL 영향 탐색 | 1~2주 | V2-1c |
   | V2-4 | 명세 초안 (`pelly spec draft`): 모델 초안 + 코드 검사 + 사람 승인. **구현됨(2026-10-27)** | 1~2주 | V2-1, V2-1c·V2-1d (영향 탐색) |
   | V2-5 | 현재 동작 고정 테스트 (`pelly test`): 모델이 특성 테스트를 쓰고 코드가 변이 검출까지 판정, 사람 승인. **구현됨(2026-10-29)** | 1~2주 | V2-2 (테스트 실행·비교 부품) |
+  | V2-6 | Classic ASP 수정 (`pelly asp`): 모델이 `.asp`·`.inc`의 함수 하나나 줄 범위를 고치고 코드가 실행 없이 구조·안전·이름·컴파일·SP를 판정, 사람 승인. **구현됨(2026-11-04)** | 1~2주 | v1 (`sql`의 SP 부품). SP와 함께 바꾸기(A2)는 별도 계획 |
 
 * 각 단계가 끝날 때마다 폐쇄망으로 반입해 검증합니다(§11.3).
 
@@ -748,3 +751,18 @@ Claude Code의 `CLAUDE.md`, OpenSpec의 프로젝트 문서에서 착안했습�
 * **운영 코드 보호:** 대상 파일은 실행 전후로 바이트가 같아야 합니다. 변이로 잠깐 바꾸고 `finally`에서 되돌리며 해시로 확인합니다. 강제 종료에 대비해 `.pelly/runs/<run-id>/chartest.pending`을 두고, 있으면 `test`·`cs`·`sql`·`apply`가 종료 4로 멈춥니다. 자동 복원은 하지 않습니다.
 * **범위:** 메서드 하나, 기존 테스트 프로젝트(만들지 않음), 테스트 파일 하나(레거시 새 파일이면 csproj 하나)만 쓰기. SQL 테스트, 의존성 주입 도입, 여러 변이, `pelly ui`·`spec`·`apply` 연결은 하지 않습니다.
 * **한계:** 현재 코드의 버그도 정답으로 굳힙니다. 사람이 diff의 기대값을 읽고 승인합니다(그래서 `--yes`는 자동화 용도). 변이는 하나뿐입니다. 개발 Mac 예비 측정은 Modern 사례만이고 레거시 net48은 Windows에서 현장 확인합니다.
+
+### 12.10 V2-6. Classic ASP 수정 (pelly asp)
+> **구현(1단계 A1): 2026-11-04.** 설계는 `docs/superpowers/specs/2026-11-04-pelly-asp-design.md`, 사용법은 README `pelly asp` 절과 `deploy/usage.md`를 보십시오. 예비 측정은 `docs/asp-premeasure.md`(Mac, 컴파일 검사 건너뜀)이고, Windows `cscript`와 현장 확인은 사람이 `deploy/field-results.md` 16절에 적습니다. 2단계 A2(명세에서 SP와 함께 바꾸기, `spec check --impact`의 ASP 영향)는 별도 계획입니다.
+
+현장 백오피스는 화면·업무 로직이 Classic ASP(VBScript)이고 데이터는 SP라 요청은 대개 「SP를 고치고 그 SP를 부르는 ASP도 고친다」입니다. ASP에는 컴파일러도 테스트도 없으므로 **실행 없이 코드로 할 수 있는 판정을 모으고**, 실행 검증이 없다는 것을 분명히 알립니다.
+
+* **원칙(모델이 쓰고, 코드가 판정):** 대상은 `.asp`·`.inc` 파일 하나의 `Function`·`Sub`·`Property` 하나(`--proc`, `--line`) 또는 줄 범위(`--lines A-B`, HTML 섞여도 됨)입니다. 모델은 프로시저를 고르지 않습니다. 흐름·재시도·되돌리기·종료 코드는 `cs`·`sql`과 같습니다.
+* **판정(순서대로, 모두 원본 기준선 대비 새로 생긴 것만, 위치가 아닌 내용의 개수로 셈):** 패치 적용, 인코딩(파일 인코딩으로 쓸 수 없는 문자), 구조(`<% %>`·VBScript 블록·문자열·HTML 태그 짝, 지시문·include 줄 불변, 프로시저 이름·매개변수 불변), 안전(`ShellObject`, `DynamicCode`, `OnErrorResumeNext`, `SqlConcatRequest` — 끝내 남으면 종료 5), 이름(없는 함수·`Option Explicit`에서 선언 없는 변수), 프로젝트 규칙, VBScript 컴파일(Windows `cscript`로 컴파일만, 실행 문장 전에 `WScript.Quit 0`), SP 존재(개발 DB 연결이 있을 때만).
+* **SQL 문자열 연결 규칙:** SQL 단어(`SELECT`·`INSERT`·`UPDATE`·`DELETE`·`EXEC`·`EXECUTE`·`MERGE`)를 담은 문자열에 `Request` 값이나 그 값을 받은 변수를 붙이면 거부합니다. `CLng`·`CInt`·`CDbl`·`CBool`·`CDate`, `Replace(x, "'", "''")`, `asp.sqlSanitizers`의 현장 함수로 감싸면 허용하고, `Trim(Request(…))`처럼 그 밖의 함수로 감싼 값은 여전히 위험합니다. 변수 상태는 문장 순서대로 정하되(`id = CLng(id)` 뒤는 안전), 조건 안의 대입은 위험을 더할 수만 있고 지우지 못합니다. `sql = sql & …`처럼 이어 붙이는 것도 셉니다. 원본의 같은 문장은 막지 않지만 **이미 위험한 줄을 고치면 새 문장**으로 봅니다.
+* **바이트 보존:** 편집 영역 밖은 원본 바이트 그대로이고(줄 끝이 섞인 파일, 끝 줄바꿈 포함), 인코딩은 BOM → `CodePage` 지시문 → 바이트(UTF-8/CP949) → `asp.encoding`(기본 `cp949`) 순서로 정합니다. 공용 `TextDecoding`·`TextFileCodec`은 바꾸지 않았습니다. 해석기는 IIS처럼 문자열 안의 `%>`에서도 코드 블록을 끝냅니다.
+* **「실행 검증 없음」:** 검토 화면과 실행 기록에 판정 줄과 고정 문구 「ASP는 실행해서 확인하지 않았습니다. 화면에서 직접 확인하십시오.」를 남기고(`--yes`도 같음), `summary.json`의 `asp.executed`는 늘 `false`입니다. 판정할 수 없던 검사(Mac의 컴파일, DB 연결 없는 SP 확인)는 「건너뜀」으로 보입니다.
+* **기록·점검:** `summary.json`의 `asp` 블록, 실패 유형 `AspStructureErrors`·`AspUnknownNames`·`AspCompileErrors`·`AspSafetyRejected`·`AspEncoding`·`AspSpNotFound`·`AspUnsupportedLanguage`·`AspUnsupportedFile`, `pelly report`의 「ASP:」 줄, `pelly doctor`의 ASP 행 셋(설정에 `asp` 절이 있을 때만), PowerShell 자동완성.
+* **하지 않는 것:** 실행 검증(IIS·브라우저, 로그인·세션이 필요), `global.asa`, 서버 JScript, 여러 파일·새 파일·include·지시문 변경, XSS 검사, COM 구성 요소, ASP.NET 이전, `pelly ui asp`. 운영 연결(`sql.production`)은 ASP 문맥·검사에 쓰지 않습니다.
+* **예비 측정(Mac, 12사례 × 3회):** 종료 0 36/36, 모두 첫 시도, 편집 영역 밖 바이트 36/36 같음. 다만 판정을 통과한 결과 중 4회가 사람이 읽으면 틀렸습니다(VBScript `Or`가 단락 평가를 하지 않아 실행 시 멈추는 코드 3회, 범위 안의 기존 입력 줄을 지운 1회). 둘 다 컴파일 검사로도 잡히지 않아, 사람이 diff를 읽고 화면을 띄워 확인하는 것이 이 기능의 전제입니다.
+* **한계:** 컴파일 검사는 Windows에서만 되고 현장 개발 PC의 `cscript`는 미확인입니다(별도 Windows 11 23H2 PC에서 확인). include는 합치지 않고 대상 파일만 컴파일하므로 파일 간 이름 중복은 못 잡습니다. 못 찾은 include·`Execute`가 있는 파일은 이름 검사가 경고로 낮아집니다.

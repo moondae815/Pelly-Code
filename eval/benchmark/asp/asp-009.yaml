@@ -1,0 +1,7 @@
+id: asp-009
+kind: lines-html
+file: admin/order/edit.asp
+lines: 65-69
+request: "상태가 9(취소)인 주문에는 「이미 취소된 주문입니다.」를 보여줘"
+mustContain: ["이미 취소된 주문입니다."]
+mustNotContain: []

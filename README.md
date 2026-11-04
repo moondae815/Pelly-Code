@@ -1,6 +1,6 @@
 # Pelly-Coder CLI
 
-폐쇄망 로컬 LLM(`Qwen3.6-35B-A3B`, Ollama)으로 C# 메서드와 SQL 저장 프로시저를 수정하고, 컴파일러·DB 엔진으로 검증하는 코딩 CLI입니다.
+폐쇄망 로컬 LLM(`Qwen3.6-35B-A3B`, Ollama)으로 C# 메서드와 SQL 저장 프로시저를 수정하고, 컴파일러·DB 엔진으로 검증하는 코딩 CLI입니다. Classic ASP(VBScript) 페이지도 실행 없이 할 수 있는 판정(구조·안전·이름·`cscript` 컴파일·SP 존재)으로 고칩니다(`pelly asp`).
 
 ## 문서
 - [PRD](docs/PRD.md)
@@ -262,6 +262,65 @@ pelly test Shop.Api/Services/OrderService.cs --method SearchAsync --count 3
 * **기록:** `summary.json`의 `charTest` 블록(`requested`, `generated`, `kept`, `passedOnCurrent`, `stableOnRerun`, `killedByMutation`, `rejectedBy`, `framework`, `newFile`)과 실패 유형 `CharTestShape`·`CharTestNoAssert`·`CharTestEnvDependent`·`CharTestBuild`·`CharTestFailsOnCurrent`·`CharTestRegression`·`CharTestFlaky`·`CharTestSurvivesMutation`·`CharTestMutationUnbuildable`·`CharTestBaselineUnusable`·`CharTestPending`. `pelly report`에 「특성 테스트」 줄(실행 수, 성공률, 평균 시도, 실패 유형)이 나옵니다.
 * **알려진 한계:** 테스트는 현재 동작을 그대로 고정하므로 **지금 코드에 버그가 있으면 그 버그가 정답으로 굳습니다.** 남기기 전에 diff의 기대값을 읽으십시오. 변이는 「본문 → 예외」 하나뿐이라 조건 하나를 뒤집는 수정은 못 잡을 수 있습니다. 의존성이 많은 메서드(DB 직접 호출 등)는 환경 의존 금지에 걸려 재시도가 소진되기 쉽습니다. 레거시 .NET Framework 테스트 실행은 Windows에서만 되고 **Windows 미확인**입니다. 실측은 [예비 측정](docs/chartest-premeasure.md)(Mac, Modern만)을 보십시오.
 
+### `pelly asp` — Classic ASP(VBScript) 함수 하나나 줄 범위 수정 (V2-6)
+```bash
+pelly asp <파일.asp|.inc> ["<요청>"] [--proc <이름> | --line N | --lines A-B] [--yes] [--dry-run] [--max-retries N] \
+          [--verbose] [--pause-on-exit] [--config <경로>] [--think off|retry|always] [--model <태그>] [--endpoint <URL>]
+```
+Classic ASP 파일(`.asp`·`.inc`) 하나에서 대상 하나를 모델이 고치고, 코드가 실행 없이 할 수 있는 판정을 모아 확인합니다. 흐름은 `cs`·`sql`과 같습니다(PREFLIGHT → LOCATE → SLICE → EDIT → APPLY → VERIFY → REVIEW, 실패하면 피드백으로 재시도, 끝내 실패하거나 거부하면 원래 바이트로 되돌림). 모델 출력 형식은 `sql`과 같은 SEARCH/REPLACE 블록이고 프롬프트 판은 `asp-v1`입니다.
+
+```text
+pelly asp admin/order/list.asp "검색 조건에 주문 상태를 추가해 줘" --lines 24-37
+pelly asp inc/func_order.inc "상태 코드 4는 반품으로 표시" --proc StatusName
+pelly asp admin/member/edit.asp "휴대폰 번호 저장 전에 하이픈 제거" --line 88
+```
+
+* **대상:** `--proc <이름>`은 그 이름의 `Function`·`Sub`·`Property`(대소문자 무시, 클래스 안이면 `클래스.이름`). `--line N`은 N번 줄을 감싸는 프로시저이고, 감싸는 것이 없으면(페이지 본문 코드) 「`--lines A-B`로 범위를 주십시오」와 함께 종료 3입니다. `--lines A-B`는 줄 범위 그대로이며 HTML과 `<% %>`가 섞여도 됩니다. 범위 안의 지시문(`<%@ %>`)·include 줄은 잠가 편집 영역에서 뺍니다. 셋 다 없으면 프로시저가 하나일 때 그것, 여럿이면 선택 화면(비대화형이면 종료 3)입니다.
+* **받지 않는 파일(종료 3):** `asp.extensions`에 없는 확장자, `global.asa`(확장자 설정과 상관없이), 서버 JScript 페이지·블록(`AspUnsupportedLanguage`), 대상 범위가 닫히지 않은 `<%`·`<script runat>` 안에 걸친 경우.
+* **판정(앞이 실패하면 뒤는 하지 않음, 모두 원본 기준선 대비 새로 생긴 것만 셈):**
+
+  | 순서 | 검사 | 실패하면 |
+  | :-: | :--- | :--- |
+  | 1 | 패치 적용: 편집 영역 밖 SEARCH, 일치 실패, 변경 없음 | 재시도 |
+  | 2 | 인코딩: 새 텍스트를 파일 인코딩으로 쓸 수 있는가(예: CP949 파일의 이모지) | 재시도, 끝내 `AspEncoding` |
+  | 3 | 구조: `<% %>`·`<script runat>` 짝, VBScript 블록 짝(`If`·`For`·`Do`·`Select`·`With`·`Sub`·`Function`·`Class` 등), 닫히지 않은 문자열, HTML 태그 짝, 지시문·include 줄 불변, 프로시저 대상이면 이름·매개변수 그대로 | 재시도, 끝내 `AspStructureErrors` |
+  | 4 | 안전: `ShellObject`, `DynamicCode`, `OnErrorResumeNext`, `SqlConcatRequest`(아래) | 재시도, 끝내 종료 5 `AspSafetyRejected` |
+  | 5 | 이름: 새로 쓴 이름이 VBScript 내장, ASP 내장 개체, 파일과 include의 선언, 매개변수 어디에도 없으면 오류 | 재시도, 끝내 `AspUnknownNames` |
+  | 6 | 규칙: 프로젝트 규칙의 금지 패턴(`pelly rules`) | 재시도 |
+  | 7 | VBScript 컴파일(Windows `cscript`, 실행하지 않고 컴파일만) | 재시도, 끝내 `AspCompileErrors` |
+  | 8 | SP 확인: 새로 부르는 SP가 개발 DB에 있는가(`sql.connectionString`이 있을 때만) | 재시도, 끝내 `AspSpNotFound` |
+
+* **「실행 검증 없음」:** 어떤 검사도 페이지를 실행하지 않습니다. 그래서 검토 화면에는 diff와 함께 판정 줄(예: `검사: 구조 통과, 안전 통과, 인코딩 통과, 이름 통과, 컴파일 건너뜀(Windows가 아님), SP 건너뜀(…)`)과 고정 문구 「ASP는 실행해서 확인하지 않았습니다. 화면에서 직접 확인하십시오.」가 나옵니다. `--yes`여도 이 두 줄은 화면과 실행 기록에 남습니다. 승인한 뒤 **화면을 직접 띄워 확인하십시오.**
+* **건너뛰는 검사:** Windows가 아니거나 `cscript`·VBScript를 쓸 수 없으면(Windows 11 24H2부터 VBScript는 선택적 기능) 컴파일 검사는 실패가 아니라 「건너뜀」입니다. 개발 DB 연결이 없으면 SP 확인과 SP 문맥도 건너뜁니다. 운영 연결(`sql.production`)은 ASP에서 쓰지 않습니다. 못 찾은 include가 있거나 `Execute`·동적 include가 있는 파일은 이름을 확신할 수 없어 이름 검사를 오류가 아니라 경고로 낮춥니다.
+* **SQL 문자열 연결(`SqlConcatRequest`):** `SELECT`·`INSERT`·`UPDATE`·`DELETE`·`EXEC`·`EXECUTE`·`MERGE`를 단어로 담은 문자열에 `Request(…)`·`Request.Form`·`Request.QueryString`·`Request.Cookies` 값, 또는 그 값을 받은 변수를 `&`(문자열이나 SQL 변수와 함께 쓴 `+` 포함)로 붙이면 거부합니다.
+  * 허용하는 감싸기: `CLng`·`CInt`·`CDbl`·`CBool`·`CDate`, `Replace(x, "'", "''")`(두 번째·세 번째 인수가 정확히 그 문자열), `asp.sqlSanitizers`의 현장 함수(`Util.SafeSQL(x)`처럼 점이 붙어도 마지막 이름으로 봄). `ADODB.Command`의 `CreateParameter`로 넘긴 값은 연결이 아니라 처음부터 대상이 아닙니다.
+  * `Trim(Request("id"))`처럼 허용 목록 밖의 함수로 감싼 값은 여전히 위험한 값입니다.
+  * 순서를 봅니다. 변수의 상태는 그 문장 앞의 마지막 대입으로 정해지므로 `id = CLng(id)` 뒤의 `id`는 안전합니다. 다만 조건 안(`If … Then` 한 줄, `If`·`Select Case` 블록)의 대입은 위험을 더할 수만 있고 지우지는 못합니다.
+  * `sql = sql & " AND x='" & Request("x") & "'"`처럼 같은 범위에서 SQL 문자열을 받은 변수에 이어 붙이는 것도 연결로 셉니다.
+  * 원본에 이미 있던 같은 문장은 막지 않습니다(「새로 늘리지 않음」). 하지만 **이미 위험한 줄을 고치면 그 줄은 새 문장**이 되어 거부되고, 피드백이 그 값을 감싸라고 알려 줍니다.
+* **그 밖의 안전 규칙:** `CreateObject`·`Server.CreateObject`의 `WScript.Shell`·`Shell.Application`·`WScript.Network`, 원본 파일이 쓰지 않던 `Scripting.FileSystemObject`(`ShellObject`), `Execute`·`ExecuteGlobal`·`Eval`(`DynamicCode`), 새 `On Error Resume Next`(`OnErrorResumeNext`).
+* **인코딩과 줄 끝:** 편집 영역 밖은 원본 **바이트 그대로**입니다(줄 끝이 섞인 파일, 끝 줄바꿈 유무 포함). 인코딩은 BOM → `<%@ … CodePage=N %>`(65001 → UTF-8, 949 → CP949, 그 밖은 종료 4) → ASCII 아닌 바이트가 엄격한 UTF-8이면 UTF-8, 아니면 CP949 → 순수 ASCII면 `asp.encoding`(기본 `cp949`) 순서로 정합니다. 정한 인코딩으로 원본을 엄격하게 읽지 못하면(예: `CodePage=949`인데 UTF-8 한글) 종료 4이고, UTF-16 파일은 지원하지 않습니다(종료 4).
+* **해석기 동작:** 블록 짝은 HTML을 사이에 두고 파일 전체로 셉니다(`<% If a Then %> … <% Else %> … <% End If %>`의 일부만 줄 범위로 고쳐도 됩니다). IIS와 같이 VBScript 문자열 안의 `%>`도 코드 블록을 끝냅니다(그래서 레거시 코드에 `"%" & ">"`가 쓰입니다).
+* **설정(`asp.*`, 작업 공간 `pelly.json`):**
+
+  | 키 | 기본 | 뜻 |
+  | :--- | :--- | :--- |
+  | `asp.siteRoot` | 작업 공간 루트 | `<!--#include virtual="…"-->`의 기준 폴더. 상대 경로는 작업 공간 루트 기준 |
+  | `asp.encoding` | `cp949` | 순수 ASCII 파일을 쓸 인코딩(`cp949`·`utf-8`) |
+  | `asp.extensions` | `[".asp", ".inc"]` | 대상 확장자(대소문자 무시). `global.asa`는 넣어도 거부 |
+  | `asp.sqlSanitizers` | `[]` | SQL 문자열에 넣어도 되는 현장 처리 함수 이름(예: `SafeSQL`). 프롬프트에도 알려 줌 |
+  | `asp.spCallFunctions` | `[]` | SP를 부르는 공용 래퍼, 예: `[{"name":"ExecSP","argument":1}]`(SP 이름 인수 위치, 1부터) |
+
+  ```json
+  { "asp": { "siteRoot": ".", "encoding": "cp949", "sqlSanitizers": ["SafeSQL"] } }
+  ```
+  ASP 사이트에는 `.git`·`.svn`·`.sln`이 없을 수 있어 작업 공간 루트가 파일 폴더로 떨어질 수 있습니다. 그때 `virtual=` include를 못 찾으면 실행 메시지가 `asp.siteRoot`를 안내합니다. `pelly doctor`는 설정에 `asp` 절이 있을 때만 「ASP 구문 검사(cscript)」, 「ASP 사이트 루트」, 「ASP SQL 처리 함수」 행을 보입니다.
+* **cscript 확인 방법(Windows, cmd):** (1) `winver` — Windows 11 24H2 이상·Server 2025면 VBScript는 선택적 기능이라 PowerShell `Get-WindowsCapability -Online | Where-Object Name -like 'VBSCRIPT*'`가 `Installed`여야 합니다. (2) `echo WScript.Echo "ok" > %TEMP%\t.vbs` 뒤 `cscript //Nologo %TEMP%\t.vbs` → `ok`. (3) `echo If x Then > %TEMP%\bad.vbs` 뒤 `cscript //Nologo %TEMP%\bad.vbs` → `…\bad.vbs(2, 1) Microsoft VBScript 컴파일 오류: 'End'가 필요합니다.`(영어 Windows는 `compilation error`). pelly는 서버 코드만 줄 번호를 맞춰 임시 `.vbs`(`.pelly/runs/<run-id>/asp-compile-<n>.vbs`)로 만들고 첫 실행 문장 자리에 `WScript.Quit 0`을 둔 뒤 `cscript //Nologo //T:10 //E:vbscript`로 컴파일만 합니다. include는 합치지 않고 대상 파일만 컴파일합니다.
+* **종료 코드:** 0 적용(또는 `--dry-run`), 1 재시도 소진, 2 거부·중단, 3 대상 못 찾음·모호·받지 않는 파일, 4 환경(인코딩 판정 실패, 모델·설정, 잘못된 인자), 5 안전 거부.
+* **기록:** `summary.json`의 `asp` 블록(`unit`: `Procedure`·`Lines`, `encoding`, `checks`: 검사별 `passed`·`warned`·`skipped`·`failed`, `storedProcedures`, `includesFound`, `includesMissing`, `executed`: 늘 `false`)과 실패 유형 `AspStructureErrors`·`AspUnknownNames`·`AspCompileErrors`·`AspSafetyRejected`·`AspEncoding`·`AspSpNotFound`·`AspUnsupportedLanguage`·`AspUnsupportedFile`. `pelly report`에 「ASP: 실행 N건, 성공 K건, 컴파일 검사 건너뜀 M건, 실패 유형 …」 줄이 나옵니다.
+* **하지 않는 것:** 실행 검증(IIS·브라우저), `global.asa`, 서버 JScript, 여러 파일 동시 수정·새 파일·include 추가·지시문 변경, XSS 검사, `pelly ui asp`, 명세(`spec`·`apply`)의 ASP 작업(2단계 A2, 별도 계획).
+* **알려진 한계:** 실행하지 않으므로 화면 결과·런타임 오류·세션 의존 동작은 확인하지 못합니다. 컴파일 검사는 Windows에서만 되고, 현장 개발 PC의 `cscript`는 아직 확인하지 않았습니다(**Windows 현장 미확인**, 별도 Windows 11 23H2 PC에서만 확인). 실측은 [예비 측정](docs/asp-premeasure.md)(Mac, 컴파일 검사 건너뜀)을 보십시오.
+
 ### `pelly rules` — 프로젝트 규칙 (AGENTS.md)
 ```bash
 pelly rules init  [--dry-run] [--force] [--yes] [--pause-on-exit]
@@ -318,6 +377,7 @@ PowerShell 5.1·7에서 Tab으로 명령·옵션 이름과 정해진 값(`--thin
 pelly doctor [--project <csproj>] [--sanitize [--out <폴더>]] [--config <경로>] [--model <태그>] [--endpoint <URL>]
 ```
 Ollama 서버 접속, 모델 존재·로드 여부, chat template, 토크나이저, 응답 시간, pelly 자체와 설정, .NET SDK(`dotnet --version`), 레거시 프로젝트용 MSBuild(Windows에서만), 타겟팅 팩, 의미 분석(영향 탐색용 보조 프로세스 폴더 `BuildHost-*` 유무, `--project`를 주면 불러오기까지), SQL 연결(허용 목록·`VIEW DEFINITION`, 연결 문자열이 설정된 경우), 서버 관리자 확인 체크리스트를 표로 보입니다. 하나라도 Fail이면 종료 코드 4입니다.
+* 설정에 `asp` 절이 있으면 「ASP 구문 검사(cscript)」(Windows가 아니거나 `cscript`가 안 되면 Warn, 컴파일 검사는 건너뜀), 「ASP 사이트 루트」(`asp.siteRoot` 폴더가 없으면 Fail), 「ASP SQL 처리 함수」(`asp.sqlSanitizers`가 비면 Warn) 행이 더해집니다.
 * `--project <csproj>`: 그 프로젝트의 .NET Framework 타겟팅 팩이 설치됐는지 확인합니다(Windows에서만, 실기 확인 전). 의미 분석 행도 이 프로젝트를 불러와 봅니다. 불러오지 못하면 Warn이고(종료 코드는 그대로) 영향 탐색은 이름 기준으로 대신합니다. 보조 프로세스 폴더가 없으면 Fail입니다.
 * `--sanitize`: 화면 대신 비식별 결과 `json`·`md`를 현재 폴더(또는 `--out`)에 씁니다. 행 이름·상태·버전 같은 짧은 값만 남고 경로·연결 문자열·설명 문장은 나가지 않습니다.
 
@@ -325,7 +385,7 @@ Ollama 서버 접속, 모델 존재·로드 여부, chat template, 토크나이�
 ```bash
 pelly report [--since 2026-10-01] [--sanitize [--out <폴더>]]
 ```
-현재 작업 공간의 `.pelly/runs/*/summary.json`을 모아 TTFT·대기·패치 포맷 파싱 성공률·최종 성공률·완료 시간 표와 종료 코드·실패 유형·시도 수 분포를 보입니다.
+현재 작업 공간의 `.pelly/runs/*/summary.json`을 모아 TTFT·대기·패치 포맷 파싱 성공률·최종 성공률·완료 시간 표와 종료 코드·실패 유형·시도 수 분포를 보입니다. `pelly asp` 실행이 있으면 「ASP: 실행 N건, 성공 K건, 컴파일 검사 건너뜀 M건, 실패 유형 …」 줄이 더해집니다.
 * `--sanitize`: 폐쇄망 밖으로 보낼 수 있는 `pelly-report-<시각>.json`·`.md`를 씁니다(`--out`으로 폴더 지정, 기본은 현재 폴더). **허용 목록 방식**이라 소스·경로·식별자·모델 이름·RunId는 나가지 않고 숫자 지표, 오류 코드(`CS0103`·`Msg208`·`TEST` 등), 실패 유형, 버전만 담깁니다. 반출 가능 여부는 사내 보안 규정을 따르십시오.
 `pelly apply`가 남긴 `.pelly/runs/apply-*/apply.json`으로 「명세」 표도 보입니다. 명세 완료율은 `--resume`이 아닌 apply 중 종료 코드 0으로 보관(archive)까지 끝낸 비율이고(이어서 하기는 분모에서 빼고 건수만 따로 보입니다), 작업 3~8개 명세만 따로도 셉니다. 그룹 빌드 통과율은 그룹 빌드까지 간 그룹 중 통과한 비율이며 빌드 검증 불가 그룹은 따로 세고 분모에서 뺍니다. 작업 실행 기록이 없어도 apply 기록만으로 나오고, `--since`는 둘 모두에 적용되며, `--sanitize` 보고서에는 이 비율의 숫자 여섯만 더해집니다.
 

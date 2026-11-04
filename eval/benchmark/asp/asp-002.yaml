@@ -1,0 +1,7 @@
+id: asp-002
+kind: proc
+file: inc/func_order.inc
+proc: StatusName
+request: "상태 코드 4는 「반품」으로 표시해줘"
+mustContain: ["Case 4", "반품"]
+mustNotContain: []

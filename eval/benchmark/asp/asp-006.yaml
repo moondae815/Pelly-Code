@@ -1,0 +1,7 @@
+id: asp-006
+kind: lines
+file: admin/order/list.asp
+lines: 15-22
+request: "한 페이지 건수를 Request(\"pageSize\")로 받되, 숫자가 아니거나 1~100 밖이면 20으로 해줘"
+mustContain: ["Request(\"pageSize\")"]
+mustNotContain: []

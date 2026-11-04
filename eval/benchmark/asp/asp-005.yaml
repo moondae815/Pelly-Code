@@ -1,0 +1,7 @@
+id: asp-005
+kind: lines
+file: admin/order/list.asp
+lines: 24-37
+request: "주문 상태(status) 값이 있으면 usp_SearchOrders의 @Status 검색 조건으로 넘겨줘"
+mustContain: ["@Status"]
+mustNotContain: []

@@ -1,0 +1,7 @@
+id: asp-010
+kind: lines-html
+file: admin/order/list.asp
+lines: 86-92
+request: "고객 칸에 고객 이름 뒤 괄호 안에 고객 번호(CustomerId)도 보여줘"
+mustContain: ["rs(\"CustomerId\")"]
+mustNotContain: []

@@ -1,0 +1,7 @@
+id: asp-007
+kind: lines
+file: admin/order/save.asp
+lines: 12-17
+request: "취소 사유가 200자를 넘으면 앞의 200자만 남겨줘"
+mustContain: ["Left("]
+mustNotContain: []

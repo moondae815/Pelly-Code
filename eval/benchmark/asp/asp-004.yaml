@@ -1,0 +1,7 @@
+id: asp-004
+kind: proc
+file: inc/dbconn.asp
+proc: OpenDb
+request: "연결하기 전에 연결 시간 제한(ConnectionTimeout)을 30초로 설정해줘"
+mustContain: ["ConnectionTimeout = 30"]
+mustNotContain: []

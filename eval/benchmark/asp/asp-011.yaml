@@ -1,0 +1,7 @@
+id: asp-011
+kind: sp
+file: admin/order/list.asp
+lines: 24-37
+request: "검색 프로시저를 usp_SearchOrdersDynamic으로 바꿔줘. 이 프로시저는 @CustomerId만 받으니 기간 조건은 빼줘"
+mustContain: ["usp_SearchOrdersDynamic"]
+mustNotContain: ["usp_SearchOrders @"]

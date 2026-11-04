@@ -1,0 +1,7 @@
+id: asp-001
+kind: proc
+file: inc/func_order.inc
+proc: GetOrderAmount
+request: "결제 금액의 원 단위 미만은 Fix 함수로 버리고 돌려줘"
+mustContain: ["Fix("]
+mustNotContain: []

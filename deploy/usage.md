@@ -169,6 +169,27 @@ pelly test Shop.Api/Services/OrderService.cs --method SearchAsync --count 3
 * 레거시 .NET Framework 테스트는 Windows에서만 돌고 Windows 미확인입니다. 레거시는 `test.command`에 `{trx}`가 있어야 합니다(없으면 종료 코드 4).
 * 자세한 판정과 종료 코드는 README의 `pelly test` 절을 보십시오.
 
+## `pelly asp` — Classic ASP 페이지 수정
+
+```
+pelly asp admin/order/list.asp "검색 조건에 주문 상태를 추가해 줘" --lines 24-37
+pelly asp inc/func_order.inc "상태 코드 4는 반품으로 표시" --proc StatusName
+pelly asp admin/member/edit.asp "휴대폰 번호 저장 전에 하이픈 제거" --line 88
+```
+
+* `.asp`·`.inc` 파일 하나에서 `Function`·`Sub` 하나(`--proc 이름`, 또는 `--line N`으로 그 줄을 감싸는 것)나 줄 범위(`--lines A-B`)를 고칩니다. 함수 없이 본문 코드가 이어진 페이지는 `--lines`를 쓰십시오. HTML이 섞여도 됩니다.
+* **페이지를 실행해서 확인하지 않습니다.** 검토 화면에 「검사: 구조 통과, 안전 통과, … 컴파일 건너뜀(…)」 줄과 「ASP는 실행해서 확인하지 않았습니다. 화면에서 직접 확인하십시오.」가 나옵니다. 판정을 통과해도 실행하면 멈추는 코드(예: VBScript의 `Or`는 단락 평가를 하지 않음)나 범위 안의 기존 줄을 지운 수정이 있을 수 있으니 **diff의 `-` 줄을 읽고 화면을 띄워 확인하십시오.**
+* 원본에 이미 있던 문제(짝 안 맞는 태그, 정의를 못 찾는 이름, `Request` 값을 붙인 SQL)는 막지 않고 **새로 생긴 것만** 막습니다. 다만 이미 위험한 SQL 줄을 고치면 새 줄로 보고 값을 감싸라는 피드백이 나갑니다.
+* SQL 문자열에 `Request` 값을 넣을 때는 `CLng`·`CInt` 같은 변환, `Replace(x, "'", "''")`, 또는 `asp.sqlSanitizers`에 적은 현장 함수로 감싸야 합니다. `Trim(Request("x"))`만으로는 거부됩니다.
+* 편집 영역 밖은 바이트가 그대로입니다(CP949 한글, 줄 끝이 섞인 파일 포함). 순수 ASCII 파일은 `asp.encoding`(기본 `cp949`)으로 씁니다.
+* 컴파일 검사는 Windows `cscript`로 합니다. VBScript를 쓸 수 없는 PC에서는 「건너뜀」으로 표시하고 진행합니다(`pelly doctor`의 「ASP 구문 검사(cscript)」 행). SP 확인은 개발 DB 연결(`sql.connectionString`)이 있을 때만 합니다.
+* 작업 공간 `pelly.json` 예:
+  ```json
+  { "asp": { "siteRoot": "C:\\work\\site", "encoding": "cp949", "sqlSanitizers": ["SafeSQL"] } }
+  ```
+  `include virtual=`을 못 찾는다는 메시지가 나오면 `asp.siteRoot`를 사이트 루트 폴더로 맞추십시오. SP를 공용 함수로 부르면 `asp.spCallFunctions`(예: `[{"name":"ExecSP","argument":1}]`)에 적습니다.
+* `global.asa`, 서버 JScript 페이지, 여러 파일 동시 수정은 지원하지 않습니다. 자세한 판정과 종료 코드는 README의 `pelly asp` 절을 보십시오.
+
 ## `pelly rules` — 프로젝트 규칙 (AGENTS.md)
 
 ```
@@ -294,6 +315,7 @@ pelly doctor [--project <csproj>]
 ```
 
 * 서버, 모델, .NET SDK, SQL 연결, 운영 연결(「SQL 운영(읽기 전용)」 행: 연결이 없으면 Ok `운영 연결 없음(선택)`, `VIEW DEFINITION`이 없으면 Fail)과 함께 **의미 분석** 행을 보여 줍니다. pelly.exe 옆에 `BuildHost-net472`, `BuildHost-netcore` 폴더가 없으면 Fail(종료 코드 4)이니 반입 zip을 다시 풀어 두십시오.
+* 설정에 `asp` 절이 있으면 「ASP 구문 검사(cscript)」, 「ASP 사이트 루트」, 「ASP SQL 처리 함수」 행이 더해집니다. Windows가 아니거나 `cscript`가 안 되면 Warn이고 `pelly asp`의 컴파일 검사는 건너뜁니다.
 * `--project`를 주면 그 프로젝트를 불러와 봅니다. 불러오지 못하면 Warn이고 종료 코드는 그대로이며, 영향 탐색은 이름 기준으로 대신합니다.
 
 ## 반출 자료 만들기: `pelly report --sanitize`
@@ -319,6 +341,7 @@ pelly doctor --sanitize --out C:\export
 * **요청이 기존 테스트와 모순되면 `--test`가 속을 수 있습니다.** 모델이 요청을 로그 출력 같은 것으로 바꿔 회피하고 테스트를 통과해 종료 코드 0이 될 수 있습니다. 실측에서 20회 중 5회(25%, M3a), 같은 요청 단독 재측정에서 20회 중 7회(35%, 2026-10-19)였고, `qwen3.6:35b` GGUF로는 20회 중 9회(45%, 2026-10-20), 현장 모델 `qwen3.6:35b-a3b-q4_K_M`으로는 20회 중 7회(35%, 2026-10-28)였습니다. `--test`를 써도 **diff를 직접 읽고** 승인하십시오.
 * 레거시 .NET Framework 프로젝트의 빌드 검증과 `--test`는 Windows에서 실기 확인하지 않았습니다(Windows 미확인). 반입 후 현장에서 확인합니다(M4).
 * SQL 경로(`pelly sql`)도 Windows에서 실기 확인하지 않았습니다(Windows 미확인).
+* **`pelly asp`는 페이지를 실행하지 않습니다.** 컴파일 검사는 Windows에서만 되고 현장 개발 PC의 `cscript`는 아직 확인하지 않았습니다(Windows 현장 미확인). 예비 측정은 [asp-premeasure](../docs/asp-premeasure.md)(Mac)에 있습니다.
 * Razor 뷰(`.cshtml`)와 설정 파일(`web.config`, `appsettings.json`)은 수정 대상이 아닙니다.
 * 컨트롤러 액션의 라우팅·필터 특성(`[HttpPost]`, `[Authorize]` 등)은 바꿀 수 없습니다. 의도된 동작입니다.
 * 벤치마크는 현장과 같은 모델 파일(`qwen3.6:35b-a3b-q4_K_M` GGUF `Q4_K_M`)과 0.9.1 기본값으로 50건 × 3회에서 평균 47.00건(94%) 성공이었습니다. 실패 3건 중 하나(`Math.Round(x, -1)`)는 빌드는 통과하고 실행할 때 예외가 나는 수정이라 빌드 검증으로는 잡히지 않습니다. 상세는 반입 패키지의 `benchmark-summary.md`에 있습니다. 이 수치는 개발 PC(Mac) 기준이고, Windows·GPU 서버 값은 현장에서 확인합니다.

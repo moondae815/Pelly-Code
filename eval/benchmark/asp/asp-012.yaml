@@ -1,0 +1,7 @@
+id: asp-012
+kind: sp
+file: admin/order/save.asp
+lines: 21-27
+request: "usp_CancelOrder 호출을 ADODB.Command 대신 DbConn.Execute로 바꿔줘. 주문 번호는 CLng, 사유는 SafeSQL로 감싸서 문자열에 넣어줘"
+mustContain: ["usp_CancelOrder", "DbConn.Execute", "SafeSQL("]
+mustNotContain: ["CreateParameter"]

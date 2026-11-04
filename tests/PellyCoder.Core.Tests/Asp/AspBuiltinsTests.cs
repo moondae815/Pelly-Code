@@ -30,6 +30,14 @@ public class AspBuiltinsTests
     [InlineData("Err")]
     public void Functions_Known(string name) => Assert.True(B.IsKnown(name, false));
 
+    [Theory]
+    [InlineData("vbUseSystem")]
+    [InlineData("vbMsgBoxHelpButton")]
+    [InlineData("vbMsgBoxSetForeground")]
+    [InlineData("vbMsgBoxRight")]
+    [InlineData("vbMsgBoxRtlReading")]
+    public void Constants_Known(string name) => Assert.True(B.IsKnown(name, false));
+
     [Fact]
     public void AdoConstants_OnlyWhenEnabled()
     {

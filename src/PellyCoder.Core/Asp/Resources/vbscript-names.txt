@@ -180,6 +180,7 @@ Randomize
 vbTrue
 vbFalse
 vbUseDefault
+vbUseSystem
 vbBinaryCompare
 vbTextCompare
 vbDatabaseCompare
@@ -216,6 +217,10 @@ vbDefaultButton3
 vbDefaultButton4
 vbApplicationModal
 vbSystemModal
+vbMsgBoxHelpButton
+vbMsgBoxSetForeground
+vbMsgBoxRight
+vbMsgBoxRtlReading
 vbOK
 vbCancel
 vbAbort

@@ -80,4 +80,53 @@ public class AspSpCallFinderTests
     {
         Assert.Empty(Find("rs.Open \"SELECT * FROM Orders\", conn\ncmd.CommandText = \"select 1\"\nconn.Open \"DSN=x;UID=y\""));
     }
+
+    [Fact]
+    public void Open_XmlHttpGet_NotACall()
+    {
+        Assert.Empty(Find("Set x = Server.CreateObject(\"MSXML2.ServerXMLHTTP\")\nx.Open \"GET\", url, False"));
+        Assert.Empty(Find("objXML.Open \"POST\", url, False"));
+    }
+
+    [Fact]
+    public void Open_ConnectionDsn_NotACall()
+    {
+        Assert.Empty(Find("Set conn = CreateObject(\"ADODB.Connection\")\nconn.Open \"MyDsn\", \"sa\", \"pw\""));
+        Assert.Empty(Find("rs.Open \"Provider=SQLOLEDB;Data Source=x\", conn"));
+    }
+
+    [Fact]
+    public void CommandText_SelectWithStoredProcTypeInScope_NotACall()
+    {
+        Assert.Empty(Find("cmd.CommandType = adCmdStoredProc\ncmd.CommandText = \"SELECT * FROM Orders WHERE id = 1\""));
+    }
+
+    [Fact]
+    public void CommandText_Concatenated_NotACall()
+    {
+        Assert.Empty(Find("cmd.CommandType = 4\ncmd.CommandText = \"usp_Order_\" & kind"));
+    }
+
+    [Fact]
+    public void ExecWordInPlainText_NotACall()
+    {
+        Assert.Empty(Find("Response.Write \"Execute failed\""));
+        Assert.Empty(Find("conn.Execute \"exec usp_\" & x"));
+    }
+
+    [Fact]
+    public void Wrapper_ConcatenatedName_NotACall()
+    {
+        var wrappers = new[] { new AspSpCallFunction { Name = "ExecSP", Argument = 1 } };
+        Assert.Empty(Find("ExecSP \"usp_\" & x, conn", wrappers));
+    }
+
+    [Fact]
+    public void BracketedNameWithSpaces()
+    {
+        var call = Assert.Single(Find("conn.Execute \"exec [dbo].[usp Get Order] 1\""));
+        Assert.Equal("dbo", call.Name.Schema);
+        Assert.Equal("usp Get Order", call.Name.Name);
+        Assert.Equal(1, call.ArgumentCount);
+    }
 }

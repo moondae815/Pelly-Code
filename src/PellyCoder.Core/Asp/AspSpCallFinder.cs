@@ -11,7 +11,8 @@ public sealed record AspSpCall(SqlObjectName Name, int Line, int? ArgumentCount)
 /// <summary>Recognises a few common ADO call shapes at string level (design 4.6).</summary>
 public static class AspSpCallFinder
 {
-    private const string NamePattern = @"[\w\[\]\.#$]+";
+    private const string NamePart = @"(?:\[[^\]]+\]|[\w#$]+)";
+    private const string NamePattern = NamePart + @"(?:\." + NamePart + @")*";
 
     private static readonly Regex ExecPattern = new(
         @"^\s*(?:exec|execute)\s+(?:@\w+\s*=\s*)?(?<name>" + NamePattern + @")(?<rest>.*)$",
@@ -23,6 +24,11 @@ public static class AspSpCallFinder
 
     private static readonly Regex FirstWordPattern = new(
         @"^\s*(?<name>" + NamePattern + @")(?<rest>\s.*)?$", RegexOptions.CultureInvariant | RegexOptions.Singleline);
+
+    private static readonly HashSet<string> HttpVerbs = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "GET", "POST", "PUT", "DELETE", "HEAD", "PATCH", "OPTIONS",
+    };
 
     private static readonly HashSet<string> SqlKeywords = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -74,6 +80,8 @@ public static class AspSpCallFinder
                 var beforePrevious = i > 1 ? tokens[i - 2] : null;
                 var concatenated = i + 1 < tokens.Count && tokens[i + 1].Kind == VbTokenKind.Operator && tokens[i + 1].Text == "&";
                 var value = Unquote(token.Text);
+                if (previous is { Kind: VbTokenKind.Operator, Text: "&" })
+                    continue; // a later piece of a concatenation is not the start of a SQL text
 
                 if (previous is { Kind: VbTokenKind.Operator, Text: "=" } && beforePrevious is { Kind: VbTokenKind.Identifier }
                     && beforePrevious.Text.Equals("CommandText", StringComparison.OrdinalIgnoreCase)
@@ -85,9 +93,12 @@ public static class AspSpCallFinder
                     && beforePrevious is { Kind: VbTokenKind.Dot })
                 {
                     var hasMoreArguments = i + 1 < tokens.Count && tokens[i + 1].Kind == VbTokenKind.Comma;
+                    var receiver = i > 2 && tokens[i - 3].Kind == VbTokenKind.Identifier ? tokens[i - 3].Text : null;
+                    if (receiver is not null && IsNonRecordset(page, scope, receiver))
+                        continue;
                     AddFromOpen(value, token.Line, concatenated, hasMoreArguments, page, scope, found);
                 }
-                else
+                else if (LooksLikeSqlContext(statement))
                 {
                     AddFromLiteral(value, token.Line, concatenated, commandText: false, page, scope, found);
                 }
@@ -106,6 +117,8 @@ public static class AspSpCallFinder
     {
         if (ExecPattern.Match(value) is { Success: true } exec)
         {
+            if (concatenated && exec.Groups["rest"].Value.Length == 0)
+                return; // "usp_" & x: the name continues outside the literal
             Add(found, exec.Groups["name"].Value, line, concatenated ? null : CountCommaArguments(exec.Groups["rest"].Value));
             return;
         }
@@ -115,27 +128,30 @@ public static class AspSpCallFinder
             Add(found, call.Groups["name"].Value, line, rest.Success ? CountParenArguments(rest.Value) : (int?)null);
             return;
         }
-        if (!commandText)
+        if (!commandText || concatenated)
             return;
         // CommandText = "usp_X": a procedure name when the same procedure/page sets a stored procedure command type,
         // or when the text is a single word.
         var trimmed = value.Trim();
-        if (trimmed.Length == 0 || SqlKeywords.Contains(trimmed))
+        var match = FirstWordPattern.Match(trimmed);
+        if (!match.Success || SqlKeywords.Contains(match.Groups["name"].Value))
             return;
         if (!HasWhitespace(trimmed) || HasStoredProcType(page, scope))
-            Add(found, FirstWord(trimmed), line, AppendCount(page, scope));
+            Add(found, match.Groups["name"].Value, line, AppendCount(page, scope));
     }
 
     private static void AddFromOpen(
         string value, int line, bool concatenated, bool hasMoreArguments, AspPage page, Scope scope, List<AspSpCall> found)
     {
+        if (value.Contains('=') || value.Contains(';'))
+            return;
         if (ExecPattern.IsMatch(value) || CallPattern.IsMatch(value))
         {
             AddFromLiteral(value, line, concatenated, commandText: false, page, scope, found);
             return;
         }
         var match = FirstWordPattern.Match(value);
-        if (!match.Success || SqlKeywords.Contains(match.Groups["name"].Value))
+        if (!match.Success || SqlKeywords.Contains(match.Groups["name"].Value) || HttpVerbs.Contains(match.Groups["name"].Value))
             return;
         // "rs.Open "usp_X a, b", conn": a name followed by arguments or by further Open arguments, not a bare string.
         if (!match.Groups["rest"].Success && !hasMoreArguments)
@@ -171,6 +187,10 @@ public static class AspSpCallFinder
             }
             else if (current == argument && depth == 0 && t.Kind == VbTokenKind.String)
             {
+                if (i + 1 < tokens.Count && tokens[i + 1] is { Kind: VbTokenKind.Operator, Text: "&" })
+                    return; // "usp_" & x: the name is not a plain literal
+                if (i > 0 && tokens[i - 1] is { Kind: VbTokenKind.Operator, Text: "&" })
+                    return;
                 Add(found, Unquote(t.Text).Trim(), t.Line, null);
                 return;
             }
@@ -188,10 +208,41 @@ public static class AspSpCallFinder
         }
     }
 
-    private static bool HasWhitespace(string text) => text.Any(char.IsWhiteSpace);
+    /// <summary>
+    /// A bare "EXEC x" literal counts only when it is passed to a SQL call (Execute/Open/CommandText) or assigned to a
+    /// variable; output statements such as Response.Write "Execute failed" do not.
+    /// </summary>
+    private static bool LooksLikeSqlContext(VbStatement statement)
+    {
+        var t = statement.Tokens;
+        if (t.Count > 0 && t[0].Kind == VbTokenKind.Identifier && t[0].Text.Equals("Response", StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (t.Any(x => x.Kind == VbTokenKind.Identifier
+                && (x.Text.Equals("Execute", StringComparison.OrdinalIgnoreCase)
+                    || x.Text.Equals("Open", StringComparison.OrdinalIgnoreCase)
+                    || x.Text.Equals("CommandText", StringComparison.OrdinalIgnoreCase))))
+            return true;
+        return t.Count > 2 && t[0].Kind == VbTokenKind.Identifier && t[1] is { Kind: VbTokenKind.Operator, Text: "=" };
+    }
 
-    private static string FirstWord(string text) =>
-        text.Split((char[]?)null, 2, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "";
+    /// <summary>The receiver was assigned from CreateObject of an XMLHTTP or ADODB.Connection object in the same scope.</summary>
+    private static bool IsNonRecordset(AspPage page, Scope scope, string receiver)
+    {
+        foreach (var statement in InScope(page, scope))
+        {
+            var t = statement.Tokens.Where(x => !(x.Kind == VbTokenKind.Keyword && x.Text.Equals("Set", StringComparison.OrdinalIgnoreCase))).ToArray();
+            if (t.Length > 2 && t[0].Kind == VbTokenKind.Identifier && t[0].Text.Equals(receiver, StringComparison.OrdinalIgnoreCase)
+                && t[1] is { Kind: VbTokenKind.Operator, Text: "=" }
+                && t.Any(x => x.Kind == VbTokenKind.Identifier && x.Text.Equals("CreateObject", StringComparison.OrdinalIgnoreCase))
+                && t.Any(x => x.Kind == VbTokenKind.String
+                    && (x.Text.Contains("XMLHTTP", StringComparison.OrdinalIgnoreCase)
+                        || x.Text.Contains("ADODB.Connection", StringComparison.OrdinalIgnoreCase))))
+                return true;
+        }
+        return false;
+    }
+
+    private static bool HasWhitespace(string text) => text.Any(char.IsWhiteSpace);
 
     private static string Unquote(string raw) =>
         raw.Length >= 2 && raw[0] == '"' ? raw[1..^1].Replace("\"\"", "\"") : raw;

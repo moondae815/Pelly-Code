@@ -77,4 +77,34 @@ public class AspStructureCheckTests
         var patched = AspPage.Parse(Proc + "\n<%\nSub Extra()\nEnd Sub\n%>");
         Assert.Null(AspStructureCheck.ShapeViolation(original, patched, State(original, null)));
     }
+
+    [Fact]
+    public void Shape_DirectiveChanged()
+    {
+        var original = AspPage.Parse("<%@ Language=\"VBScript\" %>\n<% x = 1 %>");
+        var patched = AspPage.Parse("<%@ Language=\"VBScript\" CodePage=949 %>\n<% x = 1 %>");
+        var reason = AspStructureCheck.ShapeViolation(original, patched, State(original, null));
+        Assert.NotNull(reason);
+        Assert.Contains("지시문", reason);
+    }
+
+    [Fact]
+    public void Shape_KeywordChanged()
+    {
+        var original = AspPage.Parse(Proc);
+        var patched = AspPage.Parse("<%\nSub Total(a, b)\n  x = a + b\nEnd Sub\n%>");
+        var reason = AspStructureCheck.ShapeViolation(original, patched, State(original, original.Procedures[0]));
+        Assert.NotNull(reason);
+        Assert.Contains("종류", reason);
+    }
+
+    [Fact]
+    public void Shape_ProcedureTarget_NewProcedureRejected()
+    {
+        var original = AspPage.Parse(Proc);
+        var patched = AspPage.Parse(Proc + "\n<%\nSub Extra()\nEnd Sub\n%>");
+        var reason = AspStructureCheck.ShapeViolation(original, patched, State(original, original.Procedures[0]));
+        Assert.NotNull(reason);
+        Assert.Contains("프로시저 수", reason);
+    }
 }

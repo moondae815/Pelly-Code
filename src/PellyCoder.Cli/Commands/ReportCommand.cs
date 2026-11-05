@@ -96,6 +96,8 @@ public sealed class ReportCommand(IFileSystem fs, IAnsiConsole console) : Comman
         console.Write(kpi);
         if (d.CharTest is { } charTest) console.MarkupLine(Markup.Escape(charTest.Line()));
         if (d.Asp is { } asp) console.MarkupLine(Markup.Escape(asp.Line()));
+        if (d.Js is { } js) console.MarkupLine(Markup.Escape(js.JsLine()));
+        if (d.Css is { } css) console.MarkupLine(Markup.Escape(css.CssLine()));
 
         Distribution("종료 코드", d.ExitCodes.Select(e => ($"{e.Key}", e.Value)));
         Distribution("실패 유형", d.FailureKinds.Select(e => (e.Key, e.Value)));

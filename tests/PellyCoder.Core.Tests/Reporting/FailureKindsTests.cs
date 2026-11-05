@@ -56,7 +56,8 @@ public sealed partial class FailureKindsTests
             if (file.EndsWith("FsmOrchestrator.cs", StringComparison.Ordinal))
                 foreach (Match m in Label().Matches(text)) found.Add(m.Groups["v"].Value);
             var fails = StepFail().Count(text);
-            var labelUnused = fails > 0 && fails == StepFailWithKind().Count(text) && !text.Contains("StepResult.Environment(", StringComparison.Ordinal);
+            // Every failure names its own kind, or the step never fails at all (warning-only steps): `{Name}Errors` is never used.
+            var labelUnused = fails == StepFailWithKind().Count(text) && !text.Contains("StepResult.Environment(", StringComparison.Ordinal);
             if (text.Contains("IVerifierStep", StringComparison.Ordinal) && !labelUnused)
                 foreach (Match m in StepName().Matches(text)) found.Add(m.Groups["v"].Value + "Errors");
         }

@@ -1,6 +1,8 @@
 using PellyCoder.Core.Abstractions;
 using PellyCoder.Core.Asp;
 using PellyCoder.Core.CSharp;
+using PellyCoder.Core.Verification;
+using PellyCoder.Core.Web;
 
 namespace PellyCoder.Core.Fsm.Phases;
 
@@ -25,6 +27,27 @@ public sealed class ReviewPhase(IUserInteraction ui) : IPhase
         (AspApplyPhase.LogicCheck, "논리"),
     ];
 
+    /// <summary>Shown with every JS/CSS review, also with --yes: no check runs the code in a browser.</summary>
+    public const string WebNotice =
+        "JS·CSS는 브라우저에서 실행해 확인하지 않았습니다. 화면에서 직접 확인하십시오. 브라우저 캐시 때문에 바뀐 파일이 바로 반영되지 않을 수 있습니다.";
+
+    /// <summary>
+    /// JS/CSS checks on the review line, in this order, with their labels. Rules is not listed (the shared rules step records
+    /// nothing in <see cref="WebRunState"/>; a violation fails the run anyway). CSS structure is recorded under Syntax.
+    /// </summary>
+    private static readonly (string Name, string Label)[] WebCheckLabels =
+    [
+        (WebApplyPhase.EncodingCheck, "인코딩"),
+        (WebApplyPhase.SyntaxCheck, "문법"),
+        (WebApplyPhase.LevelCheck, "문법 수준"),
+        (WebApplyPhase.ShapeCheck, "대상 모양"),
+        (WebApplyPhase.SafetyCheck, "안전"),
+        ("Names", "이름"),
+        ("Api", "API"),
+        ("Properties", "속성"),
+        (CssPropertyStep.OverrideCheck, "덮어쓰기"),
+    ];
+
     public RunPhase Phase => RunPhase.Review;
 
     public async Task<PhaseOutcome> ExecuteAsync(RunContext ctx, CancellationToken ct)
@@ -36,13 +59,19 @@ public sealed class ReviewPhase(IUserInteraction ui) : IPhase
 
         if (ctx.Asp is { } asp)
         {
-            if (AspCheckLine(asp) is { } line)
-            {
-                ui.Warn(line);
-                ctx.Record(line);
-            }
-            ui.Warn(AspNotice);
-            ctx.Record(AspNotice);
+            if (CheckLine(asp.Checks, AspCheckLabels) is { } line)
+                Notice(ctx, line);
+            Notice(ctx, AspNotice);
+        }
+
+        if (ctx.Web is { } web)
+        {
+            if (CheckLine(web.Checks, WebCheckLabels) is { } line)
+                Notice(ctx, line);
+            // A pure-ASCII file got non-ASCII text: it is now saved in the configured encoding, which the page must match.
+            if (web.OriginalAscii && ctx.Current.Text.AsSpan().IndexOfAnyExceptInRange((char)0, (char)0x7F) >= 0)
+                Notice(ctx, $"이 파일은 ASCII였고 {web.EncodingName}로 저장했습니다");
+            Notice(ctx, WebNotice);
         }
 
         ui.ShowDiff(ctx.FilePath, ctx.Original.Text, ctx.Current.Text);
@@ -58,13 +87,23 @@ public sealed class ReviewPhase(IUserInteraction ui) : IPhase
         return await ui.ApproveAsync("적용할까요?", ct) ? PhaseOutcome.Approved : PhaseOutcome.Rejected;
     }
 
-    /// <summary>「검사: 구조 통과, …, 컴파일 건너뜀(Windows가 아님)」 for the checks that recorded a result; null when none did.</summary>
-    private static string? AspCheckLine(AspRunState asp)
+    /// <summary>Shown now and kept in <c>messages.txt</c>.</summary>
+    private void Notice(RunContext ctx, string message)
+    {
+        ui.Warn(message);
+        ctx.Record(message);
+    }
+
+    /// <summary>
+    /// 「검사: 구조 통과, …, 컴파일 건너뜀(Windows가 아님)」 for the checks in <paramref name="labels"/> that recorded a result, in
+    /// that order; null when none did.
+    /// </summary>
+    private static string? CheckLine(IReadOnlyDictionary<string, AspCheck> checks, (string Name, string Label)[] labels)
     {
         var parts = new List<string>();
-        foreach (var (name, label) in AspCheckLabels)
+        foreach (var (name, label) in labels)
         {
-            if (!asp.Checks.TryGetValue(name, out var check)) continue;
+            if (!checks.TryGetValue(name, out var check)) continue;
             var status = check.Status switch
             {
                 AspCheckStatus.Passed => "통과",

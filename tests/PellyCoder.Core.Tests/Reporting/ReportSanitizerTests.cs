@@ -367,6 +367,32 @@ public sealed class ReportSanitizerTests
         Assert.Equal(2, report.Aggregate.Asp!.Runs);
         Assert.All(report.Runs, r => Assert.Equal("Asp", r.ProjectStyle));
     }
+
+    [Fact]
+    public void Sanitize_WebCountsOnly()
+    {
+        var runs = new[]
+        {
+            RunReportTests.WebRec(1, EditKind.Js, 0, levelRejections: 1),
+            RunReportTests.WebRec(2, EditKind.Css, 1, FailureKinds.CssStructureErrors),
+        };
+
+        var report = ReportSanitizer.Sanitize(runs, RunReport.Build(runs));
+
+        foreach (var text in new[] { report.ToJson(), report.ToMarkdown() })
+        {
+            Assert.Contains("js-v1", text);
+            Assert.Contains("css-v1", text);
+            Assert.DoesNotContain("invalid", text);
+            Assert.DoesNotContain("1.8.3", text); // no jQuery version, check names or levels: counts only
+            Assert.DoesNotContain("Names", text);
+        }
+        Assert.Contains("JS: 실행 1건, 성공 1건, 문법 수준 거절 1건, 실패 유형 없음", report.ToMarkdown());
+        Assert.Contains("CSS: 실행 1건, 성공 0건, 실패 유형 CssStructureErrors 1", report.ToMarkdown());
+        Assert.Equal(1, report.Aggregate.Js!.Runs);
+        Assert.Equal(1, report.Aggregate.Css!.Runs);
+        Assert.All(report.Runs, r => Assert.Equal("Web", r.ProjectStyle));
+    }
 }
 
 /// <summary>File system whose read/open methods throw for any path that is not a summary.json.</summary>

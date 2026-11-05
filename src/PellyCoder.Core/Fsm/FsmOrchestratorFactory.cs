@@ -9,9 +9,11 @@ using PellyCoder.Core.Files;
 using PellyCoder.Core.Fsm.Phases;
 using PellyCoder.Core.Llm;
 using PellyCoder.Core.Logging;
+using PellyCoder.Core.Models;
 using PellyCoder.Core.Sql;
 using PellyCoder.Core.Testing;
 using PellyCoder.Core.Verification;
+using PellyCoder.Core.Web;
 
 namespace PellyCoder.Core.Fsm;
 
@@ -125,6 +127,53 @@ public static class FsmOrchestratorFactory
                 new AspNamesStep(feedback), new RulesStep(feedback),
                 new AspCompileStep(processes, feedback, fs, isWindows ?? OperatingSystem.IsWindows), new AspSpStep(sql, feedback),
             ]),
+            new ReviewPhase(ui),
+        ];
+        return new FsmOrchestrator(phases, fileGuard, logger, fs, options, ui, time);
+    }
+
+    /// <summary>
+    /// <c>pelly js</c> and <c>pelly css</c>: the shared PREFLIGHT, EDIT and REVIEW with JS/CSS locate, slice, apply and the
+    /// warning-only verify steps. One <see cref="WebTextCodec"/> serves the file guard and the web phases, so every read and write
+    /// keeps the file's encoding. <paramref name="kind"/> must be <see cref="EditKind.Js"/> or <see cref="EditKind.Css"/>.
+    /// </summary>
+    public static FsmOrchestrator CreateWeb(IFileSystem fs, ILlmBackend backend, IUserInteraction ui, PellyOptions options, TimeProvider time,
+        EditKind kind)
+    {
+        if (kind is not (EditKind.Js or EditKind.Css))
+            throw new ArgumentOutOfRangeException(nameof(kind), kind, "pelly js/css needs EditKind.Js or EditKind.Css.");
+
+        var tokens = QwenTokenCounter.Shared;
+        var template = options.Llm.Template is { } path ? QwenChatTemplate.LoadFromFile(fs, path) : QwenChatTemplate.LoadDefault();
+        var codec = new WebTextCodec(options.Asp.Encoding);
+        var fileGuard = new FileGuard(fs, time, codec);
+        var logger = new RunLogger(fs, time);
+        var feedback = new FeedbackBuilder(tokens, options.Budget.Feedback);
+        var resources = PromptResources.LoadDefault();
+        var prompts = new PromptBuilder(template, resources, tokens, options.Budget);
+        var client = new QwenStreamClient(backend, template, options.Llm, options.Budget, options.Sampling, time);
+
+        IPhase locate = kind switch
+        {
+            EditKind.Js => new JsLocatePhase(fs, ui, options, codec),
+            EditKind.Css => new CssLocatePhase(fs, ui, options, codec),
+            _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null),
+        };
+        IVerifierStep[] steps = kind switch
+        {
+            EditKind.Js => [new RulesStep(feedback), new JsNamesStep(options.Web.Globals), new JsApiStep()],
+            EditKind.Css => [new RulesStep(feedback), new CssPropertyStep()],
+            _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null),
+        };
+
+        IPhase[] phases =
+        [
+            new PreflightPhase(fs, fileGuard, backend, options.Llm, tokens.SpecialTokens),
+            locate,
+            new WebSlicePhase(fileGuard, tokens, options.Budget),
+            new EditPhase(prompts, client, feedback, logger, ui),
+            new WebApplyPhase(fileGuard, feedback, ui, codec),
+            new VerifyPhase(steps),
             new ReviewPhase(ui),
         ];
         return new FsmOrchestrator(phases, fileGuard, logger, fs, options, ui, time);

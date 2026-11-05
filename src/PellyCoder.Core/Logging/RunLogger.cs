@@ -8,6 +8,7 @@ using PellyCoder.Core.Fsm;
 using PellyCoder.Core.Llm;
 using PellyCoder.Core.Models;
 using PellyCoder.Core.Testing;
+using PellyCoder.Core.Web;
 using PellyCoder.Core.Workspaces;
 
 namespace PellyCoder.Core.Logging;
@@ -22,7 +23,7 @@ public sealed record RunSummary(
     IReadOnlyList<MatchStage> MatchStages, IReadOnlyList<string> ErrorCodes, int FormatErrors, string? FailureKind,
     IReadOnlyList<string>? RulesIncluded = null, IReadOnlyList<string>? RulesDropped = null,
     TestFirstSummary? TestFirst = null, SqlProdCheckSummary? SqlProd = null, CharTestSummary? CharTest = null,
-    AspSummary? Asp = null);
+    AspSummary? Asp = null, WebSummary? Web = null);
 
 /// <summary>
 /// The <c>asp</c> block of a <c>pelly asp</c> run: target unit (<c>Procedure</c> or <c>Lines</c>), file encoding, each recorded check
@@ -31,6 +32,14 @@ public sealed record RunSummary(
 /// </summary>
 public sealed record AspSummary(string Unit, string Encoding, IReadOnlyDictionary<string, string> Checks, IReadOnlyList<string> StoredProcedures,
     int IncludesFound, int IncludesMissing, bool Executed = false);
+
+/// <summary>
+/// The <c>web</c> block of a <c>pelly js</c> or <c>pelly css</c> run: target unit (<c>function</c>, <c>rule</c> or <c>lines</c>), file
+/// encoding, the original and target JS levels and the site's jQuery baseline (null for CSS or when unknown), each recorded check as
+/// <c>passed</c>/<c>warned</c>/<c>skipped</c>/<c>failed</c>, the language-level rejections and the warning counts of the last VERIFY.
+/// </summary>
+public sealed record WebSummary(string Unit, string Encoding, string? OriginalLevel, string? TargetLevel, string? Jquery,
+    IReadOnlyDictionary<string, string> Checks, int LevelRejections, int NameWarnings, int ApiWarnings, int PropertyWarnings);
 
 /// <summary>
 /// Production comparison recorded in the run summary: the outcome name and the three normalized hashes (no definition text).
@@ -160,7 +169,26 @@ public sealed class RunLogger(IFileSystem fs, TimeProvider time)
                     ctx.Sql?.RecordRefresh is { } refresh && ctx.Current is { } current && refresh.IsIn(current.Text))
                 : null,
             ctx.CharTest?.Summary(),
-            SummarizeAsp(ctx));
+            SummarizeAsp(ctx),
+            SummarizeWeb(ctx));
+    }
+
+    private static WebSummary? SummarizeWeb(RunContext ctx)
+    {
+        if (ctx.Web is not { } web) return null;
+        var checks = web.Checks.Values.OrderBy(c => c.Name, StringComparer.Ordinal)
+            .ToDictionary(c => c.Name, c => c.Status.ToString().ToLowerInvariant(), StringComparer.Ordinal);
+        var unit = web.Unit switch
+        {
+            WebTargetUnit.Function => "function",
+            WebTargetUnit.Rule => "rule",
+            WebTargetUnit.Lines => "lines",
+            _ => web.Unit.ToString().ToLowerInvariant(),
+        };
+        return new WebSummary(unit, web.EncodingName,
+            web.OriginalLevel is { } original ? JsLevels.Name(original) : null,
+            web.TargetLevel is { } target ? JsLevels.Name(target) : null,
+            web.Jquery?.ToString(), checks, web.LevelRejections, web.NameWarnings, web.ApiWarnings, web.PropertyWarnings);
     }
 
     private static AspSummary? SummarizeAsp(RunContext ctx)

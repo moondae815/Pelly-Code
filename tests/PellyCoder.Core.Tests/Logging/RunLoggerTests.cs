@@ -213,4 +213,54 @@ public sealed class RunLoggerTests
         Assert.Equal(1, asp.IncludesMissing);
         Assert.False(asp.Executed);
     }
+
+    [Fact]
+    public void Summary_WebBlock()
+    {
+        var ctx = NewContext();
+        Assert.Null(RunLogger.Summarize(ctx).Web);
+
+        var index = new Lazy<PellyCoder.Core.Web.WebSiteIndexResult>(() => throw new InvalidOperationException("not used"));
+        var state = new PellyCoder.Core.Web.WebRunState(EditKind.Js, PellyCoder.Core.Web.WebTargetUnit.Function, new TextSpanInfo(1, 3),
+            "function a() {}\n", "CP949", true, P(@"C:\ws"), index)
+        {
+            OriginalLevel = Acornima.EcmaVersion.ES5,
+            TargetLevel = Acornima.EcmaVersion.ES2015,
+            Jquery = new Version(1, 8, 3),
+        };
+        state.Record("Syntax", PellyCoder.Core.Asp.AspCheckStatus.Passed);
+        state.Record("Names", PellyCoder.Core.Asp.AspCheckStatus.Warned, "fnX(줄 2)");
+        state.Record("Api", PellyCoder.Core.Asp.AspCheckStatus.Skipped, "x");
+        state.Record("Level", PellyCoder.Core.Asp.AspCheckStatus.Failed, "y");
+        state.LevelRejections = 2;
+        state.NameWarnings = 1;
+        state.ApiWarnings = 3;
+        state.PropertyWarnings = 4;
+        ctx.Web = state;
+
+        var web = RunLogger.Summarize(ctx).Web!;
+
+        Assert.Equal("function", web.Unit);
+        Assert.Equal("CP949", web.Encoding);
+        Assert.Equal("ES5", web.OriginalLevel);
+        Assert.Equal("ES2015", web.TargetLevel);
+        Assert.Equal("1.8.3", web.Jquery);
+        Assert.Equal(new Dictionary<string, string>
+        {
+            ["Api"] = "skipped", ["Level"] = "failed", ["Names"] = "warned", ["Syntax"] = "passed",
+        }, web.Checks);
+        Assert.Equal(2, web.LevelRejections);
+        Assert.Equal(1, web.NameWarnings);
+        Assert.Equal(3, web.ApiWarnings);
+        Assert.Equal(4, web.PropertyWarnings);
+
+        var css = new PellyCoder.Core.Web.WebRunState(EditKind.Css, PellyCoder.Core.Web.WebTargetUnit.Lines, new TextSpanInfo(1, 1),
+            "a {}\n", "UTF-8", false, P(@"C:\ws"), index);
+        ctx.Web = css;
+        var cssWeb = RunLogger.Summarize(ctx).Web!;
+        Assert.Equal("lines", cssWeb.Unit);
+        Assert.Null(cssWeb.OriginalLevel);
+        Assert.Null(cssWeb.TargetLevel);
+        Assert.Null(cssWeb.Jquery);
+    }
 }

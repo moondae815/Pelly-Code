@@ -222,4 +222,39 @@ public sealed class RunReportTests
         Assert.Null(RunReport.Build([Rec(1)]).Asp);
         Assert.Equal("ASP: 실행 1건, 성공 1건, 컴파일 검사 건너뜀 1건, 실패 유형 없음", RunReport.Build([AspRec(1, 0)]).Asp!.Line());
     }
+
+    internal static RunRecord WebRec(int i, EditKind kind, int exit, string? failure = null, bool dryRun = false, int levelRejections = 0)
+    {
+        var phases = new Dictionary<RunPhase, double> { [RunPhase.Edit] = 2, [RunPhase.Apply] = 1 };
+        if (!dryRun && exit == 0) phases[RunPhase.Review] = 1; // a dry-run stops at APPLY
+        var s = RunHistoryTests.Summary($"20261105-10102{i}-aaaa", exit, 1, failure: failure, kind: kind) with
+        {
+            PromptVersion = kind == EditKind.Js ? "js-v1" : "css-v1",
+            ProjectStyle = "Web",
+            PhaseSeconds = phases,
+            Web = new WebSummary(kind == EditKind.Js ? "function" : "rule", "CP949",
+                kind == EditKind.Js ? "ES5" : null, kind == EditKind.Js ? "ES5" : null, kind == EditKind.Js ? "1.8.3" : null,
+                new Dictionary<string, string> { ["Syntax"] = "passed", ["Names"] = "warned" }, levelRejections, 1, 0, 0),
+        };
+        return new RunRecord(s, DateTimeOffset.UnixEpoch);
+    }
+
+    [Fact]
+    public void Report_JsAndCssLines()
+    {
+        var d = RunReport.Build([
+            Rec(1),
+            WebRec(1, EditKind.Js, 0), WebRec(2, EditKind.Js, 0, dryRun: true), WebRec(3, EditKind.Js, 0, levelRejections: 2),
+            WebRec(4, EditKind.Js, 1, FailureKinds.JsLevelExceeded, levelRejections: 2), WebRec(5, EditKind.Js, 5, FailureKinds.JsSafetyRejected),
+            WebRec(6, EditKind.Css, 0), WebRec(7, EditKind.Css, 1, FailureKinds.CssStructureErrors),
+        ]);
+
+        Assert.Equal("JS: 실행 5건, 성공 2건, 문법 수준 거절 2건, 실패 유형 JsLevelExceeded 1, JsSafetyRejected 1", d.Js!.JsLine());
+        Assert.Equal("CSS: 실행 2건, 성공 1건, 실패 유형 CssStructureErrors 1", d.Css!.CssLine());
+        Assert.Equal(8, d.RunCount); // JS and CSS runs are edits: they stay in the edit KPIs too
+        Assert.Null(RunReport.Build([Rec(1)]).Js);
+        Assert.Null(RunReport.Build([Rec(1)]).Css);
+        Assert.Null(RunReport.Build([WebRec(1, EditKind.Js, 0)]).Css);
+        Assert.Equal("CSS: 실행 1건, 성공 1건, 실패 유형 없음", RunReport.Build([WebRec(1, EditKind.Css, 0)]).Css!.CssLine());
+    }
 }

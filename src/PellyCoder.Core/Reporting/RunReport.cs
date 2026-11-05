@@ -32,7 +32,9 @@ public sealed record RunReportData(
     IReadOnlyDictionary<int, int> AttemptDistribution,
     TestFirstCounts? TestFirst = null,
     CharTestCounts? CharTest = null,
-    AspCounts? Asp = null);
+    AspCounts? Asp = null,
+    WebCounts? Js = null,
+    WebCounts? Css = null);
 
 /// <summary>
 /// <c>pelly test</c> runs (kind <c>CSharpTest</c>): runs, runs that kept tests (CharTest.Kept > 0; a dry-run exits 0 but keeps nothing), mean attempts and failure kinds.
@@ -59,6 +61,21 @@ public sealed record AspCounts(int Runs, int Succeeded, int CompileSkipped, IRea
         var kinds = FailureKinds.Count == 0 ? "없음" : string.Join(", ", FailureKinds.Select(f => $"{f.Key} {f.Value}"));
         return $"ASP: 실행 {Runs}건, 성공 {Succeeded}건, 컴파일 검사 건너뜀 {CompileSkipped}건, 실패 유형 {kinds}";
     }
+}
+
+/// <summary>
+/// <c>pelly js</c> or <c>pelly css</c> runs (kind <c>Js</c>/<c>Css</c>, also counted in the edit figures): runs, succeeded (exit 0 and not
+/// a dry-run, as for ASP), runs with at least one language-level rejection (JS only) and failure kinds. Counts and known kinds only.
+/// </summary>
+public sealed record WebCounts(int Runs, int Succeeded, int LevelRejected, IReadOnlyDictionary<string, int> FailureKinds)
+{
+    /// <summary>「JS: 실행 N건, 성공 K건, 문법 수준 거절 M건, 실패 유형 …」</summary>
+    public string JsLine() => $"JS: 실행 {Runs}건, 성공 {Succeeded}건, 문법 수준 거절 {LevelRejected}건, 실패 유형 {Kinds()}";
+
+    /// <summary>「CSS: 실행 N건, 성공 K건, 실패 유형 …」</summary>
+    public string CssLine() => $"CSS: 실행 {Runs}건, 성공 {Succeeded}건, 실패 유형 {Kinds()}";
+
+    private string Kinds() => FailureKinds.Count == 0 ? "없음" : string.Join(", ", FailureKinds.Select(f => $"{f.Key} {f.Value}"));
 }
 
 /// <summary>Test-first KPIs per run: Met of Judged (acceptance criteria met), RedWarned of RedChecked (baseline already green).</summary>
@@ -103,7 +120,19 @@ public static class RunReport
             s.GroupBy(x => x.Attempts).OrderBy(g => g.Key).ToDictionary(g => g.Key, g => g.Count()),
             CountTestFirst(s),
             CountCharTests(charTests),
-            CountAsp(s));
+            CountAsp(s),
+            CountWeb(s, EditKind.Js),
+            CountWeb(s, EditKind.Css));
+    }
+
+    private static WebCounts? CountWeb(List<RunSummary> edits, EditKind kind)
+    {
+        var s = edits.Where(x => x.Kind == kind).ToList();
+        if (s.Count == 0) return null;
+        // A dry-run exits 0 at APPLY; a run that kept its change was approved in REVIEW.
+        var succeeded = s.Count(x => x.ExitCode == ExitCodes.Success && x.PhaseSeconds.ContainsKey(RunPhase.Review));
+        var levelRejected = s.Count(x => x.Web is { LevelRejections: > 0 });
+        return new WebCounts(s.Count, succeeded, levelRejected, CountFailures(s));
     }
 
     private static AspCounts? CountAsp(List<RunSummary> edits)

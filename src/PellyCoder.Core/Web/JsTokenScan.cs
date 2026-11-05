@@ -16,6 +16,12 @@ public static class JsTokenScan
     public static IReadOnlyList<JsScanProblem> Problems(string textLf) =>
         Run(textLf).Problems.OrderBy(p => p.Line).ToList();
 
+    /// <summary>
+    /// The text with comments, regex literal bodies, string contents and template text turned into spaces (quotes, backticks
+    /// and <c>${ }</c> expressions stay; line breaks stay, so line N of the mask is line N of the text).
+    /// </summary>
+    public static string Mask(string textLf) => new(Run(textLf).Code);
+
     private const string RegexPrefix = "(,=:[!&|?{};";
 
     private static readonly HashSet<string> RegexKeywords = new(StringComparer.Ordinal)

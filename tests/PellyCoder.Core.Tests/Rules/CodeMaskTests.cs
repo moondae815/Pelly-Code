@@ -122,4 +122,29 @@ public class CodeMaskTests
         Assert.Single(violations);
         Assert.Equal(CodeMask.Asp(inCode).IndexOf("Response.Redirect", StringComparison.Ordinal), inCode.IndexOf("Response.Redirect", StringComparison.Ordinal));
     }
+
+    [Fact]
+    public void Js_StringsAndCommentsMasked()
+    {
+        const string text = "var a = \"eval(x)\"; // eval(y)\n/* new Function(\n) */ var b = `t ${c} u`;\nvar r = /\"x/;\n";
+        var mask = CodeMask.Js(text);
+        Assert.Equal(text.Length, mask.Length);
+        Assert.Equal(text.Count(ch => ch == '\n'), mask.Count(ch => ch == '\n'));
+        Assert.DoesNotContain("eval", mask);
+        Assert.DoesNotContain("Function", mask);
+        Assert.Contains("var a = \"       \";", mask);
+        Assert.Contains("${c}", mask);
+        Assert.Contains("var b = ", mask);
+    }
+
+    [Fact]
+    public void Css_CommentsMasked()
+    {
+        const string text = ".a { /* x\n y */ content: \"/* keep */\"; }\n";
+        var mask = CodeMask.Css(text);
+        Assert.Equal(text.Length, mask.Length);
+        Assert.DoesNotContain("x", mask.Replace("content", ""));
+        Assert.Contains("\"/* keep */\"", mask);
+        Assert.Equal(2, mask.Count(ch => ch == '\n'));
+    }
 }

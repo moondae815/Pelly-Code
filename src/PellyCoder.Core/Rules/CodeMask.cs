@@ -88,6 +88,40 @@ public static class CodeMask
         return new string(chars);
     }
 
+    /// <summary>
+    /// Masks JavaScript comments, string contents and template-literal text (quotes and backticks stay, <c>${ }</c> code stays);
+    /// line breaks are kept, so line N of the mask is line N of the text.
+    /// </summary>
+    public static string Js(string textLf) => PellyCoder.Core.Web.JsTokenScan.Mask(textLf);
+
+    /// <summary>Masks CSS comments only (strings are skipped, so <c>"/*"</c> inside one is not a comment); line breaks are kept.</summary>
+    public static string Css(string textLf)
+    {
+        var chars = textLf.ToCharArray();
+        var i = 0;
+        while (i < chars.Length)
+        {
+            var c = chars[i];
+            if (c == '"' || c == '\'')
+            {
+                i++;
+                while (i < chars.Length && chars[i] != c && chars[i] != '\n')
+                    i += chars[i] == '\\' ? 2 : 1;
+                i++;
+            }
+            else if (c == '/' && i + 1 < chars.Length && chars[i + 1] == '*')
+            {
+                var end = textLf.IndexOf("*/", i + 2, StringComparison.Ordinal);
+                var stop = end < 0 ? chars.Length : end + 2;
+                for (var k = i; k < stop; k++)
+                    if (chars[k] is not ('\n' or '\r')) chars[k] = ' ';
+                i = stop;
+            }
+            else i++;
+        }
+        return new string(chars);
+    }
+
     private static bool IsCSharpLiteralText(SyntaxKind kind) => kind is SyntaxKind.StringLiteralToken or SyntaxKind.CharacterLiteralToken
         or SyntaxKind.Utf8StringLiteralToken or SyntaxKind.InterpolatedStringTextToken
         or SyntaxKind.SingleLineRawStringLiteralToken or SyntaxKind.MultiLineRawStringLiteralToken

@@ -381,6 +381,7 @@ public sealed class JsDocument
     {
         if (a is Literal { Value: string }) return JsArgKind.StringLiteral;
         if (a is TemplateLiteral { Expressions.Count: 0 }) return JsArgKind.StringLiteral;
+        if (a is TemplateLiteral) return JsArgKind.StringConcat;
         if (a is BinaryExpression { Operator: Operator.Addition } && JsAst.Descendants(a).Any(x => x is Literal { Value: string } or TemplateLiteral))
             return JsArgKind.StringConcat;
         return JsArgKind.Other;

@@ -92,6 +92,24 @@ public class WebSiteIndexTests
         Assert.Equal(new[] { "one" }, Load(fs).Names);
     }
 
+    [Theory]
+    [InlineData("{\"version\":1,\"files\":null}")]
+    [InlineData("{\"version\":1,\"files\":{\"a.js\":null}}")]
+    [InlineData("{\"version\":1,\"files\":{\"a.js\":{\"sha256\":\"SHA\",\"entries\":null}}}")]
+    [InlineData("{\"version\":1,\"files\":{\"a.js\":{\"sha256\":\"SHA\",\"entries\":[null]}}}")]
+    [InlineData("{\"version\":1,\"files\":{\"a.js\":{\"sha256\":\"SHA\",\"entries\":[{\"name\":null,\"line\":1,\"declaration\":\"x\"}]}}}")]
+    public void Index_NullMembersCache_Rebuilt(string cache)
+    {
+        const string text = "function one() {}\n";
+        var sha = PellyCoder.Core.Files.TextFileCodec.HashHex(Encoding.UTF8.GetBytes(text));
+        var fs = Fs(("/site/a.js", text), (Cache, cache.Replace("SHA", sha)));
+
+        Assert.Equal(new[] { "one" }, Load(fs).Names);
+        var json = fs.File.ReadAllText(Cache);
+        Assert.Contains("\"name\":\"one\"", json);
+        Assert.DoesNotContain("null", json);
+    }
+
     [Fact]
     public void Index_Truncated_AtMaxFiles()
     {

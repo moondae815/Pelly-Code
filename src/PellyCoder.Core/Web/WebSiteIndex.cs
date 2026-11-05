@@ -57,7 +57,9 @@ public static class WebSiteIndex
         List<(string Rel, string Full)> candidates;
         try
         {
-            candidates = fs.Directory.EnumerateFiles(siteRoot, "*", SearchOption.AllDirectories)
+            // A folder that cannot be read is skipped, not the whole index.
+            var options = new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true };
+            candidates = fs.Directory.EnumerateFiles(siteRoot, "*", options)
                 .Where(p => p.EndsWith(".js", StringComparison.OrdinalIgnoreCase))
                 .Select(p => (Rel: Relative(root, p), Full: p))
                 .OrderBy(c => c.Rel, StringComparer.Ordinal)
@@ -194,13 +196,18 @@ public static class WebSiteIndex
         {
             if (!fs.File.Exists(path)) return new CacheFile();
             var c = JsonSerializer.Deserialize<CacheFile>(fs.File.ReadAllText(path), Json);
-            return c is { Version: CacheVersion } && c.Files is not null ? c : new CacheFile();
+            return c is { Version: CacheVersion } && Complete(c) ? c : new CacheFile();
         }
         catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException or NotSupportedException)
         {
             return new CacheFile();
         }
     }
+
+    /// <summary>False when the JSON left a member null (a hand-edited or partly written cache); it is then rebuilt.</summary>
+    private static bool Complete(CacheFile c) =>
+        c.Files is not null && c.Files.Values.All(item => item is { Sha256: not null, Entries: not null }
+            && item.Entries.All(e => e is { Name: not null, Declaration: not null }));
 
     private static void WriteCache(IFileSystem fs, string path, CacheFile cache)
     {

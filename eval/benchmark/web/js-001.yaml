@@ -2,6 +2,6 @@ id: js-001
 kind: function
 file: js/common.js
 function: isEmpty
-request: "값이 undefined여도 빈 값으로 보고 true를 돌려줘"
-mustContain: ["undefined"]
+request: "값이 배열이면 길이가 0일 때 빈 값으로 보고 true를 돌려줘"
+mustContain: ["length"]
 mustNotContain: ["=>", "let ", "const "]

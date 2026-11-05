@@ -3,5 +3,7 @@ kind: lines
 file: css/admin.css
 lines: 7-10
 request: "버튼 안쪽 여백을 4px 8px로 하고 테두리는 없애줘"
-mustContain: ["4px 8px", "progid:DXImageTransform"]
+mustContain: ["4px 8px"]
+# mustKeep: already in the original; the edit must not drop the IE gradient hack (preservation check, not request evidence)
+mustKeep: ["progid:DXImageTransform", "red\\9"]
 mustNotContain: []

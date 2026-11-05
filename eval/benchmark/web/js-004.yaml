@@ -2,6 +2,6 @@ id: js-004
 kind: lines
 file: js/common.js
 lines: 8-16
-request: "날짜 형식이 틀렸을 때 알림 창은 띄우지 말고 false만 돌려줘"
-mustContain: ["return false"]
+request: "날짜 형식이 틀렸을 때 알림 창 대신 id가 dateError인 요소에 같은 문구를 보여 주고 false를 돌려줘"
+mustContain: ["dateError"]
 mustNotContain: ["alert(", "=>", "let ", "const "]

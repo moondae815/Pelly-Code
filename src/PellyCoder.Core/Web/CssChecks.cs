@@ -16,11 +16,17 @@ public static class CssChecks
         return result.OrderBy(p => p.Line).ThenBy(p => p.Column).ToArray();
     }
 
-    /// <summary>For a rule target: exactly one rule with the same selector and container must remain; null otherwise.</summary>
+    /// <summary>
+    /// For a rule target: as many rules with the same kind, selector and container as in the original must remain (a selector
+    /// or @media head may repeat), so the target at its original position among them still exists; null when they do.
+    /// </summary>
     public static string? ShapeViolation(WebRunState state, CssSheet patched)
     {
         if (state.Unit != WebTargetUnit.Rule || state.Rule is not { } rule) return null;
-        var count = patched.Rules.Count(r => r.Selector == rule.Selector && r.Container == rule.Container);
-        return count == 1 ? null : $"선택자 {rule.Selector}를 바꿀 수 없습니다";
+        bool Same(CssRule r) => r.IsAtRule == rule.IsAtRule && r.Selector == rule.Selector && r.Container == rule.Container;
+        var was = (state.OriginalCss ?? CssSheet.Parse(state.OriginalText)).Rules.Where(Same).ToList();
+        var (expected, index) = JsChecks.Occurrence(was.Count, was.FindIndex(r => r.StartLine == rule.StartLine));
+        var now = patched.Rules.Where(Same).ToList();
+        return now.Count == expected && index < now.Count ? null : $"선택자 {rule.Selector}를 바꿀 수 없습니다";
     }
 }

@@ -207,6 +207,48 @@ public sealed class WebOrchestratorTests
     }
 
     [Fact]
+    public async Task Js_SecondOfTwoSameNamedFunctions_BodyEdit_Exit0()
+    {
+        const string twoInits =
+            "function OrderA() {\n" +              // 1
+            "  this.init = function (x) {\n" +     // 2
+            "    return x;\n" +                    // 3
+            "  };\n" +                             // 4
+            "}\n" +                                // 5
+            "function OrderB() {\n" +              // 6
+            "  this.init = function (y) {\n" +     // 7
+            "    return y;\n" +                    // 8
+            "  };\n" +                             // 9
+            "}\n";                                 // 10
+        Prepare(JsPath, twoInits);
+        _ui.IsInteractive = true;
+        _ui.SelectIndex = labels => labels.ToList().FindIndex(l => l.Contains("줄 7-9", StringComparison.Ordinal));
+        _backend.Enqueue(Block("    return y;", "    return y + 1;"));
+
+        var exit = await RunJs(function: "init");
+
+        Assert.Equal(0, exit);
+        Assert.Equal(twoInits.Replace("    return y;", "    return y + 1;"), _fs.File.ReadAllText(JsPath));
+        Assert.Equal(2, Assert.Single(_ui.SelectLabels).Count);
+        Assert.Equal("passed", Summary().GetProperty("web").GetProperty("checks").GetProperty("Shape").GetString());
+    }
+
+    [Fact]
+    public async Task Css_SecondOfRepeatedSelector_ValueEdit_Exit0()
+    {
+        const string repeated = ".card {\n  margin: 0;\n}\n.box {\n  color: red;\n}\n.card {\n  padding: 0;\n}\n";
+        Prepare(CssPath, repeated);
+        _ui.IsInteractive = true;
+        _ui.SelectIndex = labels => labels.ToList().FindIndex(l => l.Contains("줄 7-9", StringComparison.Ordinal));
+        _backend.Enqueue(Block("  padding: 0;", "  padding: 4px;"));
+
+        var exit = await RunCss();
+
+        Assert.Equal(0, exit);
+        Assert.Equal(repeated.Replace("  padding: 0;", "  padding: 4px;"), _fs.File.ReadAllText(CssPath));
+    }
+
+    [Fact]
     public async Task Review_ShowsChecksAndBanner_EvenWithYes()
     {
         Prepare(JsPath, OrderJs);

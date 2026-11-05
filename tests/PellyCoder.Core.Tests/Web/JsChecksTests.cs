@@ -137,4 +137,60 @@ public class JsChecksTests
         Assert.Equal("함수 fnSearch의 매개변수를 바꿀 수 없습니다: (a, b) → (a, b, c)", msg);
         Assert.Null(JsChecks.ShapeViolation(state, null, original.Replace("return a;", "return b;")));
     }
+
+    private const string TwoInits =
+        "function A() {\n  this.init = function (x) {\n    return x;\n  };\n}\n"
+        + "function B() {\n  this.init = function (y) {\n    return y;\n  };\n}\n";
+
+    [Fact]
+    public void Shape_DuplicateName_BodyEdit_Null()
+    {
+        var state = WebTestState.Js(TwoInits, "this.init", occurrence: 1);
+        Assert.Equal(7, state.Function!.DeclLine);
+        var patched = TwoInits.Replace("return y;", "return y + 1;");
+        Assert.Null(JsChecks.ShapeViolation(state, JsDocument.Parse(patched, EcmaVersion.ES5, false), patched));
+    }
+
+    [Fact]
+    public void Shape_DuplicateName_TargetParamChanged_Rejected()
+    {
+        var state = WebTestState.Js(TwoInits, "this.init", occurrence: 1);
+        var patched = TwoInits.Replace("function (y)", "function (y, z)");
+        var msg = JsChecks.ShapeViolation(state, JsDocument.Parse(patched, EcmaVersion.ES5, false), patched);
+        Assert.Equal("함수 this.init의 매개변수를 바꿀 수 없습니다: (y) → (y, z)", msg);
+    }
+
+    [Fact]
+    public void Shape_DuplicateName_OneRemoved_Rejected()
+    {
+        var state = WebTestState.Js(TwoInits, "this.init", occurrence: 1);
+        var patched = TwoInits.Replace("this.init = function (x)", "this.start = function (x)");
+        Assert.Equal("함수 this.init를 찾을 수 없습니다(이름을 바꾸지 마십시오)",
+            JsChecks.ShapeViolation(state, JsDocument.Parse(patched, EcmaVersion.ES5, false), patched));
+    }
+
+    [Fact]
+    public void Shape_DeclaredTwice_SecondEdited_Null()
+    {
+        const string original = "function f(a) {\n  return a;\n}\nfunction f(a) {\n  return a * 2;\n}\n";
+        var state = WebTestState.Js(original, "f", occurrence: 1);
+        var patched = original.Replace("a * 2", "a * 3");
+        Assert.Null(JsChecks.ShapeViolation(state, JsDocument.Parse(patched, EcmaVersion.ES5, false), patched));
+        var added = original.Replace("function f(a) {\n  return a * 2", "function f(a, b) {\n  return a * 2");
+        Assert.Equal("함수 f의 매개변수를 바꿀 수 없습니다: (a) → (a, b)",
+            JsChecks.ShapeViolation(state, JsDocument.Parse(added, EcmaVersion.ES5, false), added));
+    }
+
+    [Fact]
+    public void Shape_Fallback_DuplicateName()
+    {
+        const string original = "var q = @@;\nfunction f(a) {\n  return a;\n}\nfunction f(b) {\n  return b;\n}\n";
+        var state = WebTestState.Js(original, "f", occurrence: 1);
+        Assert.True(state.Fallback);
+        Assert.Null(JsChecks.ShapeViolation(state, null, original.Replace("return b;", "return b + 1;")));
+        Assert.Equal("함수 f의 매개변수를 바꿀 수 없습니다: (b) → (b, c)",
+            JsChecks.ShapeViolation(state, null, original.Replace("function f(b)", "function f(b, c)")));
+        Assert.Equal("함수 f를 찾을 수 없습니다(이름을 바꾸지 마십시오)",
+            JsChecks.ShapeViolation(state, null, original + "function f(c) {\n}\n"));
+    }
 }

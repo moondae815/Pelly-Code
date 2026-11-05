@@ -59,10 +59,16 @@ public static class JsChecks
         else if (patched is null || patched.Error is not null) return null; // syntax is reported by Syntax
         else functions = patched.Functions;
 
+        // Same-named functions (two constructors' this.init, a name declared twice) are allowed: the count must stay the same
+        // and the one at the target's position among them (as WebSlicePhase re-finds it) keeps its parameters.
+        var originals = (state.Fallback ? null : state.OriginalJs?.Functions) ?? JsTokenScan.FunctionDeclarations(state.OriginalText);
+        var was = originals.Where(f => f.QualifiedName == name).ToList();
         var same = functions.Where(f => f.QualifiedName == name).ToList();
-        if (same.Count != 1) return $"함수 {name}를 찾을 수 없습니다(이름을 바꾸지 마십시오)";
-        if (!same[0].Parameters.SequenceEqual(target.Parameters))
-            return $"함수 {name}의 매개변수를 바꿀 수 없습니다: ({string.Join(", ", target.Parameters)}) → ({string.Join(", ", same[0].Parameters)})";
+        var (expected, index) = Occurrence(was.Count, was.FindIndex(f => f.DeclLine == target.DeclLine));
+        if (same.Count != expected) return $"함수 {name}를 찾을 수 없습니다(이름을 바꾸지 마십시오)";
+        var now = same[index];
+        if (!now.Parameters.SequenceEqual(target.Parameters))
+            return $"함수 {name}의 매개변수를 바꿀 수 없습니다: ({string.Join(", ", target.Parameters)}) → ({string.Join(", ", now.Parameters)})";
 
         if (!state.Fallback && patched is not null && state.OriginalJs is { } original)
         {
@@ -71,4 +77,11 @@ public static class JsChecks
         }
         return null;
     }
+
+    /// <summary>
+    /// How many same-named targets must remain and which of them is the target: the original count and the target's index
+    /// among them; exactly one at index 0 when the original target is not among them.
+    /// </summary>
+    internal static (int Expected, int Index) Occurrence(int originalCount, int originalIndex) =>
+        originalIndex < 0 || originalIndex >= originalCount ? (1, 0) : (originalCount, originalIndex);
 }

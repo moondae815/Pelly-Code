@@ -5,6 +5,7 @@ using PellyCoder.Core.Asp;
 using PellyCoder.Core.Models;
 using PellyCoder.Core.Rules;
 using PellyCoder.Core.Testing;
+using PellyCoder.Core.Web;
 using Diagnostic = PellyCoder.Core.Models.Diagnostic;
 
 namespace PellyCoder.Core.Feedbacks;
@@ -194,6 +195,55 @@ public sealed partial class FeedbackBuilder(ITokenCounter tokens, int budget)
         var cut = Truncate(only.Statement.Trim(), s => Compose([EntryOf(only, s)]));
         return Done(Compose([EntryOf(only, cut)]));
     }
+
+    /// <summary>
+    /// <c>LANGUAGE LEVEL EXCEEDED</c>: the file is written at <paramref name="levelName"/> and the patch used <paramref name="feature"/>
+    /// on <paramref name="line"/>; asks for a rewrite at that level, then <see cref="KeepRequest"/>. Over budget the line text is cut.
+    /// </summary>
+    public Feedback ForJsLevel(string levelName, string feature, int line, string lineText)
+    {
+        string Compose(string l) =>
+            $"LANGUAGE LEVEL EXCEEDED\nThis file is written in {levelName}. {feature} cannot be used (line {line}): {l}\n"
+            + $"Rewrite it with {levelName} syntax only.\n{KeepRequest}";
+        return Done(Compose(Truncate(lineText.Trim(), Compose)));
+    }
+
+    /// <summary>
+    /// <c>WEB SAFETY REJECTED (n new findings)</c>, one <c>line N: reason: statement</c> per finding, then <see cref="KeepRequest"/>.
+    /// Over budget: drop findings from the back, then cut the first statement.
+    /// </summary>
+    public Feedback ForWebSafety(IReadOnlyList<WebSafetyFinding> findings)
+    {
+        var unique = findings.DistinctBy(f => (f.Line, f.Rule, f.Text)).ToList();
+        var head = $"WEB SAFETY REJECTED ({unique.Count} new {(unique.Count == 1 ? "finding" : "findings")})";
+        if (unique.Count == 0) return Done(head);
+        string Compose(IEnumerable<string> entries) => string.Join("\n", new[] { head }.Concat(entries).Append(KeepRequest));
+        static string EntryOf(WebSafetyFinding f, string text) => $"line {f.Line}: {WebSafetyReason(f.Rule)}: {text}";
+        var all = unique.Select(f => EntryOf(f, f.Text.Trim())).ToList();
+        for (var count = all.Count; count >= 1; count--)
+        {
+            var text = Compose(all.Take(count));
+            if (Fits(text)) return Done(text);
+        }
+        var only = unique[0];
+        var cut = Truncate(only.Text.Trim(), t => Compose([EntryOf(only, t)]));
+        return Done(Compose([EntryOf(only, cut)]));
+    }
+
+    private static string WebSafetyReason(string rule) => rule switch
+    {
+        JsSafetyGuard.Eval => "eval() runs a string as code; do not add it",
+        JsSafetyGuard.FunctionConstructor => "new Function(...) builds code from a string; do not add it",
+        JsSafetyGuard.StringTimer => "setTimeout/setInterval with a string runs it as code; pass a function instead",
+        JsSafetyGuard.DocumentWrite => "document.write injects markup while the page loads; use DOM methods instead",
+        JsSafetyGuard.ExecScript => "execScript runs a string as code; do not add it",
+        JsSafetyGuard.ActiveX => "ActiveXObject gives scripts access to the machine; do not add it",
+        CssSafetyGuard.Expression => "CSS expression() runs script from a style; do not add it",
+        CssSafetyGuard.Behavior => "CSS behavior: attaches script components; do not add it",
+        CssSafetyGuard.MozBinding => "CSS -moz-binding attaches XBL code; do not add it",
+        CssSafetyGuard.JavascriptUrl => "a javascript: URL in CSS runs script; do not add it",
+        _ => rule,
+    };
 
     private static string AspSafetyHint(string rule, IReadOnlyList<string> sanitizers) => rule switch
     {

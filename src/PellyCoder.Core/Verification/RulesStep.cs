@@ -41,6 +41,10 @@ public sealed class RulesStep(FeedbackBuilder feedback) : IVerifierStep
         {
             if (ctx.Target?.Kind == EditKind.Asp)
                 return CodeMask.Asp(ctx.Current.Text);
+            if (ctx.Target?.Kind == EditKind.Js)
+                return CodeMask.Js(ctx.Current.Text);
+            if (ctx.Target?.Kind == EditKind.Css)
+                return CodeMask.Css(ctx.Current.Text);
             if (ctx.Target?.Kind == EditKind.Sql)
                 return ctx.Sql is { } sql ? CodeMask.Sql(ctx.Current.Text, sql.CompatLevel, sql.Settings.QuotedIdentifier) : null;
             return CodeMask.CSharp(ctx.Current.Text, ctx.Language?.Version ?? Microsoft.CodeAnalysis.CSharp.LanguageVersion.Preview);

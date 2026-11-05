@@ -7,7 +7,7 @@ namespace PellyCoder.Core.Web;
 /// Result of <see cref="JsChecks.Syntax"/>. <see cref="Patched"/> is the parsed patched file (null in fallback mode or when it
 /// does not parse); with <see cref="LevelExceeded"/> it is the file parsed at the latest level.
 /// </summary>
-public sealed record JsSyntaxVerdict(JsDocument? Patched, IReadOnlyList<Diagnostic> Errors, bool LevelExceeded, string? Feature, int? FeatureLine);
+public sealed record JsSyntaxVerdict(JsDocument? Patched, IReadOnlyList<Diagnostic> Errors, bool LevelExceeded, string? Feature, int? FeatureLine, string? FeatureEnglish = null);
 
 /// <summary>Blocking JS checks run on a patched file; everything is counted as new compared with the original, by content.</summary>
 public static class JsChecks
@@ -24,8 +24,8 @@ public static class JsChecks
         if (latest.Error is null)
         {
             if (JsFeatures.FirstAbove(patchedText, state.Module, target) is { } hit)
-                return new JsSyntaxVerdict(latest, [], true, hit.Feature, hit.Line);
-            return new JsSyntaxVerdict(latest, [], true, doc.Error.Description, doc.Error.Line);
+                return new JsSyntaxVerdict(latest, [], true, hit.Feature, hit.Line, JsFeatures.EnglishNameOf(hit.Feature));
+            return new JsSyntaxVerdict(latest, [], true, doc.Error.Description, doc.Error.Line, doc.Error.Description);
         }
 
         var e = latest.Error;

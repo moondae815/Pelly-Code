@@ -147,6 +147,9 @@ public sealed class WebApplyPhaseTests
         Assert.StartsWith("LANGUAGE LEVEL EXCEEDED", ctx.Feedback!.Text);
         Assert.Contains("This file is written in ES5.", ctx.Feedback.Text);
         Assert.Contains("(line 8): ", ctx.Feedback.Text);
+        Assert.Contains("arrow functions", ctx.Feedback.Text);
+        Assert.DoesNotContain("화살표", ctx.Feedback.Text);
+        Assert.Contains("화살표", ctx.Web!.Checks["Level"].Detail);
         Assert.Contains("Rewrite it with ES5 syntax only.", ctx.Feedback.Text);
         Assert.Contains(FeedbackBuilder.KeepRequest, ctx.Feedback.Text);
         Assert.Equal(1, ctx.Web!.LevelRejections);

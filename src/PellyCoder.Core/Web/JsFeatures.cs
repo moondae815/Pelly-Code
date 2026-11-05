@@ -34,6 +34,9 @@ public static class JsFeatures
     public static IReadOnlyList<JsFeature> Above(EcmaVersion target) =>
         Table.Where(f => JsLevels.Compare(f.Level, target) > 0).ToList();
 
+    /// <summary>The English name of a feature given its display <see cref="JsFeature.Name"/>; the input when unknown.</summary>
+    public static string EnglishNameOf(string name) => Table.FirstOrDefault(f => f.Name == name)?.EnglishName ?? name;
+
     public static (string Feature, int Line)? FirstAbove(string textLf, bool module, EcmaVersion target)
     {
         if (JsDocument.TryParse(textLf, EcmaVersion.Latest, module, out var program) is not null || program is null)

@@ -111,7 +111,7 @@ public sealed class WebApplyPhase(FileGuard fileGuard, FeedbackBuilder feedback,
                 var line = verdict.FeatureLine ?? 1;
                 state.LevelRejections++;
                 state.Record(LevelCheck, AspCheckStatus.Failed, $"{feature} (줄 {line})");
-                ctx.Feedback = feedback.ForJsLevel(JsLevels.Name(target), feature, line, LineOf(newText, line));
+                ctx.Feedback = feedback.ForJsLevel(JsLevels.Name(target), verdict.FeatureEnglish ?? feature, line, LineOf(newText, line));
                 ctx.FailureKind = FailureKinds.JsLevelExceeded;
                 return PhaseOutcome.MatchFailed;
             }

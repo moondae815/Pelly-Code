@@ -51,4 +51,17 @@ public class JsApiCheckTests
         var one = Assert.Single(w);
         Assert.Contains("`Promise`는 ES2015 기능입니다(이 파일 기준 ES5)", one);
     }
+
+    private static IReadOnlyList<string> WV(string p, Version v) =>
+        JsApiCheck.NewWarnings(D(""), D(p), EcmaVersion.ES5, v, WebBuiltins.Default);
+
+    [Fact]
+    public void On_SiteJquery17TwoPart_NotWarned() => Assert.Empty(WV("$(\"#a\").on(\"click\", f);\n", new Version(1, 7)));
+
+    [Fact]
+    public void On_SiteJquery170ThreePart_NotWarned() => Assert.Empty(WV("$(\"#a\").on(\"click\", f);\n", new Version(1, 7, 0)));
+
+    [Fact]
+    public void Removed_SiteJquery19TwoPart_Warned() =>
+        Assert.Single(WV("$(\"#a\").live(\"click\", f);\n", new Version(1, 9)));
 }

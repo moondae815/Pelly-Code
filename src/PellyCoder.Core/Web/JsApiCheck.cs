@@ -17,6 +17,9 @@ public static class JsApiCheck
         return result;
     }
 
+    // Version(1,7) has Build -1 and compares lower than Version(1,7,0); compare with a normalized build number.
+    private static Version Norm(Version v) => new(v.Major, v.Minor, Math.Max(v.Build, 0));
+
     private static IEnumerable<(string Text, int Line)> Collect(JsDocument doc, EcmaVersion target, Version? jquery, WebBuiltins b)
     {
         var uses = new List<(string Callee, int Line, bool Free)>();
@@ -40,9 +43,9 @@ public static class JsApiCheck
             if (free || jquery is null || member is null) continue;
             if (dot > 0 && callee[..dot] is not ("$" or "jQuery")) continue;
             if (b.Jquery(member) is not { } jq) continue;
-            if (jq.Added is { } added && jquery < added)
+            if (jq.Added is { } added && Norm(jquery) < Norm(added))
                 yield return ($"`.{member}`은 jQuery {added}부터 있습니다(사이트 기준 {jquery})", line);
-            else if (jq.Removed is { } removed && jquery >= removed)
+            else if (jq.Removed is { } removed && Norm(jquery) >= Norm(removed))
                 yield return ($"`.{member}`은 jQuery {removed}에서 없어졌습니다(사이트 기준 {jquery})", line);
         }
     }

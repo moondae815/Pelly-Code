@@ -16,6 +16,12 @@ public class CssPropertyCheckTests
     }
 
     [Fact]
+    public void FontFaceDescriptorsAndOldGridGaps_Known() =>
+        Assert.Empty(U("a { color: red; }\n",
+            "@font-face {\n  font-family: X;\n  src: url(x.woff);\n  font-display: swap;\n  unicode-range: U+0-FF;\n}\n"
+            + "a { color: red; grid-gap: 1px; grid-row-gap: 1px; grid-column-gap: 1px; }\n"));
+
+    [Fact]
     public void IeHackPrefix_AllowedWhenOriginalUses() =>
         Assert.Empty(U("a { *zoom: 1; }\n", "a { *zoom: 1; _height: 1%; }\n"));
 

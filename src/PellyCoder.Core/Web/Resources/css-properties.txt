@@ -1,6 +1,7 @@
 # CSS property names (lowercase, one per line).
 # Source: MDN Web Docs CSS reference (https://developer.mozilla.org/docs/Web/CSS/Reference), standard properties,
-# plus legacy IE-era properties still seen in old sites (zoom, ime-mode, scrollbar-*-color). Vendor-prefixed names are not listed.
+# plus the @font-face descriptors (src, font-display, unicode-range), the old grid gap names (grid-gap, grid-row-gap,
+# grid-column-gap) and legacy IE-era properties still seen in old sites (zoom, ime-mode, scrollbar-*-color). Vendor-prefixed names are not listed.
 accent-color
 align-content
 align-items
@@ -163,6 +164,7 @@ float
 flood-color
 flood-opacity
 font
+font-display
 font-family
 font-feature-settings
 font-kerning
@@ -192,9 +194,12 @@ grid-auto-flow
 grid-auto-rows
 grid-column
 grid-column-end
+grid-column-gap
 grid-column-start
+grid-gap
 grid-row
 grid-row-end
+grid-row-gap
 grid-row-start
 grid-template
 grid-template-areas
@@ -370,6 +375,7 @@ shape-image-threshold
 shape-margin
 shape-outside
 shape-rendering
+src
 stop-color
 stop-opacity
 stroke
@@ -422,6 +428,7 @@ transition-property
 transition-timing-function
 translate
 unicode-bidi
+unicode-range
 user-select
 vector-effect
 vertical-align

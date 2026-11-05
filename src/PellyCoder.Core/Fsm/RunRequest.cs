@@ -23,7 +23,8 @@ namespace PellyCoder.Core.Fsm;
 /// after it); null means every name has both (a <c>pelly cs</c> run). <paramref name="ExpectedTestHashes"/> maps named tests
 /// (as spelled in <paramref name="VerifyTests"/>) to the <see cref="TestDeclarationHash.Of"/> their caller recorded; VERIFY's
 /// test step fails with <c>TestFileChanged</c> when a declaration no longer hashes to it. <paramref name="Lines"/>
-/// (<c>pelly asp --lines A-B</c>) is a line range target, used as given.
+/// (<c>pelly asp --lines A-B</c>) is a line range target, used as given. <paramref name="Selector"/> (<c>pelly css --selector</c>)
+/// names the target CSS rule.
 /// </summary>
 public sealed record RunRequest(
     string FilePath, string? ClassName, string? MethodName, int? Line, string Request, bool Yes, bool DryRun, int? MaxRetries,
@@ -32,7 +33,7 @@ public sealed record RunRequest(
     IReadOnlyList<string>? VerifyTests = null, IReadOnlyList<string>? ExpectBreaks = null,
     IReadOnlyDictionary<string, TestCheck>? TestChecks = null,
     IReadOnlyDictionary<string, string>? ExpectedTestHashes = null,
-    TextSpanInfo? Lines = null)
+    TextSpanInfo? Lines = null, string? Selector = null)
 {
     /// <summary>A test-first run: it always runs the tests and judges RED before the first write and GREEN after it.</summary>
     public bool TestFirst => VerifyTests is { Count: > 0 };
@@ -245,6 +246,9 @@ public sealed class RunContext(string runId, RunRequest request, PellyOptions op
 
     /// <summary>Set by ASP LOCATE; null in other runs.</summary>
     public PellyCoder.Core.Asp.AspRunState? Asp { get; set; }
+
+    /// <summary>Set by JS/CSS LOCATE; null in other runs.</summary>
+    public PellyCoder.Core.Web.WebRunState? Web { get; set; }
     public MemberCandidate? Candidate { get; set; }
 
     /// <summary>SLICE's dto text with the (member display, file sha) it was built for; a retry with both unchanged reuses it.</summary>

@@ -287,6 +287,20 @@ public sealed class FsmOrchestrator(
                 { Lines: { } lines } => $"대상 찾기: 줄 {lines.StartLine}-{lines.EndLine}",
                 _ => "대상 찾기: 파일에서",
             },
+            RunPhase.Locate when ctx.Request.Kind == EditKind.Js => ctx.Request switch
+            {
+                { MethodName: { } function } => $"대상 찾기: 함수 {function}",
+                { Line: { } line } => $"대상 찾기: {line}번 줄",
+                { Lines: { } lines } => $"대상 찾기: 줄 {lines.StartLine}-{lines.EndLine}",
+                _ => "대상 찾기: 파일에서",
+            },
+            RunPhase.Locate when ctx.Request.Kind == EditKind.Css => ctx.Request switch
+            {
+                { Selector: { } selector } => $"대상 찾기: 선택자 {selector}",
+                { Line: { } line } => $"대상 찾기: {line}번 줄",
+                { Lines: { } lines } => $"대상 찾기: 줄 {lines.StartLine}-{lines.EndLine}",
+                _ => "대상 찾기: 파일에서",
+            },
             RunPhase.Locate => ctx.Request switch
             {
                 { Line: { } line } => $"대상 찾기: {line}번 줄",
@@ -298,6 +312,8 @@ public sealed class FsmOrchestrator(
             RunPhase.Apply => ctx.Request.DryRun ? "패치 미리 보기" : "패치 적용",
             RunPhase.Verify when ctx.Request.Kind == EditKind.Sql => "객체 존재·컴파일 검사",
             RunPhase.Verify when ctx.Request.Kind == EditKind.Asp => "이름·컴파일·SP 검사",
+            RunPhase.Verify when ctx.Request.Kind == EditKind.Js => "규칙·이름·API 검사",
+            RunPhase.Verify when ctx.Request.Kind == EditKind.Css => "규칙·속성 검사",
             RunPhase.Verify => ctx.BuildTool is null ? "구문 검사" : ctx.TestProjects.Count > 0 ? "구문 검사·빌드·테스트" : "구문 검사·빌드",
             RunPhase.Review => "변경 검토",
             _ => phase.ToString(),

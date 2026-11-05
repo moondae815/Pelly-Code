@@ -1,0 +1,14 @@
+/* admin.css - 관리자 공통 스타일 */
+body { margin: 0; font-size: 12px; font-family: Gulim, Dotum, sans-serif; }
+.list_tbl { width: 100%; border-collapse: collapse; *zoom: 1; }
+.list_tbl th { height: 28px; _height: 28px; background: #eeeeee; color: #333333; text-align: center; }
+.list_tbl td { padding: 4px; border-bottom: 1px solid #dddddd; }
+.clearfix { *zoom: 1; _height: 1%; }
+.btn_blue {
+    filter: progid:DXImageTransform.Microsoft.gradient(startColorstr='#ffffff', endColorstr='#000000');
+    color: red\9;
+}
+/* 인쇄용 */
+@media print {
+    .list_tbl th { background: none; color: #000000; }
+}

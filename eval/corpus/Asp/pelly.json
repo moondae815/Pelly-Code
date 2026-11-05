@@ -2,5 +2,8 @@
   "asp": {
     "siteRoot": ".",
     "sqlSanitizers": ["SafeSQL"]
+  },
+  "web": {
+    "globals": ["gfnOpenPopup"]
   }
 }

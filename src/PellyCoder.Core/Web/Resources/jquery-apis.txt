@@ -14,5 +14,3 @@ browser - 1.9
 die - 1.9
 selector - 3.0
 size - 3.0
-bind - 3.0
-unbind - 3.0

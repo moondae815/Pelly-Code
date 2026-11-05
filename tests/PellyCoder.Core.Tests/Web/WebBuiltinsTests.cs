@@ -51,8 +51,9 @@ public class WebBuiltinsTests
         Assert.Equal(new Version(1, 8), B.Jquery("addBack")!.Value.Added);
         Assert.Equal((null, new Version(1, 9)), B.Jquery("browser")!.Value);
         Assert.Equal(new Version(3, 0), B.Jquery("size")!.Value.Removed);
-        Assert.Equal(new Version(3, 0), B.Jquery("bind")!.Value.Removed);
-        Assert.Equal(new Version(3, 0), B.Jquery("unbind")!.Value.Removed);
+        // bind/unbind were deprecated, not removed, in jQuery 3.0.
+        Assert.Null(B.Jquery("bind"));
+        Assert.Null(B.Jquery("unbind"));
         Assert.Null(B.Jquery("noSuchThing"));
     }
 

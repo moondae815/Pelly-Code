@@ -82,4 +82,57 @@ public class JsSafetyGuardTests
     {
         Assert.Empty(JsSafetyGuard.NewFindingsText("", "var s = \"eval(\";\n// eval(x)\n/* new Function( */\n"));
     }
+
+    [Fact]
+    public void DocumentWrite_ArgumentEdited_NotCounted()
+    {
+        const string original = "function f() {\n  document.write(\"<b>a</b>\");\n}\n";
+        Assert.Empty(New(original, original.Replace("<b>a</b>", "<b>b</b>")));
+    }
+
+    [Fact]
+    public void Eval_ArgumentEdited_NotCounted() =>
+        Assert.Empty(New("function f() {\n  eval(x);\n}\n", "function f() {\n  eval(y + 1);\n}\n"));
+
+    [Fact]
+    public void StringTimer_ArgumentEdited_NotCounted() =>
+        Assert.Empty(New("setTimeout(\"f()\", 10);\n", "setTimeout(\"g()\", 20);\n"));
+
+    [Fact]
+    public void DocumentWrite_SecondCallAdded_Rejected()
+    {
+        const string original = "function f() {\n  document.write(\"a\");\n}\n";
+        var f = Assert.Single(New(original, "function f() {\n  document.write(\"a\");\n  document.write(\"b\");\n}\n"));
+        Assert.Equal("JsDocumentWrite", f.Rule);
+        Assert.Equal(3, f.Line);
+        Assert.Contains("\"b\"", f.Text);
+    }
+
+    [Fact]
+    public void DocumentWrite_EditedAndAdded_ReportsOnlyTheGrowth()
+    {
+        // Two calls with new text, one more call than before: one finding, the later new one.
+        const string original = "document.write(\"a\");\n";
+        var f = Assert.Single(New(original, "document.write(\"b\");\ndocument.write(\"c\");\n"));
+        Assert.Equal(2, f.Line);
+        // The added call repeats the original text: the edited one is the new text and is reported.
+        var g = Assert.Single(New(original, "document.write(\"z\");\ndocument.write(\"a\");\n"));
+        Assert.Equal(1, g.Line);
+    }
+
+    [Fact]
+    public void FallbackText_ArgumentEdited_NotCounted()
+    {
+        Assert.Empty(JsSafetyGuard.NewFindingsText("var a = @@;\ndocument.write(\"a\");\n", "var a = @@;\ndocument.write(\"b\");\n"));
+        Assert.Empty(JsSafetyGuard.NewFindingsText("var a = @@;\neval(x);\n", "var a = @@;\neval(y);\n"));
+    }
+
+    [Fact]
+    public void FallbackText_DocumentWrite_SecondCallAdded_Rejected()
+    {
+        var f = Assert.Single(JsSafetyGuard.NewFindingsText("var a = @@;\ndocument.write(\"a\");\n",
+            "var a = @@;\ndocument.write(\"a\");\ndocument.write(\"b\");\n"));
+        Assert.Equal("JsDocumentWrite", f.Rule);
+        Assert.Equal(3, f.Line);
+    }
 }

@@ -354,8 +354,8 @@ pelly css css/admin.css "인쇄할 때 파란 버튼 숨기기" --lines 12-14
   | 2 | 인코딩 | 새 텍스트를 파일 인코딩으로 쓸 수 있는가 | 같음 | 재시도, 끝내 `WebEncoding` |
   | 3 | 문법 | 고친 **파일 전체**를 목표 수준으로 해석(오류 줄·열과 해석기 메시지) | 구조: `{}`·`()`·`[]` 짝, 닫히지 않은 문자열·주석, 선언 끝 `;` 빠짐, 규칙 밖 선언 | 재시도, 끝내 `JsSyntaxErrors`·`CssStructureErrors` |
   | 4 | 문법 수준 | 목표 수준보다 높은 문법(아래) | — | 재시도, 끝내 `JsLevelExceeded` |
-  | 5 | 대상 모양 | `--function` 대상이면 그 함수가 하나 있고 이름·매개변수가 같음(요청과 상관없이) | `--selector` 대상이면 그 선택자 규칙이 하나 있고 선택자가 같음 | 재시도, 끝내 `JsTargetChanged`·`CssTargetChanged` |
-  | 6 | 안전 | `JsEval`(`eval`), `JsFunctionConstructor`(`new Function`·`Function(…)`), `JsStringTimer`(첫 인수가 문자열·문자열 연결·템플릿 문자열인 `setTimeout`·`setInterval`), `JsDocumentWrite`, `JsExecScript`, `JsActiveX` | `CssExpression`(`expression(…)`), `CssBehavior`(`behavior:`), `CssMozBinding`, `CssJavascriptUrl`(`javascript:` URL) | 재시도, 끝내 종료 5 `JsSafetyRejected`·`CssSafetyRejected` |
+  | 5 | 대상 모양 | `--function` 대상이면 같은 이름의 함수 개수가 원본과 같고, 고른 함수(같은 이름 가운데 같은 자리)의 이름·매개변수가 같음(요청과 상관없이) | `--selector` 대상이면 같은 선택자(같은 `@media` 안) 규칙 개수가 원본과 같음 | 재시도, 끝내 `JsTargetChanged`·`CssTargetChanged` |
+  | 6 | 안전 | `JsEval`(`eval`), `JsFunctionConstructor`(`new Function`·`Function(…)`), `JsStringTimer`(첫 인수가 문자열·문자열 연결·템플릿 문자열인 `setTimeout`·`setInterval`), `JsDocumentWrite`, `JsExecScript`, `JsActiveX`. 규칙마다 호출 개수가 늘 때만 셈(기존 호출의 인수만 고치면 통과) | `CssExpression`(`expression(…)`), `CssBehavior`(`behavior:`), `CssMozBinding`, `CssJavascriptUrl`(`javascript:` URL) | 재시도, 끝내 종료 5 `JsSafetyRejected`·`CssSafetyRejected` |
   | 7 | 규칙 | 프로젝트 규칙의 금지 패턴(`pelly rules`) | 같음 | 재시도 |
   | 8 | 이름 (**경고만**) | 새로 쓴 자유 이름이 JS 내장·브라우저 전역, `$`·`jQuery`(jQuery를 찾았을 때), 파일 안 선언, 사이트 색인, `web.globals` 어디에도 없음 | — | 막지 않음, 검토 줄에 「이름 경고(…)」 |
   | 9 | API (**경고만**) | 목표 수준에 없는 ES API(`.includes`·`Promise`·`fetch`·`Object.assign` 등), jQuery 기준 버전에 없거나 없어진 메서드(`.on`은 1.7 버전부터, `.live`·`$.browser`는 1.9 버전에서 없어짐 등) | — | 막지 않음 |

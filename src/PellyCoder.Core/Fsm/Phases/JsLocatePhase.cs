@@ -114,7 +114,7 @@ public sealed class JsLocatePhase(IFileSystem fs, IUserInteraction ui, PellyOpti
         {
             var listed = found.OrderBy(f => f.Version).ThenBy(f => f.RelativePath, StringComparer.Ordinal)
                 .Select(f => $"{f.Version}({f.RelativePath})");
-            ctx.Messages.Add($"jQuery 버전이 여럿입니다: {string.Join(", ", listed)} — 가장 낮은 {jquery}를 기준으로 봅니다");
+            ctx.Messages.Add($"jQuery 버전이 여럿입니다: {string.Join(", ", listed)} — 가장 낮은 버전({jquery})을 기준으로 봅니다");
         }
 
         var unit = request.Lines is null ? WebTargetUnit.Function : WebTargetUnit.Lines;

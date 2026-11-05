@@ -35,9 +35,12 @@ public static class JsSafetyGuard
         return result;
     }
 
-    /// <summary>Findings whose (Rule, Text) count grew beyond the original, as many as it grew (the later occurrences).</summary>
+    /// <summary>
+    /// Findings of the rules whose count of matching calls grew beyond the original, as many as it grew. Editing the argument
+    /// of an existing call is no new finding; one more call is (see <see cref="GrownByRule"/> for which are reported).
+    /// </summary>
     public static IReadOnlyList<WebSafetyFinding> NewFindings(JsDocument original, JsDocument patched) =>
-        Grown(Findings(original), Findings(patched));
+        GrownByRule(Findings(original), Findings(patched));
 
     private static readonly (string Rule, Regex Pattern)[] TextRules =
     [
@@ -49,9 +52,9 @@ public static class JsSafetyGuard
         (ActiveX, new Regex(@"\bnew\s+ActiveXObject\s*\(", RegexOptions.CultureInvariant)),
     ];
 
-    /// <summary>Fallback mode (a file that does not parse): the same rules as regexes over the masked text, compared by normalized line.</summary>
+    /// <summary>Fallback mode (a file that does not parse): the same rules as regexes over the masked text, counted per rule.</summary>
     public static IReadOnlyList<WebSafetyFinding> NewFindingsText(string originalLf, string patchedLf) =>
-        Grown(TextFindings(originalLf), TextFindings(patchedLf));
+        GrownByRule(TextFindings(originalLf), TextFindings(patchedLf));
 
     private static List<WebSafetyFinding> TextFindings(string textLf)
     {
@@ -66,6 +69,30 @@ public static class JsSafetyGuard
                     result.Add(new WebSafetyFinding(rule, i + 1, Regex.Replace(lines[i], @"\s+", " ").Trim()));
         }
         return result;
+    }
+
+    /// <summary>
+    /// Per rule, as many patched findings as the rule's count grew: first the ones whose text was not in the original (the
+    /// later ones when there are more), then, if that is not enough, the later of the rest.
+    /// </summary>
+    private static IReadOnlyList<WebSafetyFinding> GrownByRule(IReadOnlyList<WebSafetyFinding> original, IReadOnlyList<WebSafetyFinding> patched)
+    {
+        var ruleBaseline = original.GroupBy(f => f.Rule).ToDictionary(g => g.Key, g => g.Count());
+        var textBaseline = original.GroupBy(f => (f.Rule, f.Text)).ToDictionary(g => g.Key, g => g.Count());
+        var result = new List<WebSafetyFinding>();
+        foreach (var group in patched.GroupBy(f => f.Rule))
+        {
+            var extra = group.Count() - ruleBaseline.GetValueOrDefault(group.Key);
+            if (extra <= 0) continue;
+            var fresh = new HashSet<WebSafetyFinding>(ReferenceEqualityComparer.Instance);
+            foreach (var same in group.GroupBy(f => f.Text))
+                fresh.UnionWith(same.OrderBy(f => f.Line).TakeLast(Math.Max(0, same.Count() - textBaseline.GetValueOrDefault((group.Key, same.Key)))));
+            var picked = fresh.OrderBy(f => f.Line).TakeLast(extra).ToList();
+            if (picked.Count < extra)
+                picked.AddRange(group.Where(f => !fresh.Contains(f)).OrderBy(f => f.Line).TakeLast(extra - picked.Count));
+            result.AddRange(picked);
+        }
+        return result.OrderBy(f => f.Line).ThenBy(f => f.Rule, StringComparer.Ordinal).ToArray();
     }
 
     private static IReadOnlyList<WebSafetyFinding> Grown(IReadOnlyList<WebSafetyFinding> original, IReadOnlyList<WebSafetyFinding> patched)

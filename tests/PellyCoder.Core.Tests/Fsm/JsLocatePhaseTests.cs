@@ -277,7 +277,7 @@ public sealed class JsLocatePhaseTests
         Assert.Equal(PhaseOutcome.Ok, outcome);
         Assert.Equal(new Version(1, 4, 2), ctx.Web!.Jquery);
         Assert.Equal(2, ctx.Web.JqueryFound.Count);
-        Assert.Contains("jQuery 버전이 여럿입니다: 1.4.2(lib/jquery-1.4.2.js), 1.8.3(js/jquery-1.8.3.min.js) — 가장 낮은 1.4.2를 기준으로 봅니다",
+        Assert.Contains("jQuery 버전이 여럿입니다: 1.4.2(lib/jquery-1.4.2.js), 1.8.3(js/jquery-1.8.3.min.js) — 가장 낮은 버전(1.4.2)을 기준으로 봅니다",
             ctx.Messages);
     }
 

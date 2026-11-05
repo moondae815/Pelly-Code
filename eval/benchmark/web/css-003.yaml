@@ -1,0 +1,7 @@
+id: css-003
+kind: lines
+file: css/admin.css
+lines: 12-14
+request: "인쇄할 때는 .btn_blue 버튼을 숨겨줘"
+mustContain: ["display", ".btn_blue"]
+mustNotContain: []

@@ -1,0 +1,7 @@
+id: js-006
+kind: lines
+file: js/order/list.js
+lines: 45-50
+request: "검색어 입력란에서 Esc 키(keyCode 27)를 누르면 입력란을 비워줘"
+mustContain: ["27"]
+mustNotContain: ["=>", "let ", "const "]

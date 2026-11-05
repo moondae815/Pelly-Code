@@ -1,0 +1,7 @@
+id: js-002
+kind: function
+file: js/order/list.js
+function: fnSearch
+request: "검색어가 비어 있으면 \"검색어를 입력하세요.\" 알림을 띄우고 조회하지 마"
+mustContain: ["검색어를 입력하세요"]
+mustNotContain: ["=>", "let ", "const "]

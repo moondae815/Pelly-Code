@@ -1,0 +1,7 @@
+id: js-007
+kind: function
+file: js/common.js
+function: formatNumber
+request: "음수도 쉼표를 제대로 찍도록 고쳐줘. 화살표 함수나 템플릿 문자열 같은 최신 문법으로 간결하게 써도 돼"
+mustContain: ["function formatNumber(n)"]
+mustNotContain: ["=>", "`", "let ", "const "]

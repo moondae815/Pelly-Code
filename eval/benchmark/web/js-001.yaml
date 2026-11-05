@@ -1,0 +1,7 @@
+id: js-001
+kind: function
+file: js/common.js
+function: isEmpty
+request: "값이 undefined여도 빈 값으로 보고 true를 돌려줘"
+mustContain: ["undefined"]
+mustNotContain: ["=>", "let ", "const "]

@@ -1,0 +1,7 @@
+id: js-005
+kind: lines
+file: js/order/list.js
+lines: 24-35
+request: "조회 요청이 브라우저 캐시를 쓰지 않도록 해줘"
+mustContain: ["cache"]
+mustNotContain: ["=>", "let ", "const "]

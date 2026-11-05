@@ -1,0 +1,7 @@
+id: css-002
+kind: selector
+file: css/admin.css
+selector: ".list_tbl"
+request: "목록 표 위쪽에 10px 바깥 여백을 줘"
+mustContain: ["10px"]
+mustNotContain: []

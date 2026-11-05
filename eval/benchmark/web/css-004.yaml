@@ -1,0 +1,7 @@
+id: css-004
+kind: lines
+file: css/admin.css
+lines: 7-10
+request: "버튼 안쪽 여백을 4px 8px로 하고 테두리는 없애줘"
+mustContain: ["4px 8px", "progid:DXImageTransform"]
+mustNotContain: []

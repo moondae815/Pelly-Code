@@ -1,0 +1,7 @@
+id: css-001
+kind: selector
+file: css/admin.css
+selector: ".list_tbl td"
+request: "목록 칸의 위아래 안쪽 여백을 6px로 늘려줘"
+mustContain: ["6px"]
+mustNotContain: []

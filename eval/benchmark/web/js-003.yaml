@@ -1,0 +1,7 @@
+id: js-003
+kind: function
+file: js/order/list.js
+function: Order.search
+request: "검색하기 전에 페이지 번호 입력란 #pageNo의 값을 1로 되돌려줘"
+mustContain: ["#pageNo"]
+mustNotContain: ["=>", "let ", "const "]

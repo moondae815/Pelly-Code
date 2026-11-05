@@ -16,6 +16,7 @@ public sealed class PellyOptions
     public SqlOptions Sql { get; set; } = new();
     public TestOptions Test { get; set; } = new();
     public AspOptions Asp { get; set; } = new();
+    public WebOptions Web { get; set; } = new();
 
     /// <summary>A shallow copy with <paramref name="test"/> as the test section; every other section is shared.</summary>
     public PellyOptions WithTest(TestOptions test)
@@ -130,6 +131,21 @@ public sealed class AspOptions
     public AspSpCallFunction[] SpCallFunctions { get; set; } = [];
     /// <summary>ADO constants are defined site-wide (e.g. a typelib the name check cannot see).</summary>
     public bool AdoConstants { get; set; }
+}
+
+/// <summary>Client JavaScript/CSS edits (<c>pelly js</c>, <c>pelly css</c>).</summary>
+public sealed class WebOptions
+{
+    /// <summary>True when the config has a <c>web</c> section (for doctor). Computed by the loader, not a config key.</summary>
+    public bool Configured { get; set; }
+    /// <summary><c>auto</c>, <c>es5</c>, <c>es2015</c>~<c>es2026</c> or <c>latest</c>.</summary>
+    public string JsTarget { get; set; } = "auto";
+    /// <summary>jQuery version the site uses, e.g. <c>1.8.3</c>; null when unknown.</summary>
+    public string? JqueryVersion { get; set; }
+    /// <summary>Extra global names the site defines.</summary>
+    public string[] Globals { get; set; } = [];
+    /// <summary>Glob patterns (site-root relative, <c>/</c> separated, case-insensitive) of vendor files that are never edited.</summary>
+    public string[] VendorPaths { get; set; } = ["**/lib/**", "**/plugin*/**", "**/vendor/**", "**/jquery*.js", "**/jquery*.css", "**/bootstrap*"];
 }
 
 /// <summary>A site wrapper function that calls a stored procedure, e.g. <c>ExecSP "usp_X", …</c>.</summary>

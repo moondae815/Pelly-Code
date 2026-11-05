@@ -67,6 +67,18 @@ public static class FailureKinds
     public const string AspUnsupportedLanguage = "AspUnsupportedLanguage";
     public const string AspUnsupportedFile = "AspUnsupportedFile";
 
+    public const string JsSyntaxErrors = "JsSyntaxErrors";
+    public const string JsLevelExceeded = "JsLevelExceeded";
+    public const string JsSafetyRejected = "JsSafetyRejected";
+    public const string JsTargetChanged = "JsTargetChanged";
+    public const string CssStructureErrors = "CssStructureErrors";
+    public const string CssSafetyRejected = "CssSafetyRejected";
+    public const string CssTargetChanged = "CssTargetChanged";
+    public const string WebVendorFile = "WebVendorFile";
+    public const string WebMinifiedFile = "WebMinifiedFile";
+    public const string WebUnsupportedFile = "WebUnsupportedFile";
+    public const string WebEncoding = "WebEncoding";
+
     public const string EnvError = "EnvError";
     public const string BudgetExceeded = "BudgetExceeded";
     public const string Rejected = "Rejected";
@@ -94,6 +106,8 @@ public static class FailureKinds
         GroupTestGreenFailed, GroupTestRegression, GroupTestUnverifiable, GroupTestFileChanged,
         RulesInvalid, RulesErrors,
         AspStructureErrors, AspUnknownNames, AspCompileErrors, AspSafetyRejected, AspEncoding, AspSpNotFound, AspUnsupportedLanguage, AspUnsupportedFile,
+        JsSyntaxErrors, JsLevelExceeded, JsSafetyRejected, JsTargetChanged, CssStructureErrors, CssSafetyRejected, CssTargetChanged,
+        WebVendorFile, WebMinifiedFile, WebUnsupportedFile, WebEncoding,
         EnvError, BudgetExceeded, Rejected, Cancelled,
         CharTestShape, CharTestNoAssert, CharTestEnvDependent, CharTestBuild, CharTestFailsOnCurrent, CharTestRegression, CharTestFlaky, CharTestSurvivesMutation, CharTestMutationUnbuildable, CharTestBaselineUnusable, CharTestPending,
     };

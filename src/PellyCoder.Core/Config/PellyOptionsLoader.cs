@@ -104,6 +104,13 @@ public static class PellyOptionsLoader
         return result;
     }
 
+    private static bool IsJsTarget(string v)
+    {
+        string t = v.ToLowerInvariant();
+        if (t is "auto" or "es5" or "latest") return true;
+        return t.StartsWith("es", StringComparison.Ordinal) && int.TryParse(t[2..], NumberStyles.None, CultureInfo.InvariantCulture, out int y) && y is >= 2015 and <= 2026;
+    }
+
     private static string[] BuildKnownKeys()
     {
         var keys = new List<string>(FutureKeys);
@@ -120,6 +127,8 @@ public static class PellyOptionsLoader
             keys.Add($"asp:{p.Name}");
         foreach (var p in typeof(AspSpCallFunction).GetProperties())
             keys.Add($"asp:SpCallFunctions:*:{p.Name}");
+        foreach (var p in typeof(WebOptions).GetProperties().Where(p => p.Name != nameof(WebOptions.Configured)))
+            keys.Add($"web:{p.Name}");
         keys.Add("sql:Production:AllowedHosts");
         keys.Add("sql:Production:AllowedDatabases");
         keys.Add("sql:Production:ConnectionString");
@@ -149,7 +158,7 @@ public static class PellyOptionsLoader
     private static bool IsOpenEnded(string known) =>
         known is "llm:Headers" or "test:Projects" or "sql:AllowedHosts" or "sql:AllowedDatabases"
         or "sql:Production:AllowedHosts" or "sql:Production:AllowedDatabases"
-        or "asp:Extensions" or "asp:SqlSanitizers";
+        or "asp:Extensions" or "asp:SqlSanitizers" or "web:Globals" or "web:VendorPaths";
 
     private static void Bind(IConfigurationRoot config, PellyOptions options, List<string> errors)
     {
@@ -172,6 +181,10 @@ public static class PellyOptionsLoader
             if (asp.GetSection("extensions").Exists()) options.Asp.Extensions = [];
             asp.Bind(options.Asp);
             options.Asp.Configured = asp.Exists();
+            var web = config.GetSection("web");
+            if (web.GetSection("vendorPaths").Exists()) options.Web.VendorPaths = [];
+            web.Bind(options.Web);
+            options.Web.Configured = web.Exists();
         }
         catch (InvalidOperationException ex)
         {
@@ -227,6 +240,10 @@ public static class PellyOptionsLoader
             o.Asp.Encoding = o.Asp.Encoding.ToLowerInvariant();
         else
             errors.Add("asp.encoding은 cp949 또는 utf-8입니다");
+        if (!IsJsTarget(o.Web.JsTarget))
+            errors.Add("web.jsTarget은 auto, es5, es2015~es2026, latest 중 하나입니다");
+        if (o.Web.JqueryVersion is { } jq && !System.Text.RegularExpressions.Regex.IsMatch(jq, @"^\d+\.\d+(\.\d+)?$"))
+            errors.Add("web.jqueryVersion은 1.8.3 같은 형식입니다");
         for (int i = 0; i < o.Asp.SpCallFunctions.Length; i++)
             AtLeast(errors, $"asp:spCallFunctions:{i}:argument", o.Asp.SpCallFunctions[i].Argument, 1);
 

@@ -336,4 +336,56 @@ public class PellyOptionsLoaderTests
         Assert.Equal(("ExecSP", 1), (f[0].Name, f[0].Argument));
         Assert.Equal(("RunProc", 2), (f[1].Name, f[1].Argument));
     }
+
+    [Fact]
+    public void Web_Defaults()
+    {
+        var r = Load(new MockFileSystem());
+        Assert.Empty(r.Errors);
+        var web = r.Options!.Web;
+        Assert.False(web.Configured);
+        Assert.Equal("auto", web.JsTarget);
+        Assert.Null(web.JqueryVersion);
+        Assert.Empty(web.Globals);
+        Assert.Equal(6, web.VendorPaths.Length);
+    }
+
+    [Fact]
+    public void Web_SectionPresent_Configured()
+    {
+        var fs = WsFile("""{"web":{"jsTarget":"ES5","jqueryVersion":"1.8.3","vendorPaths":["**/x/**"]}}""");
+        var r = Load(fs, ws: P(@"C:\w\pelly.json"));
+        Assert.Empty(r.Errors);
+        var web = r.Options!.Web;
+        Assert.True(web.Configured);
+        Assert.Equal("1.8.3", web.JqueryVersion);
+        Assert.Equal(["**/x/**"], web.VendorPaths);
+    }
+
+    [Fact]
+    public void Web_BadJsTarget_Error()
+    {
+        var fs = WsFile("""{"web":{"jsTarget":"es2030"}}""");
+        var r = Load(fs, ws: P(@"C:\w\pelly.json"));
+        Assert.Null(r.Options);
+        Assert.Contains("web.jsTarget은 auto, es5, es2015~es2026, latest 중 하나입니다", r.Errors);
+    }
+
+    [Fact]
+    public void Web_BadJqueryVersion_Error()
+    {
+        var fs = WsFile("""{"web":{"jqueryVersion":"abc"}}""");
+        var r = Load(fs, ws: P(@"C:\w\pelly.json"));
+        Assert.Null(r.Options);
+        Assert.Contains("web.jqueryVersion은 1.8.3 같은 형식입니다", r.Errors);
+    }
+
+    [Fact]
+    public void Web_GlobalsBound()
+    {
+        var fs = WsFile("""{"web":{"globals":["Pay","gData"]}}""");
+        var r = Load(fs, ws: P(@"C:\w\pelly.json"));
+        Assert.Empty(r.Errors);
+        Assert.Equal(["Pay", "gData"], r.Options!.Web.Globals);
+    }
 }

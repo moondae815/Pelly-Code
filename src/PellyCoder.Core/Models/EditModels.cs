@@ -1,6 +1,6 @@
 namespace PellyCoder.Core.Models;
 
-public enum EditKind { CSharp, Sql, CSharpTest, Asp }
+public enum EditKind { CSharp, Sql, CSharpTest, Asp, Js, Css }
 
 /// <summary>1-based, inclusive line span.</summary>
 public sealed record TextSpanInfo(int StartLine, int EndLine);

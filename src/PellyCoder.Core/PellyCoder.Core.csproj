@@ -7,6 +7,7 @@
   <ItemGroup>
     <EmbeddedResource Include="Llm/Resources/**" WithCulture="false" LogicalName="PellyCoder.Core.Llm.Resources.%(Filename)%(Extension)" />
     <EmbeddedResource Include="Asp/Resources/**" WithCulture="false" LogicalName="PellyCoder.Core.Asp.Resources.%(Filename)%(Extension)" />
+    <EmbeddedResource Include="Web/Resources/**" WithCulture="false" LogicalName="PellyCoder.Core.Web.Resources.%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>
@@ -15,6 +16,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Acornima" />
     <PackageReference Include="Dapper" />
     <PackageReference Include="DiffPlex" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />

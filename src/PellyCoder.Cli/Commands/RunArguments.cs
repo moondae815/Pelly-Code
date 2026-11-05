@@ -78,6 +78,36 @@ public static class RunArguments
         return errors;
     }
 
+    public static IReadOnlyList<string> ValidateJs(JsSettings s)
+    {
+        var errors = new List<string>();
+        if ((s.Function is not null ? 1 : 0) + (s.Line is not null ? 1 : 0) + (s.Lines is not null ? 1 : 0) > 1)
+            errors.Add("--function, --line, --lines 중 하나만 쓸 수 있습니다");
+        if (s.Lines is not null && ParseLines(s.Lines) is null)
+            errors.Add("--lines는 A-B 형식입니다 (1 ≤ A ≤ B)");
+        if (s.Line is <= 0)
+            errors.Add("--line은 1 이상이어야 합니다");
+        if (s.MaxRetries is < 0)
+            errors.Add("--max-retries는 0 이상이어야 합니다");
+        return errors;
+    }
+
+    public static IReadOnlyList<string> ValidateCss(CssSettings s)
+    {
+        var errors = new List<string>();
+        if ((s.Selector is not null ? 1 : 0) + (s.Line is not null ? 1 : 0) + (s.Lines is not null ? 1 : 0) > 1)
+            errors.Add("--selector, --line, --lines 중 하나만 쓸 수 있습니다");
+        if (s.Selector is not null && string.IsNullOrWhiteSpace(s.Selector))
+            errors.Add("--selector가 비어 있습니다");
+        if (s.Lines is not null && ParseLines(s.Lines) is null)
+            errors.Add("--lines는 A-B 형식입니다 (1 ≤ A ≤ B)");
+        if (s.Line is <= 0)
+            errors.Add("--line은 1 이상이어야 합니다");
+        if (s.MaxRetries is < 0)
+            errors.Add("--max-retries는 0 이상이어야 합니다");
+        return errors;
+    }
+
     /// <summary>"A-B" with 1 ≤ A ≤ B, else null.</summary>
     private static TextSpanInfo? ParseLines(string text)
     {
@@ -96,6 +126,18 @@ public static class RunArguments
     public static RunRequest AspRequest(AspSettings s, string file, string requestText) =>
         new(file, null, s.Proc, s.Line, requestText, s.Yes, s.DryRun, s.MaxRetries,
             Kind: EditKind.Asp, Verbose: s.Verbose, Lines: s.Lines is null ? null : ParseLines(s.Lines));
+
+    /// <summary>Same preparation for <c>pelly js</c> and <c>pelly css</c>: the file must exist, then the configuration is resolved.</summary>
+    public static (PreparedRun? Run, IReadOnlyList<string> Errors) PrepareWeb(RunSettings s, string file, IFileSystem fs, OptionsResolver resolver) =>
+        Prepare(file, fs, f => resolver.Resolve(f, s.Config, s.Think, s.Model, s.Endpoint));
+
+    public static RunRequest JsRequest(JsSettings s, string file, string requestText) =>
+        new(file, null, s.Function, s.Line, requestText, s.Yes, s.DryRun, s.MaxRetries,
+            Kind: EditKind.Js, Verbose: s.Verbose, Lines: s.Lines is null ? null : ParseLines(s.Lines));
+
+    public static RunRequest CssRequest(CssSettings s, string file, string requestText) =>
+        new(file, null, null, s.Line, requestText, s.Yes, s.DryRun, s.MaxRetries,
+            Kind: EditKind.Css, Verbose: s.Verbose, Lines: s.Lines is null ? null : ParseLines(s.Lines), Selector: s.Selector);
 
     public static (PreparedRun? Run, IReadOnlyList<string> Errors) PrepareCs(CsSettings s, IFileSystem fs, OptionsResolver resolver) =>
         Prepare(s.File, fs, file => resolver.Resolve(

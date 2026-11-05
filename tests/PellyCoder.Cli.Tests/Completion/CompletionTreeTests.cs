@@ -45,6 +45,19 @@ public class CompletionTreeTests
     }
 
     [Fact]
+    public void Js_And_Css_HaveTargetOptions()
+    {
+        var js = Node("js");
+        Assert.True(js.AcceptsPositional);
+        foreach (var name in new[] { "function", "line", "lines" })
+            Assert.Contains(name, OptionNames(js));
+        var css = Node("css");
+        Assert.True(css.AcceptsPositional);
+        foreach (var name in new[] { "selector", "line", "lines" })
+            Assert.Contains(name, OptionNames(css));
+    }
+
+    [Fact]
     public void SpecBranch_IsUsageOnly()
     {
         var spec = Node("spec");

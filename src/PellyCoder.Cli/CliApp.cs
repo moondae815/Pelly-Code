@@ -17,6 +17,8 @@ public static class CliApp
         config.Settings.StrictParsing = true;
         config.AddCommand<CsCommand>("cs").WithDescription("C# 메서드 하나를 요청대로 수정합니다.");
         config.AddCommand<AspCommand>("asp").WithDescription("Classic ASP(VBScript) 파일의 함수 하나나 줄 범위를 요청대로 수정합니다.");
+        config.AddCommand<JsCommand>("js").WithDescription("JavaScript 파일의 함수 하나나 줄 범위를 요청대로 수정합니다.");
+        config.AddCommand<CssCommand>("css").WithDescription("CSS 파일의 규칙 하나나 줄 범위를 요청대로 수정합니다.");
         config.AddCommand<TestCommand>("test").WithDescription("메서드의 현재 동작을 고정하는 테스트를 만듭니다");
         config.AddCommand<DoctorCommand>("doctor").WithDescription("Ollama 서버·모델·토크나이저 환경을 점검합니다.");
         config.AddCommand<ApplyCommand>("apply").WithDescription("명세 파일(changes/<id>.md)의 작업을 순서대로 실행합니다.");
@@ -74,6 +76,8 @@ public static class CliApp
     {
         ["cs"] = typeof(CsSettings),
         ["asp"] = typeof(AspSettings),
+        ["js"] = typeof(JsSettings),
+        ["css"] = typeof(CssSettings),
         ["test"] = typeof(TestSettings),
         ["sql"] = typeof(SqlSettings),
         ["sql pull"] = typeof(SqlPullSettings),

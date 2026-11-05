@@ -1,6 +1,7 @@
 using System.IO.Abstractions;
 using PellyCoder.Core.Abstractions;
 using PellyCoder.Core.Asp;
+using PellyCoder.Core.Web;
 using PellyCoder.Core.Builds;
 using PellyCoder.Core.Config;
 using PellyCoder.Core.Impact;
@@ -115,6 +116,8 @@ public sealed class DoctorService(
             checks.Add(CheckAspSiteRoot());
             checks.Add(CheckAspSanitizers());
         }
+        if (options.Web.Configured || options.Asp.Configured)
+            checks.Add(CheckWeb());
         return checks;
     }
 
@@ -259,6 +262,21 @@ public sealed class DoctorService(
         return fs.Directory.Exists(root)
             ? new(name, DoctorStatus.Ok, root, null)
             : new(name, DoctorStatus.Fail, $"{root} 폴더가 없음", "asp.siteRoot 설정을 확인하세요");
+    }
+
+    private DoctorCheck CheckWeb()
+    {
+        // The site root itself is checked by the ASP row; here it is only searched for jQuery.
+        var workspaceRoot = context is not null && fs.Path.GetDirectoryName(fs.Path.GetFullPath(context.WorkspaceConfigPath)) is { } dir
+            ? dir
+            : fs.Directory.GetCurrentDirectory();
+        var found = JqueryVersions.Find(fs, AspSiteRoot.Resolve(fs, options.Asp.SiteRoot, workspaceRoot));
+        if (found.Count == 0)
+            return new(DoctorFacts.Web, DoctorStatus.Warn, "jQuery를 찾지 못함 — jQuery 버전 검사는 건너뜁니다",
+                "web.jqueryVersion을 설정하거나 asp.siteRoot를 확인하세요");
+        var versions = string.Join(", ", found.Select(f => f.Version).Distinct().Order().Select(v => v.ToString()));
+        var baseline = JqueryVersions.Baseline(found, options.Web.JqueryVersion);
+        return new(DoctorFacts.Web, DoctorStatus.Ok, $"jQuery {versions}(기준 {baseline}); jsTarget {options.Web.JsTarget}", null);
     }
 
     private DoctorCheck CheckAspSanitizers() =>

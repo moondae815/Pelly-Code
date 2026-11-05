@@ -414,6 +414,53 @@ public sealed class DoctorServiceTests
         Assert.Equal(DoctorStatus.Ok, Get(await Create().RunAsync(CancellationToken.None), "ASP SQL 처리 함수").Status);
     }
 
+    [Fact]
+    public async Task Doctor_WebRow_OnlyWhenConfigured()
+    {
+        EnqueueProbes();
+        Assert.DoesNotContain(await Create().RunAsync(CancellationToken.None), c => c.Name == "JS·CSS");
+
+        _options.Web.Configured = true;
+        EnqueueProbes();
+        Assert.Single(await Create().RunAsync(CancellationToken.None), c => c.Name == "JS·CSS");
+
+        _options.Web.Configured = false;
+        _options.Asp.Configured = true;
+        _windows = false;
+        EnqueueProbes();
+        Assert.Single(await Create().RunAsync(CancellationToken.None), c => c.Name == "JS·CSS");
+    }
+
+    [Fact]
+    public async Task Doctor_WebRow_JqueryFound_Ok()
+    {
+        _options.Web.Configured = true;
+        _options.Asp.SiteRoot = "/site";
+        _fs.AddFile("/site/js/jquery-1.4.2.min.js", new MockFileData("x"));
+        _fs.AddFile("/site/js/jquery-1.8.3.js", new MockFileData("x"));
+        EnqueueProbes();
+
+        var c = Get(await Create().RunAsync(CancellationToken.None), "JS·CSS");
+
+        Assert.Equal(DoctorStatus.Ok, c.Status);
+        Assert.Equal("jQuery 1.4.2, 1.8.3(기준 1.4.2); jsTarget auto", c.Detail);
+    }
+
+    [Fact]
+    public async Task Doctor_WebRow_NoJquery_Warn()
+    {
+        _options.Web.Configured = true;
+        _fs.AddDirectory("/site");
+        _options.Asp.SiteRoot = "/site";
+        EnqueueProbes();
+
+        var c = Get(await Create().RunAsync(CancellationToken.None), "JS·CSS");
+
+        Assert.Equal(DoctorStatus.Warn, c.Status);
+        Assert.Equal("jQuery를 찾지 못함 — jQuery 버전 검사는 건너뜁니다", c.Detail);
+        Assert.Equal("web.jqueryVersion을 설정하거나 asp.siteRoot를 확인하세요", c.Action);
+    }
+
     private void SqlOptionsAllowed(string cs = "Server=localhost,14333;Database=PellyCorpus;User Id=sa;Password=Secret!1")
     {
         _options.Sql.ConnectionString = cs;

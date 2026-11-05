@@ -20,6 +20,7 @@ public static class DoctorFacts
     public const string AspCscript = "ASP 구문 검사(cscript)";
     public const string AspSiteRoot = "ASP 사이트 루트";
     public const string AspSanitizers = "ASP SQL 처리 함수";
+    public const string Web = "JS·CSS";
     public const string SemanticAnalysis = SemanticCheck.Name;
 
     public const string OllamaVersion = "ollamaVersion";

@@ -102,6 +102,8 @@ public static class Composition
                     : new SqlServerExecutor(options.Sql.ConnectionString);
                 return FsmOrchestratorFactory.CreateAsp(fs, backend, ui, options, time, processes, aspSql).RunDetailedAsync(request, ct);
             }
+            if (request.Kind is EditKind.Js or EditKind.Css)
+                return FsmOrchestratorFactory.CreateWeb(fs, backend, ui, options, time, request.Kind).RunDetailedAsync(request, ct);
             return FsmOrchestratorFactory.Create(fs, backend, ui, options, time, processes).RunDetailedAsync(request, ct);
         }
     }

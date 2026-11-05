@@ -52,6 +52,18 @@ public class JsChecksTests
     }
 
     [Fact]
+    public void Level_ObjectSpreadInEs2015_ObjectSpreadEnglishName()
+    {
+        var state = WebTestState.Js("function fnSearch(a, b) {\n  let z = [...a];\n  return z;\n}\n");
+        Assert.Equal(EcmaVersion.ES2015, state.TargetLevel);
+        var v = JsChecks.Syntax(state, "a.js", "function fnSearch(a, b) {\n  let z = { ...b };\n  return z;\n}\n");
+        Assert.True(v.LevelExceeded);
+        Assert.Equal("...(펼치기)", v.Feature);
+        Assert.Equal("object spread/rest (...)", v.FeatureEnglish);
+        Assert.Equal(2, v.FeatureLine);
+    }
+
+    [Fact]
     public void Module_ParsedAsModule()
     {
         const string module = "import { x } from \"./x.js\";\nfunction fnSearch(a, b) {\n  return x;\n}\n";

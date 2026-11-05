@@ -24,7 +24,7 @@ public static class JsChecks
         if (latest.Error is null)
         {
             if (JsFeatures.FirstAbove(patchedText, state.Module, target) is { } hit)
-                return new JsSyntaxVerdict(latest, [], true, hit.Feature, hit.Line, JsFeatures.EnglishNameOf(hit.Feature));
+                return new JsSyntaxVerdict(latest, [], true, hit.Feature.Name, hit.Line, hit.Feature.EnglishName);
             return new JsSyntaxVerdict(latest, [], true, doc.Error.Description, doc.Error.Line, doc.Error.Description);
         }
 

@@ -34,15 +34,16 @@ public static class JsFeatures
     public static IReadOnlyList<JsFeature> Above(EcmaVersion target) =>
         Table.Where(f => JsLevels.Compare(f.Level, target) > 0).ToList();
 
-    /// <summary>The English name of a feature given its display <see cref="JsFeature.Name"/>; the input when unknown.</summary>
-    public static string EnglishNameOf(string name) => Table.FirstOrDefault(f => f.Name == name)?.EnglishName ?? name;
-
-    public static (string Feature, int Line)? FirstAbove(string textLf, bool module, EcmaVersion target)
+    /// <summary>
+    /// The first feature above <paramref name="target"/> with its line; the feature itself, since display names are shared
+    /// (array and object spread are both 「...(펼치기)」) and the model needs the exact English name.
+    /// </summary>
+    public static (JsFeature Feature, int Line)? FirstAbove(string textLf, bool module, EcmaVersion target)
     {
         if (JsDocument.TryParse(textLf, EcmaVersion.Latest, module, out var program) is not null || program is null)
             return null;
 
-        (string Feature, int Line, int Col)? best = null;
+        (JsFeature Feature, int Line, int Col)? best = null;
         // Object spread / rest are ES2018; array and argument spread / rest are ES2015.
         var objectLevel = new HashSet<Node>();
         foreach (var n in JsAst.Descendants(program))
@@ -53,7 +54,7 @@ public static class JsFeatures
             if (hit is null || JsLevels.Compare(hit.Level, target) <= 0) continue;
             var s = n.Location.Start;
             if (best is null || s.Line < best.Value.Line || (s.Line == best.Value.Line && s.Column < best.Value.Col))
-                best = (hit.Name, s.Line, s.Column);
+                best = (hit, s.Line, s.Column);
         }
         return best is null ? null : (best.Value.Feature, best.Value.Line);
     }

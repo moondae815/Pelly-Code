@@ -1,0 +1,42 @@
+# version: 1
+Example (format only; never copy its code).
+
+Example input:
+### TARGET
+줄 21-26 — file: member.js
+### CONTEXT
+[READ-ONLY: env]
+Language level: ES5 — do not use let/const, arrow functions, template literals, classes
+jQuery 1.8.3
+File encoding: CP949
+[READ-ONLY: callees]
+// trims and checks an input value
+function isFilled(selector) {
+[READ-ONLY: file]
+function isFilled(selector) {
+function sendMember() {
+[EDITABLE: target]
+    $("#btnSave").click(function () {
+        if (!isFilled("#userName")) {
+            return false;
+        }
+        sendMember();
+    });
+### REQUEST
+전화번호도 비어 있으면 알림을 띄우고 저장하지 않는다.
+
+Example output (exactly one block, nothing else):
+<<<<<<< SEARCH
+        if (!isFilled("#userName")) {
+            return false;
+        }
+=======
+        if (!isFilled("#userName")) {
+            return false;
+        }
+        if (!isFilled("#userPhone")) {
+            alert("전화번호를 입력해 주세요.");
+            $("#userPhone").focus();
+            return false;
+        }
+>>>>>>> REPLACE

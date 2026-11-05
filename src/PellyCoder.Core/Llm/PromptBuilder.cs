@@ -45,6 +45,23 @@ public sealed class PromptBuilder(QwenChatTemplate template, PromptResources res
         ("target", "[EDITABLE: target]"),
     };
 
+    private static readonly (string Kind, string Header)[] JsContextOrder =
+    {
+        ("env", "[READ-ONLY: env]"),
+        ("callees", "[READ-ONLY: callees]"),
+        ("file", "[READ-ONLY: file]"),
+        ("around", "[READ-ONLY: around]"),
+        ("target", "[EDITABLE: target]"),
+    };
+
+    private static readonly (string Kind, string Header)[] CssContextOrder =
+    {
+        ("env", "[READ-ONLY: env]"),
+        ("related", "[READ-ONLY: related]"),
+        ("around", "[READ-ONLY: around]"),
+        ("target", "[EDITABLE: target]"),
+    };
+
     public PromptBuildResult BuildCSharp(EditTarget target, Slice slice, string request, Feedback? feedback, IReadOnlyList<ProjectRule>? rules = null, bool group = false)
     {
         var requestText = request.Trim();
@@ -126,6 +143,38 @@ public sealed class PromptBuilder(QwenChatTemplate template, PromptResources res
         }
         var siteLine = sqlSanitizers is { Count: > 0 } ? $"Site SQL functions: {string.Join(", ", sqlSanitizers)}" : null;
         var selection = AddRules(lines, rules, slice, siteLine);
+        lines.Add("### REQUEST");
+        lines.Add(requestText);
+        if (feedback is not null)
+        {
+            lines.Add("### FEEDBACK");
+            lines.Add(feedback.Text);
+        }
+        return Finish(system, lines, requestText, feedback, selection);
+    }
+
+    /// <summary>A <c>pelly js</c> or <c>pelly css</c> prompt; <paramref name="target"/>'s kind picks the resources and part order.</summary>
+    public PromptBuildResult BuildWeb(EditTarget target, Slice slice, string request, Feedback? feedback, IReadOnlyList<ProjectRule>? rules = null)
+    {
+        var css = target.Kind == EditKind.Css;
+        var requestText = request.Trim();
+        var system = (css ? resources.SystemCss : resources.SystemJs).Replace(HintPlaceholder, slice.LanguageHint) + "\n\n"
+            + (css ? resources.FewShotCss : resources.FewShotJs);
+
+        var lines = new List<string>
+        {
+            "### TARGET",
+            $"{target.SymbolDisplay} — file: {Path.GetFileName(target.FilePath.Replace('\\', '/'))}",
+            "### CONTEXT",
+        };
+        foreach (var (partKind, header) in css ? CssContextOrder : JsContextOrder)
+        {
+            var part = slice.Included.FirstOrDefault(p => p.Kind == partKind);
+            if (part is null) continue;
+            lines.Add(header);
+            lines.Add(part.Text);
+        }
+        var selection = AddRules(lines, rules, slice);
         lines.Add("### REQUEST");
         lines.Add(requestText);
         if (feedback is not null)

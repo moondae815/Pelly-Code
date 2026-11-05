@@ -3,14 +3,15 @@ using PellyCoder.Core.Models;
 namespace PellyCoder.Core.Llm;
 
 /// <summary>
-/// Embedded prompt texts (C#, SQL, ASP). Bodies have the leading "# version: N" line and one trailing newline removed.
+/// Embedded prompt texts (C#, SQL, ASP, JS, CSS). Bodies have the leading "# version: N" line and one trailing newline removed.
 /// <paramref name="Version"/> covers the edit prompts only (<paramref name="CsTestVersion"/> the <c>cs-test</c> pair); <paramref name="Locate"/> (target pick) is versioned on its own.
 /// </summary>
 public sealed record PromptResources(
     string SystemCs, string FewShotCs, string Version, string Locate,
     string SystemSql = "", string FewShotSql = "", string SqlVersion = "", string SystemCsGroup = "",
     string SystemCsTest = "", string FewShotCsTest = "", string CsTestVersion = "cs-test-v1",
-    string SystemAsp = "", string FewShotAsp = "", string AspVersion = "")
+    string SystemAsp = "", string FewShotAsp = "", string AspVersion = "",
+    string SystemJs = "", string FewShotJs = "", string JsVersion = "", string SystemCss = "", string FewShotCss = "", string CssVersion = "")
 {
     private const string Prefix = "PellyCoder.Core.Llm.Resources.";
     private const string VersionPrefix = "# version:";
@@ -42,8 +43,19 @@ public sealed record PromptResources(
         if (systemAspVersion != fewShotAspVersion)
             throw new InvalidOperationException(
                 $"Prompt resource versions differ: system.asp.txt={systemAspVersion}, fewshot.asp.txt={fewShotAspVersion}.");
+        var (systemJs, systemJsVersion) = Load("system.js.txt");
+        var (fewShotJs, fewShotJsVersion) = Load("fewshot.js.txt");
+        if (systemJsVersion != fewShotJsVersion)
+            throw new InvalidOperationException(
+                $"Prompt resource versions differ: system.js.txt={systemJsVersion}, fewshot.js.txt={fewShotJsVersion}.");
+        var (systemCss, systemCssVersion) = Load("system.css.txt");
+        var (fewShotCss, fewShotCssVersion) = Load("fewshot.css.txt");
+        if (systemCssVersion != fewShotCssVersion)
+            throw new InvalidOperationException(
+                $"Prompt resource versions differ: system.css.txt={systemCssVersion}, fewshot.css.txt={fewShotCssVersion}.");
         return new PromptResources(system, fewShot, "cs-v" + systemVersion, locate, systemSql, fewShotSql, "sql-v" + systemSqlVersion, systemGroup,
-            systemTest, fewShotTest, "cs-test-v" + systemTestVersion, systemAsp, fewShotAsp, "asp-v" + systemAspVersion);
+            systemTest, fewShotTest, "cs-test-v" + systemTestVersion, systemAsp, fewShotAsp, "asp-v" + systemAspVersion,
+            systemJs, fewShotJs, "js-v" + systemJsVersion, systemCss, fewShotCss, "css-v" + systemCssVersion);
     }
 
     /// <summary>Prompt version recorded in the run summary for the edit kind.</summary>
@@ -52,6 +64,8 @@ public sealed record PromptResources(
         EditKind.Sql => SqlVersion,
         EditKind.CSharpTest => CsTestVersion,
         EditKind.Asp => AspVersion,
+        EditKind.Js => JsVersion,
+        EditKind.Css => CssVersion,
         _ => Version,
     };
 

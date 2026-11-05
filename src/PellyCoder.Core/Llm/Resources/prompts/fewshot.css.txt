@@ -1,0 +1,35 @@
+# version: 1
+Example (format only; never copy its code).
+
+Example input:
+### TARGET
+.notice_box — file: board.css
+### CONTEXT
+[READ-ONLY: env]
+File encoding: UTF-8
+IE hacks used in this file: no
+Vendor prefixes used in this file: no
+[READ-ONLY: related]
+.notice_box, .event_box {
+    border: 1px solid #ddd;
+}
+[EDITABLE: target]
+.notice_box {
+    padding: 10px;
+    color: #333;
+}
+### REQUEST
+글자를 굵게 하고 배경을 연한 노란색으로 한다.
+
+Example output (exactly one block, nothing else):
+<<<<<<< SEARCH
+    padding: 10px;
+    color: #333;
+}
+=======
+    padding: 10px;
+    color: #333;
+    font-weight: bold;
+    background-color: #fffbe6;
+}
+>>>>>>> REPLACE

@@ -306,4 +306,68 @@ public sealed class PromptBuilderTests
         Assert.Equal(System(without.BasePrompt), System(with.BasePrompt));
         Assert.DoesNotContain("Site SQL functions", NewBuilder().BuildAsp(AspTarget(), AspSlice(), "req", null, null, []).BasePrompt);
     }
+
+    private static Slice JsSlice() => new(
+        new[]
+        {
+            Part("target", "function saveForm(id) {\n  return true;\n}"),
+            Part("env", "Language level: ES5 — do not use let/const\njQuery 1.8.3\nFile encoding: CP949"),
+            Part("callees", "function fmtPrice(n) {"),
+            Part("file", "function other() {"),
+            Part("around", "var a = 1;"),
+        },
+        Array.Empty<SlicePart>(), "JavaScript ES5 (script); jQuery 1.8.3; file encoding CP949");
+
+    [Fact]
+    public void BuildWeb_Js_HeaderOrder()
+    {
+        var target = new EditTarget(EditKind.Js, @"C:\site\js\order.js", "function saveForm", new TextSpanInfo(6, 13), null);
+        var rules = new[] { new ProjectRule(1, ["*"], "주석은 한국어로 작성한다", null) };
+
+        var result = NewBuilder().BuildWeb(target, JsSlice(), "저장 전에 확인 창을 띄운다", new Feedback("fix it", 2), rules);
+
+        Assert.Equal(PromptBudgetError.None, result.Error);
+        var user = User(result.BasePrompt);
+        Assert.StartsWith("### TARGET\nfunction saveForm — file: order.js\n### CONTEXT\n", user);
+        string[] headers = ["[READ-ONLY: env]", "[READ-ONLY: callees]", "[READ-ONLY: file]", "[READ-ONLY: around]",
+            "[EDITABLE: target]", "### RULES", "### REQUEST", "### FEEDBACK"];
+        var positions = headers.Select(h => user.IndexOf(h, StringComparison.Ordinal)).ToList();
+        Assert.All(positions, p => Assert.True(p >= 0));
+        Assert.Equal(positions.Order(), positions);
+        var system = System(result.BasePrompt);
+        Assert.Contains("Target: JavaScript ES5 (script); jQuery 1.8.3; file encoding CP949", system);
+        Assert.Contains("[READ-ONLY: callees]", system);
+        Assert.DoesNotContain("{LanguageHint}", result.BasePrompt);
+        Assert.DoesNotContain("VBScript", system);
+    }
+
+    [Fact]
+    public void BuildWeb_Css_HeaderOrder()
+    {
+        var target = new EditTarget(EditKind.Css, "/site/css/site.css", ".card", new TextSpanInfo(4, 6), null);
+        var slice = new Slice(
+            new[]
+            {
+                Part("target", ".card {\n  margin: 0;\n}"),
+                Part("env", "File encoding: UTF-8\nIE hacks used in this file: no\nVendor prefixes used in this file: no"),
+                Part("related", ".box, .card {\n  color: red;\n}"),
+                Part("around", ".other {"),
+            },
+            Array.Empty<SlicePart>(), "CSS; file encoding UTF-8; IE hacks: no");
+
+        var result = NewBuilder().BuildWeb(target, slice, "여백을 4px로 한다", null);
+
+        Assert.Equal(PromptBudgetError.None, result.Error);
+        var user = User(result.BasePrompt);
+        Assert.StartsWith("### TARGET\n.card — file: site.css\n### CONTEXT\n", user);
+        string[] headers = ["[READ-ONLY: env]", "[READ-ONLY: related]", "[READ-ONLY: around]", "[EDITABLE: target]", "### REQUEST"];
+        var positions = headers.Select(h => user.IndexOf(h, StringComparison.Ordinal)).ToList();
+        Assert.All(positions, p => Assert.True(p >= 0));
+        Assert.Equal(positions.Order(), positions);
+        var system = System(result.BasePrompt);
+        Assert.Contains("Target: CSS; file encoding UTF-8; IE hacks: no", system);
+        Assert.Contains("expression()", system);
+        Assert.DoesNotContain("JavaScript ES5", system);
+        Assert.DoesNotContain("### FEEDBACK", user);
+    }
 }

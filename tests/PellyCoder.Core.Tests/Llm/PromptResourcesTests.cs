@@ -29,4 +29,46 @@ public sealed class PromptResourcesTests
         Assert.Contains("VBScript And/Or do not short-circuit: never convert or index a value in the same condition that "
             + "checks it (IsNumeric, IsDate, IsNull, IsEmpty, = \"\"); check first, convert inside a nested If.", Resources.SystemAsp);
     }
+
+    [Fact]
+    public void Resources_JsVersion_js_v1()
+    {
+        Assert.Equal("js-v1", Resources.JsVersion);
+        Assert.Equal("js-v1", Resources.VersionFor(EditKind.Js));
+        Assert.Equal(Resources.Version, Resources.VersionFor(EditKind.CSharp));
+        Assert.DoesNotContain("# version", Resources.SystemJs);
+        Assert.DoesNotContain("# version", Resources.FewShotJs);
+        Assert.Contains("{LanguageHint}", Resources.SystemJs);
+        Assert.Contains("<<<<<<< SEARCH", Resources.SystemJs);
+        Assert.Contains("[EDITABLE: target]", Resources.SystemJs);
+        Assert.Contains("[READ-ONLY: env]", Resources.SystemJs);
+        Assert.Contains("document.write", Resources.SystemJs);
+        Assert.Contains("<<<<<<< SEARCH", Resources.FewShotJs);
+        Assert.Contains("alert(", Resources.FewShotJs);
+    }
+
+    [Fact]
+    public void Resources_CssVersion_css_v1()
+    {
+        Assert.Equal("css-v1", Resources.CssVersion);
+        Assert.Equal("css-v1", Resources.VersionFor(EditKind.Css));
+        Assert.DoesNotContain("# version", Resources.SystemCss);
+        Assert.DoesNotContain("# version", Resources.FewShotCss);
+        Assert.Contains("{LanguageHint}", Resources.SystemCss);
+        Assert.Contains("<<<<<<< SEARCH", Resources.SystemCss);
+        Assert.Contains("-moz-binding", Resources.SystemCss);
+        Assert.Contains("<<<<<<< SEARCH", Resources.FewShotCss);
+    }
+
+    [Theory]
+    [InlineData("fnSearch")]
+    [InlineData("checkDate")]
+    [InlineData("list.js")]
+    [InlineData("admin.css")]
+    [InlineData(".list_tbl")]
+    public void Resources_WebFewShots_DoNotReuseCorpusNames(string name)
+    {
+        Assert.DoesNotContain(name, Resources.FewShotJs);
+        Assert.DoesNotContain(name, Resources.FewShotCss);
+    }
 }

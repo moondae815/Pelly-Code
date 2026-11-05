@@ -43,12 +43,15 @@ public sealed class JsDocument
         public Scope? Parent { get; }
         public bool IsFunction { get; }
         public HashSet<string> Names { get; } = new(StringComparer.Ordinal);
+        /// <summary>Import bindings: resolvable, but not top-level declarations.</summary>
+        public HashSet<string> Imports { get; } = new(StringComparer.Ordinal);
         public Scope FunctionScope() { var s = this; while (!s.IsFunction && s.Parent is not null) s = s.Parent; return s; }
-        public bool Resolves(string name) { for (var s = this; s is not null; s = s.Parent) if (s.Names.Contains(name)) return true; return false; }
+        public bool Resolves(string name) { for (var s = this; s is not null; s = s.Parent) if (s.Names.Contains(name) || s.Imports.Contains(name)) return true; return false; }
     }
 
     private readonly string[] _lines;
     private readonly string _source;
+    private readonly bool[] _commentOnly;
     private readonly List<JsFunction> _functions = new();
     private readonly List<JsCall> _calls = new();
     private readonly List<(string Name, int Line, Scope Scope, string? Function)> _refs = new();
@@ -60,6 +63,7 @@ public sealed class JsDocument
     {
         _source = text;
         _lines = text.Split('\n');
+        _commentOnly = JsTokenScan.CommentOnlyLines(text);
         Module = module;
     }
 
@@ -167,7 +171,7 @@ public sealed class JsDocument
             case CatchClause cc:
             {
                 var cs = new Scope(s, false);
-                Pattern(cc.Param, cs, true, fn);
+                Pattern(cc.Param, cs, true, fn, local: true);
                 Visit(cc.Body, cs, fn);
                 return;
             }
@@ -192,7 +196,7 @@ public sealed class JsDocument
             case ImportDeclaration imp:
                 foreach (var spec in imp.Specifiers)
                     foreach (var c in spec.ChildNodes)
-                        if (c is Identifier lid && ReferenceEquals(c, LocalOf(spec))) _global.Names.Add(lid.Name);
+                        if (c is Identifier lid && ReferenceEquals(c, LocalOf(spec))) _global.Imports.Add(lid.Name);
                 return;
             case ExportNamedDeclaration en:
                 Visit(en.Declaration, s, fn);
@@ -263,16 +267,8 @@ public sealed class JsDocument
         var names = new List<string>();
         foreach (var p in parms) names.Add(p is Identifier pi ? pi.Name : _source.Substring(p.Start, p.End - p.Start));
         _named[fnNode] = (name, owner);
-        var start = declLine;
-        while (start > 1 && IsCommentLine(_lines[start - 2])) start--;
+        var start = JsTokenScan.StartWithComments(_commentOnly, declLine);
         _functions.Add(new JsFunction(name, owner, names, start, declLine, fnNode.Location.End.Line, LineText(declLine).Trim()));
-    }
-
-    private static bool IsCommentLine(string line)
-    {
-        var t = line.Trim();
-        return t.StartsWith("//", StringComparison.Ordinal) || t.StartsWith("/*", StringComparison.Ordinal)
-            || t.StartsWith("*", StringComparison.Ordinal) || t.EndsWith("*/", StringComparison.Ordinal);
     }
 
     private void VisitFunction(Node f, Scope s, string? outerFn, string? declName)
@@ -324,13 +320,13 @@ public sealed class JsDocument
     }
 
     /// <summary>Walks a binding or assignment pattern; identifiers are declared (declare) or counted as references.</summary>
-    private void Pattern(Node? p, Scope s, bool declare, string? fn)
+    private void Pattern(Node? p, Scope s, bool declare, string? fn, bool local = false)
     {
         switch (p)
         {
             case null: return;
             case Identifier id:
-                if (declare) s.FunctionScope().Names.Add(id.Name);
+                if (declare) (local ? s : s.FunctionScope()).Names.Add(id.Name);
                 else _refs.Add((id.Name, id.Location.Start.Line, s, fn));
                 return;
             case ObjectPattern op:
@@ -339,20 +335,20 @@ public sealed class JsDocument
                     if (prop is ObjectProperty q)
                     {
                         if (q.Computed) Visit(q.Key, s, fn);
-                        Pattern(q.Value, s, declare, fn);
+                        Pattern(q.Value, s, declare, fn, local);
                     }
-                    else Pattern(prop, s, declare, fn);
+                    else Pattern(prop, s, declare, fn, local);
                 }
                 return;
             case ArrayPattern ap:
-                foreach (var el in ap.Elements) Pattern(el, s, declare, fn);
+                foreach (var el in ap.Elements) Pattern(el, s, declare, fn, local);
                 return;
             case AssignmentPattern asp:
-                Pattern(asp.Left, s, declare, fn);
+                Pattern(asp.Left, s, declare, fn, local);
                 Visit(asp.Right, s, fn);
                 return;
             case RestElement re:
-                Pattern(re.Argument, s, declare, fn);
+                Pattern(re.Argument, s, declare, fn, local);
                 return;
             default:
                 Visit(p, s, fn);

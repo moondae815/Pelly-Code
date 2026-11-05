@@ -53,4 +53,8 @@ public class JsTokenScanTests
         Assert.Equal("b", f[1].Name);
         Assert.Equal(6, f[1].EndLine);
     }
+
+    [Fact]
+    public void RegexAfterReturn_NotString() =>
+        Assert.Empty(JsTokenScan.Problems("function t(x){ return /'/.test(x); }\n"));
 }

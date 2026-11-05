@@ -12,9 +12,13 @@ public static class JsFeatures
             return null;
 
         (string Feature, int Line, int Col)? best = null;
+        // Object spread / rest are ES2018; array and argument spread / rest are ES2015.
+        var objectLevel = new HashSet<Node>();
         foreach (var n in JsAst.Descendants(program))
         {
-            var hit = Classify(n);
+            if (n is ObjectExpression oe) foreach (var p in oe.Properties) if (p is SpreadElement) objectLevel.Add(p);
+            if (n is ObjectPattern op) foreach (var p in op.Properties) if (p is RestElement) objectLevel.Add(p);
+            (string Feature, EcmaVersion Level)? hit = objectLevel.Contains(n) ? ("...(펼치기)", EcmaVersion.ES2018) : Classify(n);
             if (hit is null || JsLevels.Compare(hit.Value.Level, target) <= 0) continue;
             var s = n.Location.Start;
             if (best is null || s.Line < best.Value.Line || (s.Line == best.Value.Line && s.Column < best.Value.Col))

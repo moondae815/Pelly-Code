@@ -105,4 +105,34 @@ public class JsDocumentTests
         Assert.Empty(d.Functions);
         Assert.Empty(d.Calls);
     }
+
+    [Fact]
+    public void Functions_TrailingCommentCodeLine_NotIncluded()
+    {
+        var d = P("var a = 1; /* note */\nfunction f() {}\n");
+        Assert.Equal(2, Assert.Single(d.Functions).StartLine);
+    }
+
+    [Fact]
+    public void Functions_MultiLineBlockCommentWithoutStars_FullyIncluded()
+    {
+        var d = P("var z;\n/*\nplain text\nmore text\n*/\nfunction f() {}\n");
+        Assert.Equal(2, Assert.Single(d.Functions).StartLine);
+    }
+
+    [Fact]
+    public void CatchParam_NotTopLevel_AndLaterUseIsFree()
+    {
+        var d = P("try { } catch (e) { e.x; }\nuse(e);\n");
+        Assert.DoesNotContain("e", d.TopLevelNames);
+        Assert.Equal(new[] { "use", "e" }, d.FreeNames.Select(n => n.Name).ToArray());
+    }
+
+    [Fact]
+    public void ImportBinding_ResolvesButNotTopLevel()
+    {
+        var d = JsDocument.Parse("import a from 'x';\na();\n", EcmaVersion.Latest, true);
+        Assert.Empty(d.FreeNames);
+        Assert.DoesNotContain("a", d.TopLevelNames);
+    }
 }

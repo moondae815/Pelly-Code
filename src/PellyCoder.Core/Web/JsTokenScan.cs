@@ -18,6 +18,11 @@ public static class JsTokenScan
 
     private const string RegexPrefix = "(,=:[!&|?{};";
 
+    private static readonly HashSet<string> RegexKeywords = new(StringComparer.Ordinal)
+    {
+        "return", "typeof", "case", "do", "else", "in", "of", "new", "delete", "void", "throw", "instanceof",
+    };
+
     private static Scan Run(string text)
     {
         var problems = new List<JsScanProblem>();
@@ -25,6 +30,7 @@ public static class JsTokenScan
         var stack = new Stack<(char Ch, int Line)>(); // '{' '(' '[' or '$' for a template ${ … }
         var line = 1;
         var prev = '\0'; // previous significant character in code
+        var prevWord = ""; // the identifier/keyword just before, if the previous token was a word
         var i = 0;
 
         void Blank(int from, int to) { for (var k = from; k < to && k < code.Length; k++) if (code[k] != '\n') code[k] = ' '; }
@@ -72,6 +78,15 @@ public static class JsTokenScan
                 for (var k = i; k < end; k++) if (text[k] == '\n') line++;
                 Blank(i, end); i = end; continue;
             }
+            if (char.IsLetter(c) || c == '_' || c == '$')
+            {
+                var j = i + 1;
+                while (j < text.Length && (char.IsLetterOrDigit(text[j]) || text[j] == '_' || text[j] == '$')) j++;
+                prevWord = text.Substring(i, j - i);
+                prev = text[j - 1];
+                i = j; continue;
+            }
+            var kw = prevWord; prevWord = "";
             if (c == '"' || c == '\'')
             {
                 var j = i + 1;
@@ -89,7 +104,7 @@ public static class JsTokenScan
                 i = end; prev = c; continue;
             }
             if (c == '`') { i++; Template(ref i, ref line); continue; }
-            if (c == '/' && (prev == '\0' || RegexPrefix.IndexOf(prev) >= 0))
+            if (c == '/' && (prev == '\0' || RegexPrefix.IndexOf(prev) >= 0 || (kw.Length > 0 && RegexKeywords.Contains(kw))))
             {
                 var j = i + 1;
                 var inClass = false;
@@ -147,6 +162,7 @@ public static class JsTokenScan
     {
         var code = new string(Run(textLf).Code);
         var lines = textLf.Split('\n');
+        var commentOnly = CommentOnlyLines(textLf);
         var starts = new List<int> { 0 };
         for (var k = 0; k < textLf.Length; k++) if (textLf[k] == '\n') starts.Add(k + 1);
         int LineOf(int idx) { var p = starts.BinarySearch(idx); return (p >= 0 ? p : ~p - 1) + 1; }
@@ -166,18 +182,33 @@ public static class JsTokenScan
             var parms = textLf.Substring(open + 1, close - open - 1).Split(',')
                 .Select(p => p.Trim()).Where(p => p.Length > 0).ToList();
             var declLine = LineOf(m.Index);
-            var start = declLine;
-            while (start > 1 && IsCommentLine(lines[start - 2])) start--;
+            var start = StartWithComments(commentOnly, declLine);
             result.Add(new JsFunction(m.Groups[1].Value, null, parms, start, declLine, LineOf(end), lines[declLine - 1].Trim()));
         }
         return result;
     }
 
-    private static bool IsCommentLine(string line)
+    /// <summary>
+    /// Per line (0-based): true when the line holds a comment and nothing else (blank lines are false).
+    /// Comment text is blanked by the scan, so interior lines of a multi-line block comment count and a code
+    /// line with a trailing comment does not.
+    /// </summary>
+    internal static bool[] CommentOnlyLines(string textLf)
     {
-        var t = line.Trim();
-        return t.StartsWith("//", StringComparison.Ordinal) || t.StartsWith("/*", StringComparison.Ordinal)
-            || t.StartsWith("*", StringComparison.Ordinal) || t.EndsWith("*/", StringComparison.Ordinal);
+        var orig = textLf.Split('\n');
+        var masked = new string(Run(textLf).Code).Split('\n');
+        var r = new bool[orig.Length];
+        for (var i = 0; i < orig.Length; i++)
+            r[i] = orig[i].Trim().Length > 0 && masked[i].Trim().Length == 0;
+        return r;
+    }
+
+    /// <summary>First line (1-based) of the comment block directly above <paramref name="declLine"/>.</summary>
+    internal static int StartWithComments(bool[] commentOnly, int declLine)
+    {
+        var start = declLine;
+        while (start > 1 && commentOnly[start - 2]) start--;
+        return start;
     }
 
     private static int Match(string code, int openIdx, char open, char close)

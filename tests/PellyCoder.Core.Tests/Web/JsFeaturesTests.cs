@@ -43,4 +43,16 @@ public class JsFeaturesTests
         Assert.Null(JsFeatures.FirstAbove("var a = 1;\n", false, EcmaVersion.ES5));
         Assert.Null(JsFeatures.FirstAbove("var a = ;\n", false, EcmaVersion.ES5));
     }
+
+    [Fact]
+    public void ObjectSpread_Es2015_Found()
+    {
+        var r = JsFeatures.FirstAbove("var b = {...a};\n", false, EcmaVersion.ES2015);
+        Assert.Equal("...(펼치기)", r!.Value.Feature);
+        Assert.Null(JsFeatures.FirstAbove("var b = {...a};\n", false, EcmaVersion.ES2018));
+    }
+
+    [Fact]
+    public void ArgumentSpread_Es2015_NotFound() =>
+        Assert.Null(JsFeatures.FirstAbove("f(...args);\n", false, EcmaVersion.ES2015));
 }

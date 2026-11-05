@@ -461,6 +461,22 @@ public sealed class DoctorServiceTests
         Assert.Equal("web.jqueryVersion을 설정하거나 asp.siteRoot를 확인하세요", c.Action);
     }
 
+    [Fact]
+    public async Task Doctor_WebRow_NoJqueryButConfigured_OkWithConfiguredVersion()
+    {
+        _options.Web.Configured = true;
+        _options.Web.JqueryVersion = " 1.8.3 ";
+        _fs.AddDirectory("/site");
+        _options.Asp.SiteRoot = "/site";
+        EnqueueProbes();
+
+        var c = Get(await Create().RunAsync(CancellationToken.None), "JS·CSS");
+
+        Assert.Equal(DoctorStatus.Ok, c.Status);
+        Assert.Equal("jQuery 1.8.3(설정값); jsTarget auto", c.Detail);
+        Assert.Null(c.Action);
+    }
+
     private void SqlOptionsAllowed(string cs = "Server=localhost,14333;Database=PellyCorpus;User Id=sa;Password=Secret!1")
     {
         _options.Sql.ConnectionString = cs;

@@ -272,8 +272,13 @@ public sealed class DoctorService(
             : fs.Directory.GetCurrentDirectory();
         var found = JqueryVersions.Find(fs, AspSiteRoot.Resolve(fs, options.Asp.SiteRoot, workspaceRoot));
         if (found.Count == 0)
+        {
+            // A configured version is the baseline even with no jQuery file under the site root.
+            if (JqueryVersions.Baseline(found, options.Web.JqueryVersion) is { } configured)
+                return new(DoctorFacts.Web, DoctorStatus.Ok, $"jQuery {configured}(설정값); jsTarget {options.Web.JsTarget}", null);
             return new(DoctorFacts.Web, DoctorStatus.Warn, "jQuery를 찾지 못함 — jQuery 버전 검사는 건너뜁니다",
                 "web.jqueryVersion을 설정하거나 asp.siteRoot를 확인하세요");
+        }
         var versions = string.Join(", ", found.Select(f => f.Version).Distinct().Order().Select(v => v.ToString()));
         var baseline = JqueryVersions.Baseline(found, options.Web.JqueryVersion);
         return new(DoctorFacts.Web, DoctorStatus.Ok, $"jQuery {versions}(기준 {baseline}); jsTarget {options.Web.JsTarget}", null);

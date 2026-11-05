@@ -106,13 +106,36 @@ public sealed class CssLocatePhaseTests
         var (outcome, ctx) = await Locate(Sheet, lines: new TextSpanInfo(2, 5));
 
         Assert.Equal(PhaseOutcome.NotFound, outcome);
-        Assert.Contains(ctx.Messages, m => m.StartsWith("줄 2-5가 규칙 중간을 자릅니다"));
+        Assert.Contains("줄 2-5 범위가 규칙 중간을 자릅니다", ctx.Messages);
         Assert.Null(ctx.Target);
 
         var (ok, ctx2) = await Locate(Sheet, lines: new TextSpanInfo(4, 11));
         Assert.Equal(PhaseOutcome.Ok, ok);
         Assert.Equal("줄 4-11", ctx2.Target!.SymbolDisplay);
         Assert.Equal(WebTargetUnit.Lines, ctx2.Web!.Unit);
+    }
+
+    [Fact]
+    public async Task Lines_InsideOneRuleBody_Allowed()
+    {
+        var (outcome, ctx) = await Locate(Sheet, lines: new TextSpanInfo(2, 2));
+
+        Assert.Equal(PhaseOutcome.Ok, outcome);
+        Assert.Equal(WebTargetUnit.Lines, ctx.Web!.Unit);
+        Assert.Equal(new TextSpanInfo(2, 2), ctx.Target!.MemberSpan);
+        Assert.Equal("줄 2-2", ctx.Target.SymbolDisplay);
+        Assert.Null(ctx.Web.Rule);
+    }
+
+    [Fact]
+    public async Task Lines_InsideMediaBlock_Allowed()
+    {
+        var (outcome, ctx) = await Locate(Sheet, lines: new TextSpanInfo(5, 7));
+
+        Assert.Equal(PhaseOutcome.Ok, outcome);
+        Assert.Equal(WebTargetUnit.Lines, ctx.Web!.Unit);
+        Assert.Equal(new TextSpanInfo(5, 7), ctx.Target!.MemberSpan);
+        Assert.Equal("줄 5-7", ctx.Target.SymbolDisplay);
     }
 
     [Fact]

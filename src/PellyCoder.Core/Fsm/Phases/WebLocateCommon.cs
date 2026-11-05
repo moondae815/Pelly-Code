@@ -73,7 +73,7 @@ internal static class WebLocateCommon
         lines.StartLine < 1 || lines.EndLine < lines.StartLine || lines.EndLine > lineCount;
 
     public static string OutOfFileMessage(TextSpanInfo lines, int lineCount) =>
-        $"줄 {lines.StartLine}-{lines.EndLine}이(가) 파일 범위(1-{lineCount}) 밖입니다";
+        $"줄 {lines.StartLine}-{lines.EndLine} 범위가 파일(1-{lineCount}줄) 밖입니다";
 
     public static string EncodingName(Encoding encoding) => encoding.CodePage switch
     {

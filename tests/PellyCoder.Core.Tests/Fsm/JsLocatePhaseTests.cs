@@ -140,7 +140,7 @@ public sealed class JsLocatePhaseTests
         var (outcome, ctx) = await Locate(text, lines: new TextSpanInfo(1, 3));
 
         Assert.Equal(PhaseOutcome.NotFound, outcome);
-        Assert.Contains("줄 1-3가 문장 중간을 자릅니다. 문장 경계로 범위를 주십시오", ctx.Messages);
+        Assert.Contains("줄 1-3 범위가 문장 중간을 자릅니다. 문장 경계로 범위를 주십시오", ctx.Messages);
         Assert.Null(ctx.Target);
     }
 
@@ -232,7 +232,7 @@ public sealed class JsLocatePhaseTests
         Assert.Equal(PhaseOutcome.Ok, outcome);
         Assert.Equal(EcmaVersion.ES2015, ctx.Web!.OriginalLevel);
         Assert.Equal(EcmaVersion.ES2015, ctx.Web.TargetLevel);
-        Assert.Contains("원본이 ES2015 문법을 써서 web.jsTarget(ES5) 대신 ES2015을 기준으로 봅니다", ctx.Messages);
+        Assert.Contains("원본이 ES2015 문법을 써서 web.jsTarget(ES5) 대신 원본 수준(ES2015)을 기준으로 봅니다", ctx.Messages);
     }
 
     [Fact]

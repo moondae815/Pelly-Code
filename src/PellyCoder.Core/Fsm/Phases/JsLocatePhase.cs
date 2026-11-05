@@ -50,7 +50,7 @@ public sealed class JsLocatePhase(IFileSystem fs, IUserInteraction ui, PellyOpti
                     targetLevel = wanted;
                 else
                     ctx.Messages.Add($"원본이 {JsLevels.Name(level)} 문법을 써서 web.jsTarget({SettingLabel(setting, wanted)}) 대신 "
-                        + $"{JsLevels.Name(level)}을 기준으로 봅니다");
+                        + $"원본 수준({JsLevels.Name(level)})을 기준으로 봅니다");
             }
         }
         else
@@ -100,7 +100,7 @@ public sealed class JsLocatePhase(IFileSystem fs, IUserInteraction ui, PellyOpti
             if (OutOfFile(lines, lineCount))
                 return NotFound(ctx, OutOfFileMessage(lines, lineCount));
             if (document is not null && document.CutsStatement(lines))
-                return NotFound(ctx, $"줄 {lines.StartLine}-{lines.EndLine}가 문장 중간을 자릅니다. 문장 경계로 범위를 주십시오");
+                return NotFound(ctx, $"줄 {lines.StartLine}-{lines.EndLine} 범위가 문장 중간을 자릅니다. 문장 경계로 범위를 주십시오");
             span = lines;
         }
         else

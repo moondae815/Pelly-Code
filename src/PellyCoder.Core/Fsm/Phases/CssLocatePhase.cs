@@ -68,7 +68,7 @@ public sealed class CssLocatePhase(IFileSystem fs, IUserInteraction ui, PellyOpt
             if (OutOfFile(lines, lineCount))
                 return NotFound(ctx, OutOfFileMessage(lines, lineCount));
             if (CutsRule(sheet, lines))
-                return NotFound(ctx, $"줄 {lines.StartLine}-{lines.EndLine}가 규칙 중간을 자릅니다. 규칙 경계로 범위를 주십시오");
+                return NotFound(ctx, $"줄 {lines.StartLine}-{lines.EndLine} 범위가 규칙 중간을 자릅니다");
             span = lines;
         }
         else

@@ -30,6 +30,16 @@ External Tools 창이 키 입력을 받지 못하면 요청문을 인수로 넘�
 * 이 경우 `--pause-on-exit`는 기다리지 않을 수 있습니다. 결과는 도구 창 출력과 종료 코드로 확인합니다.
 * 대상이 여러 개라 모호하면 비대화형에서는 종료 코드 3입니다. `--line`이나 `--method`/`--object`로 정확히 지정하십시오.
 
+## 항목 하나로 쓰기 (`pelly edit`)
+
+C#·SQL·ASP 항목을 따로 만들지 않고 하나만 등록해도 됩니다. `pelly edit`이 파일 확장자를 보고 `cs`·`sql`·`asp`로 넘깁니다(제목 예: `Pelly 수정`).
+
+| 항목 | Visual Studio | Rider |
+| :--- | :--- | :--- |
+| 인수 | `edit "$(ItemPath)" --line $(CurLine) --pause-on-exit` | `edit "$FilePath$" --line $LineNumber$ --pause-on-exit` (실기 미확인) |
+
+나머지 값은 C# 항목과 같습니다. 지원하지 않는 확장자의 파일에서 실행하면 「지원하지 않는 파일 형식입니다」를 보이고 종료 4입니다.
+
 ## SQL용 항목
 
 같은 방식으로 항목을 하나 더 등록합니다. 제목은 예를 들어 `Pelly SQL`입니다.

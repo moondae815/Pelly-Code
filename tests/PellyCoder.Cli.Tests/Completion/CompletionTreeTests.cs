@@ -45,6 +45,15 @@ public class CompletionTreeTests
     }
 
     [Fact]
+    public void Edit_HasEveryLanguagesTargetOptions()
+    {
+        var edit = Node("edit");
+        Assert.True(edit.AcceptsPositional);
+        foreach (var name in new[] { "line", "class", "method", "test", "object", "proc", "lines" })
+            Assert.Contains(name, OptionNames(edit));
+    }
+
+    [Fact]
     public void SpecBranch_IsUsageOnly()
     {
         var spec = Node("spec");

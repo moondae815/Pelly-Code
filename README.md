@@ -21,6 +21,25 @@ dotnet run --project src/PellyCoder.Cli -- --version
 
 ## 사용법
 
+### `pelly edit` — 확장자로 언어를 골라 수정
+```bash
+pelly edit <파일> ["<요청문>"] [--line N] [언어별 대상 옵션] [공통 옵션]
+```
+파일 확장자를 보고 `pelly cs`·`pelly sql`·`pelly asp` 중 하나로 그대로 넘깁니다. 동작·검증·종료 코드는 넘겨받은 명령과 같습니다. IDE 외부 도구에 메뉴를 언어마다 따로 만들지 않고 이 명령 하나만 등록하면 됩니다.
+
+| 확장자 | 실행 | 쓸 수 있는 대상 옵션 |
+| :--- | :--- | :--- |
+| `.cs` | `pelly cs` | `--class`, `--method`, `--line`, `--test`, `--verify-test`, `--expect-break`, `--strict-baseline`, `--warn-as-error` |
+| `.sql` | `pelly sql` | `--object`, `--line` |
+| `asp.extensions`(기본 `.asp`, `.inc`) | `pelly asp` | `--proc`, `--line`, `--lines` |
+
+* 대소문자는 구분하지 않습니다(`.CS`도 C#).
+* 다른 언어의 옵션을 주면 실행 전에 멈춥니다. 예: 「--method은(는) .sql 파일에 쓸 수 없습니다」(종료 4).
+* 목록에 없는 확장자는 「지원하지 않는 파일 형식입니다: .txt」로 멈춥니다(종료 4). ASP 확장자는 설정 `asp.extensions`를 따릅니다.
+* 공통 옵션(`--yes`, `--dry-run`, `--max-retries`, `--verbose`, `--pause-on-exit`, `--config`, `--think`, `--model`, `--endpoint`)은 그대로 넘깁니다.
+* 실행 첫 줄에 어느 명령으로 넘겼는지 보입니다. 예: `.asp 파일 → pelly asp로 실행합니다`.
+* `pelly test`(동작 고정 테스트)와 `pelly ui`는 언어 대신 하는 일이 다른 명령이라 `edit`에 포함하지 않습니다.
+
 ### `pelly cs` — C# 멤버 하나 수정
 ```bash
 pelly cs <파일> ["<요청문>"] [--class <클래스>] [--method <메서드>] [--line N] [--yes] [--dry-run] \

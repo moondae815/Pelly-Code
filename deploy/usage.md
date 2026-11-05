@@ -11,6 +11,22 @@ pelly는 C# 메서드 하나나 SQL 저장 프로시저·함수·뷰 하나를 �
 
 승인 질문이 떠 있는 동안 파일은 이미 바뀐 상태입니다. IDE나 파일 감시 도구가 그 변경을 볼 수 있습니다.
 
+## `pelly edit` — 언어를 고르지 않고 수정
+
+```
+pelly edit <파일> ["<요청문>"] [--line N] [언어별 옵션]
+```
+
+확장자로 언어를 고릅니다: `.cs` → `pelly cs`, `.sql` → `pelly sql`, `.asp`·`.inc`(설정 `asp.extensions`) → `pelly asp`. 나머지는 아래 각 명령과 똑같이 동작합니다. 다른 언어의 옵션(예: `.sql` 파일에 `--method`)이나 모르는 확장자는 실행 전에 종료 4로 멈춥니다.
+
+IDE 외부 도구에는 이 명령 하나만 등록하면 됩니다. 예: 인수 `edit "$(ItemPath)" --line $(CurLine) --pause-on-exit`.
+
+```
+pelly edit Shop.Api\Services\OrderService.cs "null 검사 추가" --line 42
+pelly edit db\usp_CancelOrder.sql "배송 중이면 취소 불가" --object dbo.usp_CancelOrder
+pelly edit admin\order\list.asp "검색 조건에 주문 상태 추가" --lines 24-37
+```
+
 ## `pelly cs` — C# 멤버 하나 수정
 
 ```

@@ -190,6 +190,30 @@ pelly asp admin/member/edit.asp "휴대폰 번호 저장 전에 하이픈 제거
   `include virtual=`을 못 찾는다는 메시지가 나오면 `asp.siteRoot`를 사이트 루트 폴더로 맞추십시오. SP를 공용 함수로 부르면 `asp.spCallFunctions`(예: `[{"name":"ExecSP","argument":1}]`)에 적습니다.
 * `global.asa`, 서버 JScript 페이지, 여러 파일 동시 수정은 지원하지 않습니다. 자세한 판정과 종료 코드는 README의 `pelly asp` 절을 보십시오.
 
+## `pelly js`·`pelly css` — 클라이언트 JavaScript·CSS 파일 수정
+
+```
+pelly js  js/order/list.js "검색어가 비어 있으면 알림을 띄우고 멈춰 줘" --function fnSearch
+pelly js  js/common.js "날짜 입력 검사에서 빈 값은 통과" --line 9
+pelly js  js/order/list.js "Esc 키를 누르면 검색어 입력란을 비워 줘" --lines 45-50
+pelly css css/admin.css "목록 칸 위아래 여백을 6px로" --selector ".list_tbl td"
+pelly css css/admin.css "인쇄할 때 파란 버튼 숨기기" --lines 12-14
+```
+
+* 따로 있는 `.js`·`.css` 파일 하나에서 함수 하나(`--function 이름`, `객체.이름`도 됨)·규칙 하나(`--selector "선택자"`)나 줄 범위(`--lines A-B`)를 고칩니다. `--line N`은 그 줄을 감싸는 이름 있는 함수(CSS는 규칙)입니다. jQuery의 `$(function () { … })`·`.click(function () { … })` 안처럼 이름 있는 함수가 없는 곳은 `--lines`를 쓰십시오. 줄 범위가 문장(CSS는 규칙) 중간을 자르면 멈춥니다.
+* **브라우저에서 실행해서 확인하지 않습니다.** 검토 화면에 「검사: 인코딩 통과, 문법 통과, 문법 수준 통과, …」 줄과 「JS·CSS는 브라우저에서 실행해 확인하지 않았습니다. 화면에서 직접 확인하십시오. 브라우저 캐시 때문에 바뀐 파일이 바로 반영되지 않을 수 있습니다.」가 나옵니다. 승인한 뒤 **화면을 띄워(필요하면 강력 새로 고침) 확인하십시오.** 판정은 「요청한 것이 들어갔는가」를 보지 않으므로 diff도 읽으십시오.
+* **문법 수준:** 기본(`web.jsTarget: "auto"`)은 원본 파일이 쓰는 문법 수준을 넘지 못하게 합니다. ES5 문법으로 쓰인 파일에 `let`·`const`·화살표 함수·템플릿 문자열이 들어가면 거절하고 다시 시도합니다. 오래된 브라우저(IE·Edge IE 모드)에서는 이런 문법 하나 때문에 파일 전체가 조용히 실행되지 않기 때문입니다. 사이트 전체를 정하려면 `web.jsTarget`을 `es5`·`es2015` 같이 고정합니다(원본이 그보다 높으면 원본 수준을 따르고 알림을 보입니다).
+* 막는 것: 문법 오류, 문법 수준 초과, 함수 이름·매개변수나 선택자 변경, 새 `eval`·`new Function`·문자열 `setTimeout`·`document.write`·`ActiveXObject`·CSS `expression()`·`behavior:`·`javascript:` URL(끝내 남으면 종료 5). **경고만** 하는 것: 파일·사이트 어디에도 없는 이름, 목표 수준·jQuery 기준 버전에 없는 API, 모르는 CSS 속성, 같은 파일 뒤쪽 규칙에 덮이는 선언. 원본에 이미 있던 것은 세지 않고 **새로 생긴 것만** 봅니다.
+* 압축 파일(`*.min.js`·`*.min.css`, 줄이 매우 긴 파일)과 라이브러리 파일(`web.vendorPaths` 경로 — 기본 `lib/`·`plugin*/`·`vendor/`·`jquery*`·`bootstrap*` — 또는 라이선스 머리 주석)은 고치지 않습니다(종료 3).
+* 편집 영역 밖은 바이트가 그대로입니다(CP949 한글, 줄 끝이 섞인 파일 포함). 순수 ASCII 파일에 한글을 넣으면 `asp.encoding`에 정한 인코딩으로 쓰고(기본 `cp949`) 「이 파일은 ASCII였고 … 저장했습니다」 알림을 보입니다. 그 JS를 부르는 페이지의 인코딩과 같은지 확인하십시오.
+* **ASP 설정을 함께 씁니다.** JS·CSS 전용 사이트 루트·인코딩 설정은 없고 `asp.siteRoot`(사이트 루트: jQuery 찾기, 사이트 함수 이름 색인, `web.vendorPaths` 기준)와 `asp.encoding`을 읽습니다. 작업 공간 `pelly.json` 예:
+  ```json
+  { "asp": { "siteRoot": "C:\\work\\site", "encoding": "cp949" },
+    "web": { "jsTarget": "auto", "jqueryVersion": "1.8.3", "globals": ["gfnOpenPopup"] } }
+  ```
+  `web.jqueryVersion`을 비우면 사이트 루트 아래 jQuery 파일에서 버전을 찾습니다(여럿이면 가장 낮은 버전). 페이지 안 `<script>`나 ASP가 출력하는 공용 함수는 pelly가 볼 수 없으니 `web.globals`에 적으면 이름 경고가 줄어듭니다. `web.vendorPaths`에 값을 주면 기본 목록을 대신합니다.
+* 페이지(`.asp`·`.htm`) 안의 `<script>`·`<style>`, 여러 파일 동시 수정, 함수 이름을 바꾸면서 부르는 곳까지 고치기는 지원하지 않습니다. 자세한 판정과 종료 코드는 README의 `pelly js`·`pelly css` 절을 보십시오.
+
 ## `pelly rules` — 프로젝트 규칙 (AGENTS.md)
 
 ```
@@ -316,6 +340,7 @@ pelly doctor [--project <csproj>]
 
 * 서버, 모델, .NET SDK, SQL 연결, 운영 연결(「SQL 운영(읽기 전용)」 행: 연결이 없으면 Ok `운영 연결 없음(선택)`, `VIEW DEFINITION`이 없으면 Fail)과 함께 **의미 분석** 행을 보여 줍니다. pelly.exe 옆에 `BuildHost-net472`, `BuildHost-netcore` 폴더가 없으면 Fail(종료 코드 4)이니 반입 zip을 다시 풀어 두십시오.
 * 설정에 `asp` 절이 있으면 「ASP 구문 검사(cscript)」, 「ASP 사이트 루트」, 「ASP SQL 처리 함수」 행이 더해집니다. Windows가 아니거나 `cscript`가 안 되면 Warn이고 `pelly asp`의 컴파일 검사는 건너뜁니다.
+* 설정에 `web` 또는 `asp` 절이 있으면 「JS·CSS」 행이 더해집니다. 사이트 루트에서 찾은 jQuery 버전과 기준 버전, `web.jsTarget`을 보이고, jQuery를 못 찾으면 Warn입니다(`pelly js`의 jQuery API 경고만 건너뜀).
 * `--project`를 주면 그 프로젝트를 불러와 봅니다. 불러오지 못하면 Warn이고 종료 코드는 그대로이며, 영향 탐색은 이름 기준으로 대신합니다.
 
 ## 반출 자료 만들기: `pelly report --sanitize`
@@ -342,6 +367,7 @@ pelly doctor --sanitize --out C:\export
 * 레거시 .NET Framework 프로젝트의 빌드 검증과 `--test`는 Windows에서 실기 확인하지 않았습니다(Windows 미확인). 반입 후 현장에서 확인합니다(M4).
 * SQL 경로(`pelly sql`)도 Windows에서 실기 확인하지 않았습니다(Windows 미확인).
 * **`pelly asp`는 페이지를 실행하지 않습니다.** 컴파일 검사는 Windows에서만 되고 현장 개발 PC의 `cscript`는 아직 확인하지 않았습니다(Windows 현장 미확인). 예비 측정은 [asp-premeasure](../docs/asp-premeasure.md)(Mac)에 있습니다.
+* **`pelly js`·`pelly css`는 브라우저에서 실행하지 않습니다.** 이름·API·CSS 속성은 경고만 하고, 현장 확인은 아직입니다. 예비 측정은 [web-premeasure](../docs/web-premeasure.md)(Mac)에 있습니다.
 * Razor 뷰(`.cshtml`)와 설정 파일(`web.config`, `appsettings.json`)은 수정 대상이 아닙니다.
 * 컨트롤러 액션의 라우팅·필터 특성(`[HttpPost]`, `[Authorize]` 등)은 바꿀 수 없습니다. 의도된 동작입니다.
 * 벤치마크는 현장과 같은 모델 파일(`qwen3.6:35b-a3b-q4_K_M` GGUF `Q4_K_M`)과 0.9.1 기본값으로 50건 × 3회에서 평균 47.00건(94%) 성공이었습니다. 실패 3건 중 하나(`Math.Round(x, -1)`)는 빌드는 통과하고 실행할 때 예외가 나는 수정이라 빌드 검증으로는 잡히지 않습니다. 상세는 반입 패키지의 `benchmark-summary.md`에 있습니다. 이 수치는 개발 PC(Mac) 기준이고, Windows·GPU 서버 값은 현장에서 확인합니다.

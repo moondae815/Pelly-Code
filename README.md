@@ -1,6 +1,6 @@
 # Pelly-Coder CLI
 
-폐쇄망 로컬 LLM(`Qwen3.6-35B-A3B`, Ollama)으로 C# 메서드와 SQL 저장 프로시저를 수정하고, 컴파일러·DB 엔진으로 검증하는 코딩 CLI입니다. Classic ASP(VBScript) 페이지도 실행 없이 할 수 있는 판정(구조·안전·이름·`cscript` 컴파일·SP 존재)으로 고칩니다(`pelly asp`).
+폐쇄망 로컬 LLM(`Qwen3.6-35B-A3B`, Ollama)으로 C# 메서드와 SQL 저장 프로시저를 수정하고, 컴파일러·DB 엔진으로 검증하는 코딩 CLI입니다. Classic ASP(VBScript) 페이지도 실행 없이 할 수 있는 판정(구조·안전·이름·`cscript` 컴파일·SP 존재)으로 고칩니다(`pelly asp`). 클라이언트 JavaScript(jQuery)·CSS 파일도 브라우저 실행 없이 문법·문법 수준·안전 판정으로 고칩니다(`pelly js`·`pelly css`).
 
 ## 문서
 - [PRD](docs/PRD.md)
@@ -327,6 +327,66 @@ pelly asp admin/member/edit.asp "휴대폰 번호 저장 전에 하이픈 제거
 * **하지 않는 것:** 실행 검증(IIS·브라우저), `global.asa`, 서버 JScript, 여러 파일 동시 수정·새 파일·include 추가·지시문 변경, XSS 검사, `pelly ui asp`, 명세(`spec`·`apply`)의 ASP 작업(2단계 A2, 별도 계획).
 * **알려진 한계:** 실행하지 않으므로 화면 결과·런타임 오류·세션 의존 동작은 확인하지 못합니다. 컴파일 검사는 Windows에서만 되고, 현장 개발 PC의 `cscript`는 아직 확인하지 않았습니다(**Windows 현장 미확인**, 별도 Windows 11 23H2 PC에서만 확인). 실측은 [예비 측정](docs/asp-premeasure.md)(Mac, 컴파일 검사 건너뜀)을 보십시오.
 
+### `pelly js`·`pelly css` — 클라이언트 JavaScript·CSS 함수·규칙 하나나 줄 범위 수정 (V2-7)
+```bash
+pelly js  <파일.js>  ["<요청>"] [--function <이름> | --line N | --lines A-B] [--yes] [--dry-run] [--max-retries N] \
+          [--verbose] [--pause-on-exit] [--config <경로>] [--think off|retry|always] [--model <태그>] [--endpoint <URL>]
+pelly css <파일.css> ["<요청>"] [--selector "<선택자>" | --line N | --lines A-B] [그 밖의 옵션은 pelly js와 같음]
+```
+따로 있는 `.js`·`.css` 파일 하나에서 대상 하나를 모델이 고치고, 코드가 **브라우저에서 실행하지 않고, 외부 도구(Node·ESLint) 없이** 할 수 있는 판정을 모아 확인합니다. 흐름은 `cs`·`sql`·`asp`와 같습니다(PREFLIGHT → LOCATE → SLICE → EDIT → APPLY → VERIFY → REVIEW, 실패하면 피드백으로 재시도, 끝내 실패하거나 거부하면 원래 바이트로 되돌림). 모델 출력 형식은 SEARCH/REPLACE 블록이고 프롬프트 판은 `js-v1`·`css-v1`입니다. JS 해석은 pelly에 들어 있는 `Acornima` 1.9.0 버전이 합니다.
+
+```text
+pelly js  js/order/list.js "검색어가 비어 있으면 알림을 띄우고 멈춰 줘" --function fnSearch
+pelly js  js/common.js "날짜 입력 검사에서 빈 값은 통과" --line 9
+pelly js  js/order/list.js "Esc 키를 누르면 검색어 입력란을 비워 줘" --lines 45-50
+pelly css css/admin.css "목록 칸 위아래 여백을 6px로" --selector ".list_tbl td"
+pelly css css/admin.css "인쇄할 때 파란 버튼 숨기기" --lines 12-14
+```
+
+* **`pelly js` 대상:** `--function <이름>`은 `function 이름(…)` 선언, `var|let|const 이름 = function …`·화살표 함수, `이름: function …`, `객체.이름 = function …`, `객체.prototype.이름 = function …`입니다(`--function Order.save`처럼 `객체.이름`으로도 씀). 같은 이름이 여럿이면 줄 번호와 함께 선택 화면(비대화형이면 종료 3)입니다. `--line N`은 N번 줄을 감싸는 **가장 안쪽의 이름 있는 함수**이고, jQuery의 `$(function () { … })`·`.click(function () { … })` 같은 이름 없는 함수는 건너뜁니다. 이름 있는 함수가 없으면 「N번 줄을 감싸는 이름 있는 함수가 없습니다. --lines A-B로 범위를 주십시오」와 함께 종료 3입니다(수백 줄짜리 `ready` 함수 전체를 대상으로 잡지 않습니다). `--lines A-B`는 줄 범위 그대로이고, 처음·끝이 문장 중간을 자르면 「줄 A-B 범위가 문장 중간을 자릅니다. 문장 경계로 범위를 주십시오」와 함께 종료 3입니다. 셋 다 없으면 이름 있는 함수가 하나일 때 그것, 여럿이면 선택 화면입니다.
+* **`pelly css` 대상:** `--selector "<선택자>"`는 선택자 목록이 같은 규칙입니다(공백·쉼표 뒤 공백을 정규화, 대소문자 그대로, `a, b { }`는 `a`만 줘도 맞음, `@media` 안도 찾음). 여럿이면(예: 같은 선택자가 `@media print` 안에도 있음) 줄 번호·감싼 `@media`와 함께 선택 화면(비대화형이면 종료 3)입니다. `--line N`은 N번 줄을 감싸는 가장 안쪽 규칙(`@media` 같은 묶음 규칙 자체일 수 있음)입니다. `--lines A-B`는 줄 범위이며, 한 규칙 안의 선언 몇 줄만 주는 것은 되지만 **규칙 중간을 자르면** 「줄 A-B 범위가 규칙 중간을 자릅니다」와 함께 종료 3입니다. 셋 중 하나는 꼭 줘야 합니다.
+* **받지 않는 파일(종료 3):** 확장자가 `.js`(`pelly js`)·`.css`(`pelly css`)가 아님(`WebUnsupportedFile`), 압축 파일 — 이름이 `*.min.js`·`*.min.css`이거나 평균 줄 길이가 500자를 넘거나 1,000자 넘는 줄이 절반 이상(`WebMinifiedFile`), 라이브러리 파일 — 사이트 루트 기준 경로가 `web.vendorPaths`에 맞거나 첫 주석에 `jQuery JavaScript Library`·`@license`·`(c) … license` 같은 배포본 머리가 있음(`WebVendorFile`). 경로 때문에 거절되면 「`web.vendorPaths`에서 빼면 고칠 수 있습니다」가, 머리 주석 때문이면 설정과 무관하게 고치지 않는다는 안내가 나옵니다.
+* **판정(앞이 실패하면 뒤는 하지 않음, 모두 원본 기준선 대비 새로 생긴 것만 셈 — 위치가 아니라 내용의 개수):**
+
+  | 순서 | 검사 (검토 줄 이름) | `pelly js` | `pelly css` | 실패하면 |
+  | :-: | :--- | :--- | :--- | :--- |
+  | 1 | 패치 적용 | 편집 영역 밖 SEARCH, 일치 실패, 변경 없음 | 같음 | 재시도 |
+  | 2 | 인코딩 | 새 텍스트를 파일 인코딩으로 쓸 수 있는가 | 같음 | 재시도, 끝내 `WebEncoding` |
+  | 3 | 문법 | 고친 **파일 전체**를 목표 수준으로 해석(오류 줄·열과 해석기 메시지) | 구조: `{}`·`()`·`[]` 짝, 닫히지 않은 문자열·주석, 선언 끝 `;` 빠짐, 규칙 밖 선언 | 재시도, 끝내 `JsSyntaxErrors`·`CssStructureErrors` |
+  | 4 | 문법 수준 | 목표 수준보다 높은 문법(아래) | — | 재시도, 끝내 `JsLevelExceeded` |
+  | 5 | 대상 모양 | `--function` 대상이면 그 함수가 하나 있고 이름·매개변수가 같음(요청과 상관없이) | `--selector` 대상이면 그 선택자 규칙이 하나 있고 선택자가 같음 | 재시도, 끝내 `JsTargetChanged`·`CssTargetChanged` |
+  | 6 | 안전 | `JsEval`(`eval`), `JsFunctionConstructor`(`new Function`·`Function(…)`), `JsStringTimer`(첫 인수가 문자열·문자열 연결·템플릿 문자열인 `setTimeout`·`setInterval`), `JsDocumentWrite`, `JsExecScript`, `JsActiveX` | `CssExpression`(`expression(…)`), `CssBehavior`(`behavior:`), `CssMozBinding`, `CssJavascriptUrl`(`javascript:` URL) | 재시도, 끝내 종료 5 `JsSafetyRejected`·`CssSafetyRejected` |
+  | 7 | 규칙 | 프로젝트 규칙의 금지 패턴(`pelly rules`) | 같음 | 재시도 |
+  | 8 | 이름 (**경고만**) | 새로 쓴 자유 이름이 JS 내장·브라우저 전역, `$`·`jQuery`(jQuery를 찾았을 때), 파일 안 선언, 사이트 색인, `web.globals` 어디에도 없음 | — | 막지 않음, 검토 줄에 「이름 경고(…)」 |
+  | 9 | API (**경고만**) | 목표 수준에 없는 ES API(`.includes`·`Promise`·`fetch`·`Object.assign` 등), jQuery 기준 버전에 없거나 없어진 메서드(`.on`은 1.7 버전부터, `.live`·`$.browser`는 1.9 버전에서 없어짐 등) | — | 막지 않음 |
+  | 10 | 속성·덮어쓰기 (**경고만**) | — | 알려진 표에 없는 속성 이름(원본이 이미 쓰는 벤더 접두사·`*속성`·`_속성`·`filter` 모양은 제외), 새 선언이 같은 파일 뒤쪽의 같은 선택자·같은 `@media` 규칙에 덮임 | 막지 않음 |
+
+  이름·API·속성은 다른 페이지의 `<script>`나 다른 개체의 같은 이름 메서드일 수 있어 「없다」를 확신할 수 없으므로 막지 않습니다. 원본이 해석되지 않는 JS(깨진 파일, IE 전용 구문)는 멈추지 않고 문법 검사를 괄호·문자열·주석 짝 비교로 낮추며, 문법·문법 수준·이름·API는 「건너뜀(원본이 해석되지 않음: 줄 N)」으로 보입니다. `*zoom: 1`, `_height: 1%`, `filter: progid:DXImageTransform…`, `color: red\9` 같은 CSS의 IE 핵은 구조 문제로 보지 않습니다.
+* **문법 수준과 `web.jsTarget`:** 원본의 수준은 원본이 해석되는 가장 낮은 판입니다(`ES5`, `ES2015`, …, `ES2026` 순서. ES3 문법은 ES5 수준에 묶음). 고친 파일은 **목표 수준**으로 해석되어야 합니다. `web.jsTarget`이 `auto`(기본)면 목표 수준은 원본 수준이라, ES5 파일에 `let`·`const`·화살표 함수·템플릿 문자열·`class`가 들어가면 거절하고 재시도합니다(모델에게 주는 피드백은 영어 기능 이름 「arrow functions」 등을 씁니다). 배열·인수 펼치기(`...`)는 ES2015, 객체 펼치기·나머지(`{...a}`)는 ES2018 문법으로 셉니다. `web.jsTarget`을 `es5`·`es2015`~`es2026`·`latest`(대소문자 무시)로 고정하면 목표 수준은 그 값과 원본 수준 중 높은 쪽입니다. 원본이 설정보다 높으면 원본을 막지 않고 「원본이 ES2015 문법을 써서 web.jsTarget(ES5) 대신 원본 수준(ES2015)을 기준으로 봅니다」 알림을 보입니다. 대부분 ES5인데 `let` 하나가 있는 파일은 원본 수준이 ES2015라 화살표 함수를 막지 않습니다.
+* **jQuery 버전:** 사이트 루트 아래에서 jQuery 본체를 찾아 머리 주석(`jQuery JavaScript Library v1.8.3`·`jQuery v1.8.3`)이나 파일 이름(`jquery-1.8.3(.min).js`)에서 버전을 읽습니다. 여럿이면 가장 낮은 버전을 기준으로 하고 실행 메시지에 목록을 보입니다. `web.jqueryVersion`으로 직접 줄 수 있습니다. 기준 버전은 모델 입력에 들어가고 API 경고에 쓰입니다. 찾지 못하면 jQuery API 경고는 하지 않습니다.
+* **「브라우저 실행 검증 없음」:** 어떤 검사도 JS·CSS를 브라우저에서 실행하지 않습니다. 검토 화면에는 diff와 함께 판정 줄(예: `검사: 인코딩 통과, 문법 통과, 문법 수준 통과, 대상 모양 통과, 안전 통과, 이름 통과, API 통과`)과 고정 문구 「JS·CSS는 브라우저에서 실행해 확인하지 않았습니다. 화면에서 직접 확인하십시오. 브라우저 캐시 때문에 바뀐 파일이 바로 반영되지 않을 수 있습니다.」가 나옵니다. `--yes`여도 이 줄들은 화면과 실행 기록에 남습니다. 승인한 뒤 **화면을 직접 띄워(필요하면 강력 새로 고침) 확인하십시오.**
+* **인코딩과 줄 끝:** 편집 영역 밖은 원본 **바이트 그대로**입니다(줄 끝이 섞인 파일, 끝 줄바꿈 유무 포함). 인코딩은 BOM → (CSS) 파일 맨 앞 `@charset "…";`(`utf-8`, 또는 `euc-kr`·`ks_c_5601-1987`·`cp949`·`windows-949`. 그 밖은 종료 4) → ASCII 아닌 바이트가 엄격한 UTF-8이면 UTF-8, 아니면 CP949 → 순수 ASCII면 `asp.encoding`(기본 `cp949`) 순서로 정합니다. JS 파일은 그 파일을 부르는 페이지의 인코딩으로 읽히는데 파일 하나로는 그 페이지를 알 수 없어서, 순수 ASCII 파일에 한글이 들어가면 검토에 「이 파일은 ASCII였고 CP949로 저장했습니다」(또는 UTF-8) 알림을 보입니다. UTF-16 파일은 지원하지 않습니다(종료 4).
+* **설정(`web.*`, 작업 공간 `pelly.json`) — ASP 설정도 함께 씀:** JS·CSS 전용 사이트 루트·인코딩 설정은 없고 **`asp.siteRoot`·`asp.encoding`을 그대로 읽습니다**(사이트 색인·jQuery 찾기·`web.vendorPaths`의 기준 폴더, 순수 ASCII 파일의 인코딩).
+
+  | 키 | 기본 | 뜻 |
+  | :--- | :--- | :--- |
+  | `web.jsTarget` | `auto` | JS 목표 문법 수준: `auto`(원본 수준), `es5`, `es2015`~`es2026`, `latest` |
+  | `web.jqueryVersion` | 없음(찾은 것 중 가장 낮은 버전) | jQuery 기준 버전, 예: `"1.8.3"` |
+  | `web.globals` | `[]` | 현장 공용 전역 이름(페이지 안 `<script>`나 ASP가 출력하는 함수 등). 이름 경고에서 뺌 |
+  | `web.vendorPaths` | `["**/lib/**", "**/plugin*/**", "**/vendor/**", "**/jquery*.js", "**/jquery*.css", "**/bootstrap*"]` | 고치지 않는 라이브러리 경로 패턴(사이트 루트 기준, `/` 구분, 대소문자 무시). 값을 주면 기본값을 대신함 |
+  | `asp.siteRoot` | 작업 공간 루트 | (ASP와 공용) 사이트 루트 |
+  | `asp.encoding` | `cp949` | (ASP와 공용) 순수 ASCII 파일을 쓸 인코딩 |
+
+  ```json
+  { "asp": { "siteRoot": ".", "encoding": "cp949" },
+    "web": { "jsTarget": "auto", "globals": ["gfnOpenPopup"] } }
+  ```
+  사이트 색인(사이트 루트 아래 라이브러리가 아닌 `.js` 파일들의 최상위 함수·`var` 이름)은 `.pelly/cache/web-site-index.json`에 파일 해시와 함께 저장하고 바뀐 파일만 다시 읽습니다.
+* **종료 코드:** 0 적용(또는 `--dry-run`), 1 재시도 소진, 2 거부·중단, 3 대상 못 찾음·모호·받지 않는 파일, 4 환경(인코딩 판정 실패, 모델·설정, 잘못된 인자), 5 안전 거부.
+* **기록:** `summary.json`의 `web` 블록(`unit`: `function`·`rule`·`lines`, `encoding`, `originalLevel`·`targetLevel`(CSS는 `null`), `jquery`, `checks`: 검사별 `passed`·`warned`·`skipped`·`failed`(키는 ASP처럼 `Syntax`·`Level`·`Shape`·`Safety`·`Names`·`Api`·`Properties`·`Override`·`Encoding`, CSS 구조도 `Syntax`), `levelRejections`, `nameWarnings`·`apiWarnings`·`propertyWarnings`)과 실패 유형 `JsSyntaxErrors`·`JsLevelExceeded`·`JsSafetyRejected`·`JsTargetChanged`·`CssStructureErrors`·`CssSafetyRejected`·`CssTargetChanged`·`WebVendorFile`·`WebMinifiedFile`·`WebUnsupportedFile`·`WebEncoding`. `pelly report`에 「JS: 실행 N건, 성공 K건, 문법 수준 거절 M건, 실패 유형 …」·「CSS: 실행 N건, 성공 K건, 실패 유형 …」 줄이 나옵니다. `pelly doctor`의 「JS·CSS」 행은 설정에 `web` 또는 `asp` 절이 있을 때 찾은 jQuery 버전 목록·기준 버전·`web.jsTarget`을 보입니다(못 찾으면 Warn).
+* **하지 않는 것:** 브라우저 실행·화면 비교, Node·npm·ESLint 같은 외부 도구, 압축·라이브러리 파일, 페이지(`.asp`·`.htm`) 안의 `<script>`·`<style>`(2단계 W2, 별도 계획), TypeScript·JSX·SCSS·LESS, 서버 JScript, 들여쓰기·따옴표 정리, XSS 검사, 함수 이름·매개변수나 선택자 바꾸기와 부르는 곳 함께 고치기(3단계 W3), 여러 파일 동시 수정·새 파일, `pelly ui js`·`pelly ui css`.
+* **알려진 한계:** 실행하지 않으므로 화면 동작·런타임 오류·브라우저별 차이는 확인하지 못합니다. 이름·API·속성은 경고만 합니다. 현장 확인은 아직입니다(`deploy/field-results.md` 17절). 실측은 [예비 측정](docs/web-premeasure.md)(Mac)을 보십시오.
+
 ### `pelly rules` — 프로젝트 규칙 (AGENTS.md)
 ```bash
 pelly rules init  [--dry-run] [--force] [--yes] [--pause-on-exit]
@@ -384,6 +444,7 @@ pelly doctor [--project <csproj>] [--sanitize [--out <폴더>]] [--config <경�
 ```
 Ollama 서버 접속, 모델 존재·로드 여부, chat template, 토크나이저, 응답 시간, pelly 자체와 설정, .NET SDK(`dotnet --version`), 레거시 프로젝트용 MSBuild(Windows에서만), 타겟팅 팩, 의미 분석(영향 탐색용 보조 프로세스 폴더 `BuildHost-*` 유무, `--project`를 주면 불러오기까지), SQL 연결(허용 목록·`VIEW DEFINITION`, 연결 문자열이 설정된 경우), 서버 관리자 확인 체크리스트를 표로 보입니다. 하나라도 Fail이면 종료 코드 4입니다.
 * 설정에 `asp` 절이 있으면 「ASP 구문 검사(cscript)」(Windows가 아니거나 `cscript`가 안 되면 Warn, 컴파일 검사는 건너뜀), 「ASP 사이트 루트」(`asp.siteRoot` 폴더가 없으면 Fail, 상대 경로는 `pelly asp`와 같이 작업 공간 루트 기준), 「ASP SQL 처리 함수」(`asp.sqlSanitizers`가 비면 Warn) 행이 더해집니다.
+* 설정에 `web` 또는 `asp` 절이 있으면 「JS·CSS」 행이 더해집니다. 사이트 루트(`asp.siteRoot`) 아래에서 찾은 jQuery 버전 목록과 기준 버전, `web.jsTarget`을 보이고, jQuery를 못 찾으면 Warn입니다(`pelly js`의 jQuery API 경고는 건너뜀).
 * `--project <csproj>`: 그 프로젝트의 .NET Framework 타겟팅 팩이 설치됐는지 확인합니다(Windows에서만, 실기 확인 전). 의미 분석 행도 이 프로젝트를 불러와 봅니다. 불러오지 못하면 Warn이고(종료 코드는 그대로) 영향 탐색은 이름 기준으로 대신합니다. 보조 프로세스 폴더가 없으면 Fail입니다.
 * `--sanitize`: 화면 대신 비식별 결과 `json`·`md`를 현재 폴더(또는 `--out`)에 씁니다. 행 이름·상태·버전 같은 짧은 값만 남고 경로·연결 문자열·설명 문장은 나가지 않습니다.
 
@@ -391,7 +452,7 @@ Ollama 서버 접속, 모델 존재·로드 여부, chat template, 토크나이�
 ```bash
 pelly report [--since 2026-10-01] [--sanitize [--out <폴더>]]
 ```
-현재 작업 공간의 `.pelly/runs/*/summary.json`을 모아 TTFT·대기·패치 포맷 파싱 성공률·최종 성공률·완료 시간 표와 종료 코드·실패 유형·시도 수 분포를 보입니다. `pelly asp` 실행이 있으면 「ASP: 실행 N건, 성공 K건, 컴파일 검사 건너뜀 M건, 실패 유형 …」 줄이 더해집니다.
+현재 작업 공간의 `.pelly/runs/*/summary.json`을 모아 TTFT·대기·패치 포맷 파싱 성공률·최종 성공률·완료 시간 표와 종료 코드·실패 유형·시도 수 분포를 보입니다. `pelly asp` 실행이 있으면 「ASP: 실행 N건, 성공 K건, 컴파일 검사 건너뜀 M건, 실패 유형 …」 줄이 더해집니다. `pelly js`·`pelly css` 실행이 있으면 「JS: 실행 N건, 성공 K건, 문법 수준 거절 M건, 실패 유형 …」·「CSS: 실행 N건, 성공 K건, 실패 유형 …」 줄이 더해집니다.
 * `--sanitize`: 폐쇄망 밖으로 보낼 수 있는 `pelly-report-<시각>.json`·`.md`를 씁니다(`--out`으로 폴더 지정, 기본은 현재 폴더). **허용 목록 방식**이라 소스·경로·식별자·모델 이름·RunId는 나가지 않고 숫자 지표, 오류 코드(`CS0103`·`Msg208`·`TEST` 등), 실패 유형, 버전만 담깁니다. 반출 가능 여부는 사내 보안 규정을 따르십시오.
 `pelly apply`가 남긴 `.pelly/runs/apply-*/apply.json`으로 「명세」 표도 보입니다. 명세 완료율은 `--resume`이 아닌 apply 중 종료 코드 0으로 보관(archive)까지 끝낸 비율이고(이어서 하기는 분모에서 빼고 건수만 따로 보입니다), 작업 3~8개 명세만 따로도 셉니다. 그룹 빌드 통과율은 그룹 빌드까지 간 그룹 중 통과한 비율이며 빌드 검증 불가 그룹은 따로 세고 분모에서 뺍니다. 작업 실행 기록이 없어도 apply 기록만으로 나오고, `--since`는 둘 모두에 적용되며, `--sanitize` 보고서에는 이 비율의 숫자 여섯만 더해집니다.
 

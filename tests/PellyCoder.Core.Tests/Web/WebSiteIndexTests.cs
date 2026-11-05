@@ -6,7 +6,8 @@ namespace PellyCoder.Core.Tests.Web;
 
 public class WebSiteIndexTests
 {
-    private const string Root = "/site";
+    // A full path on each OS: the index enumerates full paths, as the real site root always is.
+    private static readonly string Root = OperatingSystem.IsWindows() ? @"C:\site" : "/site";
     private const string Cache = "/ws/.pelly/cache/web-site-index.json";
     private static readonly string[] Vendors = { "**/lib/**", "**/plugin*/**", "**/vendor/**", "**/jquery*.js" };
 

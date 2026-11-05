@@ -14,9 +14,10 @@ namespace PellyCoder.Core.Tests.Fsm;
 
 public sealed class WebSlicePhaseTests
 {
-    private const string Root = "/w";
-    private const string JsPath = Root + "/js/order.js";
-    private const string CssPath = Root + "/css/site.css";
+    // A full path on each OS: the site index enumerates full paths, as the real site root always is.
+    private static readonly string Root = OperatingSystem.IsWindows() ? @"C:\w" : "/w";
+    private static readonly string JsPath = Root + "/js/order.js";
+    private static readonly string CssPath = Root + "/css/site.css";
     private static readonly WebTextCodec Codec = new("cp949");
 
     private readonly MockFileSystem _fs = new();

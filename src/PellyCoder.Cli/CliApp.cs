@@ -15,6 +15,7 @@ public static class CliApp
         config.SetApplicationVersion(PellyInfo.Version);
         // An unknown option is an argument error (exit 4), not ignored: a typo like --dry-rum would turn a preview into a write.
         config.Settings.StrictParsing = true;
+        config.AddCommand<EditCommand>("edit").WithDescription("파일 확장자로 언어를 골라 cs·sql·asp·js·css 수정을 실행합니다.");
         config.AddCommand<CsCommand>("cs").WithDescription("C# 메서드 하나를 요청대로 수정합니다.");
         config.AddCommand<AspCommand>("asp").WithDescription("Classic ASP(VBScript) 파일의 함수 하나나 줄 범위를 요청대로 수정합니다.");
         config.AddCommand<JsCommand>("js").WithDescription("JavaScript 파일의 함수 하나나 줄 범위를 요청대로 수정합니다.");
@@ -74,6 +75,7 @@ public static class CliApp
     /// <summary>Settings type of each command, for <see cref="FindOptionWithoutValue"/>; matches the commands added in <see cref="Configure"/>.</summary>
     public static readonly IReadOnlyDictionary<string, Type> CommandSettings = new Dictionary<string, Type>(StringComparer.Ordinal)
     {
+        ["edit"] = typeof(EditSettings),
         ["cs"] = typeof(CsSettings),
         ["asp"] = typeof(AspSettings),
         ["js"] = typeof(JsSettings),

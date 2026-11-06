@@ -71,9 +71,7 @@ public static class AspSafetyGuard
         var result = new List<Keyed>();
         Walk(page, siteSanitizers, permanent, collect: false, (statement, sqlLine) =>
         {
-            var scope = ScopeOf(page, statement);
-            var owner = scope < 0 ? "" : page.Procedures[scope].ClassName + "." + page.Procedures[scope].Name;
-            var key = owner.ToLowerInvariant() + "|" + string.Join(" ", statement.Tokens.Select(t => t.Text)).ToLowerInvariant();
+            var key = string.Join(" ", statement.Tokens.Select(t => t.Text)).ToLowerInvariant();
             void Add(string rule, int line) =>
                 result.Add(new Keyed(new AspSafetyFinding(rule, line, statement.Text.Trim()), key));
 

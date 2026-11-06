@@ -210,4 +210,30 @@ public sealed class WebApplyPagePhaseTests
 
         Assert.Contains("p/list.asp 2–9줄 <script> 블록", _ui.Warnings);
     }
+
+    [Fact]
+    public async Task Level_excerpt_shows_the_page_line_not_the_placeholder()
+    {
+        var ctx = await Sliced(ServerPage);
+
+        var outcome = await Apply(ctx, "  var x = <%= a %>;", "  var x = (() => <%= a %>)();");
+
+        Assert.Equal(PhaseOutcome.MatchFailed, outcome);
+        Assert.Equal(FailureKinds.JsLevelExceeded, ctx.FailureKind);
+        Assert.Contains("<%= a %>", ctx.Feedback!.Text);
+        Assert.DoesNotContain("__asp0__", ctx.Feedback.Text);
+    }
+
+    [Fact]
+    public async Task Syntax_excerpt_shows_the_page_line_not_the_placeholder()
+    {
+        var ctx = await Sliced(ServerPage);
+
+        var outcome = await Apply(ctx, "  var x = <%= a %>;", "  var x = (<%= a %>;");
+
+        Assert.Equal(PhaseOutcome.MatchFailed, outcome);
+        Assert.Equal(FailureKinds.JsSyntaxErrors, ctx.FailureKind);
+        Assert.Contains("<%= a %>", ctx.Feedback!.Text);
+        Assert.DoesNotContain("__asp0__", ctx.Feedback.Text);
+    }
 }

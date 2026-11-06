@@ -322,4 +322,40 @@ public sealed class WebOrchestratorTests
         Assert.Contains("ASP는 실행해서 확인하지 않았습니다. 화면에서 직접 확인하십시오.", _ui.Warnings);
         Assert.DoesNotContain(Banner, _ui.Warnings);
     }
+
+    private const string PagePath = Root + "/p/a.asp";
+    private const string ServerHint = "서버 값이 필요하면 pelly asp --lines를 쓰십시오";
+    private const string ServerPage = "<html>\n<script>\nfunction fnA() {\n  var x = <%= a %>;\n  return x;\n}\n</script>\n";
+
+    private Task<int> RunPage() =>
+        FsmOrchestratorFactory.CreateWeb(_fs, _backend, _ui, _options, TimeProvider.System, EditKind.Js)
+            .RunAsync(new RunRequest(PagePath, null, "fnA", null, "change", true, false, 0, Kind: EditKind.Js),
+                TestContext.Current.CancellationToken)
+            .WaitAsync(WallClock, CancellationToken.None);
+
+    [Fact]
+    public async Task Page_ending_with_WebServerCodeChanged_shows_the_asp_lines_hint()
+    {
+        Prepare(PagePath, ServerPage);
+        _backend.Enqueue(Block("  var x = <%= a %>;", "  var x = <%= b %>;"));
+
+        var exit = await RunPage();
+
+        Assert.Equal(1, exit);
+        Assert.Equal(FailureKinds.WebServerCodeChanged, Summary().GetProperty("failureKind").GetString());
+        Assert.Contains(ServerHint, _ui.Warnings);
+    }
+
+    [Fact]
+    public async Task Page_ending_with_another_failure_does_not_show_the_asp_lines_hint()
+    {
+        Prepare(PagePath, ServerPage);
+        _backend.Enqueue(Block("  return x;", "  return x +;"));
+
+        var exit = await RunPage();
+
+        Assert.Equal(1, exit);
+        Assert.Equal(FailureKinds.JsSyntaxErrors, Summary().GetProperty("failureKind").GetString());
+        Assert.DoesNotContain(ServerHint, _ui.Warnings);
+    }
 }

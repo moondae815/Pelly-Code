@@ -74,7 +74,7 @@ public sealed class WebApplyPhase(FileGuard fileGuard, FeedbackBuilder feedback,
             judged = view;
         }
 
-        var rejected = state.Kind == EditKind.Css ? JudgeCss(ctx, state, judged) : JudgeJs(ctx, state, judged);
+        var rejected = state.Kind == EditKind.Css ? JudgeCss(ctx, state, judged, newText) : JudgeJs(ctx, state, judged, newText);
         if (rejected is { } outcome) return outcome;
 
         if (newPage is not null)
@@ -119,8 +119,8 @@ public sealed class WebApplyPhase(FileGuard fileGuard, FeedbackBuilder feedback,
         return written;
     }
 
-    /// <summary>Null when every JS check passed; otherwise the outcome to return (feedback and failure kind already set).</summary>
-    private PhaseOutcome? JudgeJs(RunContext ctx, WebRunState state, string newText)
+    /// <summary>Null when every JS check passed (<paramref name="excerptText"/>: the page text for the line excerpts shown to the model); otherwise the outcome to return (feedback and failure kind already set).</summary>
+    private PhaseOutcome? JudgeJs(RunContext ctx, WebRunState state, string newText, string excerptText)
     {
         var file = Path.GetFileName(ctx.FilePath);
         var verdict = JsChecks.Syntax(state, file, newText);
@@ -132,7 +132,7 @@ public sealed class WebApplyPhase(FileGuard fileGuard, FeedbackBuilder feedback,
             }
             var first = verdict.Errors[0];
             state.Record(SyntaxCheck, AspCheckStatus.Failed, $"줄 {first.Line}: {first.Message}");
-            ctx.Feedback = feedback.ForDiagnostics("JS SYNTAX CHECK FAILED", verdict.Errors, newText);
+            ctx.Feedback = feedback.ForDiagnostics("JS SYNTAX CHECK FAILED", verdict.Errors, excerptText);
             ctx.FailureKind = FailureKinds.JsSyntaxErrors;
             return PhaseOutcome.MatchFailed;
         }
@@ -151,7 +151,7 @@ public sealed class WebApplyPhase(FileGuard fileGuard, FeedbackBuilder feedback,
                 var line = verdict.FeatureLine ?? 1;
                 state.LevelRejections++;
                 state.Record(LevelCheck, AspCheckStatus.Failed, $"{feature} (줄 {line})");
-                ctx.Feedback = feedback.ForJsLevel(JsLevels.Name(target), verdict.FeatureEnglish ?? feature, line, LineOf(newText, line));
+                ctx.Feedback = feedback.ForJsLevel(JsLevels.Name(target), verdict.FeatureEnglish ?? feature, line, LineOf(excerptText, line));
                 ctx.FailureKind = FailureKinds.JsLevelExceeded;
                 return PhaseOutcome.MatchFailed;
             }
@@ -182,7 +182,7 @@ public sealed class WebApplyPhase(FileGuard fileGuard, FeedbackBuilder feedback,
     }
 
     /// <summary>Null when every CSS check passed; otherwise the outcome to return (feedback and failure kind already set).</summary>
-    private PhaseOutcome? JudgeCss(RunContext ctx, WebRunState state, string newText)
+    private PhaseOutcome? JudgeCss(RunContext ctx, WebRunState state, string newText, string excerptText)
     {
         var original = state.OriginalCss ?? CssSheet.Parse(state.OriginalText);
         var patched = CssSheet.Parse(newText);
@@ -196,7 +196,7 @@ public sealed class WebApplyPhase(FileGuard fileGuard, FeedbackBuilder feedback,
                 if (!ctx.ErrorCodes.Contains(error.Code)) ctx.ErrorCodes.Add(error.Code);
             }
             state.Record(SyntaxCheck, AspCheckStatus.Failed, string.Join(", ", problems.Select(p => p.Code).Distinct()));
-            ctx.Feedback = feedback.ForDiagnostics("CSS STRUCTURE CHECK FAILED", errors, newText);
+            ctx.Feedback = feedback.ForDiagnostics("CSS STRUCTURE CHECK FAILED", errors, excerptText);
             ctx.FailureKind = FailureKinds.CssStructureErrors;
             return PhaseOutcome.MatchFailed;
         }

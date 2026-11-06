@@ -129,7 +129,7 @@ public sealed class AspSlicePhase(FileGuard fileGuard, ITokenCounter tokens, Bud
         {
             var view = PageBlockView.Build(page, text, i);
             var plan = AspClientChecks.Plan(page, text, view, view, pelly?.Web.JsTarget);
-            var level = JsLevels.EnvLine(plan.Level);
+            var level = JsLevels.EnvLine(plan.Level, plan.Reason is null ? null : "server code in the block or the block did not parse");
             var b = page.ClientBlocks[i];
             lines.Add(scripts.Count == 1 ? level : $"<script> block, lines {b.ContentStartLine}-{b.ContentEndLine}: {level}");
         }

@@ -148,4 +148,59 @@ public sealed class AspClientChecksTests
 
         Assert.Empty(v.Rows);
     }
+
+    [Fact]
+    public void New_eval_block_in_blockless_range_rejected()
+    {
+        const string page = "<p>a</p>\n<p>b</p>\n";
+
+        var v = Judge(page, "<p>a</p>\n<script>\neval('x');\n</script>\n", 2, 2);
+
+        Assert.Equal(FailureKinds.JsSafetyRejected, v.FailureKind);
+        Assert.True(v.IsSafety);
+    }
+
+    [Fact]
+    public void Insert_before_overlapped_block_with_existing_eval_passes()
+    {
+        const string page = "<script>\nvar a = eval('1');\n</script>\n";
+        var patched = "<script>\nvar n = 1;\n</script>\n" + page;
+
+        var v = Judge(page, patched, 1, 3);
+
+        Assert.Null(v.FailureKind);
+    }
+
+    [Fact]
+    public void Insert_after_overlapped_block_with_existing_eval_passes()
+    {
+        const string page = "<script>\nvar a = eval('1');\n</script>\n";
+
+        var v = Judge(page, page + "<script>\nvar n = 1;\n</script>\n", 1, 3);
+
+        Assert.Null(v.FailureKind);
+    }
+
+    [Fact]
+    public void Blocks_outside_the_region_are_not_judged_and_keep_pairing()
+    {
+        const string page = "<script>\nvar a = eval('1');\n</script>\n<p>x</p>\n<script>\nvar b = 1;\n</script>\n";
+
+        // An inserted block in the middle region: the eval block before it is outside and untouched.
+        var v = Judge(page, page.Replace("<p>x</p>", "<p>x</p>\n<script>\nvar c = 2;\n</script>"), 4, 4);
+
+        Assert.Null(v.FailureKind);
+        Assert.Equal(AspCheckStatus.Passed, Status(v, "JsSafety"));
+    }
+
+    [Fact]
+    public void Deleted_closing_tag_rejected()
+    {
+        const string page = "<script>\nvar a = 1;\n</script>\n<p>x</p>\n";
+
+        var v = Judge(page, "<script>\nvar a = 2;\n<p>x</p>\n", 2, 3);
+
+        Assert.Equal(FailureKinds.JsSyntaxErrors, v.FailureKind);
+        Assert.Equal(AspCheckStatus.Failed, Status(v, "JsSyntax"));
+    }
 }

@@ -41,8 +41,7 @@ public sealed record AspClientVerdict(
 
 /// <summary>
 /// JS and CSS checks for the client blocks an <c>pelly asp</c> edit touches (design 4.5). A block is judged when its content
-/// lines overlap an original edit region; the patched block is matched to the original by ordinal, and a block beyond the
-/// original count is new (empty baseline).
+/// lines the original edit regions touch (the middle blocks; see <see cref="Pairs"/>); a patched block with no partner is new (empty baseline).
 /// </summary>
 public static class AspClientChecks
 {
@@ -52,40 +51,122 @@ public static class AspClientChecks
     public const string CssSyntax = "CssSyntax";
     public const string CssSafety = "CssSafety";
 
-    /// <summary>One block to judge: the original block (null for a new one) and the patched block.</summary>
-    internal readonly record struct Pair(int? OriginalIndex, int PatchedIndex, AspClientBlockKind Kind);
+    /// <summary>
+    /// One block to judge: the original block (null for a new one) and the patched block. <paramref name="Broken"/>: the block lost its
+    /// shape (unclosed, or no longer the same kind of block), so it cannot be compared.
+    /// </summary>
+    internal readonly record struct Pair(int? OriginalIndex, int PatchedIndex, AspClientBlockKind Kind, bool Broken = false);
 
-    /// <summary>Indexes of the judged-kind blocks of <paramref name="page"/> whose content lines overlap an edit region.</summary>
-    public static IReadOnlyList<int> OverlappedBlocks(AspPage page, IReadOnlyList<EditableRegion> regions)
+    /// <summary>
+    /// Blocks wholly before the edit regions (<c>Before</c>) and wholly after them (<c>After</c>); the rest is the middle,
+    /// the blocks the edit may have changed.
+    /// </summary>
+    private static (int Before, int After) Outside(AspPage page, IReadOnlyList<EditableRegion> regions)
     {
-        var overlapped = new List<int>();
-        for (var i = 0; i < page.ClientBlocks.Count; i++)
-        {
-            var b = page.ClientBlocks[i];
-            if (b.ContentStartLine > b.ContentEndLine || !Judged(b)) continue;
-            if (regions.Any(r => r.Span.StartLine <= b.ContentEndLine && r.Span.EndLine >= b.ContentStartLine))
-                overlapped.Add(i);
-        }
-        return overlapped;
+        if (regions.Count == 0) return (0, 0);
+        var first = regions.Min(r => r.Span.StartLine);
+        var last = regions.Max(r => r.Span.EndLine);
+        var blocks = page.ClientBlocks;
+        var before = 0;
+        while (before < blocks.Count && blocks[before].CloseLine < first) before++;
+        var after = 0;
+        while (after < blocks.Count - before && blocks[blocks.Count - 1 - after].OpenLine > last) after++;
+        return (before, after);
     }
 
-    internal static IReadOnlyList<Pair> Pairs(AspPage original, AspPage patched, IReadOnlyList<EditableRegion> regions)
+    /// <summary>Indexes of the judged-kind blocks of <paramref name="page"/> in the middle (the blocks the edit regions touch).</summary>
+    public static IReadOnlyList<int> OverlappedBlocks(AspPage page, IReadOnlyList<EditableRegion> regions)
     {
-        var overlapped = OverlappedBlocks(original, regions);
-        if (overlapped.Count == 0) return [];
+        var (before, after) = Outside(page, regions);
+        return Enumerable.Range(before, page.ClientBlocks.Count - before - after).Where(i => Judged(page.ClientBlocks[i])).ToList();
+    }
+
+    /// <summary>
+    /// Blocks before the regions pair with the patched page's first blocks and blocks after them with its last (neither is judged);
+    /// the middle pairs in order when the counts agree, else from the front and from the back while the kinds match.
+    /// A patched middle block with no partner is new; a deleted original one needs no judgement. No middle block on either side: nothing.
+    /// </summary>
+    internal static IReadOnlyList<Pair> Pairs(
+        AspPage original, string originalText, AspPage patched, string patchedText, IReadOnlyList<EditableRegion> regions)
+    {
+        var (before, after) = Outside(original, regions);
+        var o = original.ClientBlocks;
+        var p = patched.ClientBlocks;
+        after = Math.Min(after, Math.Max(0, p.Count - before));
+        before = Math.Min(before, p.Count);
+        var oMid = o.Count - before - after;
+        var pMid = p.Count - before - after;
+        if (oMid <= 0 && pMid <= 0) return [];
 
         var pairs = new List<Pair>();
-        foreach (var i in overlapped)
+        void Add(int? oi, int pi)
         {
-            if (i >= patched.ClientBlocks.Count) continue;
-            var o = original.ClientBlocks[i];
-            var p = patched.ClientBlocks[i];
-            if (o.Kind == p.Kind && Judged(p))
-                pairs.Add(new Pair(i, i, o.Kind));
+            var po = p[pi];
+            if (oi is null)
+            {
+                if (!po.Closed) pairs.Add(new Pair(null, pi, po.Kind, true));
+                else if (Judged(po)) pairs.Add(new Pair(null, pi, po.Kind));
+                return;
+            }
+            var oo = o[oi.Value];
+            if (!Judged(oo)) return;
+            pairs.Add(new Pair(oi, pi, oo.Kind, oo.Kind != po.Kind || !Judged(po)));
         }
-        for (var j = original.ClientBlocks.Count; j < patched.ClientBlocks.Count; j++)
-            if (Judged(patched.ClientBlocks[j]))
-                pairs.Add(new Pair(null, j, patched.ClientBlocks[j].Kind));
+
+        if (oMid == pMid)
+        {
+            for (var i = 0; i < oMid; i++) Add(before + i, before + i);
+            return pairs;
+        }
+
+        // Counts differ: blocks that kept their kind and content anchor the match (so an inserted block does not shift the
+        // others); between anchors, pair from the front and from the back while the kinds match, and the rest are new or deleted.
+        string Content(AspPage page, string text, int i) => text[page.ClientBlocks[i].ContentStart..page.ClientBlocks[i].ContentEnd];
+        bool Same(int oi, int pi) => o[oi].Kind == p[pi].Kind && Content(original, originalText, oi) == Content(patched, patchedText, pi);
+        var lcs = new int[oMid + 1, pMid + 1];
+        for (var i = oMid - 1; i >= 0; i--)
+            for (var j = pMid - 1; j >= 0; j--)
+                lcs[i, j] = Same(before + i, before + j) ? lcs[i + 1, j + 1] + 1 : Math.Max(lcs[i + 1, j], lcs[i, j + 1]);
+        int io = 0, jp = 0;
+        void Gap(int oEnd, int pEnd)
+        {
+            int front = 0, back = 0;
+            while (io + front < oEnd && jp + front < pEnd && o[before + io + front].Kind == p[before + jp + front].Kind)
+            {
+                Add(before + io + front, before + jp + front);
+                front++;
+            }
+            while (io + front < oEnd - back && jp + front < pEnd - back
+                   && o[before + oEnd - 1 - back].Kind == p[before + pEnd - 1 - back].Kind)
+            {
+                Add(before + oEnd - 1 - back, before + pEnd - 1 - back);
+                back++;
+            }
+            for (var j = jp + front; j < pEnd - back; j++) Add(null, before + j);
+            io = oEnd;
+            jp = pEnd;
+        }
+        while (io < oMid && jp < pMid)
+        {
+            if (Same(before + io, before + jp) && lcs[io, jp] == lcs[io + 1, jp + 1] + 1)
+            {
+                Add(before + io, before + jp);
+                io++;
+                jp++;
+                continue;
+            }
+            // Next anchor: the first (o, p) at or after the cursor that is on an optimal path.
+            var found = false;
+            for (var i = io; i < oMid && !found; i++)
+                for (var j = jp; j < pMid && !found; j++)
+                    if (Same(before + i, before + j) && lcs[i, j] == lcs[io, jp] && lcs[i, j] == lcs[i + 1, j + 1] + 1)
+                    {
+                        Gap(i, j);
+                        found = true;
+                    }
+            if (!found) break;
+        }
+        Gap(oMid, pMid);
         return pairs;
     }
 
@@ -97,12 +178,17 @@ public static class AspClientChecks
         AspPage original, string originalText, AspPage patched, string patchedText,
         IReadOnlyList<EditableRegion> originalRegions, string? jsTarget, string fileName = "")
     {
-        var pairs = Pairs(original, patched, originalRegions);
+        var pairs = Pairs(original, originalText, patched, patchedText, originalRegions);
         if (pairs.Count == 0) return AspClientVerdict.Empty;
 
         var rows = new Dictionary<string, (AspCheckStatus Status, string? Detail)>(StringComparer.Ordinal);
         foreach (var pair in pairs)
         {
+            if (pair.Broken)
+            {
+                Put(rows, pair.Kind == AspClientBlockKind.Style ? CssSyntax : JsSyntax, AspCheckStatus.Failed, "블록 경계가 바뀜");
+                return BoundaryFailure(patched.ClientBlocks[pair.PatchedIndex], pair.Kind, fileName) with { Rows = Ordered(rows) };
+            }
             var pv = PageBlockView.Build(patched, patchedText, pair.PatchedIndex);
             var ov = pair.OriginalIndex is { } oi ? PageBlockView.Build(original, originalText, oi) : null;
             var failure = pair.Kind == AspClientBlockKind.Style
@@ -111,6 +197,16 @@ public static class AspClientChecks
             if (failure is not null) return failure with { Rows = Ordered(rows) };
         }
         return new AspClientVerdict(Ordered(rows));
+    }
+
+    private static AspClientVerdict BoundaryFailure(AspClientBlock block, AspClientBlockKind kind, string fileName)
+    {
+        var tag = kind == AspClientBlockKind.Style ? "<style>" : "<script>";
+        var error = new Diagnostic(fileName, block.OpenLine, 1, "error", "ClientBlockBoundary",
+            $"the {tag} block opened on this line is not a closed block of the same kind any more; keep every {tag} and its closing tag");
+        return kind == AspClientBlockKind.Style
+            ? new AspClientVerdict([], FailureKinds.CssStructureErrors, "CSS STRUCTURE CHECK FAILED", [error])
+            : new AspClientVerdict([], FailureKinds.JsSyntaxErrors, "JS SYNTAX CHECK FAILED", [error]);
     }
 
     private static readonly string[] RowOrder = [JsSyntax, JsLevel, JsSafety, CssSyntax, CssSafety];

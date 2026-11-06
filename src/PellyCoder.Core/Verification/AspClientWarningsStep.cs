@@ -28,7 +28,7 @@ public sealed class AspClientWarningsStep(IFileSystem fs, PellyOptions options, 
 
         var text = ctx.Current.Text;
         var patched = AspPage.Parse(text);
-        var pairs = AspClientChecks.Pairs(state.OriginalPage, patched, state.OriginalRegions())
+        var pairs = AspClientChecks.Pairs(state.OriginalPage, ctx.Original.Text, patched, text, state.OriginalRegions())
             .Where(p => p.Kind == AspClientBlockKind.Script).ToList();
         if (pairs.Count == 0) return Task.FromResult(StepResult.Pass);
 

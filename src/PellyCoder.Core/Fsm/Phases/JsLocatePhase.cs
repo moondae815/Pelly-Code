@@ -187,18 +187,7 @@ public sealed class JsLocatePhase(IFileSystem fs, IUserInteraction ui, PellyOpti
         string? FallbackReason, EcmaVersion? TargetLevel, List<string> Notes, IReadOnlyList<JsFunction> Functions);
 
     /// <summary>A script block with content the run can edit: closed, inline and JavaScript.</summary>
-    private static bool IsEditable(AspClientBlock block)
-    {
-        if (block.Kind != AspClientBlockKind.Script || block.Src is not null || !block.Closed)
-            return false;
-        var language = block.Language?.Trim();
-        var type = block.Type?.Trim();
-        return (string.IsNullOrEmpty(language) || language.StartsWith("javascript", StringComparison.OrdinalIgnoreCase)
-                || language.StartsWith("jscript", StringComparison.OrdinalIgnoreCase))
-            && (string.IsNullOrEmpty(type) || type.Contains("javascript", StringComparison.OrdinalIgnoreCase)
-                || type.Contains("ecmascript", StringComparison.OrdinalIgnoreCase)
-                || type.Equals("module", StringComparison.OrdinalIgnoreCase));
-    }
+    private static bool IsEditable(AspClientBlock block) => PageBlockView.IsJavaScriptBlock(block);
 
     private static PhaseOutcome Outside(RunContext ctx, string message) =>
         Refuse(ctx, FailureKinds.WebOutsideBlock, message);

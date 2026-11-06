@@ -151,6 +151,8 @@ public class PageScriptsTests
         Assert.Equal(new Version(1, 8, 3), ctx.Jquery);
         Assert.Equal("page", ctx.JquerySource);
         Assert.Contains("newOnly", ctx.VisibleNames);
+        Assert.DoesNotContain("first", ctx.VisibleNames); // the target block does not come back through its includers
+        Assert.Contains("second", ctx.VisibleNames);
     }
 
     [Fact]

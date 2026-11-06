@@ -29,15 +29,15 @@ public static class PageScripts
     {
         var root = siteRoot.Replace('\\', '/').TrimEnd('/');
         var rel = WebSiteIndex.Relative(root, pagePath);
-        var walker = new Walker(fs, siteRoot, codec, index);
+        var walker = new Walker(fs, siteRoot, codec, index, rel, targetBlockIndex);
         var text = pageTextLf ?? walker.ReadText(pagePath) ?? "";
         var names = new HashSet<string>(StringComparer.Ordinal);
         var sources = new List<string>();
 
-        walker.Visible(rel, page, text, targetBlockIndex, names, sources);
+        walker.Visible(rel, page, text, names, sources);
         foreach (var includer in index.IncludersOf(rel).Take(MaxIncluders))
             if (walker.Load(includer) is { } parent)
-                walker.Visible(includer, parent.Page, parent.Text, -1, names, sources);
+                walker.Visible(includer, parent.Page, parent.Text, names, sources);
 
         var versions = sources.Select(s => walker.JqueryVersion(s)).OfType<Version>().ToList();
         Version? jquery;
@@ -53,7 +53,7 @@ public static class PageScripts
 
     private sealed record Loaded(AspPage Page, string Text);
 
-    private sealed class Walker(IFileSystem fs, string siteRoot, ITextFileCodec codec, WebSiteIndexResult index)
+    private sealed class Walker(IFileSystem fs, string siteRoot, ITextFileCodec codec, WebSiteIndexResult index, string targetRel, int targetBlock)
     {
         private readonly Dictionary<string, Loaded?> _pages = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, IReadOnlyList<string>> _jsNames = new(StringComparer.OrdinalIgnoreCase);
@@ -82,9 +82,9 @@ public static class PageScripts
         }
 
         /// <summary>Adds what the page sees: its other blocks, its <c>src</c> files, and the same for its includes (depth and count limits).</summary>
-        public void Visible(string rel, AspPage page, string text, int skipBlock, HashSet<string> names, List<string> sources)
+        public void Visible(string rel, AspPage page, string text, HashSet<string> names, List<string> sources)
         {
-            AddOwn(rel, page, text, skipBlock, names, sources);
+            AddOwn(rel, page, text, names, sources);
             var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { rel };
             var files = 0;
             void Walk(string fromRel, AspPage from, int depth)
@@ -95,16 +95,17 @@ public static class PageScripts
                     if (depth > MaxIncludeDepth || files >= MaxIncludeFiles) continue;
                     if (Load(target) is not { } loaded) continue;
                     files++;
-                    AddOwn(target, loaded.Page, loaded.Text, -1, names, sources);
+                    AddOwn(target, loaded.Page, loaded.Text, names, sources);
                     Walk(target, loaded.Page, depth + 1);
                 }
             }
             Walk(rel, page, 1);
         }
 
-        private void AddOwn(string rel, AspPage page, string text, int skipBlock, HashSet<string> names, List<string> sources)
+        /// <summary>The target block never makes its own names known, however the target file is reached (also through an includer).</summary>
+        private void AddOwn(string rel, AspPage page, string text, HashSet<string> names, List<string> sources)
         {
-            foreach (var e in WebSiteIndex.PageDeclarations(page, text, skipBlock)) names.Add(e.Name);
+            foreach (var e in WebSiteIndex.PageDeclarations(page, text, string.Equals(rel, targetRel, StringComparison.OrdinalIgnoreCase) ? targetBlock : -1)) names.Add(e.Name);
             var dir = PagePaths.Directory(rel);
             foreach (var block in page.ClientBlocks)
             {

@@ -42,6 +42,23 @@ public sealed class JsLocatePagePhaseTests
     }
 
     [Fact]
+    public async Task Names_step_knows_other_blocks_of_the_page_but_not_other_pages()
+    {
+        _fs.AddFile(Root + "/p/other.asp", new MockFileData(Encoding.UTF8.GetBytes("<script>\nfunction fnOnlyOther() {\n}\n</script>\n")));
+        var (outcome, ctx) = await Locate(TwoBlocks, function: "fnA");
+        Assert.Equal(PhaseOutcome.Ok, outcome);
+        ctx.Current = ctx.Original with { Text = TwoBlocks.Replace("function fnA() {\n}", "function fnA() {\n  fnB();\n  fnOnlyOther();\n}") };
+
+        var result = await new PellyCoder.Core.Verification.JsNamesStep([]).VerifyAsync(ctx, TestContext.Current.CancellationToken);
+
+        Assert.True(result.Passed);
+        Assert.Equal(PellyCoder.Core.Asp.AspCheckStatus.Warned, ctx.Web!.Checks["Names"].Status);
+        Assert.Contains("fnOnlyOther", ctx.Web.Checks["Names"].Detail);
+        Assert.DoesNotContain("fnB", ctx.Web.Checks["Names"].Detail);
+        Assert.Equal(1, ctx.Web.NameWarnings);
+    }
+
+    [Fact]
     public async Task Function_found_across_blocks()
     {
         var (outcome, ctx) = await Locate(TwoBlocks, function: "fnB");

@@ -45,6 +45,18 @@ public class CompletionTreeTests
     }
 
     [Fact]
+    public void Js_And_Css_LeaveFileNamesToPathCompletion_SoPagesAreOffered()
+    {
+        // No extension list is generated: PowerShell completes any file name, so .asp, .inc, .htm and .html show up for js and css too.
+        foreach (var name in new[] { "js", "css" })
+        {
+            var node = Node(name);
+            Assert.True(node.AcceptsPositional);
+            Assert.Empty(node.PositionalValues);
+        }
+    }
+
+    [Fact]
     public void Js_And_Css_HaveTargetOptions()
     {
         var js = Node("js");

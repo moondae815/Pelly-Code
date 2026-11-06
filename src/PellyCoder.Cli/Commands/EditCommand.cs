@@ -1,7 +1,9 @@
 using System.ComponentModel;
 using System.IO.Abstractions;
 using PellyCoder.Core.Abstractions;
+using PellyCoder.Core.Asp;
 using PellyCoder.Core.Fsm;
+using PellyCoder.Core.Web;
 using Spectre.Console;
 using Spectre.Console.Cli;
 
@@ -14,7 +16,7 @@ namespace PellyCoder.Cli.Commands;
 public sealed class EditSettings : RunSettings
 {
     [CommandArgument(0, "<FILE>")]
-    [Description("수정할 파일 (.cs → cs, .sql → sql, .asp·.inc → asp, .js → js, .css → css)")]
+    [Description("수정할 파일 (.cs → cs, .sql → sql, .js → js, .css → css, .asp·.inc·.htm·.html → 대상 위치에 따라 asp·js·css)")]
     public string File { get; init; } = "";
 
     [CommandArgument(1, "[REQUEST]")]
@@ -82,16 +84,26 @@ public sealed class EditCommand(
 
     public override async Task<int> ExecuteAsync(CommandContext context, EditSettings settings, CancellationToken ct)
     {
-        var language = Detect(settings);
-        if (language is null)
+        var detected = Detect(settings);
+        if (detected is not { } pick)
             return ExitCodes.EnvError;
+        var language = pick.Language;
 
         var extension = fs.Path.GetExtension(settings.File).ToLowerInvariant();
-        if (ForeignOption(settings, language.Value) is { } option)
+        if (pick.Page)
+        {
+            if (PageConflict(settings) is { } conflict)
+                return Fail(conflict);
+        }
+        else if (ForeignOption(settings, language) is { } option)
             return Fail($"{option}은(는) {extension} 파일에 쓸 수 없습니다");
+        if (pick.Page && ForeignOption(settings, Language.Asp, page: true) is { } foreign)
+            return Fail($"{foreign}은(는) {extension} 파일에 쓸 수 없습니다");
 
-        console.MarkupLine($"[grey]{Markup.Escape(extension)} 파일 → pelly {Name(language.Value)}로 실행합니다[/]");
-        return language.Value switch
+        console.MarkupLine(pick.Note is null
+            ? $"[grey]{Markup.Escape(extension)} 파일 → pelly {Name(language)}로 실행합니다[/]"
+            : $"[grey]{Markup.Escape(pick.Note)}[/]");
+        return language switch
         {
             Language.CSharp => await new CsCommand(fs, resolver, runner, console, ui, cancellation).ExecuteAsync(context, ToCs(settings), ct),
             Language.Sql => await new SqlCommand(fs, resolver, runner, console, ui, cancellation).ExecuteAsync(context, ToSql(settings), ct),
@@ -101,14 +113,19 @@ public sealed class EditCommand(
         };
     }
 
-    /// <summary>.cs, .sql, .js and .css by name; anything else is ASP when <c>asp.extensions</c> (which needs the configuration) lists it.</summary>
-    private Language? Detect(EditSettings s)
+    private readonly record struct Pick(Language Language, bool Page = false, string? Note = null);
+
+    /// <summary>
+    /// .cs, .sql, .js and .css by name; a page (<c>asp.extensions</c> plus .htm and .html, which needs the configuration)
+    /// goes to js, css or asp by where its target is (design §4.8).
+    /// </summary>
+    private Pick? Detect(EditSettings s)
     {
         var extension = fs.Path.GetExtension(s.File);
-        if (extension.Equals(".cs", StringComparison.OrdinalIgnoreCase)) return Language.CSharp;
-        if (extension.Equals(".sql", StringComparison.OrdinalIgnoreCase)) return Language.Sql;
-        if (extension.Equals(".js", StringComparison.OrdinalIgnoreCase)) return Language.Js;
-        if (extension.Equals(".css", StringComparison.OrdinalIgnoreCase)) return Language.Css;
+        if (extension.Equals(".cs", StringComparison.OrdinalIgnoreCase)) return new Pick(Language.CSharp);
+        if (extension.Equals(".sql", StringComparison.OrdinalIgnoreCase)) return new Pick(Language.Sql);
+        if (extension.Equals(".js", StringComparison.OrdinalIgnoreCase)) return new Pick(Language.Js);
+        if (extension.Equals(".css", StringComparison.OrdinalIgnoreCase)) return new Pick(Language.Css);
 
         var file = fs.Path.GetFullPath(s.File);
         if (!fs.File.Exists(file))
@@ -122,8 +139,9 @@ public sealed class EditCommand(
             foreach (var error in loaded.Errors) console.MarkupLine($"[red]{Markup.Escape(error)}[/]");
             return null;
         }
-        if (loaded.Options.Asp.Extensions.Any(e => e.Equals(extension, StringComparison.OrdinalIgnoreCase)))
-            return Language.Asp;
+        var aspExtensions = loaded.Options.Asp.Extensions;
+        if (WebPages.IsPage(file, aspExtensions))
+            return ChoosePage(s, file, loaded.Options.Asp.Encoding, aspExtensions);
 
         var shown = extension.Length == 0 ? "(확장자 없음)" : extension.ToLowerInvariant();
         Fail($"지원하지 않는 파일 형식입니다: {shown} (.cs → pelly cs, .sql → pelly sql, "
@@ -131,8 +149,73 @@ public sealed class EditCommand(
         return null;
     }
 
+    /// <summary>The design §4.8 table. Only the file is read, and only to find the block a line sits in; the chosen command does the rest.</summary>
+    private Pick? ChoosePage(EditSettings s, string file, string encoding, IReadOnlyList<string> aspExtensions)
+    {
+        // A configured asp extension (even .html) is a page pelly asp accepts; only the built-in .htm/.html are HTML-only.
+        var htmlOnly = !aspExtensions.Contains(fs.Path.GetExtension(file), StringComparer.OrdinalIgnoreCase);
+
+        if (s.Function is not null) return new Pick(Language.Js, Page: true);
+        if (s.Selector is not null) return new Pick(Language.Css, Page: true);
+        if (s.Proc is not null) return ToAsp(s, htmlOnly);
+
+        if (s.Line is null && s.Lines is null)
+            return htmlOnly ? new Pick(Language.Js, Page: true) : new Pick(Language.Asp, Page: true);
+
+        // --lines that does not parse is left to the command to report.
+        var span = s.Line is not null ? (s.Line.Value, s.Line.Value) : ParseLines(s.Lines!);
+        if (span is not var (from, to) || from < 1 || to < from)
+            return htmlOnly ? new Pick(Language.Js, Page: true) : new Pick(Language.Asp, Page: true);
+
+        AspPage page;
+        try
+        {
+            var text = new AspTextCodec(encoding).Decode(file, fs.File.ReadAllBytes(file)).Text;
+            page = AspPage.Parse(text);
+        }
+        catch (InvalidDataException ex)
+        {
+            Fail(ex.Message);
+            return null;
+        }
+
+        if (page.ClientBlockAt(from) is { } hit && page.ClientBlockAt(to) is { } end && end.Index == hit.Index)
+        {
+            var language = hit.Block.Kind == AspClientBlockKind.Style ? Language.Css : Language.Js;
+            var tag = language == Language.Css ? "<style>" : "<script>";
+            var where = s.Line is not null ? $"{from}줄" : $"{from}-{to}줄";
+            return new Pick(language, Page: true, Note: $"{s.File} {where} → {tag} 블록이라 pelly {Name(language)}로 실행합니다");
+        }
+        return ToAsp(s, htmlOnly);
+    }
+
+    private Pick? ToAsp(EditSettings s, bool htmlOnly)
+    {
+        if (!htmlOnly) return new Pick(Language.Asp, Page: true);
+        Fail(".htm 파일의 HTML 부분은 고치지 않습니다");
+        return null;
+    }
+
+    private static (int From, int To)? ParseLines(string text)
+    {
+        var parts = text.Split('-');
+        if (parts.Length == 2
+            && int.TryParse(parts[0], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var a)
+            && int.TryParse(parts[1], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var b))
+            return (a, b);
+        return null;
+    }
+
+    /// <summary>On a page, --proc, --function and --selector each name a different target; two together cannot be sent anywhere.</summary>
+    private static string? PageConflict(EditSettings s)
+    {
+        var given = new[] { (s.Proc is not null, "--proc"), (s.Function is not null, "--function"), (s.Selector is not null, "--selector") }
+            .Where(o => o.Item1).Select(o => o.Item2).ToList();
+        return given.Count > 1 ? $"{string.Join(", ", given)}은(는) 함께 쓸 수 없습니다" : null;
+    }
+
     /// <summary>The first option given that the detected language's command does not have, as written on the command line.</summary>
-    private static string? ForeignOption(EditSettings s, Language language)
+    private static string? ForeignOption(EditSettings s, Language language, bool page = false)
     {
         var csOnly = new (bool Given, string Name)[]
         {
@@ -146,7 +229,8 @@ public sealed class EditCommand(
         var cssOnly = new (bool Given, string Name)[] { (s.Selector is not null, "--selector") };
         var lines = new (bool Given, string Name)[] { (s.Lines is not null, "--lines") };
 
-        var foreign = language switch
+        // A page takes the targets of all three web languages, so only the C# and SQL options are foreign there.
+        var foreign = page ? csOnly.Concat(sqlOnly) : language switch
         {
             Language.CSharp => sqlOnly.Concat(aspOnly).Concat(jsOnly).Concat(cssOnly).Concat(lines),
             Language.Sql => csOnly.Concat(aspOnly).Concat(jsOnly).Concat(cssOnly).Concat(lines),

@@ -11,7 +11,7 @@ namespace PellyCoder.Cli.Commands;
 public sealed class JsSettings : RunSettings
 {
     [CommandArgument(0, "<FILE>")]
-    [Description("수정할 JavaScript 파일 (.js)")]
+    [Description("수정할 JavaScript 파일 (.js) 또는 페이지(.asp·.inc·.htm·.html)의 <script> 블록")]
     public string File { get; init; } = "";
 
     [CommandArgument(1, "[REQUEST]")]

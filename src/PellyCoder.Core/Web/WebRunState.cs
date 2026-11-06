@@ -84,6 +84,15 @@ public sealed class WebRunState(
     /// <summary>jQuery baseline version: <c>web.jqueryVersion</c>, else the lowest found; null when unknown.</summary>
     public Version? Jquery { get; init; }
 
+    /// <summary><c>setting</c>, <c>page</c> or <c>site</c>: where <see cref="Jquery"/> came from.</summary>
+    public string JquerySource { get; init; } = "site";
+
+    /// <summary>
+    /// Names the target page's scripts can see (other blocks, includes, loaded <c>.js</c>; the union over the includers for a
+    /// shared <c>.inc</c>). Null when the run is not on a page.
+    /// </summary>
+    public IReadOnlySet<string>? PageNames { get; init; }
+
     // ---- CSS ----
 
     public CssSheet? OriginalCss { get; init; }

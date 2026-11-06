@@ -2,22 +2,76 @@ using System.IO.Abstractions;
 using System.Text.Json;
 using Acornima;
 using Acornima.Ast;
+using PellyCoder.Core.Asp;
 using PellyCoder.Core.Files;
 
 namespace PellyCoder.Core.Web;
 
-public sealed record JsIndexEntry(string Name, string RelativePath, int Line, string Declaration);
+/// <summary>Where an indexed declaration lives: a <c>.js</c> file or a client block of a page.</summary>
+public enum JsIndexSource { Js, Page }
+
+public sealed record JsIndexEntry(string Name, string RelativePath, int Line, string Declaration, JsIndexSource Source = JsIndexSource.Js);
 
 public sealed record WebSiteIndexResult(IReadOnlyList<JsIndexEntry> Entries, int Files, bool Truncated)
 {
-    private IReadOnlySet<string>? _names;
-    public IReadOnlySet<string> Names => _names ??= new HashSet<string>(Entries.Select(e => e.Name), StringComparer.Ordinal);
+    private IReadOnlySet<string>? _allNames;
+    private IReadOnlySet<string>? _jsNames;
+    private IReadOnlyDictionary<string, List<string>>? _includers;
+
+    /// <summary>Pages scanned (a separate limit from <see cref="Files"/>, which counts <c>.js</c> files).</summary>
+    public int PageFiles { get; init; }
+
+    /// <summary>Page (site-relative, '/') to the files it includes directly (site-relative, '/').</summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<string>> Includes { get; init; } =
+        new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Top-level names of the <c>.js</c> files only.</summary>
+    public IReadOnlySet<string> JsNames => _jsNames ??= new HashSet<string>(
+        Entries.Where(e => e.Source == JsIndexSource.Js).Select(e => e.Name), StringComparer.Ordinal);
+
+    /// <summary>Top-level names of the <c>.js</c> files and of every page's client blocks.</summary>
+    public IReadOnlySet<string> AllNames => _allNames ??= new HashSet<string>(Entries.Select(e => e.Name), StringComparer.Ordinal);
+
+    /// <summary>Alias of <see cref="AllNames"/>.</summary>
+    public IReadOnlySet<string> Names => AllNames;
+
+    /// <summary>The pages that include the file, directly or through other includes (depth limit 5), sorted.</summary>
+    public IReadOnlyList<string> IncludersOf(string relativePath)
+    {
+        _includers ??= BuildReverse();
+        var start = relativePath.Replace('\\', '/');
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { start };
+        var frontier = new List<string> { start };
+        var result = new List<string>();
+        for (var depth = 0; depth < 5 && frontier.Count > 0; depth++)
+        {
+            var next = new List<string>();
+            foreach (var f in frontier)
+                if (_includers.TryGetValue(f, out var parents))
+                    foreach (var p in parents)
+                        if (seen.Add(p)) { result.Add(p); next.Add(p); }
+            frontier = next;
+        }
+        return result.OrderBy(r => r, StringComparer.Ordinal).ToList();
+    }
+
+    private Dictionary<string, List<string>> BuildReverse()
+    {
+        var map = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (page, targets) in Includes)
+            foreach (var t in targets)
+            {
+                if (!map.TryGetValue(t, out var list)) map[t] = list = [];
+                list.Add(page);
+            }
+        return map;
+    }
 }
 
 /// <summary>Top-level function and variable names of the site's own JavaScript files, cached by file hash.</summary>
 public static class WebSiteIndex
 {
-    private const int CacheVersion = 1;
+    private const int CacheVersion = 2;
 
     private sealed class CacheFile
     {
@@ -29,9 +83,10 @@ public static class WebSiteIndex
     {
         public string Sha256 { get; set; } = "";
         public List<CacheEntry> Entries { get; set; } = new();
+        public List<string> Includes { get; set; } = new();
     }
 
-    private sealed class CacheEntry
+    internal sealed class CacheEntry
     {
         public string Name { get; set; } = "";
         public int Line { get; set; }
@@ -45,23 +100,26 @@ public static class WebSiteIndex
     };
 
     public static WebSiteIndexResult Load(IFileSystem fs, string siteRoot, WebFileFilter filter, ITextFileCodec codec,
-        string cachePath, int maxFiles = 2000, long maxBytes = 1_048_576)
+        string cachePath, int maxFiles = 2000, long maxBytes = 1_048_576, IReadOnlyList<string>? aspExtensions = null)
     {
         var old = ReadCache(fs, cachePath);
         var fresh = new CacheFile { Version = CacheVersion };
         var entries = new List<JsIndexEntry>();
+        var includes = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
         var files = 0;
+        var pageFiles = 0;
         var truncated = false;
+        var extensions = aspExtensions ?? [".asp", ".inc"];
 
         var root = siteRoot.Replace('\\', '/').TrimEnd('/');
-        List<(string Rel, string Full)> candidates;
+        List<(string Rel, string Full, bool Page)> candidates;
         try
         {
             // A folder that cannot be read is skipped, not the whole index.
             var options = new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true };
             candidates = fs.Directory.EnumerateFiles(siteRoot, "*", options)
-                .Where(p => p.EndsWith(".js", StringComparison.OrdinalIgnoreCase))
-                .Select(p => (Rel: Relative(root, p), Full: p))
+                .Select(p => (Rel: Relative(root, p), Full: p, Page: !p.EndsWith(".js", StringComparison.OrdinalIgnoreCase) && WebPages.IsPage(p, extensions)))
+                .Where(c => c.Page || c.Full.EndsWith(".js", StringComparison.OrdinalIgnoreCase))
                 .OrderBy(c => c.Rel, StringComparer.Ordinal)
                 .ToList();
         }
@@ -70,8 +128,14 @@ public static class WebSiteIndex
             return new WebSiteIndexResult(entries, 0, false);
         }
 
-        foreach (var (rel, full) in candidates)
+        foreach (var (rel, full, isPage) in candidates)
         {
+            // Each kind has its own limit, so many pages never cut the .js files off.
+            if (isPage ? pageFiles >= maxFiles : files >= maxFiles)
+            {
+                truncated = true;
+                continue;
+            }
             byte[] bytes;
             string text;
             try
@@ -84,29 +148,59 @@ public static class WebSiteIndex
             {
                 continue;
             }
-            if (filter.Classify(full, text).Verdict != WebFileVerdict.Ok) continue;
-            if (files >= maxFiles) { truncated = true; break; }
+            if (!isPage && filter.Classify(full, text).Verdict != WebFileVerdict.Ok) continue;
 
             var sha = TextFileCodec.HashHex(bytes);
-            List<CacheEntry> items;
-            if (old.Files.TryGetValue(rel, out var hit) && hit.Sha256 == sha) items = hit.Entries;
-            else items = Extract(text);
-            fresh.Files[rel] = new CacheItem { Sha256 = sha, Entries = items };
-            foreach (var it in items) entries.Add(new JsIndexEntry(it.Name, rel, it.Line, it.Declaration));
-            files++;
+            CacheItem item;
+            if (old.Files.TryGetValue(rel, out var hit) && hit.Sha256 == sha) item = hit;
+            else item = isPage ? ExtractPage(rel, sha, text) : new CacheItem { Sha256 = sha, Entries = Extract(text) };
+            fresh.Files[rel] = item;
+            var source = isPage ? JsIndexSource.Page : JsIndexSource.Js;
+            foreach (var it in item.Entries) entries.Add(new JsIndexEntry(it.Name, rel, it.Line, it.Declaration, source));
+            if (isPage)
+            {
+                if (item.Includes.Count > 0) includes[rel] = item.Includes;
+                pageFiles++;
+            }
+            else files++;
         }
 
         WriteCache(fs, cachePath, fresh);
-        return new WebSiteIndexResult(entries, files, truncated);
+        return new WebSiteIndexResult(entries, files, truncated) { PageFiles = pageFiles, Includes = includes };
     }
 
-    private static string Relative(string root, string path)
+    private static CacheItem ExtractPage(string rel, string sha, string textLf)
+    {
+        var page = AspPage.Parse(textLf);
+        var item = new CacheItem { Sha256 = sha, Entries = PageDeclarations(page, textLf) };
+        var dir = PagePaths.Directory(rel);
+        foreach (var inc in page.Includes)
+            if (PagePaths.ResolveInclude(dir, inc) is { } target && !item.Includes.Contains(target, StringComparer.OrdinalIgnoreCase))
+                item.Includes.Add(target);
+        return item;
+    }
+
+    /// <summary>Top-level declarations of every JavaScript script block of a page; a block that does not parse is skipped.</summary>
+    internal static List<CacheEntry> PageDeclarations(AspPage page, string textLf, int skipBlock = -1)
+    {
+        var result = new List<CacheEntry>();
+        for (var i = 0; i < page.ClientBlocks.Count; i++)
+        {
+            if (i == skipBlock || !PageBlockView.IsJavaScriptBlock(page.ClientBlocks[i])) continue;
+            var view = PageBlockView.Build(page, textLf, i);
+            if (JsDocument.Parse(view.Text, EcmaVersion.Latest, false).Error is not null) continue;
+            result.AddRange(Extract(view.Text).Where(e => !PageBlockView.IsPlaceholder(e.Name)));
+        }
+        return result;
+    }
+
+    internal static string Relative(string root, string path)
     {
         var p = path.Replace('\\', '/');
         return p.StartsWith(root + "/", StringComparison.OrdinalIgnoreCase) ? p[(root.Length + 1)..] : p;
     }
 
-    private static List<CacheEntry> Extract(string textLf)
+    internal static List<CacheEntry> Extract(string textLf)
     {
         var doc = JsDocument.Parse(textLf, EcmaVersion.Latest, false);
         if (doc.Error is not null)
@@ -207,7 +301,7 @@ public static class WebSiteIndex
     /// <summary>False when the JSON left a member null (a hand-edited or partly written cache); it is then rebuilt.</summary>
     private static bool Complete(CacheFile c) =>
         c.Files is not null && c.Files.Values.All(item => item is { Sha256: not null, Entries: not null }
-            && item.Entries.All(e => e is { Name: not null, Declaration: not null }));
+            && item.Includes is not null && item.Entries.All(e => e is { Name: not null, Declaration: not null }));
 
     private static void WriteCache(IFileSystem fs, string path, CacheFile cache)
     {

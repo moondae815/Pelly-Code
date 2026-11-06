@@ -141,8 +141,13 @@ public sealed class JsLocatePhase(IFileSystem fs, IUserInteraction ui, PellyOpti
         }
 
         var found = JqueryVersions.Find(fs, siteRoot);
-        var jquery = JqueryVersions.Baseline(found, options.Web.JqueryVersion);
-        if (string.IsNullOrWhiteSpace(options.Web.JqueryVersion) && found.Select(f => f.Version).Distinct().Count() > 1)
+        var siteIndex = SiteIndex(fs, ctx, options, siteRoot, codec);
+        PageScriptContext? pageScripts = page is null ? null
+            : PageScripts.Collect(fs, siteRoot, ctx.FilePath, page, blockIndex, codec, siteIndex.Value, found, options.Web.JqueryVersion, text);
+        var jquery = pageScripts is not null ? pageScripts.Jquery : JqueryVersions.Baseline(found, options.Web.JqueryVersion);
+        var jquerySource = pageScripts?.JquerySource
+            ?? (!string.IsNullOrWhiteSpace(options.Web.JqueryVersion) && Version.TryParse(options.Web.JqueryVersion.Trim(), out _) ? "setting" : "site");
+        if (jquerySource == "site" && string.IsNullOrWhiteSpace(options.Web.JqueryVersion) && found.Select(f => f.Version).Distinct().Count() > 1)
         {
             var listed = found.OrderBy(f => f.Version).ThenBy(f => f.RelativePath, StringComparer.Ordinal)
                 .Select(f => $"{f.Version}({f.RelativePath})");
@@ -156,7 +161,7 @@ public sealed class JsLocatePhase(IFileSystem fs, IUserInteraction ui, PellyOpti
         var pageState = page is null ? null : new WebPageState(page, blockIndex, target.View!,
             Enumerable.Range(0, page.ClientBlocks.Count).Select(i => PageBlockView.Build(page, text, i)).ToList());
         ctx.Web = new WebRunState(EditKind.Js, unit, span, target.Text, EncodingName(ctx.Original.Encoding), OriginalAscii(fs, ctx),
-            siteRoot, SiteIndex(fs, ctx, options, siteRoot, codec))
+            siteRoot, siteIndex)
         {
             Page = pageState,
             Function = unit == WebTargetUnit.Function ? function : null,
@@ -168,6 +173,8 @@ public sealed class JsLocatePhase(IFileSystem fs, IUserInteraction ui, PellyOpti
             TargetLevel = target.TargetLevel,
             JqueryFound = found,
             Jquery = jquery,
+            JquerySource = jquerySource,
+            PageNames = pageScripts?.VisibleNames,
         };
         return PhaseOutcome.Ok;
     }

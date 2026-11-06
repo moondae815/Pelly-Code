@@ -25,29 +25,36 @@ public static class JqueryVersions
             if (!name.StartsWith("jquery", StringComparison.OrdinalIgnoreCase)
                 || !name.EndsWith(".js", StringComparison.OrdinalIgnoreCase)) continue;
 
-            Version? version = null;
-            try
-            {
-                using var s = fs.File.OpenRead(file);
-                var buf = new byte[HeadBytes];
-                var n = s.Read(buf, 0, buf.Length);
-                var m = Header.Match(Encoding.Latin1.GetString(buf, 0, n));
-                if (m.Success) Version.TryParse(m.Groups[1].Value, out version);
-            }
-            catch (IOException) { }
-            catch (UnauthorizedAccessException) { }
-
-            if (version is null)
-            {
-                var m = NameVersion.Match(name);
-                if (m.Success) Version.TryParse(m.Groups[1].Value, out version);
-            }
-            if (version is null) continue;
+            if (VersionOf(fs, file) is not { } version) continue;
 
             var rel = fs.Path.GetRelativePath(siteRoot, file).Replace('\\', '/');
             result.Add(new JqueryFound(version, rel));
         }
         return result;
+    }
+
+    /// <summary>The version of one jQuery file: from its header, else from a <c>jquery-1.8.3(.min).js</c> file name; null when neither says.</summary>
+    public static Version? VersionOf(IFileSystem fs, string file)
+    {
+        var name = fs.Path.GetFileName(file);
+        Version? version = null;
+        try
+        {
+            using var s = fs.File.OpenRead(file);
+            var buf = new byte[HeadBytes];
+            var n = s.Read(buf, 0, buf.Length);
+            var m = Header.Match(Encoding.Latin1.GetString(buf, 0, n));
+            if (m.Success) Version.TryParse(m.Groups[1].Value, out version);
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+
+        if (version is null)
+        {
+            var m = NameVersion.Match(name);
+            if (m.Success) Version.TryParse(m.Groups[1].Value, out version);
+        }
+        return version;
     }
 
     /// <summary>The configured version if it parses, otherwise the lowest found version.</summary>

@@ -24,7 +24,8 @@ public sealed class JsNamesStep(IReadOnlyList<string> globals) : IVerifierStep
         }
 
         var jquery = state.Jquery is not null || state.JqueryFound.Count > 0;
-        var known = JsNameCheck.KnownSet(WebBuiltins.Default, jquery, state.SiteIndex.Value.Names, globals);
+        // A page sees the .js index and its own visible names; a .js file also knows every page block's names (design §4.6).
+        var known = JsNameCheck.KnownSet(WebBuiltins.Default, jquery, JsNameCheck.SiteNames(state.SiteIndex.Value, state.PageNames), globals);
         // One entry per name, at its first new use.
         var unknown = JsNameCheck.NewUnknown(state.OriginalJs, patched, known)
             .Where(u => !PageBlockView.IsPlaceholder(u.Name))

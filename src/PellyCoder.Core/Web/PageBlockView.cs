@@ -18,6 +18,20 @@ public sealed record PageBlockView(
 
     public static bool IsPlaceholder(string name) => PlaceholderName.IsMatch(name);
 
+    /// <summary>A closed, inline <c>&lt;script&gt;</c> block whose language and type say JavaScript (or say nothing).</summary>
+    public static bool IsJavaScriptBlock(AspClientBlock block)
+    {
+        if (block.Kind != AspClientBlockKind.Script || block.Src is not null || !block.Closed)
+            return false;
+        var language = block.Language?.Trim();
+        var type = block.Type?.Trim();
+        return (string.IsNullOrEmpty(language) || language.StartsWith("javascript", StringComparison.OrdinalIgnoreCase)
+                || language.StartsWith("jscript", StringComparison.OrdinalIgnoreCase))
+            && (string.IsNullOrEmpty(type) || type.Contains("javascript", StringComparison.OrdinalIgnoreCase)
+                || type.Contains("ecmascript", StringComparison.OrdinalIgnoreCase)
+                || type.Equals("module", StringComparison.OrdinalIgnoreCase));
+    }
+
     public static PageBlockView Build(AspPage page, string pageTextLf, int blockIndex)
     {
         var block = page.ClientBlocks[blockIndex];

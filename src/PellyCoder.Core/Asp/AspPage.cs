@@ -50,6 +50,19 @@ public sealed class AspPage
     public bool HasServerJScript { get; private set; }
     public bool UsesDynamicCode { get; private set; }
     public IReadOnlySet<int> LockedLines { get; private set; } = new HashSet<int>();
+    public IReadOnlyList<AspClientBlock> ClientBlocks { get; private set; } = [];
+
+    /// <summary>The client block whose content holds the 1-based page line, with its index in <see cref="ClientBlocks"/>.</summary>
+    public (AspClientBlock Block, int Index)? ClientBlockAt(int line)
+    {
+        for (var i = 0; i < ClientBlocks.Count; i++)
+        {
+            var b = ClientBlocks[i];
+            if (line >= b.ContentStartLine && line <= b.ContentEndLine)
+                return (b, i);
+        }
+        return null;
+    }
 
     /// <summary>Number of lines (a final line feed does not start a new line).</summary>
     public int LineCount => _lines.Length;
@@ -98,6 +111,7 @@ public sealed class AspPage
             || u.Name.Equals("ExecuteGlobal", StringComparison.OrdinalIgnoreCase)
             || u.Name.Equals("Eval", StringComparison.OrdinalIgnoreCase));
 
+        page.ClientBlocks = AspClientBlocks.Find(textLf, scan.Segments);
         HtmlTagBalance.Check(scan.Segments, problems);
         page.Problems = problems.OrderBy(p => p.Line).ThenBy(p => p.Column).ToArray();
         return page;

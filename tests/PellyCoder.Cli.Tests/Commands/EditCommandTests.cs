@@ -31,10 +31,12 @@ public class EditCommandTests
             Task.FromResult<IReadOnlyList<DoctorCheck>>([]);
     }
 
-    private static (CommandAppTester App, FakeRunner Runner) Build(string file, string? pellyJson = null, string content = "x")
+    private static (CommandAppTester App, FakeRunner Runner) Build(string file, string? pellyJson = null, string content = "x", Action<MockFileData>? arrange = null)
     {
         var fs = new MockFileSystem();
-        fs.AddFile(file, new MockFileData(content));
+        var data = new MockFileData(content);
+        arrange?.Invoke(data);
+        fs.AddFile(file, data);
         fs.AddDirectory("/w/.git");
         if (pellyJson is not null) fs.AddFile("/w/pelly.json", new MockFileData(pellyJson));
         var runner = new FakeRunner();
@@ -314,6 +316,18 @@ public class EditCommandTests
 
         Assert.Equal(0, result.ExitCode);
         Assert.Equal(EditKind.Asp, runner.Request!.Kind);
+    }
+
+    [Fact]
+    public void Lines_on_unreadable_page_is_exit_4()
+    {
+        var (app, runner) = Build("/w/site/p.asp", content: Page, arrange: d => d.AllowedFileShare = FileShare.None);
+
+        var result = app.Run("edit", "/w/site/p.asp", "요청", "--lines", "2-4");
+
+        Assert.Equal(4, result.ExitCode);
+        Assert.Equal(0, runner.Calls);
+        Assert.Contains("/w/site/p.asp", result.Output);
     }
 
     [Fact]

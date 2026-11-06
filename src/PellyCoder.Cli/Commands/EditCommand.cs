@@ -173,7 +173,7 @@ public sealed class EditCommand(
             var text = new AspTextCodec(encoding).Decode(file, fs.File.ReadAllBytes(file)).Text;
             page = AspPage.Parse(text);
         }
-        catch (InvalidDataException ex)
+        catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException)
         {
             Fail(ex.Message);
             return null;

@@ -203,4 +203,37 @@ public sealed class AspClientChecksTests
         Assert.Equal(FailureKinds.JsSyntaxErrors, v.FailureKind);
         Assert.Equal(AspCheckStatus.Failed, Status(v, "JsSyntax"));
     }
+
+    private const string EvalBlock = "<script>\nvar a = eval('1');\n</script>\n";
+
+    [Fact]
+    public void Edited_block_next_to_inserted_block_keeps_existing_eval_baseline()
+    {
+        var patched = "<script>\nvar n = 1;\n</script>\n<script>\nvar a = eval('2');\n</script>\n";
+
+        var v = Judge(EvalBlock, patched, 1, 3);
+
+        Assert.Null(v.FailureKind);
+        Assert.Equal(AspCheckStatus.Passed, Status(v, "JsSafety"));
+    }
+
+    [Fact]
+    public void Inserted_block_with_new_eval_next_to_edited_block_rejected()
+    {
+        var patched = "<script>\nvar n = eval('3');\n</script>\n<script>\nvar a = eval('2');\n</script>\n";
+
+        var v = Judge(EvalBlock, patched, 1, 3);
+
+        Assert.Equal(FailureKinds.JsSafetyRejected, v.FailureKind);
+    }
+
+    [Fact]
+    public void Src_block_turned_into_inline_eval_rejected()
+    {
+        const string page = "<script src=\"a.js\"></script>\n<p>x</p>\n";
+
+        var v = Judge(page, "<script>eval(x);</script>\n<p>x</p>\n", 1, 2);
+
+        Assert.Equal(FailureKinds.JsSafetyRejected, v.FailureKind);
+    }
 }

@@ -4,11 +4,15 @@ namespace PellyCoder.Core.Web;
 public static class CssChecks
 {
     /// <summary>Structure problems whose (Code, Message) count grew beyond the original, as many as it grew (the later ones).</summary>
-    public static IReadOnlyList<CssProblem> NewProblems(CssSheet original, CssSheet patched)
+    public static IReadOnlyList<CssProblem> NewProblems(CssSheet original, CssSheet patched) =>
+        NewProblems(original.Problems, patched.Problems);
+
+    /// <summary>The same count rule over problem lists (several blocks joined).</summary>
+    public static IReadOnlyList<CssProblem> NewProblems(IReadOnlyList<CssProblem> original, IReadOnlyList<CssProblem> patched)
     {
-        var baseline = original.Problems.GroupBy(p => (p.Code, p.Message)).ToDictionary(g => g.Key, g => g.Count());
+        var baseline = original.GroupBy(p => (p.Code, p.Message)).ToDictionary(g => g.Key, g => g.Count());
         var result = new List<CssProblem>();
-        foreach (var group in patched.Problems.GroupBy(p => (p.Code, p.Message)))
+        foreach (var group in patched.GroupBy(p => (p.Code, p.Message)))
         {
             var extra = group.Count() - baseline.GetValueOrDefault(group.Key);
             if (extra > 0) result.AddRange(group.OrderBy(p => p.Line).ThenBy(p => p.Column).TakeLast(extra));

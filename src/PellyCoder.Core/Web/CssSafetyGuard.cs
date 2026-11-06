@@ -16,6 +16,9 @@ public static class CssSafetyGuard
     public static IReadOnlyList<WebSafetyFinding> NewFindings(CssSheet original, CssSheet patched) =>
         JsSafetyGuard.GrownFindings(Collect(original), Collect(patched));
 
+    public static IReadOnlyList<WebSafetyFinding> NewFindings(IReadOnlyList<CssSheet> originals, IReadOnlyList<CssSheet> patched) =>
+        JsSafetyGuard.GrownFindings(originals.SelectMany(Collect).ToList(), patched.SelectMany(Collect).ToList());
+
     private static List<WebSafetyFinding> Collect(CssSheet sheet)
     {
         var result = new List<WebSafetyFinding>();

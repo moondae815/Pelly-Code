@@ -42,6 +42,13 @@ public static class JsSafetyGuard
     public static IReadOnlyList<WebSafetyFinding> NewFindings(JsDocument original, JsDocument patched) =>
         GrownByRule(Findings(original), Findings(patched));
 
+    /// <summary>The same count rule over several blocks joined: the findings of all patched blocks against those of all original blocks.</summary>
+    public static IReadOnlyList<WebSafetyFinding> NewFindings(IReadOnlyList<JsDocument> originals, IReadOnlyList<JsDocument> patched) =>
+        GrownByRule(originals.SelectMany(Findings).ToList(), patched.SelectMany(Findings).ToList());
+
+    public static IReadOnlyList<WebSafetyFinding> NewFindingsText(IReadOnlyList<string> originalsLf, IReadOnlyList<string> patchedLf) =>
+        GrownByRule(originalsLf.SelectMany(TextFindings).ToList(), patchedLf.SelectMany(TextFindings).ToList());
+
     private static readonly (string Rule, Regex Pattern)[] TextRules =
     [
         (Eval, new Regex(@"\beval\s*\(", RegexOptions.CultureInvariant)),

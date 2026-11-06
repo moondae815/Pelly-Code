@@ -52,10 +52,14 @@ public static class AspClientChecks
     public const string CssSafety = "CssSafety";
 
     /// <summary>
-    /// One block to judge: the original block (null for a new one) and the patched block. <paramref name="Broken"/>: the block lost its
-    /// shape (unclosed, or no longer the same kind of block), so it cannot be compared.
+    /// Blocks to judge together: the original blocks of the <paramref name="Kind"/> that are the baseline (empty for a new block) and the
+    /// patched blocks. One of each is the usual pair; a gap whose counts differ is judged joined, so only net-new findings count.
+    /// <paramref name="Broken"/>: the (first) patched block lost its shape (unclosed, or no longer the same kind), so it cannot be compared.
     /// </summary>
-    internal readonly record struct Pair(int? OriginalIndex, int PatchedIndex, AspClientBlockKind Kind, bool Broken = false);
+    internal readonly record struct Pair(AspClientBlockKind Kind, IReadOnlyList<int> Originals, IReadOnlyList<int> Patcheds, bool Broken = false)
+    {
+        public int PatchedIndex => Patcheds[0];
+    }
 
     /// <summary>
     /// Blocks wholly before the edit regions (<c>Before</c>) and wholly after them (<c>After</c>); the rest is the middle,
@@ -83,7 +87,7 @@ public static class AspClientChecks
 
     /// <summary>
     /// Blocks before the regions pair with the patched page's first blocks and blocks after them with its last (neither is judged);
-    /// the middle pairs in order when the counts agree, else from the front and from the back while the kinds match.
+    /// the middle pairs in order when the counts agree, else content anchors split it into gaps (see below).
     /// A patched middle block with no partner is new; a deleted original one needs no judgement. No middle block on either side: nothing.
     /// </summary>
     internal static IReadOnlyList<Pair> Pairs(
@@ -102,15 +106,32 @@ public static class AspClientChecks
         void Add(int? oi, int pi)
         {
             var po = p[pi];
-            if (oi is null)
+            // An original partner that is not a judged kind (src script, unclosed) leaves the patched block new, unless it stays as it was.
+            if (oi is null || !Judged(o[oi.Value]))
             {
-                if (!po.Closed) pairs.Add(new Pair(null, pi, po.Kind, true));
-                else if (Judged(po)) pairs.Add(new Pair(null, pi, po.Kind));
+                if (oi is null && !po.Closed) pairs.Add(new Pair(po.Kind, [], [pi], true));
+                else if (po.Closed && Judged(po)) pairs.Add(new Pair(po.Kind, [], [pi]));
                 return;
             }
             var oo = o[oi.Value];
-            if (!Judged(oo)) return;
-            pairs.Add(new Pair(oi, pi, oo.Kind, oo.Kind != po.Kind || !Judged(po)));
+            pairs.Add(new Pair(oo.Kind, [oi.Value], [pi], oo.Kind != po.Kind || !Judged(po)));
+        }
+
+        // Counts differ in a gap: judge per kind over the joined gap, so a block next to an inserted one keeps its own baseline.
+        void Group(int oFrom, int oTo, int pFrom, int pTo)
+        {
+            foreach (var kind in new[] { AspClientBlockKind.Script, AspClientBlockKind.Style })
+            {
+                var originals = Enumerable.Range(oFrom, oTo - oFrom).Where(i => o[i].Kind == kind && Judged(o[i])).ToList();
+                var patcheds = new List<int>();
+                for (var j = pFrom; j < pTo; j++)
+                {
+                    if (p[j].Kind != kind) continue;
+                    if (!p[j].Closed) pairs.Add(new Pair(kind, [], [j], true));
+                    else if (Judged(p[j])) patcheds.Add(j);
+                }
+                if (patcheds.Count > 0) pairs.Add(new Pair(kind, originals, patcheds));
+            }
         }
 
         if (oMid == pMid)
@@ -120,7 +141,7 @@ public static class AspClientChecks
         }
 
         // Counts differ: blocks that kept their kind and content anchor the match (so an inserted block does not shift the
-        // others); between anchors, pair from the front and from the back while the kinds match, and the rest are new or deleted.
+        // others); between anchors, a gap with equal counts pairs in order and one with different counts is judged joined per kind.
         string Content(AspPage page, string text, int i) => text[page.ClientBlocks[i].ContentStart..page.ClientBlocks[i].ContentEnd];
         bool Same(int oi, int pi) => o[oi].Kind == p[pi].Kind && Content(original, originalText, oi) == Content(patched, patchedText, pi);
         var lcs = new int[oMid + 1, pMid + 1];
@@ -130,19 +151,10 @@ public static class AspClientChecks
         int io = 0, jp = 0;
         void Gap(int oEnd, int pEnd)
         {
-            int front = 0, back = 0;
-            while (io + front < oEnd && jp + front < pEnd && o[before + io + front].Kind == p[before + jp + front].Kind)
-            {
-                Add(before + io + front, before + jp + front);
-                front++;
-            }
-            while (io + front < oEnd - back && jp + front < pEnd - back
-                   && o[before + oEnd - 1 - back].Kind == p[before + pEnd - 1 - back].Kind)
-            {
-                Add(before + oEnd - 1 - back, before + pEnd - 1 - back);
-                back++;
-            }
-            for (var j = jp + front; j < pEnd - back; j++) Add(null, before + j);
+            if (oEnd - io == pEnd - jp)
+                for (var k = 0; k < oEnd - io; k++) Add(before + io + k, before + jp + k);
+            else
+                Group(before + io, before + oEnd, before + jp, before + pEnd);
             io = oEnd;
             jp = pEnd;
         }
@@ -189,11 +201,11 @@ public static class AspClientChecks
                 Put(rows, pair.Kind == AspClientBlockKind.Style ? CssSyntax : JsSyntax, AspCheckStatus.Failed, "블록 경계가 바뀜");
                 return BoundaryFailure(patched.ClientBlocks[pair.PatchedIndex], pair.Kind, fileName) with { Rows = Ordered(rows) };
             }
-            var pv = PageBlockView.Build(patched, patchedText, pair.PatchedIndex);
-            var ov = pair.OriginalIndex is { } oi ? PageBlockView.Build(original, originalText, oi) : null;
+            var pvs = pair.Patcheds.Select(i => PageBlockView.Build(patched, patchedText, i)).ToList();
+            var ovs = pair.Originals.Select(i => PageBlockView.Build(original, originalText, i)).ToList();
             var failure = pair.Kind == AspClientBlockKind.Style
-                ? JudgeCss(ov, pv, rows, fileName)
-                : JudgeJs(original, originalText, ov, pv, jsTarget, rows, fileName);
+                ? JudgeCss(ovs, pvs, rows, fileName)
+                : JudgeJs(original, originalText, ovs, pvs, jsTarget, rows, fileName);
             if (failure is not null) return failure with { Rows = Ordered(rows) };
         }
         return new AspClientVerdict(Ordered(rows));
@@ -224,11 +236,11 @@ public static class AspClientChecks
     private static int Rank(AspCheckStatus s) => s switch { AspCheckStatus.Failed => 2, AspCheckStatus.Passed => 1, _ => 0 };
 
     private static AspClientVerdict? JudgeCss(
-        PageBlockView? ov, PageBlockView pv, Dictionary<string, (AspCheckStatus Status, string? Detail)> rows, string fileName)
+        IReadOnlyList<PageBlockView> ovs, IReadOnlyList<PageBlockView> pvs, Dictionary<string, (AspCheckStatus Status, string? Detail)> rows, string fileName)
     {
-        var before = CssSheet.Parse(ov?.Text ?? "");
-        var after = CssSheet.Parse(pv.Text);
-        var problems = CssChecks.NewProblems(before, after);
+        var before = ovs.Select(v => CssSheet.Parse(v.Text)).ToList();
+        var after = pvs.Select(v => CssSheet.Parse(v.Text)).ToList();
+        var problems = CssChecks.NewProblems(before.SelectMany(x => x.Problems).ToList(), after.SelectMany(x => x.Problems).ToList());
         if (problems.Count > 0)
         {
             Put(rows, CssSyntax, AspCheckStatus.Failed, string.Join(", ", problems.Select(p => p.Code).Distinct()));
@@ -248,39 +260,48 @@ public static class AspClientChecks
     }
 
     private static AspClientVerdict? JudgeJs(
-        AspPage page, string pageText, PageBlockView? ov, PageBlockView pv, string? jsTarget,
+        AspPage page, string pageText, IReadOnlyList<PageBlockView> ovs, IReadOnlyList<PageBlockView> pvs, string? jsTarget,
         Dictionary<string, (AspCheckStatus Status, string? Detail)> rows, string fileName)
     {
-        var baseline = ov?.Text ?? "";
-        var plan = Plan(page, pageText, ov, pv, jsTarget);
+        var plan = Plan(page, pageText, ovs, pvs, jsTarget);
 
         if (plan.Level is not { } level)
         {
-            // Server statements in the block, or an original that does not parse: bracket/string/comment pairing.
-            var syntax = JsChecks.FallbackSyntax(baseline, fileName, pv.Text);
-            if (syntax.Errors.Count > 0) return SyntaxFailure(rows, syntax.Errors);
+            // Server statements in a block, or an original that does not parse: bracket/string/comment pairing.
+            var baseline = string.Join("\n", ovs.Select(v => v.Text));
+            foreach (var pv in pvs)
+            {
+                var syntax = JsChecks.FallbackSyntax(baseline, fileName, pv.Text);
+                if (syntax.Errors.Count > 0) return SyntaxFailure(rows, syntax.Errors);
+            }
             Put(rows, JsSyntax, AspCheckStatus.Skipped, plan.Reason);
             Put(rows, JsLevel, AspCheckStatus.Skipped, plan.Reason);
-            return Safety(rows, JsSafetyGuard.NewFindingsText(baseline, pv.Text));
+            return Safety(rows, JsSafetyGuard.NewFindingsText(ovs.Select(v => v.Text).ToList(), pvs.Select(v => v.Text).ToList()));
         }
 
-        var verdict = JsChecks.Syntax(level, plan.Module, fileName, pv.Text);
-        if (verdict.Errors.Count > 0) return SyntaxFailure(rows, verdict.Errors);
-        Put(rows, JsSyntax, AspCheckStatus.Passed);
-        if (verdict.LevelExceeded)
+        var docs = new List<JsDocument?>();
+        foreach (var pv in pvs)
         {
-            var feature = verdict.Feature ?? "newer syntax";
-            var line = verdict.FeatureLine ?? 1;
-            Put(rows, JsLevel, AspCheckStatus.Failed, $"{feature} (줄 {line})");
-            return new AspClientVerdict([], FailureKinds.JsLevelExceeded, LevelName: JsLevels.Name(level),
-                LevelFeature: verdict.FeatureEnglish ?? feature, LevelLine: line);
+            var verdict = JsChecks.Syntax(level, plan.Module, fileName, pv.Text);
+            if (verdict.Errors.Count > 0) return SyntaxFailure(rows, verdict.Errors);
+            if (verdict.LevelExceeded)
+            {
+                Put(rows, JsSyntax, AspCheckStatus.Passed);
+                var feature = verdict.Feature ?? "newer syntax";
+                var line = verdict.FeatureLine ?? 1;
+                Put(rows, JsLevel, AspCheckStatus.Failed, $"{feature} (줄 {line})");
+                return new AspClientVerdict([], FailureKinds.JsLevelExceeded, LevelName: JsLevels.Name(level),
+                    LevelFeature: verdict.FeatureEnglish ?? feature, LevelLine: line);
+            }
+            docs.Add(verdict.Patched);
         }
+        Put(rows, JsSyntax, AspCheckStatus.Passed);
         Put(rows, JsLevel, AspCheckStatus.Passed);
 
-        var before = JsDocument.Parse(baseline, plan.OriginalLevel ?? level, plan.Module);
-        return Safety(rows, before.Error is null && verdict.Patched is not null
-            ? JsSafetyGuard.NewFindings(before, verdict.Patched)
-            : JsSafetyGuard.NewFindingsText(baseline, pv.Text));
+        var before = ovs.Select(v => JsDocument.Parse(v.Text, JsLevels.Detect(v.Text).Level ?? plan.OriginalLevel ?? level, plan.Module)).ToList();
+        return Safety(rows, before.All(d => d.Error is null) && docs.All(d => d is not null)
+            ? JsSafetyGuard.NewFindings(before, docs!)
+            : JsSafetyGuard.NewFindingsText(ovs.Select(v => v.Text).ToList(), pvs.Select(v => v.Text).ToList()));
     }
 
     private static AspClientVerdict SyntaxFailure(Dictionary<string, (AspCheckStatus Status, string? Detail)> rows, IReadOnlyList<Diagnostic> errors)
@@ -303,22 +324,35 @@ public static class AspClientChecks
     /// <summary>How a JS block is judged: the level it must parse at (null: pairing check), module flag, and the original's own level.</summary>
     internal sealed record JsPlan(EcmaVersion? Level, bool Module, EcmaVersion? OriginalLevel, string? Reason);
 
-    internal static JsPlan Plan(AspPage page, string pageText, PageBlockView? ov, PageBlockView pv, string? jsTarget)
+    internal static JsPlan Plan(AspPage page, string pageText, PageBlockView? ov, PageBlockView pv, string? jsTarget) =>
+        Plan(page, pageText, ov is null ? [] : [ov], [pv], jsTarget);
+
+    /// <summary>The plan for patched blocks against their original baseline blocks (none: new blocks; several: the lowest level).</summary>
+    internal static JsPlan Plan(AspPage page, string pageText, IReadOnlyList<PageBlockView> ovs, IReadOnlyList<PageBlockView> pvs, string? jsTarget)
     {
         var setting = (jsTarget ?? "auto").Trim();
         var configured = setting.Equals("auto", StringComparison.OrdinalIgnoreCase) ? null : JsLevels.FromSetting(setting);
-        if (ov is null)
+        const string Mixed = "서버 코드가 섞인 스크립트";
+        if (ovs.Count == 0)
         {
-            if (pv.ServerCode == PageServerCode.Statements) return new JsPlan(null, false, null, "서버 코드가 섞인 스크립트");
+            if (pvs.Any(v => v.ServerCode == PageServerCode.Statements)) return new JsPlan(null, false, null, Mixed);
             return new JsPlan(configured ?? LowestOtherLevel(page, pageText, -1) ?? EcmaVersion.ES5, false, null, null);
         }
-        if (ov.ServerCode == PageServerCode.Statements || pv.ServerCode == PageServerCode.Statements)
-            return new JsPlan(null, false, null, "서버 코드가 섞인 스크립트");
-        var detected = JsLevels.Detect(ov.Text);
-        if (detected.Level is not { } level)
-            return new JsPlan(null, false, null, $"원본이 해석되지 않음: 줄 {detected.LatestError?.Line ?? 1}");
+        if (ovs.Concat(pvs).Any(v => v.ServerCode == PageServerCode.Statements))
+            return new JsPlan(null, false, null, Mixed);
+        EcmaVersion? lowest = null;
+        var module = false;
+        foreach (var ov in ovs)
+        {
+            var detected = JsLevels.Detect(ov.Text);
+            if (detected.Level is not { } found)
+                return new JsPlan(null, false, null, $"원본이 해석되지 않음: 줄 {detected.LatestError?.Line ?? 1}");
+            if (lowest is null || JsLevels.Compare(found, lowest.Value) < 0) lowest = found;
+            module |= detected.Module;
+        }
+        var level = lowest!.Value;
         var target = configured is { } wanted && JsLevels.Compare(wanted, level) >= 0 ? wanted : level;
-        return new JsPlan(target, detected.Module, level, null);
+        return new JsPlan(target, module, level, null);
     }
 
     /// <summary>The lowest level any other inline JS block of the page parses at; null when there is none.</summary>

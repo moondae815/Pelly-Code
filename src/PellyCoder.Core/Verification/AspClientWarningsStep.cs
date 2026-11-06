@@ -29,7 +29,7 @@ public sealed class AspClientWarningsStep(IFileSystem fs, PellyOptions options, 
         var text = ctx.Current.Text;
         var patched = AspPage.Parse(text);
         var pairs = AspClientChecks.Pairs(state.OriginalPage, ctx.Original.Text, patched, text, state.OriginalRegions())
-            .Where(p => p.Kind == AspClientBlockKind.Script).ToList();
+            .Where(p => p.Kind == AspClientBlockKind.Script && !p.Broken).ToList();
         if (pairs.Count == 0) return Task.FromResult(StepResult.Pass);
 
         var names = new List<string>();
@@ -37,10 +37,14 @@ public sealed class AspClientWarningsStep(IFileSystem fs, PellyOptions options, 
         var judged = false;
         Lazy<WebSiteIndexResult>? index = null;
         IReadOnlyList<JqueryFound>? found = null;
-        foreach (var pair in pairs)
+        // A joined gap (counts differ) compares each patched block with the gap's first original block: it only adds noise, never fails.
+        var blocks = pairs.SelectMany(pair => pair.Patcheds.Select((pi, k) =>
+            (PatchedIndex: pi, OriginalIndex: pair.Originals.Count == 0 ? (int?)null
+                : pair.Originals.Count == pair.Patcheds.Count ? pair.Originals[k] : pair.Originals[0])));
+        foreach (var (patchedIndex, originalIndex) in blocks)
         {
-            var pv = PageBlockView.Build(patched, text, pair.PatchedIndex);
-            var ov = pair.OriginalIndex is { } oi ? PageBlockView.Build(state.OriginalPage, ctx.Original.Text, oi) : null;
+            var pv = PageBlockView.Build(patched, text, patchedIndex);
+            var ov = originalIndex is { } oi ? PageBlockView.Build(state.OriginalPage, ctx.Original.Text, oi) : null;
             var plan = AspClientChecks.Plan(state.OriginalPage, ctx.Original.Text, ov, pv, options.Web.JsTarget);
             if (plan.Level is not { } level) continue;
             var after = JsDocument.Parse(pv.Text, level, plan.Module);
@@ -50,7 +54,7 @@ public sealed class AspClientWarningsStep(IFileSystem fs, PellyOptions options, 
 
             index ??= WebLocateCommon.SiteIndex(fs, ctx, options, state.SiteRoot, codec);
             found ??= JqueryVersions.Find(fs, state.SiteRoot);
-            var scripts = PageScripts.Collect(fs, state.SiteRoot, ctx.FilePath, patched, pair.PatchedIndex, codec, index.Value, found,
+            var scripts = PageScripts.Collect(fs, state.SiteRoot, ctx.FilePath, patched, patchedIndex, codec, index.Value, found,
                 options.Web.JqueryVersion, text);
             var known = JsNameCheck.KnownSet(WebBuiltins.Default, scripts.Jquery is not null || found.Count > 0,
                 JsNameCheck.SiteNames(index.Value, scripts.VisibleNames), options.Web.Globals);

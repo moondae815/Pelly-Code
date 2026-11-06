@@ -219,4 +219,14 @@ public class NameImpactFinderTests
         Assert.Contains(targets, t => t.Path == "Same.cs" && t.Reason == "구현");
         Assert.Contains(targets, t => t.Path == "Qual.cs" && t.Reason == "구현");
     }
+
+    [Fact]
+    public void Global_using_turns_the_namespace_rule_off()
+    {
+        var targets = FindNs(("Shop.cs", ShopOrder),
+            ("Usings.cs", "global using Shop;"),
+            ("Child.cs", "namespace Report { public class Rush : Order { public int Total() => 3; } }"));
+
+        Assert.Contains(targets, t => t.Path == "Child.cs" && t.Reason == "구현");
+    }
 }

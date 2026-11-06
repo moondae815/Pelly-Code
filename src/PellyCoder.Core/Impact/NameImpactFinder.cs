@@ -25,6 +25,11 @@ public static class NameImpactFinder
         var unsupported = new List<string>();
         var notFound = new List<string>();
 
+        // A global using (in code or as a project <Using>) makes a type visible without a using in the file: the
+        // namespace rule cannot tell, so it is off and same-named types count as before.
+        var globalUsings = files.Any(f => f.Root.DescendantNodes().OfType<UsingDirectiveSyntax>().Any(u => u.GlobalKeyword.IsKind(SyntaxKind.GlobalKeyword)))
+            || projects.Any(p => ProjectHasUsing(fs, p));
+
         foreach (var seed in seeds)
         {
             var seedPath = Normalize(seed.Path);
@@ -36,10 +41,16 @@ public static class NameImpactFinder
                 continue;
             }
 
-            targets.AddRange(FindFor(files, seed, seedPath, seedTypes));
+            targets.AddRange(FindFor(files, seed, seedPath, seedTypes, globalUsings));
         }
 
         return new ImpactResult(ImpactMode.Name, fallback, targets, unsupported, incomplete) { SeedsNotFound = notFound };
+    }
+
+    private static bool ProjectHasUsing(IFileSystem fs, string project)
+    {
+        try { return fs.File.Exists(project) && fs.File.ReadAllText(project).Contains("<Using ", StringComparison.Ordinal); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return false; }
     }
 
     private static List<TypeDeclarationSyntax> SeedTypes(SyntaxNode root, ImpactSeed seed) =>
@@ -70,7 +81,7 @@ public static class NameImpactFinder
         (m is MethodDeclarationSyntax method && method.Identifier.Text == name)
         || (m is PropertyDeclarationSyntax property && property.Identifier.Text == name);
 
-    private static IEnumerable<ImpactTarget> FindFor(List<Parsed> files, ImpactSeed seed, string seedPath, List<TypeDeclarationSyntax> seedTypes)
+    private static IEnumerable<ImpactTarget> FindFor(List<Parsed> files, ImpactSeed seed, string seedPath, List<TypeDeclarationSyntax> seedTypes, bool globalUsings)
     {
         var name = seed.Member;
         var found = new List<(string Path, int Position, string Member, string Reason)>();
@@ -112,9 +123,9 @@ public static class NameImpactFinder
                 if (member is null) continue;
                 if (baseNames.Contains(type.Identifier.Text))
                     Add(file.Path, member.SpanStart, name, "기반 멤버");
-                else if (BaseNames(type).Any(related.Contains) && !OnlyUnseenSeedName(type, related, seedTypeNames, baseNames, seedNamespaces))
+                else if (BaseNames(type).Any(related.Contains) && (globalUsings || !OnlyUnseenSeedName(type, related, seedTypeNames, baseNames, seedNamespaces)))
                     Add(file.Path, member.SpanStart, name, member.Modifiers.Any(SyntaxKind.OverrideKeyword) ? "재정의" : "구현");
-                else if (seedTypeNames.Contains(type.Identifier.Text) && seedNamespaces.Contains(Namespace(type)))
+                else if (seedTypeNames.Contains(type.Identifier.Text) && (globalUsings || seedNamespaces.Contains(Namespace(type))))
                     // Another part of a partial seed type (or a same-named type): its base list may sit on the
                     // seed's part only, so the name of the type is the one link left.
                     Add(file.Path, member.SpanStart, name, "구현");

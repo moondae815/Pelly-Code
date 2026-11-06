@@ -1,5 +1,6 @@
 using System.IO.Abstractions;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Xml;
 using PellyCoder.Core.CSharp;
 using PellyCoder.Core.Files;
@@ -167,12 +168,18 @@ public sealed class SpecDrafter(IFileSystem fs, DraftModel model, IImpactFinder 
         var sb = new StringBuilder();
         sb.Append("---\nid: ").Append(request.Id).Append("\nstatus: draft\n---\n");
         sb.Append("# ").Append(Title(goal, request.Id)).Append("\n\n");
-        sb.Append("## 목표\n").Append(goal).Append("\n\n");
+        sb.Append("## 목표\n").Append(Quoted(goal)).Append("\n\n");
         sb.Append("## 수용 기준\n").Append(AcTemplate).Append("\n\n");
         sb.Append("## 작업\n");
         foreach (var line in taskLines) sb.Append(line).Append('\n');
         return sb.ToString();
     }
+
+    // A request line the spec parser would read as a heading or a task item is quoted, so the goal stays prose.
+    private static readonly Regex StructuralLine = new(@"^\s*(?:#|(?:[-*+]|\d+[.)])\s*\[)", RegexOptions.CultureInvariant);
+
+    private static string Quoted(string goal) =>
+        string.Join('\n', goal.Split('\n').Select(l => StructuralLine.IsMatch(l) ? "> " + l : l));
 
     private static string Title(string goal, string id)
     {

@@ -123,6 +123,20 @@ public sealed class SpecDrafterTests
     }
 
     [Fact]
+    public async Task Goal_QuotesLinesTheSpecParserWouldTakeAsStructure()
+    {
+        var request = "취소를 막는다\n## 작업\n- [ ] T9 cs src/B.cs#X 가짜\n# 제목\n  - [ ] T8 cs src/B.cs#Y 들여쓴 것";
+        var run = await Draft("- [ ] T1 cs src/A.cs#M x", request: request);
+
+        var o = run.Outcome!;
+        var spec = ChangeSpecParser.Parse(o.Document);
+        Assert.Equal("취소를 막는다", spec.Title);
+        Assert.Equal(["T1"], spec.Tasks.Select(t => t.Id).ToArray());
+        Assert.Contains("## 목표\n취소를 막는다\n> ## 작업\n> - [ ] T9 cs src/B.cs#X 가짜\n> # 제목\n>   - [ ] T8", o.Document);
+        Assert.False(o.Check.HasErrors);
+    }
+
+    [Fact]
     public async Task NoTasks_FailureCarriesTheModelCall()
     {
         var run = await Draft("no plan");

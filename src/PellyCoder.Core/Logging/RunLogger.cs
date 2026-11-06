@@ -155,7 +155,7 @@ public sealed class RunLogger(IFileSystem fs, TimeProvider time)
         // A `pelly test` run is CSharpTest from its start, also when it stops before LOCATE sets the target.
         var kind = ctx.CharTest is not null ? EditKind.CSharpTest : ctx.Target?.Kind ?? ctx.Request.Kind;
         return new RunSummary(
-            ctx.RunId, PellyInfo.Version, ctx.ServerStatus?.Version, ctx.Options.Llm.Model, Prompts.Value.VersionFor(kind),
+            ctx.RunId, PellyInfo.Version, ctx.ServerStatus?.Version, ctx.Options.Llm.Model, Prompts.Value.VersionFor(kind, ctx.Web?.Page is not null),
             kind, ctx.ProjectStyle, ctx.ExitCode, ctx.Attempt,
             new Dictionary<RunPhase, double>(ctx.PhaseSeconds), ttft, queue,
             ctx.Options.Llm.ThinkMode.ToString(), gen?.ThinkTokens ?? 0, gen?.ThinkTruncated ?? false,

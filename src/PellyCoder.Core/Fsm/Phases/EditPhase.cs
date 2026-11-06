@@ -25,7 +25,7 @@ public sealed class EditPhase(PromptBuilder prompts, QwenStreamClient client, Fe
         {
             EditKind.Sql => prompts.BuildSql(ctx.Target, ctx.Sql!.Kind, ctx.SliceResult.Slice, ctx.Request.Request, used, ctx.Rules),
             EditKind.Asp => prompts.BuildAsp(ctx.Target, ctx.SliceResult.Slice, ctx.Request.Request, used, ctx.Rules, ctx.Options.Asp.SqlSanitizers),
-            EditKind.Js or EditKind.Css => prompts.BuildWeb(ctx.Target, ctx.SliceResult.Slice, ctx.Request.Request, used, ctx.Rules),
+            EditKind.Js or EditKind.Css => prompts.BuildWeb(ctx.Target, ctx.SliceResult.Slice, ctx.Request.Request, used, ctx.Rules, ctx.Web?.Page is not null),
             _ => prompts.BuildCSharp(ctx.Target, ctx.SliceResult.Slice, ctx.Request.Request, used, ctx.Rules, ctx.Request.Group is not null),
         };
         ctx.Prompt = prompt;

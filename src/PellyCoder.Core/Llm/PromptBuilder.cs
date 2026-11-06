@@ -54,6 +54,16 @@ public sealed class PromptBuilder(QwenChatTemplate template, PromptResources res
         ("target", "[EDITABLE: target]"),
     };
 
+    private static readonly (string Kind, string Header)[] JsPageContextOrder =
+    {
+        ("env", "[READ-ONLY: env]"),
+        ("callees", "[READ-ONLY: callees]"),
+        ("page", "[READ-ONLY: page]"),
+        ("html", "[READ-ONLY: html]"),
+        ("around", "[READ-ONLY: around]"),
+        ("target", "[EDITABLE: target]"),
+    };
+
     private static readonly (string Kind, string Header)[] CssContextOrder =
     {
         ("env", "[READ-ONLY: env]"),
@@ -154,12 +164,20 @@ public sealed class PromptBuilder(QwenChatTemplate template, PromptResources res
     }
 
     /// <summary>A <c>pelly js</c> or <c>pelly css</c> prompt; <paramref name="target"/>'s kind picks the resources and part order.</summary>
-    public PromptBuildResult BuildWeb(EditTarget target, Slice slice, string request, Feedback? feedback, IReadOnlyList<ProjectRule>? rules = null)
+    /// <param name="page">The run edits a block of an ASP page: the page prompts and the page context order are used.</param>
+    public PromptBuildResult BuildWeb(EditTarget target, Slice slice, string request, Feedback? feedback, IReadOnlyList<ProjectRule>? rules = null,
+        bool page = false)
     {
         var css = target.Kind == EditKind.Css;
         var requestText = request.Trim();
-        var system = (css ? resources.SystemCss : resources.SystemJs).Replace(HintPlaceholder, slice.LanguageHint) + "\n\n"
-            + (css ? resources.FewShotCss : resources.FewShotJs);
+        var (systemText, fewShotText) = (css, page) switch
+        {
+            (true, true) => (resources.SystemCssPage, resources.FewShotCssPage),
+            (true, false) => (resources.SystemCss, resources.FewShotCss),
+            (false, true) => (resources.SystemJsPage, resources.FewShotJsPage),
+            _ => (resources.SystemJs, resources.FewShotJs),
+        };
+        var system = systemText.Replace(HintPlaceholder, slice.LanguageHint) + "\n\n" + fewShotText;
 
         var lines = new List<string>
         {
@@ -167,7 +185,7 @@ public sealed class PromptBuilder(QwenChatTemplate template, PromptResources res
             $"{target.SymbolDisplay} — file: {Path.GetFileName(target.FilePath.Replace('\\', '/'))}",
             "### CONTEXT",
         };
-        foreach (var (partKind, header) in css ? CssContextOrder : JsContextOrder)
+        foreach (var (partKind, header) in css ? CssContextOrder : page ? JsPageContextOrder : JsContextOrder)
         {
             var part = slice.Included.FirstOrDefault(p => p.Kind == partKind);
             if (part is null) continue;

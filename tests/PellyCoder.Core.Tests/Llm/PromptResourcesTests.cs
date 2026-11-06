@@ -48,6 +48,24 @@ public sealed class PromptResourcesTests
     }
 
     [Fact]
+    public void Resources_page_variants_js_page_v1_and_css_page_v1()
+    {
+        Assert.Equal("js-page-v1", Resources.JsPageVersion);
+        Assert.Equal("css-page-v1", Resources.CssPageVersion);
+        Assert.DoesNotContain("# version", Resources.SystemJsPage);
+        Assert.DoesNotContain("# version", Resources.FewShotCssPage);
+        Assert.Contains("{LanguageHint}", Resources.SystemJsPage);
+        Assert.Contains("{LanguageHint}", Resources.SystemCssPage);
+        Assert.Contains("<\\/script>", Resources.SystemJsPage);
+        Assert.Contains("[READ-ONLY: html]", Resources.SystemJsPage);
+        Assert.Contains("[READ-ONLY: page]", Resources.SystemJsPage);
+        Assert.DoesNotContain("[READ-ONLY: file]", Resources.SystemJsPage);
+        Assert.Contains("<%=", Resources.FewShotJsPage);
+        Assert.Contains("<%=", Resources.FewShotCssPage);
+        Assert.Contains("server code", Resources.SystemCssPage);
+    }
+
+    [Fact]
     public void Resources_CssVersion_css_v1()
     {
         Assert.Equal("css-v1", Resources.CssVersion);

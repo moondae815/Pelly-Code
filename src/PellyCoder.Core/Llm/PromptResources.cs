@@ -11,7 +11,8 @@ public sealed record PromptResources(
     string SystemSql = "", string FewShotSql = "", string SqlVersion = "", string SystemCsGroup = "",
     string SystemCsTest = "", string FewShotCsTest = "", string CsTestVersion = "cs-test-v1",
     string SystemAsp = "", string FewShotAsp = "", string AspVersion = "",
-    string SystemJs = "", string FewShotJs = "", string JsVersion = "", string SystemCss = "", string FewShotCss = "", string CssVersion = "")
+    string SystemJs = "", string FewShotJs = "", string JsVersion = "", string SystemCss = "", string FewShotCss = "", string CssVersion = "",
+    string SystemJsPage = "", string FewShotJsPage = "", string JsPageVersion = "", string SystemCssPage = "", string FewShotCssPage = "", string CssPageVersion = "")
 {
     private const string Prefix = "PellyCoder.Core.Llm.Resources.";
     private const string VersionPrefix = "# version:";
@@ -53,14 +54,27 @@ public sealed record PromptResources(
         if (systemCssVersion != fewShotCssVersion)
             throw new InvalidOperationException(
                 $"Prompt resource versions differ: system.css.txt={systemCssVersion}, fewshot.css.txt={fewShotCssVersion}.");
+        var (systemJsPage, systemJsPageVersion) = Load("system.js-page.txt");
+        var (fewShotJsPage, fewShotJsPageVersion) = Load("fewshot.js-page.txt");
+        if (systemJsPageVersion != fewShotJsPageVersion)
+            throw new InvalidOperationException(
+                $"Prompt resource versions differ: system.js-page.txt={systemJsPageVersion}, fewshot.js-page.txt={fewShotJsPageVersion}.");
+        var (systemCssPage, systemCssPageVersion) = Load("system.css-page.txt");
+        var (fewShotCssPage, fewShotCssPageVersion) = Load("fewshot.css-page.txt");
+        if (systemCssPageVersion != fewShotCssPageVersion)
+            throw new InvalidOperationException(
+                $"Prompt resource versions differ: system.css-page.txt={systemCssPageVersion}, fewshot.css-page.txt={fewShotCssPageVersion}.");
         return new PromptResources(system, fewShot, "cs-v" + systemVersion, locate, systemSql, fewShotSql, "sql-v" + systemSqlVersion, systemGroup,
             systemTest, fewShotTest, "cs-test-v" + systemTestVersion, systemAsp, fewShotAsp, "asp-v" + systemAspVersion,
-            systemJs, fewShotJs, "js-v" + systemJsVersion, systemCss, fewShotCss, "css-v" + systemCssVersion);
+            systemJs, fewShotJs, "js-v" + systemJsVersion, systemCss, fewShotCss, "css-v" + systemCssVersion,
+            systemJsPage, fewShotJsPage, "js-page-v" + systemJsPageVersion, systemCssPage, fewShotCssPage, "css-page-v" + systemCssPageVersion);
     }
 
-    /// <summary>Prompt version recorded in the run summary for the edit kind.</summary>
-    public string VersionFor(EditKind kind) => kind switch
+    /// <summary>Prompt version recorded in the run summary for the edit kind (the page variant for a <c>pelly js</c>/<c>pelly css</c> run on a page).</summary>
+    public string VersionFor(EditKind kind, bool page = false) => kind switch
     {
+        EditKind.Js when page => JsPageVersion,
+        EditKind.Css when page => CssPageVersion,
         EditKind.Sql => SqlVersion,
         EditKind.CSharpTest => CsTestVersion,
         EditKind.Asp => AspVersion,

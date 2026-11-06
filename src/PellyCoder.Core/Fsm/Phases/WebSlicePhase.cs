@@ -1,6 +1,7 @@
 using System.Text.RegularExpressions;
 using Acornima;
 using PellyCoder.Core.Abstractions;
+using PellyCoder.Core.Asp;
 using PellyCoder.Core.Config;
 using PellyCoder.Core.CSharp;
 using PellyCoder.Core.Files;
@@ -20,10 +21,24 @@ namespace PellyCoder.Core.Fsm.Phases;
 public sealed class WebSlicePhase(FileGuard fileGuard, ITokenCounter tokens, BudgetOptions budget) : IPhase
 {
     private const int AroundLines = 10;
+    private const int MaxHtmlLines = 20;
+    private const int MaxIncludeDepth = 5;
 
     // Dropped from the front when the budget is short; the earlier, the lower the priority.
     private static readonly string[] JsDropOrder = ["around", "file", "callees", "env"];
+    private static readonly string[] JsPageDropOrder = ["around", "html", "page", "callees", "env"];
     private static readonly string[] CssDropOrder = ["around", "related", "env"];
+
+    // Literal element names a script reads: $("#x"), getElementById("x"), $("[name=x]"), frm.x, document.<form>.<x>.
+    private static readonly Regex[] HtmlNameUses =
+    [
+        new(@"(?:\$|jQuery)\(\s*(?<q>[""'])#(?<n>[\w-]+)", RegexOptions.Compiled),
+        new(@"getElementById\(\s*[""'](?<n>[\w-]+)[""']", RegexOptions.Compiled),
+        new(@"getElementsByName\(\s*[""'](?<n>[\w-]+)[""']", RegexOptions.Compiled),
+        new(@"\[\s*name\s*=\s*[""']?(?<n>[\w-]+)", RegexOptions.Compiled),
+        new(@"(?<![\w$.])frm\.(?<n>[A-Za-z_$][\w$]*)(?!\w)(?!\s*\()", RegexOptions.Compiled),
+        new(@"(?<![\w$.])document\.[A-Za-z_$][\w$]*\.(?<n>[A-Za-z_$][\w$]*)(?!\w)(?!\s*\()", RegexOptions.Compiled),
+    ];
 
     private static readonly Regex CallName = new(@"(?<![\w$.])([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*\(", RegexOptions.Compiled);
 
@@ -49,6 +64,7 @@ public sealed class WebSlicePhase(FileGuard fileGuard, ITokenCounter tokens, Bud
         var viewLines = viewText.Split('\n');
         var lineCount = LineCount(text);
 
+        var pageNow = state.Page is null ? null : AspPage.Parse(text);
         List<SlicePart> candidates = [];
         void Add(string kind, string partText, int priority)
         {
@@ -72,9 +88,9 @@ public sealed class WebSlicePhase(FileGuard fileGuard, ITokenCounter tokens, Bud
             var original = state.OriginalCss ?? CssSheet.Parse(state.OriginalText);
             var ieHacks = YesNo(original.UsesIeHacks);
 
-            Add("env", $"File encoding: {state.EncodingName}\nIE hacks used in this file: {ieHacks}\n"
+            Add("env", (pageNow is null ? "" : "ASP page <style> block\n") + $"File encoding: {state.EncodingName}\nIE hacks used in this file: {ieHacks}\n"
                 + $"Vendor prefixes used in this file: {YesNo(original.UsesVendorPrefixes)}", 3);
-            Add("related", Related(sheet, span, rule, lines), 2);
+            Add("related", Related(sheet, span, rule, lines, pageNow is null ? [] : OtherStyleSheets(pageNow, text, state.Page!.BlockIndex)), 2);
             Add("around", Around(lines, span, lineCount), 1);
             hint = $"CSS; file encoding {state.EncodingName}; IE hacks: {ieHacks}";
             dropOrder = CssDropOrder;
@@ -94,14 +110,25 @@ public sealed class WebSlicePhase(FileGuard fileGuard, ITokenCounter tokens, Bud
             if (!InFile(state.CurrentSpan, lineCount)) return Task.FromResult(NotFound(ctx));
             var span = state.CurrentSpan;
 
-            Add("env", JsEnv(state), 4);
-            Add("callees", Callees(ctx, state, document, functions, span, function, lines, viewLines), 3);
-            Add("file", FileDeclarations(functions, span, function), 2);
+            if (pageNow is null)
+            {
+                Add("env", JsEnv(state), 4);
+                Add("callees", Callees(ctx, state, document, functions, span, function, lines, viewLines, []), 3);
+                Add("file", FileDeclarations(functions, span, function), 2);
+            }
+            else
+            {
+                var otherBlocks = WebSiteIndex.PageDeclarations(pageNow, text, state.Page!.BlockIndex);
+                Add("env", JsPageEnv(state), 5);
+                Add("callees", Callees(ctx, state, document, functions, span, function, lines, viewLines, otherBlocks), 4);
+                Add("page", PageDeclarations(ctx, state, FileDeclarations(functions, span, function), otherBlocks), 3);
+                Add("html", HtmlTags(pageNow, text, string.Join('\n', Lines(viewLines, span.StartLine, span.EndLine))), 2);
+            }
             Add("around", Around(lines, span, lineCount), 1);
             var level = state.TargetLevel is { } l ? JsLevels.Name(l) : "unknown";
             hint = $"JavaScript {level} ({(state.Module ? "module" : "script")}); jQuery {state.Jquery?.ToString() ?? "none"}; "
                 + $"file encoding {state.EncodingName}";
-            dropOrder = JsDropOrder;
+            dropOrder = pageNow is null ? JsDropOrder : JsPageDropOrder;
         }
 
         ctx.Target = ctx.Target! with { MemberSpan = state.CurrentSpan };
@@ -184,12 +211,102 @@ public sealed class WebSlicePhase(FileGuard fileGuard, ITokenCounter tokens, Bud
         return string.Join('\n', level, jquery, $"File encoding: {state.EncodingName}");
     }
 
+    /// <summary>The W1 env lines for a page block: a block line first, the jQuery source, and the two fixed server-code / script-tag rules.</summary>
+    private static string JsPageEnv(WebRunState state)
+    {
+        var lines = JsEnv(state).Split('\n').ToList();
+        if (state.Jquery is not null)
+        {
+            var at = lines.FindIndex(l => l.StartsWith("jQuery ", StringComparison.Ordinal));
+            if (at >= 0) lines[at] += $" (source: {state.JquerySource})";
+        }
+        lines.Insert(0, "ASP page <script> block");
+        lines.Add("<% … %> and <%= … %> are server code. Do not change or write them.");
+        lines.Add("Never write </script> inside a string; write <\\/script>.");
+        return string.Join('\n', lines);
+    }
+
+    /// <summary>Declarations of the target block's other functions, the page's other blocks, then of the included files' blocks (declaration lines, no bodies).</summary>
+    private static string PageDeclarations(RunContext ctx, WebRunState state, string sameBlock, IReadOnlyList<WebSiteIndex.CacheEntry> otherBlocks)
+    {
+        var result = new List<string>();
+        if (sameBlock.Length > 0) result.Add(sameBlock);
+        result.AddRange(otherBlocks.Select(e => e.Declaration));
+        WebSiteIndexResult? index = null;
+        try { index = state.SiteIndex.Value; }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+        if (index is not null)
+        {
+            var self = Relative(state.SiteRoot, ctx.FilePath);
+            var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { self };
+            var frontier = new List<string> { self };
+            var included = new List<string>();
+            for (var depth = 0; depth < MaxIncludeDepth && frontier.Count > 0; depth++)
+            {
+                var next = new List<string>();
+                foreach (var f in frontier)
+                    if (index.Includes.TryGetValue(f, out var targets))
+                        foreach (var t in targets)
+                            if (visited.Add(t)) { included.Add(t); next.Add(t); }
+                frontier = next;
+            }
+            foreach (var rel in included)
+            {
+                var entries = index.Entries.Where(e => e.Source == JsIndexSource.Page && string.Equals(e.RelativePath, rel, StringComparison.OrdinalIgnoreCase)).ToList();
+                if (entries.Count == 0) continue;
+                result.Add($"// {rel}");
+                result.AddRange(entries.Select(e => e.Declaration));
+            }
+        }
+        return string.Join('\n', result);
+    }
+
+    /// <summary>
+    /// Tag lines of the page's HTML that carry an id or name the target reads by a string literal (at most 20 lines, page order).
+    /// Lines inside a script or style block are not HTML.
+    /// </summary>
+    private static string HtmlTags(AspPage page, string pageText, string targetView)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var use in HtmlNameUses)
+            foreach (Match m in use.Matches(targetView))
+                names.Add(m.Groups["n"].Value);
+        if (names.Count == 0) return "";
+
+        var inBlock = new HashSet<int>();
+        foreach (var block in page.ClientBlocks)
+            for (var line = block.OpenLine; line <= block.CloseLine; line++) inBlock.Add(line);
+
+        var attribute = new Regex(@"(?<![\w-])(?:id|name)\s*=\s*([""']?)(?<n>[\w-]+)\1(?![\w-])", RegexOptions.IgnoreCase);
+        var found = new SortedDictionary<int, string>();
+        foreach (var segment in page.Segments.Where(s => s.Kind == AspSegmentKind.Html))
+        {
+            var segmentLines = segment.Text.Split('\n');
+            for (var i = 0; i < segmentLines.Length; i++)
+            {
+                var line = segment.StartLine + i;
+                var text = segmentLines[i].Trim();
+                if (inBlock.Contains(line) || !text.Contains('<') || found.ContainsKey(line)) continue;
+                if (attribute.Matches(text).Any(m => names.Contains(m.Groups["n"].Value)))
+                    found[line] = text;
+            }
+        }
+        return string.Join('\n', found.Values.Take(MaxHtmlLines));
+    }
+
+    /// <summary>The other <c>&lt;style&gt;</c> blocks of the page as sheets (line numbers are page lines).</summary>
+    private static List<CssSheet> OtherStyleSheets(AspPage page, string pageText, int targetBlock) =>
+        Enumerable.Range(0, page.ClientBlocks.Count)
+            .Where(i => i != targetBlock && page.ClientBlocks[i] is { Kind: AspClientBlockKind.Style, Closed: true })
+            .Select(i => CssSheet.Parse(PageBlockView.Build(page, pageText, i).Text))
+            .ToList();
+
     /// <summary>
     /// Declaration lines (with the comments directly above) of the functions the target calls: from the same file first, else
     /// from the site index under a <c>// &lt;relative path&gt;</c> header. Bodies are not included.
     /// </summary>
     private static string Callees(RunContext ctx, WebRunState state, JsDocument? document, IReadOnlyList<JsFunction> functions,
-        TextSpanInfo span, JsFunction? target, string[] lines, string[] viewLines)
+        TextSpanInfo span, JsFunction? target, string[] lines, string[] viewLines, IReadOnlyList<WebSiteIndex.CacheEntry> otherBlocks)
     {
         bool InSpan(int line) => line >= span.StartLine && line <= span.EndLine;
         IEnumerable<string> called = document is not null
@@ -212,6 +329,13 @@ public sealed class WebSlicePhase(FileGuard fileGuard, ITokenCounter tokens, Bud
                 continue;
             }
             if (functions.Any(f => f.QualifiedName == callee || f.Name == callee)) continue;
+            // Other blocks of the same page come before the site index (which skips this page).
+            var block = otherBlocks.FirstOrDefault(e => e.Name == callee);
+            if (block is not null)
+            {
+                result.Add(block.Declaration);
+                continue;
+            }
             if (index is null && !indexFailed)
             {
                 try { index = state.SiteIndex.Value; }
@@ -250,12 +374,12 @@ public sealed class WebSlicePhase(FileGuard fileGuard, ITokenCounter tokens, Bud
             .Select(f => f.Declaration));
 
     /// <summary>Other rules (outside the target) that share a selector with the target rule(s), in full.</summary>
-    private static string Related(CssSheet sheet, TextSpanInfo span, CssRule? target, string[] lines)
+    private static string Related(CssSheet sheet, TextSpanInfo span, CssRule? target, string[] lines, IReadOnlyList<CssSheet> otherSheets)
     {
         bool Inside(CssRule r) => r.StartLine >= span.StartLine && r.EndLine <= span.EndLine;
         var targets = target is not null ? [target] : sheet.Rules.Where(r => !r.IsAtRule && Inside(r)).ToList();
         var selectors = targets.SelectMany(r => r.Selectors).ToHashSet(StringComparer.Ordinal);
-        var parts = sheet.Rules
+        var parts = sheet.Rules.Concat(otherSheets.SelectMany(o => o.Rules))
             .Where(r => !r.IsAtRule && !Inside(r) && r.Selectors.Any(selectors.Contains))
             .Select(r => string.Join('\n', Lines(lines, r.StartLine, r.EndLine)));
         return string.Join('\n', parts);

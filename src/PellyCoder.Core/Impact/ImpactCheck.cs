@@ -152,7 +152,7 @@ public static class ImpactCheck
         {
             var seed = seeds.FirstOrDefault(s => s.TaskId == id);
             var name = seed is null ? "" : SqlImpactFinder.Display(seed.Object);
-            issues.Add(Warning(LineOf(id), "ImpactSqlEncrypted", $"작업 {id}: {name}는 암호화되어 있어 컬럼 영향을 찾지 못했습니다"));
+            issues.Add(Warning(LineOf(id), "ImpactSqlEncrypted", $"작업 {id}: {name}는 암호화되었거나 정의를 읽을 수 없어 컬럼 영향을 찾지 못했습니다"));
         }
 
         var pull = Normalize(pullDirectory).TrimEnd('/');

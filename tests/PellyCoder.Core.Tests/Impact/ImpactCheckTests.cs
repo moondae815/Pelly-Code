@@ -236,7 +236,7 @@ public class ImpactCheckTests
         var issue = Assert.Single(SqlIssues(result));
 
         Assert.Equal(new SpecIssue(SqlSpec.Tasks[1].Line, SpecIssueSeverity.Warning, "ImpactSqlEncrypted",
-            "작업 T2: dbo.usp_X는 암호화되어 있어 컬럼 영향을 찾지 못했습니다"), issue);
+            "작업 T2: dbo.usp_X는 암호화되었거나 정의를 읽을 수 없어 컬럼 영향을 찾지 못했습니다"), issue);
     }
 
     [Fact]

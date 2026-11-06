@@ -253,7 +253,7 @@ public sealed class SpecRunnerImpactTests : IDisposable
     }
 
     [Fact]
-    public async Task Declined_sql_warning_leaves_no_run_folder_with_only_the_list()
+    public async Task Declined_sql_warning_keeps_the_list_the_warning_names()
     {
         Spec("- [ ] T1 sql db/a.sql 바꾼다\n");
         _sqlFinder.Tables = [new SqlTableShare("T1", new SqlObjectName("dbo", "Orders"), ["Status"], 3, 1, 0, 0)];
@@ -265,11 +265,12 @@ public sealed class SpecRunnerImpactTests : IDisposable
         Assert.Equal(2, code);
         Assert.Empty(_exec.Calls);
         Assert.Single(_ui.ConfirmMessages);
-        Assert.Empty(Directory.GetDirectories(P(".pelly/runs"), "apply-*"));
+        var dir = Assert.Single(Directory.GetDirectories(P(".pelly/runs"), "apply-*"));
+        Assert.True(File.Exists(Path.Combine(dir, "impact-sql.json")));
     }
 
     [Fact]
-    public async Task Dry_run_with_sql_search_leaves_no_run_folder_with_only_the_list()
+    public async Task Dry_run_with_sql_search_writes_the_list_where_spec_check_does_and_no_apply_folder()
     {
         Spec("- [ ] T1 sql db/a.sql 바꾼다\n");
         _sqlFinder.Tables = [new SqlTableShare("T1", new SqlObjectName("dbo", "Orders"), ["Status"], 3, 1, 0, 0)];
@@ -278,7 +279,9 @@ public sealed class SpecRunnerImpactTests : IDisposable
 
         Assert.Equal(0, code);
         Assert.Single(_sqlFinder.Calls);
-        Assert.Empty(Directory.GetDirectories(P(".pelly/runs"), "apply-*"));
+        Assert.False(Directory.Exists(P(".pelly/runs")) && Directory.GetDirectories(P(".pelly/runs"), "apply-*").Length > 0);
+        var list = Assert.Single(Directory.GetFiles(P(".pelly/impact"), "*-sql.json"));
+        Assert.Contains(_ui.Warnings, w => w.EndsWith("전체 목록: .pelly/impact/" + Path.GetFileName(list)));
     }
 
     [Fact]

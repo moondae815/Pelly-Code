@@ -467,6 +467,15 @@ public sealed partial class FeedbackBuilder(ITokenCounter tokens, int budget)
     /// <summary>Last line of <see cref="ForTests"/>.</summary>
     public const string KeepRequest = "Keep the requested change; do not undo it to make tests pass.";
 
+    /// <summary>The edit moved a block's tags or its end: a closing tag inside the code.</summary>
+    public Feedback ForWebBlockChanged() => Done(
+        "BLOCK BOUNDARIES CHANGED: The edit changed the <script>/<style> block boundaries. "
+        + "Do not write </script> or </style> inside the code; write <\\/script> in strings.\n" + KeepRequest);
+
+    /// <summary>The edit changed, added or removed server code inside the block.</summary>
+    public Feedback ForWebServerCodeChanged() => Done(
+        "SERVER CODE CHANGED: Do not change, add or remove <% … %> or <%= … %>; they are server code.\n" + KeepRequest);
+
     /// <summary>The patched target reads the same as the original target (whitespace-insensitive, M3a T14).</summary>
     public Feedback ForNoChange() => Done("NO CHANGE: the edit leaves the target identical to the original. Make the requested change.");
 

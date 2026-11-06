@@ -27,6 +27,7 @@ public sealed class JsNamesStep(IReadOnlyList<string> globals) : IVerifierStep
         var known = JsNameCheck.KnownSet(WebBuiltins.Default, jquery, state.SiteIndex.Value.Names, globals);
         // One entry per name, at its first new use.
         var unknown = JsNameCheck.NewUnknown(state.OriginalJs, patched, known)
+            .Where(u => !PageBlockView.IsPlaceholder(u.Name))
             .GroupBy(u => u.Name, StringComparer.Ordinal)
             .Select(g => (Name: g.Key, Line: g.Min(u => u.Line)))
             .OrderBy(u => u.Line).ThenBy(u => u.Name, StringComparer.Ordinal)
@@ -48,7 +49,7 @@ internal static class JsVerify
     /// </summary>
     public static JsDocument? Patched(RunContext ctx, WebRunState state)
     {
-        var doc = JsDocument.Parse(ctx.Current.Text, state.TargetLevel ?? EcmaVersion.Latest, state.Module);
-        return doc.Error is null ? doc : null;
+        var doc = state.ViewOf(ctx.Current.Text) is not { } view ? null : JsDocument.Parse(view, state.TargetLevel ?? EcmaVersion.Latest, state.Module);
+        return doc?.Error is null ? doc : null;
     }
 }

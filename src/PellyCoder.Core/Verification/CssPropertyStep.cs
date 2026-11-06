@@ -18,7 +18,12 @@ public sealed class CssPropertyStep : IVerifierStep
     {
         var state = ctx.Web ?? throw new InvalidOperationException("CSS verification needs the web run state.");
         var original = state.OriginalCss ?? CssSheet.Parse(state.OriginalText);
-        var patched = CssSheet.Parse(ctx.Current.Text);
+        if (state.ViewOf(ctx.Current.Text) is not { } view)
+        {
+            state.Record(Name, AspCheckStatus.Skipped);
+            return Task.FromResult(StepResult.Pass);
+        }
+        var patched = CssSheet.Parse(view);
 
         var unknown = CssPropertyCheck.NewUnknown(original, patched, WebBuiltins.Default);
         state.PropertyWarnings = unknown.Count;

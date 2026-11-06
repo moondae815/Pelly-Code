@@ -5,6 +5,7 @@ using PellyCoder.Core.CSharp;
 using PellyCoder.Core.Files;
 using PellyCoder.Core.Logging;
 using PellyCoder.Core.Models;
+using PellyCoder.Core.Reporting;
 using PellyCoder.Core.Testing;
 
 namespace PellyCoder.Core.Fsm;
@@ -81,6 +82,8 @@ public sealed class FsmOrchestrator(
                 await StopBaselineAsync(ctx);
                 if (ctx.Phase == RunPhase.Failed)
                 {
+                    if (ctx.FailureKind == FailureKinds.WebServerCodeChanged)
+                        ctx.Messages.Add("서버 값이 필요하면 pelly asp --lines를 쓰십시오");
                     final = await RollbackAsync(ctx);
                 }
                 else

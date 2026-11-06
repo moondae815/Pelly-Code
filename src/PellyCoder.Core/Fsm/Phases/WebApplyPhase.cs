@@ -51,8 +51,48 @@ public sealed class WebApplyPhase(FileGuard fileGuard, FeedbackBuilder feedback,
             return PhaseOutcome.MatchFailed;
         }
 
-        var rejected = state.Kind == EditKind.Css ? JudgeCss(ctx, state, newText) : JudgeJs(ctx, state, newText);
+        // A page is judged on the target block's view; line numbers are the page's, so feedback points at the right lines.
+        var judged = newText;
+        AspPage? newPage = null;
+        if (state.Page is { } page)
+        {
+            newPage = AspPage.Parse(newText);
+            if (!PageBlockView.SameBlocks(page.OriginalPage, newPage, page.BlockIndex, ctx.Original.Text, newText)
+                || state.ViewOf(newText) is not { } view)
+            {
+                ctx.Feedback = feedback.ForWebBlockChanged();
+                ctx.FailureKind = FailureKinds.WebBlockChanged;
+                return PhaseOutcome.MatchFailed;
+            }
+            var segments = PageBlockView.Build(newPage, newText, page.BlockIndex).ServerSegments;
+            if (!segments.SequenceEqual(page.OriginalView.ServerSegments, StringComparer.Ordinal))
+            {
+                ctx.Feedback = feedback.ForWebServerCodeChanged();
+                ctx.FailureKind = FailureKinds.WebServerCodeChanged;
+                return PhaseOutcome.MatchFailed;
+            }
+            judged = view;
+        }
+
+        var rejected = state.Kind == EditKind.Css ? JudgeCss(ctx, state, judged) : JudgeJs(ctx, state, judged);
         if (rejected is { } outcome) return outcome;
+
+        if (newPage is not null)
+        {
+            var problems = AspStructureCheck.NewProblems(state.Page!.OriginalPage, newPage);
+            if (problems.Count > 0)
+            {
+                var file = Path.GetFileName(ctx.FilePath);
+                var errors = problems.Select(p => new Diagnostic(file, p.Line, p.Column, "error", p.Code, p.Message)).ToList();
+                foreach (var error in errors)
+                {
+                    if (!ctx.ErrorCodes.Contains(error.Code)) ctx.ErrorCodes.Add(error.Code);
+                }
+                ctx.Feedback = feedback.ForDiagnostics("ASP STRUCTURE CHECK FAILED", errors, newText);
+                ctx.FailureKind = FailureKinds.AspStructureErrors;
+                return PhaseOutcome.MatchFailed;
+            }
+        }
 
         // Compared with the original, not the last write: undoing an earlier attempt is no change either.
         if (newText == ctx.Original.Text)

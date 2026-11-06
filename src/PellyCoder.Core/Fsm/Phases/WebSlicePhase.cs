@@ -43,7 +43,10 @@ public sealed class WebSlicePhase(FileGuard fileGuard, ITokenCounter tokens, Bud
 
         var state = ctx.Web!;
         var text = current.Text;
+        // JS and CSS are parsed on the block's view (the page itself for a .js/.css file); lines and regions stay on the page text.
+        if (state.ViewOf(text) is not { } viewText) return Task.FromResult(NotFound(ctx));
         var lines = text.Split('\n');
+        var viewLines = viewText.Split('\n');
         var lineCount = LineCount(text);
 
         List<SlicePart> candidates = [];
@@ -56,7 +59,7 @@ public sealed class WebSlicePhase(FileGuard fileGuard, ITokenCounter tokens, Bud
         string[] dropOrder;
         if (state.Kind == EditKind.Css)
         {
-            var sheet = CssSheet.Parse(text);
+            var sheet = CssSheet.Parse(viewText);
             CssRule? rule = null;
             if (state.Unit == WebTargetUnit.Rule)
             {
@@ -78,9 +81,9 @@ public sealed class WebSlicePhase(FileGuard fileGuard, ITokenCounter tokens, Bud
         }
         else
         {
-            var document = state.Fallback ? null : JsDocument.Parse(text, EcmaVersion.Latest, state.Module);
+            var document = state.Fallback ? null : JsDocument.Parse(viewText, EcmaVersion.Latest, state.Module);
             if (document?.Error is not null) document = null;
-            var functions = document?.Functions ?? JsTokenScan.FunctionDeclarations(text);
+            var functions = document?.Functions ?? JsTokenScan.FunctionDeclarations(viewText);
             JsFunction? function = null;
             if (state.Unit == WebTargetUnit.Function)
             {
@@ -92,7 +95,7 @@ public sealed class WebSlicePhase(FileGuard fileGuard, ITokenCounter tokens, Bud
             var span = state.CurrentSpan;
 
             Add("env", JsEnv(state), 4);
-            Add("callees", Callees(ctx, state, document, functions, span, function, lines), 3);
+            Add("callees", Callees(ctx, state, document, functions, span, function, lines, viewLines), 3);
             Add("file", FileDeclarations(functions, span, function), 2);
             Add("around", Around(lines, span, lineCount), 1);
             var level = state.TargetLevel is { } l ? JsLevels.Name(l) : "unknown";
@@ -186,12 +189,12 @@ public sealed class WebSlicePhase(FileGuard fileGuard, ITokenCounter tokens, Bud
     /// from the site index under a <c>// &lt;relative path&gt;</c> header. Bodies are not included.
     /// </summary>
     private static string Callees(RunContext ctx, WebRunState state, JsDocument? document, IReadOnlyList<JsFunction> functions,
-        TextSpanInfo span, JsFunction? target, string[] lines)
+        TextSpanInfo span, JsFunction? target, string[] lines, string[] viewLines)
     {
         bool InSpan(int line) => line >= span.StartLine && line <= span.EndLine;
         IEnumerable<string> called = document is not null
             ? document.Calls.Where(c => InSpan(c.Line)).Select(c => c.Callee)
-            : CalledInFallback(lines, span);
+            : CalledInFallback(viewLines, span);
 
         var result = new List<string>();
         var seen = new HashSet<string>(StringComparer.Ordinal);

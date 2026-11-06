@@ -41,10 +41,13 @@ public sealed class RulesStep(FeedbackBuilder feedback) : IVerifierStep
         {
             if (ctx.Target?.Kind == EditKind.Asp)
                 return CodeMask.Asp(ctx.Current.Text);
-            if (ctx.Target?.Kind == EditKind.Js)
-                return CodeMask.Js(ctx.Current.Text);
-            if (ctx.Target?.Kind == EditKind.Css)
-                return CodeMask.Css(ctx.Current.Text);
+            if (ctx.Target?.Kind is EditKind.Js or EditKind.Css)
+            {
+                // On a page only the block is JS/CSS; the rest of the page is blanked in its view.
+                var text = ctx.Web?.Page is null ? ctx.Current.Text : ctx.Web.ViewOf(ctx.Current.Text);
+                if (text is null) return null;
+                return ctx.Target.Kind == EditKind.Js ? CodeMask.Js(text) : CodeMask.Css(text);
+            }
             if (ctx.Target?.Kind == EditKind.Sql)
                 return ctx.Sql is { } sql ? CodeMask.Sql(ctx.Current.Text, sql.CompatLevel, sql.Settings.QuotedIdentifier) : null;
             return CodeMask.CSharp(ctx.Current.Text, ctx.Language?.Version ?? Microsoft.CodeAnalysis.CSharp.LanguageVersion.Preview);

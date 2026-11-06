@@ -72,6 +72,8 @@ public sealed class ReviewPhase(IUserInteraction ui) : IPhase
             if (web.OriginalAscii && ctx.Current.Text.AsSpan().IndexOfAnyExceptInRange((char)0, (char)0x7F) >= 0)
                 Notice(ctx, $"이 파일은 ASCII였고 {web.EncodingName}로 저장했습니다");
             Notice(ctx, WebNotice);
+            if (BlockLocation(ctx, web) is { } location)
+                Notice(ctx, location);
         }
 
         ui.ShowDiff(ctx.FilePath, ctx.Original.Text, ctx.Current.Text);
@@ -85,6 +87,20 @@ public sealed class ReviewPhase(IUserInteraction ui) : IPhase
         }
 
         return await ui.ApproveAsync("적용할까요?", ct) ? PhaseOutcome.Approved : PhaseOutcome.Rejected;
+    }
+
+    /// <summary>「p/list.asp 2–9줄 &lt;script&gt; 블록」 for a page run; null otherwise.</summary>
+    private static string? BlockLocation(RunContext ctx, WebRunState web)
+    {
+        if (web.Page is not { } page) return null;
+        var blocks = AspPage.Parse(ctx.Current.Text).ClientBlocks;
+        if (page.BlockIndex >= blocks.Count) return null;
+        var block = blocks[page.BlockIndex];
+        var root = web.SiteRoot.Replace('\\', '/').TrimEnd('/');
+        var path = ctx.FilePath.Replace('\\', '/');
+        var relative = path.StartsWith(root + "/", StringComparison.OrdinalIgnoreCase) ? path[(root.Length + 1)..] : path;
+        var tag = block.Kind == AspClientBlockKind.Style ? "<style>" : "<script>";
+        return $"{relative} {block.OpenLine}–{block.CloseLine}줄 {tag} 블록";
     }
 
     /// <summary>Shown now and kept in <c>messages.txt</c>.</summary>

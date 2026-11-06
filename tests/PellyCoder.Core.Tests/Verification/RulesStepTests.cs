@@ -66,4 +66,38 @@ public sealed class RulesStepTests
 
         Assert.Equal(StepResult.Pass, result);
     }
+
+    [Fact]
+    public async Task Rules_forbid_pattern_matches_page_js()
+    {
+        const string page = "<html>\n<p>a</p>\n<script>\nfunction f() {\n  return 1;\n}\n</script>\n";
+        var ctx = await PageContext(page, "f");
+        ctx.Rules = [new ProjectRule(1, ["*"], "no alert", "alert\\(")];
+
+        ctx.Current = ctx.Current with { Text = page.Replace("  return 1;", "  alert(1);") };
+        Assert.NotEqual(StepResult.Pass, await Run(ctx));
+
+        ctx.Current = ctx.Current with { Text = page.Replace("<p>a</p>", "<p>alert(1)</p>") };
+        Assert.Equal(StepResult.Pass, await Run(ctx));
+    }
+
+    private static async Task<RunContext> PageContext(string page, string function)
+    {
+        var fs = new MockFileSystem();
+        var codec = new PellyCoder.Core.Asp.AspTextCodec("cp949");
+        const string pagePath = "/w/p/a.asp";
+        fs.AddFile(pagePath, new MockFileData(Encoding.UTF8.GetBytes(page)));
+        var options = new PellyOptions();
+        var ctx = new RunContext("r1", new RunRequest(pagePath, null, function, null, "x", true, false, null, Kind: EditKind.Js), options)
+        {
+            FilePath = pagePath,
+            Workspace = new PellyCoder.Core.Workspaces.Workspace("/w", "/w/.pelly"),
+        };
+        ctx.Original = new FileGuard(fs, TimeProvider.System, codec).Read(pagePath);
+        ctx.Current = ctx.Original;
+        var outcome = await new PellyCoder.Core.Fsm.Phases.JsLocatePhase(fs, new PellyCoder.Core.Tests.Fakes.ScriptedUserInteraction(), options, codec)
+            .ExecuteAsync(ctx, CancellationToken.None);
+        Assert.Equal(PellyCoder.Core.Fsm.PhaseOutcome.Ok, outcome);
+        return ctx;
+    }
 }

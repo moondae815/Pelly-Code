@@ -1,9 +1,11 @@
 using PellyCoder.Core.Files;
 using System.IO.Abstractions;
 using Acornima;
+using PellyCoder.Core.Asp;
 using PellyCoder.Core.Abstractions;
 using PellyCoder.Core.Config;
 using PellyCoder.Core.Models;
+using PellyCoder.Core.Reporting;
 using PellyCoder.Core.Web;
 using static PellyCoder.Core.Fsm.Phases.WebLocateCommon;
 
@@ -30,79 +32,108 @@ public sealed class JsLocatePhase(IFileSystem fs, IUserInteraction ui, PellyOpti
         }
 
         var siteRoot = SiteRoot(fs, ctx, options);
-        if (RefuseFile(fs, ctx, options, siteRoot, ".js", "pelly js") is { } refused)
+        var isPage = WebPages.IsPage(ctx.FilePath, options.Asp.Extensions);
+        if (RefuseFile(fs, ctx, options, siteRoot, ".js", "pelly js", acceptPages: true) is { } refused)
             return refused;
 
         var text = ctx.Original.Text;
-        var detected = JsLevels.Detect(text);
-        var fallback = detected.Level is null;
-        JsDocument? document = null;
-        string? fallbackReason = null;
-        EcmaVersion? targetLevel;
-        var setting = options.Web.JsTarget ?? "auto";
-        var configured = IsAuto(setting) ? null : JsLevels.FromSetting(setting);
-        if (detected.Level is { } level)
+        var lineCount = LineCount(text);
+        var page = isPage ? AspPage.Parse(text) : null;
+        Analysis target;
+        int blockIndex = -1;
+        IReadOnlyList<Analysis> all = [];
+
+        if (page is null)
         {
-            document = JsDocument.Parse(text, level, detected.Module);
-            targetLevel = level;
-            if (configured is { } wanted)
-            {
-                if (JsLevels.Compare(wanted, level) >= 0)
-                    targetLevel = wanted;
-                else
-                    ctx.Messages.Add($"원본이 {JsLevels.Name(level)} 문법을 써서 web.jsTarget({SettingLabel(setting, wanted)}) 대신 "
-                        + $"원본 수준({JsLevels.Name(level)})을 기준으로 봅니다");
-            }
+            target = Analyze(text, null);
+            ctx.Messages.AddRange(target.Notes);
+            all = [target];
+        }
+        else if (request.Line is not null || request.Lines is not null)
+        {
+            var lines = request.Lines ?? new TextSpanInfo(request.Line!.Value, request.Line.Value);
+            if (request.Lines is { } range && OutOfFile(range, lineCount))
+                return NotFound(ctx, OutOfFileMessage(range, lineCount));
+            var first = page.ClientBlockAt(lines.StartLine);
+            var last = page.ClientBlockAt(lines.EndLine);
+            if (first is null || last is null || first.Value.Index != last.Value.Index)
+                return Outside(ctx, request.Lines is null
+                    ? $"{lines.StartLine}번 줄은 <script> 블록 안이 아닙니다. pelly asp를 쓰십시오"
+                    : $"줄 {lines.StartLine}-{lines.EndLine} 범위가 <script> 블록 밖에 걸칩니다. pelly asp --lines를 쓰십시오");
+            blockIndex = first.Value.Index;
+            var block = first.Value.Block;
+            if (block.Kind == AspClientBlockKind.Script && !block.Closed)
+                return Outside(ctx, $"줄 {block.OpenLine}의 <script>가 닫히지 않았습니다");
+            if (!IsEditable(block))
+                return Outside(ctx, request.Lines is null
+                    ? $"{lines.StartLine}번 줄은 <script> 블록 안이 아닙니다. pelly asp를 쓰십시오"
+                    : $"줄 {lines.StartLine}-{lines.EndLine} 범위가 <script> 블록 밖에 걸칩니다. pelly asp --lines를 쓰십시오");
+            target = AnalyzeBlock(page, text, blockIndex);
+            ctx.Messages.AddRange(target.Notes);
+            all = [target];
         }
         else
         {
-            targetLevel = configured;
-            fallbackReason = $"원본이 해석되지 않음: 줄 {detected.LatestError?.Line ?? 1}";
-            ctx.Messages.Add($"JS 문법 검사 건너뜀({fallbackReason})");
+            var editable = Enumerable.Range(0, page.ClientBlocks.Count).Where(i => IsEditable(page.ClientBlocks[i])).ToList();
+            if (editable.Count == 0)
+                return Outside(ctx, "이 페이지에는 고칠 수 있는 <script> 블록이 없습니다");
+            all = editable.Select(i => AnalyzeBlock(page, text, i)).ToList();
+            target = all[0];
         }
 
-        var functions = document?.Functions ?? JsTokenScan.FunctionDeclarations(text);
-        var lineCount = LineCount(text);
-        JsFunction? function = null;
+        Hit? hit = null;
         TextSpanInfo span;
         if (request.MethodName is { } name)
         {
-            var matches = functions.Where(f => f.QualifiedName == name || f.Name == name).ToList();
+            var matches = all.SelectMany(a => a.Functions.Where(f => f.QualifiedName == name || f.Name == name).Select(f => new Hit(a, f))).ToList();
             if (matches.Count == 0)
                 return NotFound(ctx, $"함수 '{name}'을(를) 찾을 수 없습니다: {ctx.FilePath}");
-            function = await ChooseAsync(ui, ctx, matches, "수정할 함수를 고르십시오", Label,
+            hit = await ChooseAsync(ui, ctx, matches, "수정할 함수를 고르십시오", h => Label(h.Function),
                 $"'{name}' 함수가 {matches.Count}개입니다. 대화형으로 실행해 고르거나 --lines A-B로 범위를 주십시오: ", ct);
-            if (function is null)
+            if (hit is null)
                 return NoChoice(ctx);
         }
         else if (request.Line is { } line)
         {
-            if (fallback)
+            if (target.Fallback)
                 return NotFound(ctx, $"원본이 해석되지 않아 {line}번 줄을 감싸는 함수를 찾을 수 없습니다. --lines A-B로 범위를 주십시오");
-            function = functions
+            var inner = target.Functions
                 .Where(f => f.StartLine <= line && line <= f.EndLine)
                 .OrderBy(f => f.EndLine - f.StartLine)
                 .FirstOrDefault();
-            if (function is null)
+            if (inner is null)
                 return NotFound(ctx, $"{line}번 줄을 감싸는 이름 있는 함수가 없습니다. --lines A-B로 범위를 주십시오");
+            hit = new Hit(target, inner);
         }
         else if (request.Lines is null)
         {
-            if (functions.Count == 0)
-                return NotFound(ctx, "파일에 이름 있는 함수가 없습니다. --lines A-B로 범위를 주십시오");
-            function = await ChooseAsync(ui, ctx, functions, "수정할 함수를 고르십시오", Label,
-                $"이름 있는 함수가 {functions.Count}개입니다. --function으로 지정하십시오: ", ct);
-            if (function is null)
+            var every = all.SelectMany(a => a.Functions.Select(f => new Hit(a, f))).ToList();
+            if (every.Count == 0)
+                return NotFound(ctx, page is null ? "파일에 이름 있는 함수가 없습니다. --lines A-B로 범위를 주십시오"
+                    : "이 페이지의 <script> 블록에 이름 있는 함수가 없습니다. --lines A-B로 범위를 주십시오");
+            hit = await ChooseAsync(ui, ctx, every, "수정할 함수를 고르십시오", h => Label(h.Function),
+                $"이름 있는 함수가 {every.Count}개입니다. --function으로 지정하십시오: ", ct);
+            if (hit is null)
                 return NoChoice(ctx);
         }
 
-        if (request.Lines is { } lines)
+        if (hit is not null && page is not null && request.Line is null)
         {
-            if (OutOfFile(lines, lineCount))
-                return NotFound(ctx, OutOfFileMessage(lines, lineCount));
-            if (document is not null && document.CutsStatement(lines))
-                return NotFound(ctx, $"줄 {lines.StartLine}-{lines.EndLine} 범위가 문장 중간을 자릅니다. 문장 경계로 범위를 주십시오");
-            span = lines;
+            // The block is only known now: its notes (level, skipped syntax check) are reported for it alone.
+            target = hit.Analysis;
+            blockIndex = target.BlockIndex;
+            ctx.Messages.AddRange(target.Notes);
+        }
+        var function = hit?.Function;
+        var document = target.Document;
+
+        if (request.Lines is { } lines2)
+        {
+            if (OutOfFile(lines2, lineCount))
+                return NotFound(ctx, OutOfFileMessage(lines2, lineCount));
+            if (document is not null && document.CutsStatement(lines2))
+                return NotFound(ctx, $"줄 {lines2.StartLine}-{lines2.EndLine} 범위가 문장 중간을 자릅니다. 문장 경계로 범위를 주십시오");
+            span = lines2;
         }
         else
         {
@@ -122,20 +153,87 @@ public sealed class JsLocatePhase(IFileSystem fs, IUserInteraction ui, PellyOpti
         var display = unit == WebTargetUnit.Function ? Display(function!) : $"줄 {span.StartLine}-{span.EndLine}";
         ctx.Target = new EditTarget(EditKind.Js, ctx.FilePath, display, span, null);
         ctx.ProjectStyle = "Web";
-        ctx.Web = new WebRunState(EditKind.Js, unit, span, text, EncodingName(ctx.Original.Encoding), OriginalAscii(fs, ctx),
+        var pageState = page is null ? null : new WebPageState(page, blockIndex, target.View!,
+            Enumerable.Range(0, page.ClientBlocks.Count).Select(i => PageBlockView.Build(page, text, i)).ToList());
+        ctx.Web = new WebRunState(EditKind.Js, unit, span, target.Text, EncodingName(ctx.Original.Encoding), OriginalAscii(fs, ctx),
             siteRoot, SiteIndex(fs, ctx, options, siteRoot, codec))
         {
+            Page = pageState,
             Function = unit == WebTargetUnit.Function ? function : null,
             OriginalJs = document,
-            Fallback = fallback,
-            FallbackReason = fallbackReason,
-            Module = detected.Module,
-            OriginalLevel = detected.Level,
-            TargetLevel = targetLevel,
+            Fallback = target.Fallback,
+            FallbackReason = target.FallbackReason,
+            Module = target.Detected.Module,
+            OriginalLevel = target.Detected.Level,
+            TargetLevel = target.TargetLevel,
             JqueryFound = found,
             Jquery = jquery,
         };
         return PhaseOutcome.Ok;
+    }
+
+    private sealed record Hit(Analysis Analysis, JsFunction Function);
+
+    /// <summary>One piece of JS the phase analyses: a whole <c>.js</c> file or one script block of a page.</summary>
+    private sealed record Analysis(
+        int BlockIndex, PageBlockView? View, string Text, JsLevelResult Detected, JsDocument? Document, bool Fallback,
+        string? FallbackReason, EcmaVersion? TargetLevel, List<string> Notes, IReadOnlyList<JsFunction> Functions);
+
+    /// <summary>A script block with content the run can edit: closed, inline and JavaScript.</summary>
+    private static bool IsEditable(AspClientBlock block)
+    {
+        if (block.Kind != AspClientBlockKind.Script || block.Src is not null || !block.Closed)
+            return false;
+        var language = block.Language?.Trim();
+        var type = block.Type?.Trim();
+        return (string.IsNullOrEmpty(language) || language.StartsWith("javascript", StringComparison.OrdinalIgnoreCase)
+                || language.StartsWith("jscript", StringComparison.OrdinalIgnoreCase))
+            && (string.IsNullOrEmpty(type) || type.Contains("javascript", StringComparison.OrdinalIgnoreCase)
+                || type.Contains("ecmascript", StringComparison.OrdinalIgnoreCase)
+                || type.Equals("module", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static PhaseOutcome Outside(RunContext ctx, string message) =>
+        Refuse(ctx, FailureKinds.WebOutsideBlock, message);
+
+    private Analysis AnalyzeBlock(AspPage page, string pageText, int blockIndex)
+    {
+        var view = PageBlockView.Build(page, pageText, blockIndex);
+        return Analyze(view.Text, view) with { BlockIndex = blockIndex };
+    }
+
+    /// <summary>Level detection and parsing of one piece of JS; a block holding server statements goes to the W1 fallback.</summary>
+    private Analysis Analyze(string text, PageBlockView? view)
+    {
+        var notes = new List<string>();
+        var setting = options.Web.JsTarget ?? "auto";
+        var configured = IsAuto(setting) ? null : JsLevels.FromSetting(setting);
+        var statements = view?.ServerCode == PageServerCode.Statements;
+        var detected = statements ? new JsLevelResult(null, false, null) : JsLevels.Detect(text);
+        JsDocument? document = null;
+        string? fallbackReason = null;
+        EcmaVersion? targetLevel;
+        if (detected.Level is { } level)
+        {
+            document = JsDocument.Parse(text, level, detected.Module);
+            targetLevel = level;
+            if (configured is { } wanted)
+            {
+                if (JsLevels.Compare(wanted, level) >= 0)
+                    targetLevel = wanted;
+                else
+                    notes.Add($"원본이 {JsLevels.Name(level)} 문법을 써서 web.jsTarget({SettingLabel(setting, wanted)}) 대신 "
+                        + $"원본 수준({JsLevels.Name(level)})을 기준으로 봅니다");
+            }
+        }
+        else
+        {
+            targetLevel = configured;
+            fallbackReason = statements ? "서버 코드가 섞인 스크립트" : $"원본이 해석되지 않음: 줄 {detected.LatestError?.Line ?? 1}";
+            notes.Add($"JS 문법 검사 건너뜀({fallbackReason})");
+        }
+        var functions = document?.Functions ?? JsTokenScan.FunctionDeclarations(text);
+        return new Analysis(-1, view, text, detected, document, detected.Level is null, fallbackReason, targetLevel, notes, functions);
     }
 
     private static bool IsAuto(string setting) => setting.Trim().Equals("auto", StringComparison.OrdinalIgnoreCase);

@@ -78,6 +78,9 @@ public static class FailureKinds
     public const string WebMinifiedFile = "WebMinifiedFile";
     public const string WebUnsupportedFile = "WebUnsupportedFile";
     public const string WebEncoding = "WebEncoding";
+    public const string WebOutsideBlock = "WebOutsideBlock";
+    public const string WebBlockChanged = "WebBlockChanged";
+    public const string WebServerCodeChanged = "WebServerCodeChanged";
 
     public const string EnvError = "EnvError";
     public const string BudgetExceeded = "BudgetExceeded";
@@ -108,6 +111,7 @@ public static class FailureKinds
         AspStructureErrors, AspUnknownNames, AspCompileErrors, AspSafetyRejected, AspEncoding, AspSpNotFound, AspUnsupportedLanguage, AspUnsupportedFile,
         JsSyntaxErrors, JsLevelExceeded, JsSafetyRejected, JsTargetChanged, CssStructureErrors, CssSafetyRejected, CssTargetChanged,
         WebVendorFile, WebMinifiedFile, WebUnsupportedFile, WebEncoding,
+        WebOutsideBlock, WebBlockChanged, WebServerCodeChanged,
         EnvError, BudgetExceeded, Rejected, Cancelled,
         CharTestShape, CharTestNoAssert, CharTestEnvDependent, CharTestBuild, CharTestFailsOnCurrent, CharTestRegression, CharTestFlaky, CharTestSurvivesMutation, CharTestMutationUnbuildable, CharTestBaselineUnusable, CharTestPending,
     };

@@ -15,11 +15,13 @@ internal static class WebLocateCommon
 {
     /// <summary>
     /// Refuses a file without <paramref name="extension"/> (<c>WebUnsupportedFile</c>), a minified file and a vendor file;
-    /// null when the file may be edited.
+    /// null when the file may be edited. A page is accepted as it is: no minified or vendor filter applies to it.
     /// </summary>
     public static PhaseOutcome? RefuseFile(IFileSystem fs, RunContext ctx, PellyOptions options, string siteRoot, string extension,
-        string command)
+        string command, bool acceptPages = false)
     {
+        if (acceptPages && WebPages.IsPage(ctx.FilePath, options.Asp.Extensions))
+            return null;
         if (!fs.Path.GetExtension(ctx.FilePath).Equals(extension, StringComparison.OrdinalIgnoreCase))
             return Refuse(ctx, FailureKinds.WebUnsupportedFile, $"{command}는 {extension} 파일만 고칩니다: {ctx.FilePath}");
         var (verdict, reason) = new WebFileFilter(siteRoot, options.Web.VendorPaths).Classify(ctx.FilePath, ctx.Original.Text);

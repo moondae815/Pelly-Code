@@ -22,6 +22,27 @@ public sealed class WebRunState(
     /// <summary>The original file text (LF line ends); the baseline every check compares with.</summary>
     public string OriginalText { get; } = originalText;
 
+    /// <summary>Set when the run edits a page: the target block and the original views. Null for <c>.js</c> and <c>.css</c> files.</summary>
+    public WebPageState? Page { get; init; }
+
+    /// <summary>
+    /// The target block's view of a page text (LF line ends); the input itself when the run is not on a page.
+    /// Null when the page no longer has the same blocks (count or kind).
+    /// </summary>
+    public string? ViewOf(string pageTextLf)
+    {
+        if (Page is null)
+            return pageTextLf;
+        var page = AspPage.Parse(pageTextLf);
+        var original = Page.OriginalPage.ClientBlocks;
+        if (page.ClientBlocks.Count != original.Count || Page.BlockIndex >= original.Count)
+            return null;
+        for (var i = 0; i < original.Count; i++)
+            if (page.ClientBlocks[i].Kind != original[i].Kind)
+                return null;
+        return PageBlockView.Build(page, pageTextLf, Page.BlockIndex).Text;
+    }
+
     /// <summary>The target function in the original file; null unless <see cref="Unit"/> is Function.</summary>
     public JsFunction? Function { get; init; }
 

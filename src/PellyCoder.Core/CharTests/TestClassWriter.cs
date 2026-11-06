@@ -57,10 +57,52 @@ public static class TestClassWriter
         for (var i = 0; i < members.Count; i++)
         {
             if (i > 0) sb.Append(eol);
-            foreach (var line in members[i].Replace("\r\n", "\n").TrimEnd('\n').Split('\n'))
-                sb.Append(line.Length == 0 ? "" : indent + line).Append(eol);
+            var memberLf = members[i].Replace("\r\n", "\n").TrimEnd('\n');
+            var inString = LinesInsideMultilineStrings(memberLf);
+            var lines = memberLf.Split('\n');
+            for (var n = 0; n < lines.Length; n++)
+            {
+                var line = lines[n];
+                if (inString.Contains(n)) sb.Append(line); // a verbatim/raw string line is content: neither indented nor normalized
+                else sb.Append(line.Length == 0 ? "" : indent + NormalizeIndent(line, indent.Contains('\t')));
+                sb.Append(eol);
+            }
         }
         return sb.ToString();
+    }
+
+    /// <summary>Re-expresses a line's leading whitespace in the file's unit: tabs (4 spaces = 1 tab) or spaces.</summary>
+    private static string NormalizeIndent(string line, bool useTabs)
+    {
+        var end = 0;
+        while (end < line.Length && (line[end] == ' ' || line[end] == '\t')) end++;
+        if (end == 0) return line;
+        var width = 0;
+        for (var i = 0; i < end; i++) width += line[i] == '\t' ? 4 - width % 4 : 1;
+        var lead = useTabs ? new string('\t', width / 4) + new string(' ', width % 4) : new string(' ', width);
+        return lead + line[end..];
+    }
+
+    /// <summary>Zero-based indexes of the member's lines that begin inside a multi-line string literal.</summary>
+    private static HashSet<int> LinesInsideMultilineStrings(string memberLf)
+    {
+        var result = new HashSet<int>();
+        if (!memberLf.Contains('\n')) return result;
+        const string wrapper = "class W {\n";
+        var tree = CSharpSyntaxTree.ParseText(wrapper + memberLf + "\n}");
+        var lineStarts = new List<int> { 0 };
+        for (var i = 0; i < memberLf.Length; i++)
+            if (memberLf[i] == '\n') lineStarts.Add(i + 1);
+        foreach (var node in tree.GetRoot().DescendantNodes())
+        {
+            if (node is not (LiteralExpressionSyntax or InterpolatedStringExpressionSyntax)) continue;
+            if (node is LiteralExpressionSyntax lit && !lit.IsKind(SyntaxKind.StringLiteralExpression)) continue;
+            var start = node.SpanStart - wrapper.Length;
+            var end = node.Span.End - wrapper.Length;
+            for (var n = 1; n < lineStarts.Count; n++)
+                if (lineStarts[n] > start && lineStarts[n] < end) result.Add(n);
+        }
+        return result;
     }
 
     private static void InsertUsings(StringBuilder sb, string text, CompilationUnitSyntax root, IReadOnlyList<string> usings, string eol)

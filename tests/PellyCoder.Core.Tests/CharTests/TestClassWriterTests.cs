@@ -55,6 +55,28 @@ public sealed class TestClassWriterTests
     }
 
     [Fact]
+    public void Insert_TabFile_NormalizesMemberLeadingSpacesToTabs_ButNotVerbatimStringLines()
+    {
+        var text = "public class CTests\n{\n\t[Fact]\n\tpublic void Old() { }\n}\n";
+        var member = "[Fact]\npublic void A()\n{\n    var s = @\"x\n    y\";\n    if (s != null)\n    {\n        Assert.True(true);\n    }\n}";
+
+        var result = TestClassWriter.Insert(text, "CTests", [], [member]);
+
+        Assert.Contains("\n\t{\n\t\tvar s = @\"x\n    y\";\n\t\tif (s != null)\n\t\t{\n\t\t\tAssert.True(true);\n\t\t}\n\t}\n", result);
+    }
+
+    [Fact]
+    public void Insert_SpaceFile_KeepsVerbatimStringLinesUnindented()
+    {
+        var text = "public class CTests\n{\n    [Fact]\n    public void Old() { }\n}\n";
+        var member = "[Fact]\npublic void A()\n{\n\tvar s = @\"x\n\ty\";\n}";
+
+        var result = TestClassWriter.Insert(text, "CTests", [], [member]);
+
+        Assert.Contains("    {\n        var s = @\"x\n\ty\";\n    }\n", result);
+    }
+
+    [Fact]
     public void Insert_PreservesCrlfBomAndTabs()
     {
         var text = "﻿using Xunit;\r\n\r\nnamespace N\r\n{\r\n\tpublic class CTests\r\n\t{\r\n\t\t[Fact]\r\n\t\tpublic void Old() { }\r\n\t}\r\n}\r\n";
@@ -63,7 +85,7 @@ public sealed class TestClassWriterTests
 
         Assert.StartsWith("﻿using Xunit;\r\nusing System.Linq;\r\n\r\nnamespace N", result);
         Assert.DoesNotContain("\n", result.Replace("\r\n", ""));
-        Assert.EndsWith("\r\n\r\n\t\t[Fact]\r\n\t\tpublic void A()\r\n\t\t{\r\n\t\t    Assert.True(true);\r\n\t\t}\r\n\t}\r\n}\r\n", result);
+        Assert.EndsWith("\r\n\r\n\t\t[Fact]\r\n\t\tpublic void A()\r\n\t\t{\r\n\t\t\tAssert.True(true);\r\n\t\t}\r\n\t}\r\n}\r\n", result);
         // Original lines stay byte-identical.
         foreach (var line in text.Split("\r\n"))
             Assert.Contains(line, result);

@@ -86,6 +86,8 @@ public static class CharTestStaticJudge
         foreach (var u in usings)
         {
             var name = u.Trim().TrimEnd(';').Replace("using ", "", StringComparison.Ordinal).Trim();
+            if (name.StartsWith("static ", StringComparison.Ordinal)) name = name[7..].Trim(); // using static Moq.It
+            if (name.IndexOf('=') is var eq and > 0) name = name[(eq + 1)..].Trim();          // using M = Moq
             foreach (var library in MockingLibraries)
                 if (name == library.ToString() || name.StartsWith(library + ".", StringComparison.Ordinal)) hits.Add((library, null));
         }

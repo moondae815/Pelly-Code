@@ -169,6 +169,16 @@ public sealed class CharTestStaticJudgeTests
         Assert.Contains(r, x => x.Kind == FailureKinds.CharTestShape && x.Reason.Contains(library, StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData("using M = Moq;")]
+    [InlineData("using static Moq.It;")]
+    [InlineData("M = Moq")]
+    public void Mocking_AliasAndStaticUsings_Rejected(string using_)
+    {
+        var r = JudgeWith(TestLibraries.None, Fact("A"), using_);
+        Assert.Contains(r, x => x.Kind == FailureKinds.CharTestShape && x.Reason.Contains("Moq", StringComparison.Ordinal));
+    }
+
     [Fact]
     public void Mocking_UsingNotReferenced_RejectedAsShape()
     {

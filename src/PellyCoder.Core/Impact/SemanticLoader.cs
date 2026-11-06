@@ -123,7 +123,7 @@ public sealed class MsBuildSemanticLoader : ISemanticLoader
 /// <summary>
 /// Pins Roslyn's, the build host's and MSBuild's messages to English for the length of a semantic load (S8
 /// <c>ForceEnglishMessages</c>): <see cref="SemanticHealth.Classify"/> matches English words, and on a Korean PC they
-/// are localized. The UI culture is set for this async flow only; the environment variables reach the build host
+/// are localized. The current UI culture is set for this async flow, and the default UI culture (what threads outside the flow take, e.g. build host callbacks) is fixed process-wide for the load and put back by the last loader to leave; the environment variables reach the build host
 /// process started during the load and are put back afterwards, so processes pelly starts later keep the user's
 /// language. Overlapping loads share one pin; the last to leave restores.
 /// </summary>

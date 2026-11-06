@@ -16,8 +16,11 @@ namespace PellyCoder.Core.Fsm.Phases;
 /// <see cref="AspLogicWarnings"/> are recorded as the <c>Logic</c> warning for the review. Each check is recorded
 /// in <see cref="AspRunState.Checks"/>. After a write the target span follows the change in line count.
 /// </summary>
-public sealed class AspApplyPhase(FileGuard fileGuard, FeedbackBuilder feedback, IUserInteraction ui, AspOptions options, ITextFileCodec codec) : IPhase
+public sealed class AspApplyPhase(FileGuard fileGuard, FeedbackBuilder feedback, IUserInteraction ui, AspOptions options, ITextFileCodec codec, WebOptions? webOptions = null) : IPhase
 {
+    private static readonly string[] ClientRows =
+        [AspClientChecks.JsSyntax, AspClientChecks.JsLevel, AspClientChecks.JsSafety, AspClientChecks.CssSyntax, AspClientChecks.CssSafety];
+
     public const string EncodingCheck = "Encoding";
     public const string StructureCheck = "Structure";
     public const string SafetyCheck = "Safety";
@@ -76,6 +79,22 @@ public sealed class AspApplyPhase(FileGuard fileGuard, FeedbackBuilder feedback,
             return PhaseOutcome.ShapeRejected;
         }
         state.Record(StructureCheck, AspCheckStatus.Passed);
+
+        // Client blocks the edit touches get the JS/CSS checks (design 4.5); a range without one gets no rows.
+        var client = AspClientChecks.Judge(state.OriginalPage, ctx.Original.Text, patched, newText, state.OriginalRegions(),
+            webOptions?.JsTarget, Path.GetFileName(ctx.FilePath));
+        foreach (var name in ClientRows) state.Checks.Remove(name);
+        foreach (var (check, status, detail) in client.Rows) state.Record(check, status, detail);
+        if (client.FailureKind is { } clientFailure)
+        {
+            foreach (var error in client.Diagnostics)
+            {
+                if (!ctx.ErrorCodes.Contains(error.Code)) ctx.ErrorCodes.Add(error.Code);
+            }
+            ctx.Feedback = client.ToFeedback(feedback, newText);
+            ctx.FailureKind = clientFailure;
+            return client.IsSafety ? PhaseOutcome.SafetyRejected : PhaseOutcome.MatchFailed;
+        }
 
         var findings = AspSafetyGuard.NewFindings(state.OriginalPage, patched, options.SqlSanitizers);
         if (findings.Count > 0)

@@ -1,3 +1,4 @@
+using System.IO.Abstractions;
 using PellyCoder.Core.Abstractions;
 using PellyCoder.Core.Asp;
 using PellyCoder.Core.Config;
@@ -6,6 +7,7 @@ using PellyCoder.Core.Files;
 using PellyCoder.Core.Models;
 using PellyCoder.Core.Reporting;
 using PellyCoder.Core.Sql;
+using PellyCoder.Core.Web;
 
 namespace PellyCoder.Core.Fsm.Phases;
 
@@ -14,14 +16,15 @@ namespace PellyCoder.Core.Fsm.Phases;
 /// (design §4.4): the editable target, the page head, called procedure declarations, page variables, the signatures of the
 /// stored procedures the target calls and, for a line range, the lines around it.
 /// </summary>
-public sealed class AspSlicePhase(FileGuard fileGuard, ITokenCounter tokens, BudgetOptions budget, ISqlExecutor? sql, AspOptions options) : IPhase
+public sealed class AspSlicePhase(FileGuard fileGuard, ITokenCounter tokens, BudgetOptions budget, ISqlExecutor? sql, AspOptions options,
+    IFileSystem? fs = null, PellyOptions? pelly = null, ITextFileCodec? codec = null) : IPhase
 {
     public const string SqlContextCheck = "SqlContext";
     private const int AroundLines = 10;
     public const string LockedSeparator = "... (locked include/directive line — not editable) ...";
 
     // Dropped from the front when the budget is short; the earlier, the lower the priority.
-    private static readonly string[] DropOrder = ["around", "sql", "variables", "procedures", "page"];
+    private static readonly string[] DropOrder = ["around", "sql", "variables", "procedures", "page", "env"];
 
     private static readonly HashSet<string> VariableKinds = new(StringComparer.Ordinal) { "Dim", "ReDim", "Const", "Public", "Private" };
 
@@ -73,6 +76,7 @@ public sealed class AspSlicePhase(FileGuard fileGuard, ITokenCounter tokens, Bud
         Add("procedures", Procedures(page, state, span, procedure), 4);
         Add("variables", Variables(page, state, span, procedure), 3);
         Add("sql", await SqlSignaturesAsync(ctx, page, state, span, ct), 2);
+        Add("env", ClientEnv(ctx, state), 6);
         if (state.Unit == AspTargetUnit.Lines)
             Add("around", Around(page, span, lineCount), 1);
 
@@ -105,6 +109,48 @@ public sealed class AspSlicePhase(FileGuard fileGuard, ITokenCounter tokens, Bud
             return PhaseOutcome.BudgetExceeded;
         }
         return PhaseOutcome.Ok;
+    }
+
+    /// <summary>
+    /// The JS language level and jQuery version of the client blocks the edit overlaps (design 4.5); empty when none overlap.
+    /// Built from the original page, so it stays the same across retries.
+    /// </summary>
+    private string ClientEnv(RunContext ctx, AspRunState state)
+    {
+        if (state.ClientEnv is { } cached) return cached;
+        var page = state.OriginalPage;
+        var text = ctx.Original.Text;
+        var scripts = AspClientChecks.OverlappedBlocks(page, state.OriginalRegions())
+            .Where(i => page.ClientBlocks[i].Kind == AspClientBlockKind.Script).ToList();
+        if (scripts.Count == 0) return state.ClientEnv = "";
+
+        var lines = new List<string>();
+        foreach (var i in scripts)
+        {
+            var view = PageBlockView.Build(page, text, i);
+            var plan = AspClientChecks.Plan(page, text, view, view, pelly?.Web.JsTarget);
+            var level = JsLevels.EnvLine(plan.Level);
+            var b = page.ClientBlocks[i];
+            lines.Add(scripts.Count == 1 ? level : $"<script> block, lines {b.ContentStartLine}-{b.ContentEndLine}: {level}");
+        }
+        lines.Add(Jquery(ctx, state, page, text, scripts[0]));
+        return state.ClientEnv = string.Join('\n', lines);
+    }
+
+    private string Jquery(RunContext ctx, AspRunState state, AspPage page, string text, int blockIndex)
+    {
+        if (fs is null || pelly is null || codec is null) return "jQuery: not found";
+        try
+        {
+            var found = JqueryVersions.Find(fs, state.SiteRoot);
+            var index = WebLocateCommon.SiteIndex(fs, ctx, pelly, state.SiteRoot, codec);
+            var scripts = PageScripts.Collect(fs, state.SiteRoot, ctx.FilePath, page, blockIndex, codec, index.Value, found, pelly.Web.JqueryVersion, text);
+            return scripts.Jquery is { } v ? $"jQuery {v} (source: {scripts.JquerySource})" : "jQuery: not found";
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return "jQuery: not found";
+        }
     }
 
     /// <summary>The procedure with the original's name and class; among same-named ones, the one at the same position.</summary>

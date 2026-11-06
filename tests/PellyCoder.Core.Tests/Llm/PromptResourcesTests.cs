@@ -8,10 +8,10 @@ public sealed class PromptResourcesTests
     private static readonly PromptResources Resources = PromptResources.LoadDefault();
 
     [Fact]
-    public void Resources_AspVersion_AspV1()
+    public void Resources_AspVersion_AspV2()
     {
-        Assert.Equal("asp-v1", Resources.AspVersion);
-        Assert.Equal("asp-v1", Resources.VersionFor(EditKind.Asp));
+        Assert.Equal("asp-v2", Resources.AspVersion);
+        Assert.Equal("asp-v2", Resources.VersionFor(EditKind.Asp));
         Assert.Equal("sql-v1", Resources.VersionFor(EditKind.Sql));
         Assert.DoesNotContain("# version", Resources.SystemAsp);
         Assert.DoesNotContain("# version", Resources.FewShotAsp);

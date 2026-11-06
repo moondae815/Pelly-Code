@@ -289,4 +289,25 @@ public sealed class AspSlicePhaseTests
         Assert.Equal(PhaseOutcome.NotFound, outcome);
         Assert.Equal("TargetNotFound", ctx.FailureKind);
     }
+
+    [Fact]
+    public async Task Asp_prompt_v2_env_has_js_level_only_when_block_overlaps()
+    {
+        const string page =
+            "<%@ Language=\"VBScript\" CodePage=949 %>\n" + // 1
+            "<p>x</p>\n" +                                  // 2
+            "<script>\n" +                                  // 3
+            "var a = function () {};\n" +                   // 4
+            "</script>\n";                                  // 5
+
+        var touching = await Located(page, lines: new TextSpanInfo(3, 5));
+        await Phase().ExecuteAsync(touching, TestContext.Current.CancellationToken);
+        var env = PartText(touching, "env");
+        Assert.Contains("Language level: ES5", env);
+        Assert.Contains("jQuery", env);
+
+        var apart = await Located(page, lines: new TextSpanInfo(2, 2));
+        await Phase().ExecuteAsync(apart, TestContext.Current.CancellationToken);
+        Assert.DoesNotContain(apart.SliceResult.Slice.Included, p => p.Kind == "env");
+    }
 }

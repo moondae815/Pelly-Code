@@ -37,6 +37,7 @@ public sealed class PromptBuilder(QwenChatTemplate template, PromptResources res
 
     private static readonly (string Kind, string Header)[] AspContextOrder =
     {
+        ("env", "[READ-ONLY: env]"),
         ("page", "[READ-ONLY: page]"),
         ("procedures", "[READ-ONLY: procedures]"),
         ("variables", "[READ-ONLY: variables]"),

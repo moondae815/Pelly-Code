@@ -14,16 +14,20 @@ public static class JsChecks
 {
     public static JsSyntaxVerdict Syntax(WebRunState state, string fileName, string patchedText)
     {
-        if (state.Fallback) return FallbackSyntax(state, fileName, patchedText);
+        if (state.Fallback) return FallbackSyntax(state.OriginalText, fileName, patchedText);
+        return Syntax(state.TargetLevel ?? EcmaVersion.Latest, state.Module, fileName, patchedText);
+    }
 
-        var target = state.TargetLevel ?? EcmaVersion.Latest;
-        var doc = JsDocument.Parse(patchedText, target, state.Module);
+    /// <summary>The parse check at <paramref name="target"/>: a parse error at the latest level is a syntax error, one only below it a level excess.</summary>
+    public static JsSyntaxVerdict Syntax(EcmaVersion target, bool module, string fileName, string patchedText)
+    {
+        var doc = JsDocument.Parse(patchedText, target, module);
         if (doc.Error is null) return new JsSyntaxVerdict(doc, [], false, null, null);
 
-        var latest = JsDocument.Parse(patchedText, EcmaVersion.Latest, state.Module);
+        var latest = JsDocument.Parse(patchedText, EcmaVersion.Latest, module);
         if (latest.Error is null)
         {
-            if (JsFeatures.FirstAbove(patchedText, state.Module, target) is { } hit)
+            if (JsFeatures.FirstAbove(patchedText, module, target) is { } hit)
                 return new JsSyntaxVerdict(latest, [], true, hit.Feature.Name, hit.Line, hit.Feature.EnglishName);
             return new JsSyntaxVerdict(latest, [], true, doc.Error.Description, doc.Error.Line, doc.Error.Description);
         }
@@ -32,9 +36,10 @@ public static class JsChecks
         return new JsSyntaxVerdict(null, [new Diagnostic(fileName, e.Line, e.Column, "error", "JS", e.Description)], false, null, null);
     }
 
-    private static JsSyntaxVerdict FallbackSyntax(WebRunState state, string fileName, string patchedText)
+    /// <summary>The bracket/string/comment pairing check for an original that does not parse: only problems beyond the original's count.</summary>
+    public static JsSyntaxVerdict FallbackSyntax(string originalText, string fileName, string patchedText)
     {
-        var baseline = JsTokenScan.Problems(state.OriginalText)
+        var baseline = JsTokenScan.Problems(originalText)
             .GroupBy(p => (p.Code, p.Message)).ToDictionary(g => g.Key, g => g.Count());
         var errors = new List<Diagnostic>();
         foreach (var group in JsTokenScan.Problems(patchedText).GroupBy(p => (p.Code, p.Message)))

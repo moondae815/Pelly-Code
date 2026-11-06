@@ -120,11 +120,11 @@ public static class FsmOrchestratorFactory
         [
             new PreflightPhase(fs, fileGuard, backend, options.Llm, tokens.SpecialTokens),
             new AspLocatePhase(fs, ui, options.Asp, codec),
-            new AspSlicePhase(fileGuard, tokens, options.Budget, sql, options.Asp),
+            new AspSlicePhase(fileGuard, tokens, options.Budget, sql, options.Asp, fs, options, codec),
             new EditPhase(prompts, client, feedback, logger, ui),
-            new AspApplyPhase(fileGuard, feedback, ui, options.Asp, codec),
+            new AspApplyPhase(fileGuard, feedback, ui, options.Asp, codec, options.Web),
             new VerifyPhase([
-                new AspNamesStep(feedback), new RulesStep(feedback),
+                new AspNamesStep(feedback), new RulesStep(feedback), new AspClientWarningsStep(fs, options, codec),
                 new AspCompileStep(processes, feedback, fs, isWindows ?? OperatingSystem.IsWindows), new AspSpStep(sql, feedback),
             ]),
             new ReviewPhase(ui),

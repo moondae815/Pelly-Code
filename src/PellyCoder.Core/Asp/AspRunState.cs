@@ -55,6 +55,9 @@ public sealed class AspRunState(
     /// <summary>True once <see cref="OriginalSpCalls"/> has been set (it may legitimately be empty).</summary>
     public bool OriginalSpCallsSet { get; private set; }
 
+    /// <summary>The JS-level / jQuery env lines for the client blocks the edit overlaps (set once by SLICE; empty when none overlap, null before).</summary>
+    public string? ClientEnv { get; set; }
+
     /// <summary>Latest result of each check by name.</summary>
     public Dictionary<string, AspCheck> Checks { get; } = new(StringComparer.Ordinal);
 
@@ -65,14 +68,19 @@ public sealed class AspRunState(
     /// The editable parts of <see cref="CurrentSpan"/>: maximal runs of lines that are not locked (directive, include and
     /// metadata lines) in <paramref name="current"/>, the page parsed from the current text (default: the original page).
     /// </summary>
-    public IReadOnlyList<EditableRegion> EditableRegions(AspPage? current = null)
+    public IReadOnlyList<EditableRegion> EditableRegions(AspPage? current = null) =>
+        RegionsOf(CurrentSpan, (current ?? OriginalPage).LockedLines);
+
+    /// <summary>The editable parts of <see cref="OriginalSpan"/> in the original page: where the edit was allowed to start from.</summary>
+    public IReadOnlyList<EditableRegion> OriginalRegions() => RegionsOf(OriginalSpan, OriginalPage.LockedLines);
+
+    private static List<EditableRegion> RegionsOf(TextSpanInfo span, IReadOnlySet<int> locked)
     {
-        var locked = (current ?? OriginalPage).LockedLines;
         var regions = new List<EditableRegion>();
         int? start = null;
-        for (var line = CurrentSpan.StartLine; line <= CurrentSpan.EndLine + 1; line++)
+        for (var line = span.StartLine; line <= span.EndLine + 1; line++)
         {
-            var editable = line <= CurrentSpan.EndLine && !locked.Contains(line);
+            var editable = line <= span.EndLine && !locked.Contains(line);
             if (editable)
             {
                 start ??= line;

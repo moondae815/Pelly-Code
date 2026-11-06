@@ -83,7 +83,7 @@ public sealed class AspOrchestratorTests
         Assert.Equal(Page.Replace(Body, Good), _fs.File.ReadAllText(PagePath));
         var summary = Summary();
         Assert.Equal("Asp", summary.GetProperty("kind").GetString());
-        Assert.Equal("asp-v1", summary.GetProperty("promptVersion").GetString());
+        Assert.Equal("asp-v2", summary.GetProperty("promptVersion").GetString());
         var asp = summary.GetProperty("asp");
         Assert.Equal("Procedure", asp.GetProperty("unit").GetString());
         Assert.Equal("CP949", asp.GetProperty("encoding").GetString());

@@ -196,17 +196,7 @@ public sealed class WebSlicePhase(FileGuard fileGuard, ITokenCounter tokens, Bud
     /// <summary>Language level with the features it forbids, jQuery version and encoding.</summary>
     private static string JsEnv(WebRunState state)
     {
-        string level;
-        if (state.TargetLevel is { } target)
-        {
-            var above = JsFeatures.Above(target);
-            level = $"Language level: {JsLevels.Name(target)}";
-            if (above.Count > 0) level += " — do not use " + string.Join(", ", above.Select(f => f.EnglishName));
-        }
-        else
-        {
-            level = "Language level: unknown (file did not parse)";
-        }
+        var level = JsLevels.EnvLine(state.TargetLevel);
         var jquery = state.Jquery is { } v ? $"jQuery {v}" : "jQuery: not found";
         return string.Join('\n', level, jquery, $"File encoding: {state.EncodingName}");
     }

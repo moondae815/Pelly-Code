@@ -239,4 +239,65 @@ public sealed class AspApplyPhaseTests
         Assert.Equal(AspCheckStatus.Passed, ctx.Asp.Checks["Structure"].Status);
         Assert.Equal(AspCheckStatus.Passed, ctx.Asp.Checks["Safety"].Status);
     }
+
+    private const string ScriptPage =
+        "<%@ Language=\"VBScript\" CodePage=949 %>\n" + // 1
+        "<html>\n" +                                    // 2
+        "<script>\n" +                                  // 3
+        "function a() { return 1; }\n" +                // 4
+        "</script>\n" +                                 // 5
+        "<p>x</p>\n" +                                  // 6
+        "</html>\n";                                    // 7
+
+    [Fact]
+    public async Task Apply_LinesAcrossBlock_JsSyntaxError_RejectedBeforeWrite()
+    {
+        var ctx = await Sliced(ScriptPage, lines: new TextSpanInfo(4, 4));
+
+        var outcome = await Apply(ctx, "function a() { return 1; }", "function a() { return ( ; }");
+
+        Assert.Equal(PhaseOutcome.MatchFailed, outcome);
+        Assert.Equal(FailureKinds.JsSyntaxErrors, ctx.FailureKind);
+        Assert.StartsWith("JS SYNTAX CHECK FAILED", ctx.Feedback!.Text);
+        Assert.Equal(AspCheckStatus.Failed, ctx.Asp!.Checks["JsSyntax"].Status);
+        Assert.Equal(ScriptPage, Disk());
+    }
+
+    [Fact]
+    public async Task Apply_LinesAcrossBlock_NewEval_SafetyRejected()
+    {
+        var ctx = await Sliced(ScriptPage, lines: new TextSpanInfo(4, 4));
+
+        var outcome = await Apply(ctx, "function a() { return 1; }", "function a() { return eval('1'); }");
+
+        Assert.Equal(PhaseOutcome.SafetyRejected, outcome);
+        Assert.Equal(FailureKinds.JsSafetyRejected, ctx.FailureKind);
+        Assert.StartsWith("WEB SAFETY REJECTED", ctx.Feedback!.Text);
+        Assert.Equal(AspCheckStatus.Failed, ctx.Asp!.Checks["JsSafety"].Status);
+        Assert.Equal(ScriptPage, Disk());
+    }
+
+    [Fact]
+    public async Task Apply_LinesAcrossBlock_CleanEdit_RecordsPassedRowsAndWrites()
+    {
+        var ctx = await Sliced(ScriptPage, lines: new TextSpanInfo(4, 4));
+
+        var outcome = await Apply(ctx, "function a() { return 1; }", "function a() { return 2; }");
+
+        Assert.Equal(PhaseOutcome.Ok, outcome);
+        Assert.Equal(AspCheckStatus.Passed, ctx.Asp!.Checks["JsSyntax"].Status);
+        Assert.Equal(AspCheckStatus.Passed, ctx.Asp.Checks["JsLevel"].Status);
+        Assert.Equal(AspCheckStatus.Passed, ctx.Asp.Checks["JsSafety"].Status);
+    }
+
+    [Fact]
+    public async Task Apply_LinesWithoutBlock_HasNoClientRows()
+    {
+        var ctx = await Sliced(ScriptPage, lines: new TextSpanInfo(6, 6));
+
+        var outcome = await Apply(ctx, "<p>x</p>", "<p>y</p>");
+
+        Assert.Equal(PhaseOutcome.Ok, outcome);
+        Assert.DoesNotContain(ctx.Asp!.Checks.Keys, k => k.StartsWith("Js") || k.StartsWith("Css"));
+    }
 }

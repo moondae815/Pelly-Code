@@ -46,6 +46,15 @@ public static class JsLevels
         return null;
     }
 
+    /// <summary>The env line for a language level: its name and the features above it the model must not use.</summary>
+    public static string EnvLine(EcmaVersion? target)
+    {
+        if (target is not { } level) return "Language level: unknown (file did not parse)";
+        var above = JsFeatures.Above(level);
+        var line = $"Language level: {Name(level)}";
+        return above.Count > 0 ? line + " — do not use " + string.Join(", ", above.Select(f => f.EnglishName)) : line;
+    }
+
     public static JsLevelResult Detect(string textLf)
     {
         // Latest is the same value as the last ladder entry, so the ladder already ends at Latest.

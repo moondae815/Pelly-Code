@@ -34,7 +34,10 @@ public sealed record DraftOutcome(
     int ImpactSkippedForCap = 0);
 
 /// <param name="ExitCode">4 for scope, budget or environment problems; 1 when the draft has no task.</param>
-public sealed record DraftFailure(int ExitCode, string Message);
+/// <param name="Call">The model call, when the failure came after it (the run record keeps what the model said); else null.</param>
+/// <param name="Index">The index that call saw; set together with <paramref name="Call"/>.</param>
+/// <param name="DroppedLines">Task-shaped lines of the answer that failed the grammar (only when <paramref name="Call"/> is set).</param>
+public sealed record DraftFailure(int ExitCode, string Message, DraftCall? Call = null, DraftIndex? Index = null, IReadOnlyList<string>? DroppedLines = null);
 
 /// <summary>
 /// <c>pelly spec draft</c> without the console (design §4.3–§4.4): index the scope, ask the model, keep the answer's grammar
@@ -76,18 +79,20 @@ public sealed class SpecDrafter(IFileSystem fs, DraftModel model, IImpactFinder 
 
         var call = await model.RunAsync(request.Request, rendered, ct, onWaiting);
 
+        (DraftOutcome?, DraftFailure?) AfterCall(string message) => (null, new DraftFailure(4, message, call, index, []));
+
         var (taskLines, dropped) = ReadAnswer(call.Answer);
         if (taskLines.Count == 0)
         {
             var message = "모델의 답에 형식에 맞는 작업 줄이 없어 쓸 것이 없습니다.";
             if (dropped.Count > 0) message += "\n형식에 맞지 않아 버린 줄:\n" + string.Join("\n", dropped);
-            return Fail(1, message);
+            return (null, new DraftFailure(1, message, call, index, dropped));
         }
 
         try
         {
             var document = Compose(request, taskLines);
-            if (Write(draftPath, document) is { } writeError) return Fail(4, writeError);
+            if (Write(draftPath, document) is { } writeError) return AfterCall(writeError);
 
             var first = SpecChecker.Check(fs, draftPath, sqlCompatLevel);
             var skipped = first.HasErrors;
@@ -103,7 +108,7 @@ public sealed class SpecDrafter(IFileSystem fs, DraftModel model, IImpactFinder 
             if (added.Count > 0)
             {
                 document = Compose(request, lines);
-                if (Write(draftPath, document) is { } rewriteError) return Fail(4, rewriteError);
+                if (Write(draftPath, document) is { } rewriteError) return AfterCall(rewriteError);
                 check = Recheck(draftPath, searched, csChecked.Issues.Count);
             }
 

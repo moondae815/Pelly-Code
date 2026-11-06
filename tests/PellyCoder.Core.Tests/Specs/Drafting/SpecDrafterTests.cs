@@ -123,6 +123,16 @@ public sealed class SpecDrafterTests
     }
 
     [Fact]
+    public async Task NoTasks_FailureCarriesTheModelCall()
+    {
+        var run = await Draft("no plan");
+
+        Assert.Equal(1, run.Failure!.ExitCode);
+        Assert.Equal("no plan", run.Failure.Call!.Answer);
+        Assert.NotNull(run.Failure.Index);
+    }
+
+    [Fact]
     public async Task Title_IsFirstLineCutAt60()
     {
         var request = new string('가', 70) + "\n다음 줄";

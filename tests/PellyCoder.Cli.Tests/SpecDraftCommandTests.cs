@@ -228,6 +228,23 @@ public sealed partial class SpecDraftCommandTests
     }
 
     [Fact]
+    public void NoTasks_Exit1_LeavesRunRecordWithTheAnswer()
+    {
+        var h = new Harness();
+
+        var r = h.Draft("I cannot plan this.\n- [ ] T2 cs\n", extra: "--yes");
+
+        Assert.Equal(1, r.ExitCode);
+        var run = Assert.Single(h.Fs.Directory.GetDirectories("/w/.pelly/runs"));
+        using var json = JsonDocument.Parse(h.Fs.File.ReadAllText(h.Fs.Path.Combine(run, "draft.json")));
+        var root = json.RootElement;
+        Assert.Equal("noTasks", root.GetProperty("outcome").GetString());
+        Assert.Equal("I cannot plan this.\n- [ ] T2 cs\n", root.GetProperty("answer").GetString());
+        Assert.Equal(["- [ ] T2 cs"], root.GetProperty("droppedLines").EnumerateArray().Select(e => e.GetString()).ToArray());
+        Assert.Contains("작업 줄이 없어", root.GetProperty("failureMessage").GetString());
+    }
+
+    [Fact]
     public void ControlToken_Exit4_NoModelCall()
     {
         var h = new Harness();

@@ -159,6 +159,10 @@ public sealed class SpecDraftCommand(
 
         if (failure is not null)
         {
+            if (failure.Call is not null && failure.Index is not null)
+                WriteRecord(fs.Path.Combine(ws.PellyDir, "runs", RunLogger.NewRunId(time)), request,
+                    new DraftRunData(failure.Index, failure.Call, failure.DroppedLines ?? [], [], false, 0, []),
+                    failure.ExitCode == ExitCodes.VerifyFailed ? "noTasks" : "failed", null, failure.Message);
             if (failure.ExitCode == ExitCodes.VerifyFailed)
             {
                 Warn("초안에 작업이 없습니다. 쓰지 않았습니다.");
@@ -178,7 +182,7 @@ public sealed class SpecDraftCommand(
         if (settings.DryRun)
         {
             Print("--dry-run: 쓰지 않았습니다.");
-            WriteRecord(runDir, request, o, "dryRun", null);
+            WriteRecord(runDir, request, RunData(o), "dryRun", null);
             return ExitCodes.Success;
         }
 
@@ -188,7 +192,7 @@ public sealed class SpecDraftCommand(
             if (!await ui.ConfirmAsync(question, defaultValue: false, cancellation))
             {
                 Print("쓰지 않았습니다.");
-                WriteRecord(runDir, request, o, "rejected", null);
+                WriteRecord(runDir, request, RunData(o), "rejected", null);
                 return ExitCodes.UserCancelled;
             }
         }
@@ -196,7 +200,7 @@ public sealed class SpecDraftCommand(
         // The file may have appeared while the model ran; without --force it is never replaced.
         if (!settings.Force && fs.File.Exists(path))
         {
-            WriteRecord(runDir, request, o, "notWritten", null);
+            WriteRecord(runDir, request, RunData(o), "notWritten", null);
             return Fail($"이미 있는 명세 파일입니다: {path} (--force로 덮어쓸 수 있습니다)");
         }
         try
@@ -206,11 +210,11 @@ public sealed class SpecDraftCommand(
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            WriteRecord(runDir, request, o, "writeFailed", null);
+            WriteRecord(runDir, request, RunData(o), "writeFailed", null);
             return Fail($"명세 파일을 쓰지 못했습니다: {path} ({ex.Message})");
         }
 
-        WriteRecord(runDir, request, o, "written", path);
+        WriteRecord(runDir, request, RunData(o), "written", path);
         Print($"명세 파일을 썼습니다: {path}");
         Print("`pelly apply`는 작업마다 다시 승인을 받습니다. 먼저 검토하고 `pelly spec check`로 확인하세요.");
         return ExitCodes.Success;
@@ -255,15 +259,18 @@ public sealed class SpecDraftCommand(
     }
 
     /// <summary>Best effort: a run record that cannot be written is a warning, never a failure of the command.</summary>
-    private void WriteRecord(string runDir, DraftRequest request, DraftOutcome o, string result, string? writtenPath)
+    private static DraftRunData RunData(DraftOutcome o) => new(
+        o.Index, o.Call, o.DroppedLines, o.Added, o.ImpactSkippedForErrors, o.ImpactSkippedForCap,
+        o.Check.Issues.Select(i => new DraftRunIssue(i.Line, i.Severity == SpecIssueSeverity.Error ? "error" : "warning", i.Code, i.Message)).ToList());
+
+    private void WriteRecord(string runDir, DraftRequest request, DraftRunData o, string result, string? writtenPath, string? failureMessage = null)
     {
         var record = new DraftRunRecord(
             request.Id, request.Request, request.Scopes,
             new DraftRunIndex(o.Index.Files.Count, o.Index.Files.Sum(f => f.Members.Count), o.Call.InputTokens, o.Index.Skipped),
             o.Call.Stage1Prompt, o.Call.Think, o.Call.ThinkTruncated, o.Call.Answer, o.Call.Seconds,
-            o.DroppedLines, o.Added, o.ImpactSkippedForErrors, o.ImpactSkippedForCap,
-            o.Check.Issues.Select(i => new DraftRunIssue(i.Line, i.Severity == SpecIssueSeverity.Error ? "error" : "warning", i.Code, i.Message)).ToList(),
-            result, writtenPath);
+            o.DroppedLines, o.Added, o.ImpactSkippedForErrors, o.ImpactSkippedForCap, o.Issues,
+            result, writtenPath, failureMessage);
         try
         {
             fs.Directory.CreateDirectory(runDir);
@@ -289,6 +296,10 @@ public sealed class SpecDraftCommand(
 
     private sealed record DraftRunIndex(int Files, int Members, int InputTokens, IReadOnlyList<string> Skipped);
 
+    private sealed record DraftRunData(
+        DraftIndex Index, DraftCall Call, IReadOnlyList<string> DroppedLines, IReadOnlyList<AddedImpactTask> Added,
+        bool ImpactSkippedForErrors, int ImpactSkippedForCap, IReadOnlyList<DraftRunIssue> Issues);
+
     private sealed record DraftRunIssue(int Line, string Severity, string Code, string Message);
 
     /// <summary><c>draft.json</c>: what the model saw and said, and what became of it. No connection string is ever part of it.</summary>
@@ -296,5 +307,5 @@ public sealed class SpecDraftCommand(
         string Id, string Request, IReadOnlyList<string> Scopes, DraftRunIndex Index,
         string Stage1Prompt, string Think, bool ThinkTruncated, string Answer, double Seconds,
         IReadOnlyList<string> DroppedLines, IReadOnlyList<AddedImpactTask> AddedLines, bool ImpactSkippedForErrors, int ImpactSkippedForCap,
-        IReadOnlyList<DraftRunIssue> Issues, string Outcome, string? WrittenPath);
+        IReadOnlyList<DraftRunIssue> Issues, string Outcome, string? WrittenPath, string? FailureMessage);
 }

@@ -37,9 +37,15 @@ public sealed record AspSummary(string Unit, string Encoding, IReadOnlyDictionar
 /// The <c>web</c> block of a <c>pelly js</c> or <c>pelly css</c> run: target unit (<c>function</c>, <c>rule</c> or <c>lines</c>), file
 /// encoding, the original and target JS levels and the site's jQuery baseline (null for CSS or when unknown), each recorded check as
 /// <c>passed</c>/<c>warned</c>/<c>skipped</c>/<c>failed</c>, the language-level rejections and the warning counts of the last VERIFY.
+/// <paramref name="Container"/> is <c>file</c> (a <c>.js</c>/<c>.css</c> file) or <c>page</c> (a block of an ASP/HTML page); only a page run has a
+/// <paramref name="Block"/>. <paramref name="JquerySource"/> is where the jQuery baseline came from: <c>setting</c>, <c>page</c> or <c>site</c>.
 /// </summary>
 public sealed record WebSummary(string Unit, string Encoding, string? OriginalLevel, string? TargetLevel, string? Jquery,
-    IReadOnlyDictionary<string, string> Checks, int LevelRejections, int NameWarnings, int ApiWarnings, int PropertyWarnings);
+    IReadOnlyDictionary<string, string> Checks, int LevelRejections, int NameWarnings, int ApiWarnings, int PropertyWarnings,
+    string Container = "file", WebBlockSummary? Block = null, string? JquerySource = null);
+
+/// <summary>The client block a page run edited: <c>script</c> or <c>style</c>, its tag lines and the server code inside (<c>none</c>, <c>output</c>, <c>statements</c>).</summary>
+public sealed record WebBlockSummary(string Kind, int StartLine, int EndLine, string ServerCode);
 
 /// <summary>
 /// Production comparison recorded in the run summary: the outcome name and the three normalized hashes (no definition text).
@@ -188,7 +194,12 @@ public sealed class RunLogger(IFileSystem fs, TimeProvider time)
         return new WebSummary(unit, web.EncodingName,
             web.OriginalLevel is { } original ? JsLevels.Name(original) : null,
             web.TargetLevel is { } target ? JsLevels.Name(target) : null,
-            web.Jquery?.ToString(), checks, web.LevelRejections, web.NameWarnings, web.ApiWarnings, web.PropertyWarnings);
+            web.Jquery?.ToString(), checks, web.LevelRejections, web.NameWarnings, web.ApiWarnings, web.PropertyWarnings,
+            web.Page is { } page ? "page" : "file",
+            web.Page is { } p ? new WebBlockSummary(
+                p.OriginalView.Block.Kind == AspClientBlockKind.Script ? "script" : "style",
+                p.OriginalView.Block.OpenLine, p.OriginalView.Block.CloseLine, p.OriginalView.ServerCode.ToString().ToLowerInvariant()) : null,
+            web.JquerySource);
     }
 
     private static AspSummary? SummarizeAsp(RunContext ctx)

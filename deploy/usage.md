@@ -17,7 +17,7 @@ pelly는 C# 메서드 하나나 SQL 저장 프로시저·함수·뷰 하나를 �
 pelly edit <파일> ["<요청문>"] [--line N] [언어별 옵션]
 ```
 
-확장자로 언어를 고릅니다: `.cs` → `pelly cs`, `.sql` → `pelly sql`, `.asp`·`.inc`(설정 `asp.extensions`) → `pelly asp`, `.js` → `pelly js`, `.css` → `pelly css`. 나머지는 아래 각 명령과 똑같이 동작합니다. 다른 언어의 옵션(예: `.sql` 파일에 `--method`)이나 모르는 확장자는 실행 전에 종료 4로 멈춥니다.
+확장자로 언어를 고릅니다: `.cs` → `pelly cs`, `.sql` → `pelly sql`, `.asp`·`.inc`(설정 `asp.extensions`)와 `.htm`·`.html`은 **대상을 보고** `pelly asp`·`pelly js`·`pelly css` 중 하나(`--function` → js, `--selector` → css, `--proc` → asp, `--line N`·`--lines A-B`는 그 줄이 `<script>`·`<style>` 블록 안이면 js·css, 아니면 asp, 지정이 없으면 asp이고 `.htm`·`.html`이면 js), `.js` → `pelly js`, `.css` → `pelly css`. 고른 결과는 첫 줄에 보입니다(예: 「214줄 → <script> 블록이라 pelly js로 실행합니다」). `.htm`·`.html`의 HTML 부분은 고치지 않아, asp로 가야 할 지정이면 종료 4입니다. 나머지는 아래 각 명령과 똑같이 동작합니다. 다른 언어의 옵션(예: `.sql` 파일에 `--method`)이나 모르는 확장자는 실행 전에 종료 4로 멈춥니다.
 
 IDE 외부 도구에는 이 명령 하나만 등록하면 됩니다. 예: 인수 `edit "$(ItemPath)" --line $(CurLine) --pause-on-exit`.
 
@@ -26,6 +26,7 @@ pelly edit Shop.Api\Services\OrderService.cs "null 검사 추가" --line 42
 pelly edit db\usp_CancelOrder.sql "배송 중이면 취소 불가" --object dbo.usp_CancelOrder
 pelly edit admin\order\list.asp "검색 조건에 주문 상태 추가" --lines 24-37
 pelly edit js\order.js "검색 버튼을 두 번 눌러도 한 번만 조회" --function fnSearch
+pelly edit admin\order\list.asp "날짜 입력 검사에서 빈 값은 통과" --line 214
 ```
 
 ## `pelly cs` — C# 멤버 하나 수정
@@ -207,7 +208,7 @@ pelly asp admin/member/edit.asp "휴대폰 번호 저장 전에 하이픈 제거
   `include virtual=`을 못 찾는다는 메시지가 나오면 `asp.siteRoot`를 사이트 루트 폴더로 맞추십시오. SP를 공용 함수로 부르면 `asp.spCallFunctions`(예: `[{"name":"ExecSP","argument":1}]`)에 적습니다.
 * `global.asa`, 서버 JScript 페이지, 여러 파일 동시 수정은 지원하지 않습니다. 자세한 판정과 종료 코드는 README의 `pelly asp` 절을 보십시오.
 
-## `pelly js`·`pelly css` — 클라이언트 JavaScript·CSS 파일 수정
+## `pelly js`·`pelly css` — 클라이언트 JavaScript·CSS 파일·페이지 안 블록 수정
 
 ```
 pelly js  js/order/list.js "검색어가 비어 있으면 알림을 띄우고 멈춰 줘" --function fnSearch
@@ -215,7 +216,14 @@ pelly js  js/common.js "날짜 입력 검사에서 빈 값은 통과" --line 9
 pelly js  js/order/list.js "Esc 키를 누르면 검색어 입력란을 비워 줘" --lines 45-50
 pelly css css/admin.css "목록 칸 위아래 여백을 6px로" --selector ".list_tbl td"
 pelly css css/admin.css "인쇄할 때 파란 버튼 숨기기" --lines 12-14
+pelly js  admin/order/list.asp "검색 버튼 누를 때 주문 상태도 넘겨 줘" --function fnSearch
+pelly js  admin/member/edit.asp "휴대폰 번호 하이픈 자동 입력" --lines 140-175
+pelly css admin/order/list.asp "목록 표 머리글 높이 32px" --selector ".list_tbl th"
 ```
+
+* **페이지 안 `<script>`·`<style>`도 고칩니다.** 페이지는 `.asp`·`.inc`(설정 `asp.extensions`)와 `.htm`·`.html`입니다. 대상(`--function`·`--line`·`--lines`·`--selector`)이 클라이언트 블록 안에 있어야 하고, `--lines`는 블록 하나의 내용 안에 완전히 들어가야 합니다. 블록 밖이거나 걸치면 「… pelly asp를 쓰십시오」와 함께 종료 3입니다. `--function`은 페이지의 모든 `<script>` 블록에서 찾고, 같은 이름이 여러 블록에 있으면 줄 번호와 함께 고르게 합니다.
+* **블록 안의 서버 코드(`<%= … %>`, `<% … %>`)와 블록 경계(`</script>`)는 바꾸지 않습니다.** `<%= %>`가 든 정상 스크립트는 막지 않고, `<% If %>` 같은 서버 문장이 섞인 블록은 문법·문법 수준을 해석기로 보지 못하고 괄호 짝 비교로 낮춥니다. 서버 값이 새로 필요하면 「서버 값이 필요하면 pelly asp --lines를 쓰십시오」 안내가 나옵니다. 그때 `pelly asp --lines`는 범위가 걸친 블록에 JS·CSS 판정(문법·문법 수준·안전은 막고, 이름·API는 경고)을 더하지만, 프로젝트 규칙(`pelly rules`)은 페이지 안 JS에 걸지 않습니다.
+* 블록마다 따로 판정하고 새로 생긴 것만 봅니다. 다른 블록의 원래 오류 때문에 막히지 않습니다. 이름 검사는 같은 페이지의 다른 블록, include한 파일, `<script src>`로 부르는 `.js`를 압니다. jQuery 버전은 `web.jqueryVersion` → 페이지가 부르는 jQuery → 사이트 순입니다. `.htm`·`.html`의 인코딩은 `<meta charset>`을 읽습니다.
 
 * 따로 있는 `.js`·`.css` 파일 하나에서 함수 하나(`--function 이름`, `객체.이름`도 됨)·규칙 하나(`--selector "선택자"`)나 줄 범위(`--lines A-B`)를 고칩니다. `--line N`은 그 줄을 감싸는 이름 있는 함수(CSS는 규칙)입니다. jQuery의 `$(function () { … })`·`.click(function () { … })` 안처럼 이름 있는 함수가 없는 곳은 `--lines`를 쓰십시오. 줄 범위가 문장(CSS는 규칙) 중간을 자르면 멈춥니다.
 * **브라우저에서 실행해서 확인하지 않습니다.** 검토 화면에 「검사: 인코딩 통과, 문법 통과, 문법 수준 통과, …」 줄과 「JS·CSS는 브라우저에서 실행해 확인하지 않았습니다. 화면에서 직접 확인하십시오. 브라우저 캐시 때문에 바뀐 파일이 바로 반영되지 않을 수 있습니다.」가 나옵니다. 승인한 뒤 **화면을 띄워(필요하면 강력 새로 고침) 확인하십시오.** 판정은 「요청한 것이 들어갔는가」를 보지 않으므로 diff도 읽으십시오.
@@ -229,7 +237,7 @@ pelly css css/admin.css "인쇄할 때 파란 버튼 숨기기" --lines 12-14
     "web": { "jsTarget": "auto", "jqueryVersion": "1.8.3", "globals": ["gfnOpenPopup"] } }
   ```
   `web.jqueryVersion`을 비우면 사이트 루트 아래 jQuery 파일에서 버전을 찾습니다(여럿이면 가장 낮은 버전). 페이지 안 `<script>`나 ASP가 출력하는 공용 함수는 pelly가 볼 수 없으니 `web.globals`에 적으면 이름 경고가 줄어듭니다. `web.vendorPaths`에 값을 주면 기본 목록을 대신합니다.
-* 페이지(`.asp`·`.htm`) 안의 `<script>`·`<style>`, 여러 파일 동시 수정, 함수 이름을 바꾸면서 부르는 곳까지 고치기는 지원하지 않습니다. 자세한 판정과 종료 코드는 README의 `pelly js`·`pelly css` 절을 보십시오.
+* 인라인 이벤트 속성(`onclick=`)·`style=` 속성, 여러 파일 동시 수정, 함수 이름을 바꾸면서 부르는 곳까지 고치기는 지원하지 않습니다. 자세한 판정과 종료 코드는 README의 `pelly js`·`pelly css` 절을 보십시오.
 
 ## `pelly rules` — 프로젝트 규칙 (AGENTS.md)
 
@@ -384,7 +392,7 @@ pelly doctor --sanitize --out C:\export
 * 레거시 .NET Framework 프로젝트의 빌드 검증과 `--test`는 Windows에서 실기 확인하지 않았습니다(Windows 미확인). 반입 후 현장에서 확인합니다(M4).
 * SQL 경로(`pelly sql`)도 Windows에서 실기 확인하지 않았습니다(Windows 미확인).
 * **`pelly asp`는 페이지를 실행하지 않습니다.** 컴파일 검사는 Windows에서만 되고 현장 개발 PC의 `cscript`는 아직 확인하지 않았습니다(Windows 현장 미확인). 예비 측정은 [asp-premeasure](../docs/asp-premeasure.md)(Mac)에 있습니다.
-* **`pelly js`·`pelly css`는 브라우저에서 실행하지 않습니다.** 이름·API·CSS 속성은 경고만 하고, 현장 확인은 아직입니다. 예비 측정은 [web-premeasure](../docs/web-premeasure.md)(Mac)에 있습니다.
+* **`pelly js`·`pelly css`는 브라우저에서 실행하지 않습니다.** 이름·API·CSS 속성은 경고만 하고, 현장 확인은 아직입니다(페이지 안 블록 W2도 Windows 실행과 현장 확인이 미확인). 예비 측정은 [web-premeasure](../docs/web-premeasure.md)(Mac)에 있습니다.
 * Razor 뷰(`.cshtml`)와 설정 파일(`web.config`, `appsettings.json`)은 수정 대상이 아닙니다.
 * 컨트롤러 액션의 라우팅·필터 특성(`[HttpPost]`, `[Authorize]` 등)은 바꿀 수 없습니다. 의도된 동작입니다.
 * 벤치마크는 현장과 같은 모델 파일(`qwen3.6:35b-a3b-q4_K_M` GGUF `Q4_K_M`)과 0.9.1 기본값으로 50건 × 3회에서 평균 47.00건(94%) 성공이었습니다. 실패 3건 중 하나(`Math.Round(x, -1)`)는 빌드는 통과하고 실행할 때 예외가 나는 수정이라 빌드 검증으로는 잡히지 않습니다. 상세는 반입 패키지의 `benchmark-summary.md`에 있습니다. 이 수치는 개발 PC(Mac) 기준이고, Windows·GPU 서버 값은 현장에서 확인합니다.

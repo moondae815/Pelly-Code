@@ -30,7 +30,7 @@ pelly의 원칙은 「모델이 쓰고, 코드가 판정한다」이다. C#은 �
 
 **비목표**
 - 실행 검증. IIS·브라우저로 페이지를 띄워 확인하지 않는다. 폐쇄망 개발 PC에 IIS와 운영과 같은 DB 연결이 있는지 현장마다 다르고, 백오피스 페이지는 로그인·세션이 필요해 자동 실행이 어렵다(Claude 결정).
-- 서버 쪽 JScript(`<script language="JScript" runat="server">`, `<%@ Language="JScript" %>`). 대상 파일에 있으면 멈추고 안내한다. 클라이언트 쪽 JavaScript·HTML은 줄 범위 안에서 그냥 텍스트로 고칠 수 있고, HTML 태그 짝 검사만 한다.
+- 서버 쪽 JScript(`<script language="JScript" runat="server">`, `<%@ Language="JScript" %>`). 대상 파일에 있으면 멈추고 안내한다. 클라이언트 쪽 JavaScript·HTML은 줄 범위 안에서 그냥 텍스트로 고칠 수 있고, HTML 태그 짝 검사만 한다. (V2-7 W2에서 범위가 클라이언트 `<script>`·`<style>` 블록에 걸치면 JS·CSS 판정을 더한다. 규칙 검사는 여전히 페이지 안 JS를 보지 않는다. `docs/superpowers/specs/2026-11-06-pelly-web-w2-design.md` §4.5.)
 - `global.asa`. 사이트 전체의 시작·세션 이벤트라 실수 비용이 크다(Claude 결정).
 - 여러 파일 동시 수정, 새 파일 만들기, include 추가·삭제, `<%@ %>` 지시문 변경. 한 실행은 한 파일의 한 대상만 바꾼다.
 - COM 구성 요소(VB6 DLL 등) 수정. 소스가 없거나 다른 언어다.

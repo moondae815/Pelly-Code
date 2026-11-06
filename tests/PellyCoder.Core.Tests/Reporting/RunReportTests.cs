@@ -223,7 +223,8 @@ public sealed class RunReportTests
         Assert.Equal("ASP: 실행 1건, 성공 1건, 컴파일 검사 건너뜀 1건, 실패 유형 없음", RunReport.Build([AspRec(1, 0)]).Asp!.Line());
     }
 
-    internal static RunRecord WebRec(int i, EditKind kind, int exit, string? failure = null, bool dryRun = false, int levelRejections = 0)
+    internal static RunRecord WebRec(int i, EditKind kind, int exit, string? failure = null, bool dryRun = false, int levelRejections = 0,
+        bool page = false)
     {
         var phases = new Dictionary<RunPhase, double> { [RunPhase.Edit] = 2, [RunPhase.Apply] = 1 };
         if (!dryRun && exit == 0) phases[RunPhase.Review] = 1; // a dry-run stops at APPLY
@@ -234,7 +235,8 @@ public sealed class RunReportTests
             PhaseSeconds = phases,
             Web = new WebSummary(kind == EditKind.Js ? "function" : "rule", "CP949",
                 kind == EditKind.Js ? "ES5" : null, kind == EditKind.Js ? "ES5" : null, kind == EditKind.Js ? "1.8.3" : null,
-                new Dictionary<string, string> { ["Syntax"] = "passed", ["Names"] = "warned" }, levelRejections, 1, 0, 0),
+                new Dictionary<string, string> { ["Syntax"] = "passed", ["Names"] = "warned" }, levelRejections, 1, 0, 0,
+                page ? "page" : "file", page ? new WebBlockSummary(kind == EditKind.Js ? "script" : "style", 3, 9, "none") : null, "site"),
         };
         return new RunRecord(s, DateTimeOffset.UnixEpoch);
     }
@@ -256,5 +258,19 @@ public sealed class RunReportTests
         Assert.Null(RunReport.Build([Rec(1)]).Css);
         Assert.Null(RunReport.Build([WebRec(1, EditKind.Js, 0)]).Css);
         Assert.Equal("CSS: 실행 1건, 성공 1건, 실패 유형 없음", RunReport.Build([WebRec(1, EditKind.Css, 0)]).Css!.CssLine());
+    }
+
+    [Fact]
+    public void Report_counts_page_runs()
+    {
+        var d = RunReport.Build([
+            WebRec(1, EditKind.Js, 0, page: true), WebRec(2, EditKind.Js, 0), WebRec(3, EditKind.Js, 1, FailureKinds.JsLevelExceeded, page: true),
+            WebRec(4, EditKind.Css, 0, page: true),
+        ]);
+
+        Assert.Equal(2, d.Js!.PageRuns);
+        Assert.Equal("JS: 실행 3건, 성공 2건, 문법 수준 거절 0건, 실패 유형 JsLevelExceeded 1, 페이지 안 2건", d.Js.JsLine());
+        Assert.Equal("CSS: 실행 1건, 성공 1건, 실패 유형 없음, 페이지 안 1건", d.Css!.CssLine());
+        Assert.Equal("JS: 실행 1건, 성공 1건, 문법 수준 거절 0건, 실패 유형 없음", RunReport.Build([WebRec(1, EditKind.Js, 0)]).Js!.JsLine());
     }
 }

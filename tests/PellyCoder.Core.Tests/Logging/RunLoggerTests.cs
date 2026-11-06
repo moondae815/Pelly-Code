@@ -263,4 +263,71 @@ public sealed class RunLoggerTests
         Assert.Null(cssWeb.TargetLevel);
         Assert.Null(cssWeb.Jquery);
     }
+
+    private static PellyCoder.Core.Web.WebRunState PageState(string pageText, string source, EditKind kind = EditKind.Js)
+    {
+        var index = new Lazy<PellyCoder.Core.Web.WebSiteIndexResult>(() => throw new InvalidOperationException("not used"));
+        var page = PellyCoder.Core.Asp.AspPage.Parse(pageText);
+        var view = PellyCoder.Core.Web.PageBlockView.Build(page, pageText, 0);
+        return new PellyCoder.Core.Web.WebRunState(kind, PellyCoder.Core.Web.WebTargetUnit.Lines, new TextSpanInfo(2, 2),
+            "x\n", "UTF-8", true, P(@"C:\ws"), index)
+        {
+            Page = new PellyCoder.Core.Web.WebPageState(page, 0, view, [view]),
+            JquerySource = source,
+        };
+    }
+
+    [Fact]
+    public void Summary_web_block_has_page_fields()
+    {
+        var ctx = NewContext();
+        ctx.Web = PageState("<html>\n<script>\nvar n = <%= cnt %>;\n</script>\n", "page");
+
+        var web = RunLogger.Summarize(ctx).Web!;
+
+        Assert.Equal("page", web.Container);
+        Assert.Equal(new WebBlockSummary("script", 2, 4, "output"), web.Block);
+        Assert.Equal("page", web.JquerySource);
+        var json = JsonSerializer.Serialize(RunLogger.Summarize(ctx), new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+        Assert.Contains("\"container\":\"page\"", json);
+        Assert.Contains("\"block\":{\"kind\":\"script\",\"startLine\":2,\"endLine\":4,\"serverCode\":\"output\"}", json);
+        Assert.Contains("\"jquerySource\":\"page\"", json);
+    }
+
+    [Fact]
+    public void Summary_web_block_file_container()
+    {
+        var ctx = NewContext();
+        var index = new Lazy<PellyCoder.Core.Web.WebSiteIndexResult>(() => throw new InvalidOperationException("not used"));
+        ctx.Web = new PellyCoder.Core.Web.WebRunState(EditKind.Js, PellyCoder.Core.Web.WebTargetUnit.Function, new TextSpanInfo(1, 1),
+            "function a() {}\n", "UTF-8", true, P(@"C:\ws"), index);
+
+        var web = RunLogger.Summarize(ctx).Web!;
+
+        Assert.Equal("file", web.Container);
+        Assert.Null(web.Block);
+        Assert.Equal("site", web.JquerySource);
+    }
+
+    [Fact]
+    public void Asp_summary_has_client_rows()
+    {
+        var ctx = NewContext();
+        var text = "<html>\n<script>\nvar a;\n</script>\n";
+        var page = PellyCoder.Core.Asp.AspPage.Parse(text);
+        var state = new PellyCoder.Core.Asp.AspRunState(page, PellyCoder.Core.Asp.AspTargetUnit.Lines, new TextSpanInfo(2, 3), null,
+            new PellyCoder.Core.Asp.AspIncludeSet([], [], false), "UTF-8", P(@"C:\ws"));
+        state.Record("JsSyntax", PellyCoder.Core.Asp.AspCheckStatus.Passed);
+        state.Record("JsLevel", PellyCoder.Core.Asp.AspCheckStatus.Failed, "x");
+        state.Record("JsNames", PellyCoder.Core.Asp.AspCheckStatus.Warned, "y");
+        state.Record("CssSafety", PellyCoder.Core.Asp.AspCheckStatus.Passed);
+        ctx.Asp = state;
+
+        var checks = RunLogger.Summarize(ctx).Asp!.Checks;
+
+        Assert.Equal("passed", checks["JsSyntax"]);
+        Assert.Equal("failed", checks["JsLevel"]);
+        Assert.Equal("warned", checks["JsNames"]);
+        Assert.Equal("passed", checks["CssSafety"]);
+    }
 }

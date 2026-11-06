@@ -67,13 +67,15 @@ public sealed record AspCounts(int Runs, int Succeeded, int CompileSkipped, IRea
 /// <c>pelly js</c> or <c>pelly css</c> runs (kind <c>Js</c>/<c>Css</c>, also counted in the edit figures): runs, succeeded (exit 0 and not
 /// a dry-run, as for ASP), runs with at least one language-level rejection (JS only) and failure kinds. Counts and known kinds only.
 /// </summary>
-public sealed record WebCounts(int Runs, int Succeeded, int LevelRejected, IReadOnlyDictionary<string, int> FailureKinds)
+public sealed record WebCounts(int Runs, int Succeeded, int LevelRejected, IReadOnlyDictionary<string, int> FailureKinds, int PageRuns = 0)
 {
-    /// <summary>「JS: 실행 N건, 성공 K건, 문법 수준 거절 M건, 실패 유형 …」</summary>
-    public string JsLine() => $"JS: 실행 {Runs}건, 성공 {Succeeded}건, 문법 수준 거절 {LevelRejected}건, 실패 유형 {Kinds()}";
+    /// <summary>「JS: 실행 N건, 성공 K건, 문법 수준 거절 M건, 실패 유형 …」, 페이지 안 실행이 있으면 「, 페이지 안 P건」을 덧붙인다.</summary>
+    public string JsLine() => $"JS: 실행 {Runs}건, 성공 {Succeeded}건, 문법 수준 거절 {LevelRejected}건, 실패 유형 {Kinds()}{Pages()}";
 
-    /// <summary>「CSS: 실행 N건, 성공 K건, 실패 유형 …」</summary>
-    public string CssLine() => $"CSS: 실행 {Runs}건, 성공 {Succeeded}건, 실패 유형 {Kinds()}";
+    /// <summary>「CSS: 실행 N건, 성공 K건, 실패 유형 …」, 페이지 안 실행이 있으면 「, 페이지 안 P건」을 덧붙인다.</summary>
+    public string CssLine() => $"CSS: 실행 {Runs}건, 성공 {Succeeded}건, 실패 유형 {Kinds()}{Pages()}";
+
+    private string Pages() => PageRuns > 0 ? $", 페이지 안 {PageRuns}건" : "";
 
     private string Kinds() => FailureKinds.Count == 0 ? "없음" : string.Join(", ", FailureKinds.Select(f => $"{f.Key} {f.Value}"));
 }
@@ -132,7 +134,8 @@ public static class RunReport
         // A dry-run exits 0 at APPLY; a run that kept its change was approved in REVIEW.
         var succeeded = s.Count(x => x.ExitCode == ExitCodes.Success && x.PhaseSeconds.ContainsKey(RunPhase.Review));
         var levelRejected = s.Count(x => x.Web is { LevelRejections: > 0 });
-        return new WebCounts(s.Count, succeeded, levelRejected, CountFailures(s));
+        var pageRuns = s.Count(x => x.Web is { Container: "page" });
+        return new WebCounts(s.Count, succeeded, levelRejected, CountFailures(s), pageRuns);
     }
 
     private static AspCounts? CountAsp(List<RunSummary> edits)

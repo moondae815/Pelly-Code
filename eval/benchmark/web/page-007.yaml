@@ -1,0 +1,8 @@
+id: page-007
+kind: function
+file: admin/legacy/old.asp
+function: fnOldOpen
+request: "팝업 옵션에 scrollbars=yes를 더해줘. 화살표 함수나 템플릿 문자열, const 같은 최신 문법을 써도 돼"
+mustContain: ["scrollbars"]
+mustKeep: ["width=400,height=300"]
+mustNotContain: ["=>", "`", "let ", "const "]

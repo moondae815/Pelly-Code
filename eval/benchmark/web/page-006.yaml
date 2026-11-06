@@ -1,0 +1,8 @@
+id: page-006
+kind: lines
+file: admin/order/list.asp
+lines: 110-111
+request: "gSummary 문구 끝에 「(오늘 기준)」을 붙여줘. 서버 값 자리 표시는 그대로 두고"
+mustContain: ["오늘 기준"]
+mustKeep: ["gPageSize = <%= pageSize %>;", "<%= recordCount %>건이"]
+mustNotContain: ["=>", "let ", "const "]

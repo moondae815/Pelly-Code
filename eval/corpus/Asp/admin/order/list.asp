@@ -106,6 +106,30 @@ pageTotal = 0
 </p>
 <% End If %>
 </div>
+<script type="text/javascript">
+var gPageSize = <%= pageSize %>;
+var gSummary = "총 <%= recordCount %>건이 검색되었습니다.";
+
+// 검색 조건을 확인한다
+function fnSearchOrder() {
+    var f = document.forms[0];
+    if (f.custId.value != "" && isNaN(f.custId.value)) {
+        alert("고객 번호는 숫자로 입력하세요.");
+        return false;
+    }
+    return true;
+}
+
+function fnGoPage(n) {
+    location.href = "list.asp?page=" + n;
+}
+
+$(function () {
+    $("form:first").submit(function () {
+        return fnSearchOrder();
+    });
+});
+</script>
 </body>
 </html>
 <%

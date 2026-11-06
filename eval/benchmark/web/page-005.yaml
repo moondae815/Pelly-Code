@@ -1,0 +1,7 @@
+id: page-005
+kind: lines
+file: help/guide.htm
+lines: 7-11
+request: "펼칠 때 대상 요소의 className을 open으로, 접을 때는 빈 문자열로 바꾸는 줄도 더해줘"
+mustContain: ["className"]
+mustNotContain: ["=>", "let ", "const "]

@@ -1,0 +1,7 @@
+id: page-001
+kind: function
+file: admin/order/list.asp
+function: fnSearchOrder
+request: "고객 번호가 숫자가 아닐 때 알림 문구를 「고객 번호는 숫자만 입력하세요.」로 바꿔줘"
+mustContain: ["숫자만 입력하세요"]
+mustNotContain: ["=>", "let ", "const "]

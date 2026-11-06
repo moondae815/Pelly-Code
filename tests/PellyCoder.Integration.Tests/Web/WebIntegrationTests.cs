@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using PellyCoder.Core.Abstractions;
+using PellyCoder.Core.Asp;
 using PellyCoder.Core.Config;
 using PellyCoder.Core.Fsm;
 using PellyCoder.Core.Models;
@@ -270,6 +271,53 @@ public sealed class WebIntegrationTests(ITestOutputHelper output) : IDisposable
         var jquery = File.ReadAllText(CorpusPaths.Get("Asp/lib/jquery-1.8.3.min.js"));
         Assert.StartsWith("/*! jQuery v1.8.3 | (fake header for tests) */", jquery, StringComparison.Ordinal);
         Assert.True(jquery.Length < 200, "코퍼스에는 실제 jQuery를 넣지 않습니다");
+    }
+
+    [Fact]
+    public void Corpus_pages_have_expected_client_blocks()
+    {
+        // page -> (script/style blocks, of which with src). Client VBScript and a commented-out <script> are not blocks.
+        var expected = new Dictionary<string, (int Blocks, int Src)>
+        {
+            ["admin/order/list.asp"] = (1, 0),
+            ["admin/order/edit.asp"] = (2, 0),
+            ["inc/header.inc"] = (2, 2),
+            ["admin/member/style.asp"] = (1, 0),
+            ["admin/legacy/old.asp"] = (1, 0),
+            ["help/guide.htm"] = (1, 0),
+        };
+        var pages = Directory.GetFiles(CorpusPaths.Get("Asp"), "*.*", SearchOption.AllDirectories)
+            .Where(f => new[] { ".asp", ".inc", ".htm", ".html" }.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase))
+            .ToDictionary(f => Path.GetRelativePath(CorpusPaths.Get("Asp"), f).Replace('\\', '/'));
+        foreach (var (name, (blocks, src)) in expected)
+        {
+            Assert.True(pages.ContainsKey(name), name + " is missing from the corpus");
+            var page = AspPage.Parse(ParseText(File.ReadAllBytes(pages[name])));
+            Assert.True(blocks == page.ClientBlocks.Count, $"{name}: {page.ClientBlocks.Count} blocks, expected {blocks}");
+            Assert.Equal(src, page.ClientBlocks.Count(b => b.Src is not null));
+        }
+        foreach (var (name, path) in pages.Where(p => !expected.ContainsKey(p.Key)))
+            Assert.Empty(AspPage.Parse(ParseText(File.ReadAllBytes(path))).ClientBlocks);
+
+        var old = AspPage.Parse(ParseText(File.ReadAllBytes(pages["admin/legacy/old.asp"])));
+        Assert.Equal("JavaScript", Assert.Single(old.ClientBlocks).Language);
+        var style = AspPage.Parse(ParseText(File.ReadAllBytes(pages["admin/member/style.asp"])));
+        Assert.Equal(AspClientBlockKind.Style, Assert.Single(style.ClientBlocks).Kind);
+
+        // Bytes: CP949 pages are not UTF-8, the .htm is UTF-8 with a <meta charset>, every new page is CRLF only.
+        foreach (var name in new[] { "admin/order/list.asp", "admin/order/edit.asp", "admin/member/style.asp", "admin/legacy/old.asp" })
+            Assert.Throws<DecoderFallbackException>(() => AspE2E.StrictUtf8.GetString(File.ReadAllBytes(pages[name])));
+        var guide = AspE2E.StrictUtf8.GetString(File.ReadAllBytes(pages["help/guide.htm"]));
+        Assert.Contains("<meta charset=\"utf-8\">", guide, StringComparison.Ordinal);
+        Assert.Matches("[가-힣]", guide);
+        foreach (var name in expected.Keys)
+            Assert.All(AspE2E.LineEnds(File.ReadAllBytes(pages[name])), e => Assert.Equal("CRLF", e));
+    }
+
+    private static string ParseText(byte[] bytes)
+    {
+        try { return AspE2E.StrictUtf8.GetString(bytes).ReplaceLineEndings("\n"); }
+        catch (DecoderFallbackException) { return AspE2E.DecodeLf(bytes); }
     }
 
     private static List<byte[]> SplitLines(byte[] bytes)

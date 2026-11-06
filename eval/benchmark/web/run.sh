@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# Runs the pelly js and pelly css cases (eval/benchmark/web/js-*.yaml, css-*.yaml) against fresh copies of eval/corpus/Asp.
+# Runs the pelly js and pelly css cases (eval/benchmark/web/js-*.yaml, css-*.yaml, page-*.yaml) against fresh copies of eval/corpus/Asp.
 # A case passes when pelly exits 0 and the edited file has every mustContain string, every mustKeep string and no mustNotContain string.
 # mustContain must name at least one string the original corpus file does not have (evidence of the request); a case whose
 # mustContain strings are all already in the original is a bad case definition: it is reported, not run, and fails the script.
 # mustKeep lists strings already in the original that the edit must not drop (preservation checks).
 # A run that does not exit 0 must leave the target file byte-identical (pelly restores it); a mismatch fails the script.
 # Needs python3 (reads the yaml lists and summary.json). Nothing runs the JS or CSS in a browser.
-# Usage: run.sh [--repeat N] [--out DIR] [--model TAG] [--endpoint URL] [--only ID] [--check-cases]
+# page-*.yaml cases edit a <script> or <style> block inside an ASP/HTML page (W2); the page's bytes outside the block are not compared here.
+# Usage: run.sh [--repeat N] [--out DIR] [--model TAG] [--endpoint URL] [--only ID|js|css|page] [--check-cases]
 #   --check-cases only runs the case-definition guard (no model needed).
 set -u
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -62,9 +63,11 @@ check_case() {
   done < <(field "$yaml" mustKeep)
   echo "$id ok new:$new"
 }
+# --only takes one case id (page-003) or an id prefix without the number (page, js, css).
+wanted() { [ -z "$only" ] || [ "$only" = "$1" ] || [ "$only" = "${1%-*}" ]; }
 bad_cases=0
-for yaml in "$here"/js-*.yaml "$here"/css-*.yaml; do
-  [ -n "$only" ] && [ "$only" != "$(field "$yaml" id)" ] && continue
+for yaml in "$here"/js-*.yaml "$here"/css-*.yaml "$here"/page-*.yaml; do
+  wanted "$(field "$yaml" id)" || continue
   check_case "$yaml" || bad_cases=$((bad_cases + 1))
 done
 if [ "$check_only" -eq 1 ]; then [ "$bad_cases" -eq 0 ]; exit $?; fi
@@ -75,13 +78,13 @@ printf 'id\trun\texit\tseconds\tattempts\tfailureKind\tcontains\tlevelRejections
 mismatches=0
 total_start=$(date +%s)
 
-for yaml in "$here"/js-*.yaml "$here"/css-*.yaml; do
+for yaml in "$here"/js-*.yaml "$here"/css-*.yaml "$here"/page-*.yaml; do
   id="$(field "$yaml" id)"
-  [ -n "$only" ] && [ "$only" != "$id" ] && continue
+  wanted "$id" || continue
   check_case "$yaml" > /dev/null || { echo "$id skipped: bad case definition"; continue; }
   file="$(field "$yaml" file)"; fn="$(field "$yaml" function)"; sel="$(field "$yaml" selector)"; lines="$(field "$yaml" lines)"
   request="$(field "$yaml" request)"
-  case "$file" in *.css) cmd=css;; *) cmd=js;; esac
+  if [ -n "$sel" ]; then cmd=css; else case "$file" in *.css) cmd=css;; *) cmd=js;; esac; fi   # page cases: a selector means a <style> block
   if [ -n "$fn" ]; then target=(--function "$fn"); elif [ -n "$sel" ]; then target=(--selector "$sel"); else target=(--lines "$lines"); fi
   for i in $(seq 1 "$repeat"); do
     dest="$out/$id-$i"

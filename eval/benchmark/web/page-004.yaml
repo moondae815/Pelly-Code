@@ -1,0 +1,7 @@
+id: page-004
+kind: lines
+file: admin/order/list.asp
+lines: 114-121
+request: "고객 번호가 비어 있으면 검사하지 않고 바로 true를 돌려주고, 숫자가 아니면 알림 뒤 고객 번호 입력칸에 포커스(focus)를 줘"
+mustContain: ["focus"]
+mustNotContain: ["=>", "let ", "const "]

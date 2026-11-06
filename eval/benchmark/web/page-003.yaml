@@ -1,0 +1,8 @@
+id: page-003
+kind: function
+file: admin/order/edit.asp
+function: fnCancelOrder
+request: "취소 확인 창의 문구를 「정말 취소할까요?」로 바꿔줘"
+mustContain: ["정말 취소할까요?"]
+mustKeep: ["<% If CInt(status) < 2 Then %>", "<% End If %>"]
+mustNotContain: ["=>", "let ", "const "]

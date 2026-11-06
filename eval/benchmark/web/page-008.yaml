@@ -1,0 +1,8 @@
+id: page-008
+kind: selector
+file: admin/member/style.asp
+selector: "body"
+request: "본문 글자 크기를 13px로 바꿔줘"
+mustContain: ["13px"]
+mustKeep: ["background: <%= bgColor %>;"]
+mustNotContain: []

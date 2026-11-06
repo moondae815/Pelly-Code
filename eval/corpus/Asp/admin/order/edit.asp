@@ -69,5 +69,23 @@ Call CloseDb()
 <% End If %>
 <a href="list.asp">목록</a>
 </form>
+<script type="text/javascript">
+function fnCancelOrder() {
+<% If CInt(status) < 2 Then %>
+    if (!confirm("주문을 취소하시겠습니까?")) {
+        return false;
+    }
+    return true;
+<% Else %>
+    alert("배송이 시작된 주문은 취소할 수 없습니다.");
+    return false;
+<% End If %>
+}
+</script>
+<script type="text/javascript">
+function fnGoList() {
+    location.href = "list.asp";
+}
+</script>
 </body>
 </html>

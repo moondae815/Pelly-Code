@@ -1,0 +1,8 @@
+id: page-002
+kind: function
+file: admin/order/list.asp
+function: fnGoPage
+request: "이동 주소 끝에 쪽 크기를 &pageSize= 로 붙이고 값은 gPageSize를 써줘"
+mustContain: ["&pageSize="]
+mustKeep: ["gPageSize = <%= pageSize %>;"]
+mustNotContain: ["=>", "let ", "const "]

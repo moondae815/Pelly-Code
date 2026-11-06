@@ -23,6 +23,9 @@ public sealed partial class AspTextCodec : SplicingTextCodec
     [GeneratedRegex("""CodePage\s*=\s*"?(\d+)"?""", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex CodePagePattern();
 
+    [GeneratedRegex("""<meta\s[^>]*?charset\s*=\s*["']?([^\s"';>/]+)""", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex MetaCharsetPattern();
+
     protected override string Utf16Message(string path) => $"UTF-16 ASP 파일은 지원하지 않습니다: {path}";
 
     protected override string StrictReadMessage(string path, Encoding encoding) =>
@@ -40,6 +43,7 @@ public sealed partial class AspTextCodec : SplicingTextCodec
                 _ => throw new InvalidDataException($"지원하지 않는 CodePage입니다: {cp} (65001 또는 949만 지원합니다): {path}"),
             };
         }
+        if (IsHtml(path) && MetaCharset(bytes) is { } charset) return EncodingOfCharset(charset, "meta charset", path);
         if (bytes.AsSpan().IndexOfAnyExceptInRange((byte)0, (byte)0x7F) < 0) return _default;
         return IsValidUtf8(bytes) ? Utf8 : Cp949;
     }
@@ -55,5 +59,16 @@ public sealed partial class AspTextCodec : SplicingTextCodec
         var m = CodePagePattern().Match(ascii, start + 3, end - start - 3);
         if (!m.Success) return null;
         return int.TryParse(m.Groups[1].ValueSpan, out int value) ? value : -1;
+    }
+
+    private static bool IsHtml(string path) =>
+        path.EndsWith(".htm", StringComparison.OrdinalIgnoreCase) || path.EndsWith(".html", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Charset of the first <c>&lt;meta charset=…&gt;</c> or <c>http-equiv</c> content within the first 4 KiB (ASCII read), or null.</summary>
+    private static string? MetaCharset(byte[] bytes)
+    {
+        string head = Encoding.Latin1.GetString(bytes, 0, Math.Min(bytes.Length, 4096));
+        var m = MetaCharsetPattern().Match(head);
+        return m.Success ? m.Groups[1].Value : null;
     }
 }

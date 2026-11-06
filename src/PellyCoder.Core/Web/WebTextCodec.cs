@@ -20,12 +20,7 @@ public sealed class WebTextCodec(string defaultEncoding) : SplicingTextCodec
     {
         if (Charset(bytes) is { } name)
         {
-            return name.ToLowerInvariant() switch
-            {
-                "utf-8" => Utf8,
-                "euc-kr" or "ks_c_5601-1987" or "cp949" or "windows-949" => Cp949,
-                _ => throw new InvalidDataException($"@charset \"{name}\"은 지원하지 않습니다: {path}"),
-            };
+            return EncodingOfCharset(name, "@charset", path);
         }
         if (bytes.AsSpan().IndexOfAnyExceptInRange((byte)0, (byte)0x7F) < 0) return _default;
         return IsValidUtf8(bytes) ? Utf8 : Cp949;

@@ -1,3 +1,4 @@
+using PellyCoder.Core.Files;
 using System.IO.Abstractions;
 using PellyCoder.Core.Abstractions;
 using PellyCoder.Core.Config;
@@ -13,7 +14,7 @@ namespace PellyCoder.Core.Fsm.Phases;
 /// rule), or the only rule in the file. Refuses other extensions, minified and vendor files. Problems already in the original
 /// sheet do not stop the run: they are the baseline.
 /// </summary>
-public sealed class CssLocatePhase(IFileSystem fs, IUserInteraction ui, PellyOptions options, WebTextCodec codec) : IPhase
+public sealed class CssLocatePhase(IFileSystem fs, IUserInteraction ui, PellyOptions options, ITextFileCodec codec) : IPhase
 {
     public RunPhase Phase => RunPhase.Locate;
 

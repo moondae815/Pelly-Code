@@ -1,3 +1,4 @@
+using PellyCoder.Core.Files;
 using System.IO.Abstractions;
 using Acornima;
 using PellyCoder.Core.Abstractions;
@@ -14,7 +15,7 @@ namespace PellyCoder.Core.Fsm.Phases;
 /// (several: selection UI, or exit 3 when not interactive). Refuses other extensions, minified and vendor files. Decides the
 /// original and target language levels; an original that does not parse switches the run to fallback mode (token scan).
 /// </summary>
-public sealed class JsLocatePhase(IFileSystem fs, IUserInteraction ui, PellyOptions options, WebTextCodec codec) : IPhase
+public sealed class JsLocatePhase(IFileSystem fs, IUserInteraction ui, PellyOptions options, ITextFileCodec codec) : IPhase
 {
     public RunPhase Phase => RunPhase.Locate;
 

@@ -29,6 +29,18 @@ public abstract class SplicingTextCodec : ITextFileCodec
         _ => throw new ArgumentException($"Unsupported encoding: {name}", nameof(name)),
     };
 
+    /// <summary>
+    /// The charset value table shared by <c>@charset</c> (JS/CSS) and <c>&lt;meta charset&gt;</c> (pages): utf-8, and euc-kr /
+    /// ks_c_5601-1987 / cp949 / windows-949 as CP949 (case-insensitive). Anything else is an <see cref="InvalidDataException"/>
+    /// naming <paramref name="source"/> (for example <c>@charset</c>).
+    /// </summary>
+    protected static Encoding EncodingOfCharset(string name, string source, string path) => name.ToLowerInvariant() switch
+    {
+        "utf-8" => Utf8,
+        "euc-kr" or "ks_c_5601-1987" or "cp949" or "windows-949" => Cp949,
+        _ => throw new InvalidDataException($"{source} \"{name}\"은 지원하지 않습니다: {path}"),
+    };
+
     /// <summary>Encoding of a file without BOM; throws <see cref="InvalidDataException"/> (Korean) when unsupported.</summary>
     protected abstract Encoding DetectWithoutBom(string path, byte[] bytes);
 

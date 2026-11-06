@@ -134,7 +134,7 @@ public static class FsmOrchestratorFactory
 
     /// <summary>
     /// <c>pelly js</c> and <c>pelly css</c>: the shared PREFLIGHT, EDIT and REVIEW with JS/CSS locate, slice, apply and the
-    /// warning-only verify steps. One <see cref="WebTextCodec"/> serves the file guard and the web phases, so every read and write
+    /// warning-only verify steps. One <see cref="WebCodecRouter"/> (pages by the ASP codec, JS/CSS by <see cref="WebTextCodec"/>) serves the file guard and the web phases, so every read and write
     /// keeps the file's encoding. <paramref name="kind"/> must be <see cref="EditKind.Js"/> or <see cref="EditKind.Css"/>.
     /// </summary>
     public static FsmOrchestrator CreateWeb(IFileSystem fs, ILlmBackend backend, IUserInteraction ui, PellyOptions options, TimeProvider time,
@@ -145,7 +145,7 @@ public static class FsmOrchestratorFactory
 
         var tokens = QwenTokenCounter.Shared;
         var template = options.Llm.Template is { } path ? QwenChatTemplate.LoadFromFile(fs, path) : QwenChatTemplate.LoadDefault();
-        var codec = new WebTextCodec(options.Asp.Encoding);
+        var codec = new WebCodecRouter(new WebTextCodec(options.Asp.Encoding), new AspTextCodec(options.Asp.Encoding), options.Asp.Extensions);
         var fileGuard = new FileGuard(fs, time, codec);
         var logger = new RunLogger(fs, time);
         var feedback = new FeedbackBuilder(tokens, options.Budget.Feedback);

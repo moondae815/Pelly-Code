@@ -1,3 +1,4 @@
+using PellyCoder.Core.Files;
 using System.IO.Abstractions;
 using System.Text;
 using PellyCoder.Core.Abstractions;
@@ -34,7 +35,7 @@ internal static class WebLocateCommon
         AspSiteRoot.Resolve(fs, options.Asp.SiteRoot, ctx.Workspace!.Root);
 
     /// <summary>The site index, built on first use and cached at <c>&lt;workspace root&gt;/.pelly/cache/web-site-index.json</c>.</summary>
-    public static Lazy<WebSiteIndexResult> SiteIndex(IFileSystem fs, RunContext ctx, PellyOptions options, string siteRoot, WebTextCodec codec)
+    public static Lazy<WebSiteIndexResult> SiteIndex(IFileSystem fs, RunContext ctx, PellyOptions options, string siteRoot, ITextFileCodec codec)
     {
         var cachePath = fs.Path.Combine(ctx.Workspace!.Root, ".pelly", "cache", "web-site-index.json");
         var filter = new WebFileFilter(siteRoot, options.Web.VendorPaths);

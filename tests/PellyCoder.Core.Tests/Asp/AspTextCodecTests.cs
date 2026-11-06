@@ -175,4 +175,39 @@ public class AspTextCodecTests
 
         Assert.Equal(C("h\r\nx\nnew\r\nz\r\n"), written);
     }
+
+    private static readonly AspTextCodec Utf8Default = new("utf-8");
+
+    [Fact]
+    public void Htm_meta_charset_utf8()
+    {
+        var snap = Codec.Decode("/w/a.htm", U("<html><head><meta charset=\"utf-8\"></head></html>\n"));
+
+        Assert.Equal(65001, snap.Encoding.CodePage);
+    }
+
+    [Fact]
+    public void Htm_http_equiv_euc_kr()
+    {
+        var snap = Utf8Default.Decode("/w/a.HTML",
+            U("<meta http-equiv=\"Content-Type\" content=\"text/html; charset=euc-kr\">\n"));
+
+        Assert.Equal(949, snap.Encoding.CodePage);
+    }
+
+    [Fact]
+    public void Htm_unknown_charset_is_env_error()
+    {
+        Assert.Throws<InvalidDataException>(() =>
+            Codec.Decode("/w/a.htm", U("<meta charset=\"iso-8859-1\">\n")));
+    }
+
+    [Fact]
+    public void Asp_ignores_meta_charset()
+    {
+        var snap = Codec.Decode("/w/a.asp", U("<meta charset=\"utf-8\">\n"));
+
+        Assert.Equal(949, snap.Encoding.CodePage);
+    }
 }
+

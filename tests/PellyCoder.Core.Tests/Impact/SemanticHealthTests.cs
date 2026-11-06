@@ -89,6 +89,57 @@ public class SemanticHealthTests
         Assert.Equal(SemanticFailureKind.NotRestored, (await Judge(Build(Healthy), fs: fs))?.Kind);
     }
 
+    private static string P(params string[] parts) => Path.Combine([Root, .. parts]);
+
+    private const string Sdk = "<Project Sdk=\"Microsoft.NET.Sdk\" />";
+
+    [Fact]
+    public async Task Judge_use_artifacts_output_finds_assets_under_artifacts_obj()
+    {
+        var fs = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            [Csproj] = new(Sdk),
+            [P("Directory.Build.props")] = new("<Project><PropertyGroup><UseArtifactsOutput>true</UseArtifactsOutput></PropertyGroup></Project>"),
+            [P("artifacts", "obj", "App", "project.assets.json")] = new("{}"),
+        });
+        Assert.Null(await Judge(Build(Healthy), fs: fs));
+    }
+
+    [Fact]
+    public async Task Judge_use_artifacts_output_without_assets_is_not_restored()
+    {
+        var fs = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            [Csproj] = new(Sdk),
+            [P("Directory.Build.props")] = new("<Project><PropertyGroup><UseArtifactsOutput>true</UseArtifactsOutput></PropertyGroup></Project>"),
+        });
+        Assert.Equal(SemanticFailureKind.NotRestored, (await Judge(Build(Healthy), fs: fs))?.Kind);
+    }
+
+    [Fact]
+    public async Task Judge_base_intermediate_output_path_in_the_project_is_followed()
+    {
+        var fs = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            [Csproj] = new("<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><BaseIntermediateOutputPath>..\\out\\obj\\</BaseIntermediateOutputPath></PropertyGroup></Project>"
+                .Replace("\\", Path.DirectorySeparatorChar.ToString())),
+            [P("out", "obj", "project.assets.json")] = new("{}"),
+        });
+        Assert.Null(await Judge(Build(Healthy), fs: fs));
+    }
+
+    [Fact]
+    public async Task Judge_base_intermediate_output_path_from_props_uses_the_props_directory()
+    {
+        var fs = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            [Csproj] = new(Sdk),
+            [P("Directory.Build.props")] = new("<Project><PropertyGroup><BaseIntermediateOutputPath>$(MSBuildThisFileDirectory)build/$(MSBuildProjectName)/</BaseIntermediateOutputPath></PropertyGroup></Project>"),
+            [P("build", "App", "project.assets.json")] = new("{}"),
+        });
+        Assert.Null(await Judge(Build(Healthy), fs: fs));
+    }
+
     [Fact]
     public async Task Judge_legacy_project_without_assets_is_not_judged_by_restore()
     {

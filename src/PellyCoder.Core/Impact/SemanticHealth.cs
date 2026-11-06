@@ -84,21 +84,71 @@ public static class SemanticHealth
         return errors > 0 ? new SemanticFailure(SemanticFailureKind.CompileErrors, Count: errors) : null;
     }
 
-    /// <summary>An SDK-style project (Sdk attribute on the root) with no obj/project.assets.json.</summary>
+    /// <summary>An SDK-style project (Sdk attribute on the root) with no project.assets.json in its obj folder.</summary>
     internal static bool IsUnrestoredSdkProject(IFileSystem fs, string projectPath)
     {
         if (!fs.File.Exists(projectPath)) return false;
+        XDocument project;
         try
         {
-            if (XDocument.Parse(fs.File.ReadAllText(projectPath)).Root?.Attribute("Sdk") is null) return false;
+            project = XDocument.Parse(fs.File.ReadAllText(projectPath));
+            if (project.Root?.Attribute("Sdk") is null) return false;
         }
         catch (XmlException)
         {
             return false;
         }
 
-        var dir = fs.Path.GetDirectoryName(fs.Path.GetFullPath(projectPath))!;
-        return !fs.File.Exists(fs.Path.Combine(dir, "obj", "project.assets.json"));
+        var full = fs.Path.GetFullPath(projectPath);
+        var dir = fs.Path.GetDirectoryName(full)!;
+        return !ObjFolders(fs, full, dir, project).Any(o => fs.File.Exists(fs.Path.Combine(o, "project.assets.json")));
+    }
+
+    /// <summary>
+    /// Where restore may have written the assets file: the default <c>obj</c>, plus <c>BaseIntermediateOutputPath</c> and
+    /// <c>UseArtifactsOutput</c> (<c>&lt;ArtifactsPath&gt;/obj/&lt;project&gt;</c>) read from the project and the nearest
+    /// Directory.Build.props. A setting that cannot be read leaves only the default.
+    /// </summary>
+    private static IEnumerable<string> ObjFolders(IFileSystem fs, string projectPath, string dir, XDocument project)
+    {
+        yield return fs.Path.Combine(dir, "obj");
+
+        // Evaluation order: the props first, the project last (the last definition wins).
+        var sources = new List<(XDocument Doc, string Dir)> { (project, dir) };
+        string? propsDir = null;
+        for (var d = dir; d is not null; d = fs.Path.GetDirectoryName(d))
+        {
+            var props = fs.Path.Combine(d, "Directory.Build.props");
+            if (!fs.File.Exists(props)) continue;
+            try { sources.Insert(0, (XDocument.Parse(fs.File.ReadAllText(props)), d)); propsDir = d; }
+            catch (XmlException) { }
+            break;
+        }
+
+        string? Value(string name) => sources.SelectMany(s => s.Doc.Root!.Elements().Where(g => g.Name.LocalName == "PropertyGroup" && g.Attribute("Condition") is null)
+                .SelectMany(g => g.Elements().Where(e => e.Name.LocalName == name && e.Attribute("Condition") is null)
+                    .Select(e => (Text: e.Value.Trim(), s.Dir)))).Select(v => Expand(v.Text, v.Dir)).LastOrDefault(v => v.Length > 0);
+        string Expand(string v, string home) => v
+            .Replace("$(MSBuildThisFileDirectory)", home + fs.Path.DirectorySeparatorChar)
+            .Replace("$(MSBuildProjectDirectory)", dir)
+            .Replace("$(MSBuildProjectName)", fs.Path.GetFileNameWithoutExtension(projectPath));
+        string Rooted(string v) => fs.Path.GetFullPath(fs.Path.IsPathRooted(v) ? v : fs.Path.Combine(dir, v));
+
+        if (Value("BaseIntermediateOutputPath") is { } obj && !obj.Contains("$("))
+            yield return Rooted(obj);
+
+        if (string.Equals(Value("UseArtifactsOutput"), "true", StringComparison.OrdinalIgnoreCase))
+        {
+            var artifacts = Value("ArtifactsPath");
+            if (artifacts is null)
+            {
+                // Default ArtifactsPath: an "artifacts" folder next to the Directory.Build.props.
+                artifacts = propsDir is null ? null : fs.Path.Combine(propsDir, "artifacts");
+            }
+
+            if (artifacts is not null && !artifacts.Contains("$("))
+                yield return fs.Path.Combine(Rooted(artifacts), "obj", fs.Path.GetFileNameWithoutExtension(projectPath));
+        }
     }
 
     /// <summary>Share of invocations bound to a symbol; 1.0 when there are none.</summary>

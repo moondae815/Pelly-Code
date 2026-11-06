@@ -167,4 +167,56 @@ public class NameImpactFinderTests
             new ImpactTarget("T1", "D.cs", "M", "재정의"),
         ], result.Targets);
     }
+
+    private static IReadOnlyList<ImpactTarget> FindNs(params (string File, string Code)[] files)
+    {
+        var fs = new MockFileSystem();
+        foreach (var (file, code) in files) fs.AddFile(P(file), new MockFileData(code));
+        var seed = new ImpactSeed("T1", 1, "Shop.cs", "Order", "Total");
+        return NameImpactFinder.Find(fs, new Workspace(Root, P(".pelly")), [seed], [], Fallback).Targets;
+    }
+
+    private const string ShopOrder = "namespace Shop { public class Order { public int Total() => 1; } }";
+
+    [Fact]
+    public void Same_named_type_in_another_namespace_is_not_an_implementation()
+    {
+        var targets = FindNs(("Shop.cs", ShopOrder),
+            ("Other.cs", "namespace Billing { public class Order { public int Total() => 2; } }"));
+
+        Assert.DoesNotContain(targets, t => t.Path == "Other.cs");
+    }
+
+    [Fact]
+    public void Partial_part_in_the_same_namespace_is_still_a_declaration()
+    {
+        var targets = FindNs(("Shop.cs", "namespace Shop { public partial class Order { public int Total() => 1; } }"),
+            ("Part.cs", "namespace Shop { public partial class Order { public int Total2() => 2; } public partial class Order { public int Total(int x) => x; } }"));
+
+        Assert.Contains(targets, t => t.Path == "Part.cs" && t.Reason == "구현");
+    }
+
+    [Fact]
+    public void Type_deriving_from_a_same_named_base_in_an_unseen_namespace_is_not_an_implementation()
+    {
+        var targets = FindNs(("Shop.cs", ShopOrder),
+            ("Base.cs", "namespace Billing { public class Order { } }"),
+            ("Child.cs", "namespace Billing.Sub { public class Rush : Order { public int Total() => 3; } }"),
+            ("Far.cs", "namespace Report { public class Rush : Order { public int Total() => 3; } }"));
+
+        Assert.DoesNotContain(targets, t => t.Path == "Far.cs");
+    }
+
+    [Fact]
+    public void Type_deriving_through_a_using_or_the_same_namespace_is_an_implementation()
+    {
+        var targets = FindNs(("Shop.cs", ShopOrder),
+            ("Used.cs", "using Shop;\nnamespace Report { public class Rush : Order { public int Total() => 3; } }"),
+            ("Same.cs", "namespace Shop.Rush { public class Fast : Order { public int Total() => 3; } }"),
+            ("Qual.cs", "namespace Report { public class Slow : Shop.Order { public int Total() => 3; } }"));
+
+        Assert.Contains(targets, t => t.Path == "Used.cs" && t.Reason == "구현");
+        Assert.Contains(targets, t => t.Path == "Same.cs" && t.Reason == "구현");
+        Assert.Contains(targets, t => t.Path == "Qual.cs" && t.Reason == "구현");
+    }
 }

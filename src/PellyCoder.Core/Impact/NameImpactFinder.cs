@@ -83,6 +83,7 @@ public static class NameImpactFinder
         }
 
         var seedTypeNames = seedTypes.Select(t => t.Identifier.Text).ToHashSet(StringComparer.Ordinal);
+        var seedNamespaces = seedTypes.Select(Namespace).ToHashSet(StringComparer.Ordinal);
         var allTypes = files.SelectMany(f => f.Root.DescendantNodes().OfType<TypeDeclarationSyntax>()).ToList();
 
         // Upward closure of the seed types' base lists, by simple name.
@@ -111,9 +112,9 @@ public static class NameImpactFinder
                 if (member is null) continue;
                 if (baseNames.Contains(type.Identifier.Text))
                     Add(file.Path, member.SpanStart, name, "기반 멤버");
-                else if (BaseNames(type).Any(related.Contains))
+                else if (BaseNames(type).Any(related.Contains) && !OnlyUnseenSeedName(type, related, seedTypeNames, baseNames, seedNamespaces))
                     Add(file.Path, member.SpanStart, name, member.Modifiers.Any(SyntaxKind.OverrideKeyword) ? "재정의" : "구현");
-                else if (seedTypeNames.Contains(type.Identifier.Text))
+                else if (seedTypeNames.Contains(type.Identifier.Text) && seedNamespaces.Contains(Namespace(type)))
                     // Another part of a partial seed type (or a same-named type): its base list may sit on the
                     // seed's part only, so the name of the type is the one link left.
                     Add(file.Path, member.SpanStart, name, "구현");
@@ -131,6 +132,30 @@ public static class NameImpactFinder
             .OrderBy(f => f.Path, StringComparer.Ordinal).ThenBy(f => f.Position)
             .Select(f => new ImpactTarget(seed.TaskId, f.Path, f.Member, f.Reason));
     }
+
+    /// <summary>
+    /// True when the only reason a type counts as derived is a base named like a seed type that its namespace cannot
+    /// see (different namespace, no using, not qualified): a same-named type of another namespace, not the seed.
+    /// </summary>
+    private static bool OnlyUnseenSeedName(TypeDeclarationSyntax type, HashSet<string> related, HashSet<string> seedTypeNames,
+        HashSet<string> baseNames, HashSet<string> seedNamespaces)
+    {
+        var hits = type.BaseList!.Types.Where(b => related.Contains(SimpleName(b.Type))).ToList();
+        if (hits.Any(b => !seedTypeNames.Contains(SimpleName(b.Type)) || baseNames.Contains(SimpleName(b.Type)))) return false;
+        var own = Namespace(type);
+        var usings = type.AncestorsAndSelf().SelectMany(a => a switch
+        {
+            BaseNamespaceDeclarationSyntax n => n.Usings,
+            CompilationUnitSyntax c => c.Usings,
+            _ => [],
+        }).Select(u => u.Name?.ToString()).ToList();
+        return !hits.Any(b => seedNamespaces.Any(ns => b.Type is QualifiedNameSyntax q
+            ? q.Left.ToString() == ns || ns.EndsWith("." + q.Left, StringComparison.Ordinal)
+            : ns == own || own.StartsWith(ns + ".", StringComparison.Ordinal) || ns.Length == 0 || usings.Contains(ns)));
+    }
+
+    private static string Namespace(SyntaxNode node) =>
+        string.Join('.', node.Ancestors().OfType<BaseNamespaceDeclarationSyntax>().Select(n => n.Name.ToString()).Reverse());
 
     /// <summary>Member name of a place outside every type: top-level statements, assembly attributes.</summary>
     public const string TopLevel = "<top-level>";

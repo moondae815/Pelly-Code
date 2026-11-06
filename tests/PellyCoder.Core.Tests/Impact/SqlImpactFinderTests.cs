@@ -234,6 +234,22 @@ public class SqlImpactFinderTests
     }
 
     [Fact]
+    public async Task Encrypted_seed_is_reported_and_still_gets_referencing_modules()
+    {
+        var reader = new FakeReader()
+            .Module(SeedName, "P", null)
+            .Module(new("dbo", "usp_A"), "P", Proc("dbo.usp_A", "EXEC dbo.usp_Seed;"))
+            .Refs(SeedName, ("dbo", "usp_A", "P"));
+
+        var result = await Run(reader);
+
+        Assert.Equal(["T1"], result.EncryptedSeeds);
+        Assert.Empty(result.NewObjectSeeds);
+        Assert.Empty(result.Tables);
+        Assert.Equal("dbo.usp_A", Assert.Single(result.Targets).Member);
+    }
+
+    [Fact]
     public async Task Unavailable_db_runs_only_string_search()
     {
         var result = await new SqlImpactFinder(Fs(CallerCode), 160).FindAsync(Ws, [Seed], [],
@@ -287,7 +303,7 @@ public class SqlImpactFinderTests
 
         public Exception? Throw { get; init; }
 
-        public FakeReader Module(SqlObjectName name, string type, string definition)
+        public FakeReader Module(SqlObjectName name, string type, string? definition)
         {
             _modules.Add(new SqlModuleDefinition(name, type, definition, true, true));
             return this;

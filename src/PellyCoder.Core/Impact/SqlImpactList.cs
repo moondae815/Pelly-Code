@@ -29,6 +29,7 @@ public static class SqlImpactList
             unavailable = result.Unavailable,
             seeds = seeds.Select(s => new { taskId = s.TaskId, line = s.Line, @object = SqlImpactFinder.Display(s.Object) }),
             newObjectSeeds = result.NewObjectSeeds,
+            encryptedSeeds = result.EncryptedSeeds,
             tables = result.Tables.Select(t =>
             {
                 var table = SqlImpactFinder.Display(t.Table);

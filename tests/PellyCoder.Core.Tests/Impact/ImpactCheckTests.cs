@@ -229,6 +229,17 @@ public class ImpactCheckTests
         ImpactCheck.SqlIssues(SqlSpec, SqlSpecSeeds, notFound ?? [], result, SqlSpecObjects, "db/pulled", listPath, basis);
 
     [Fact]
+    public void SqlIssues_encrypted_seed_warns_that_column_impact_was_skipped()
+    {
+        var result = SqlResult() with { EncryptedSeeds = ["T2"] };
+
+        var issue = Assert.Single(SqlIssues(result));
+
+        Assert.Equal(new SpecIssue(SqlSpec.Tasks[1].Line, SpecIssueSeverity.Warning, "ImpactSqlEncrypted",
+            "작업 T2: dbo.usp_X는 암호화되어 있어 컬럼 영향을 찾지 못했습니다"), issue);
+    }
+
+    [Fact]
     public void SqlIssues_missing_sql_object_message()
     {
         var issues = SqlIssues(SqlResult(targets: [SqlTarget("T2", "dbo.usp_A"), SqlTarget("T2", "dbo.usp_X", "참조")]));

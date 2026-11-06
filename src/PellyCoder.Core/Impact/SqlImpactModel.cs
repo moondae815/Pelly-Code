@@ -23,11 +23,15 @@ public sealed record SqlImpactModuleRow(SqlObjectName Module, IReadOnlyList<stri
 /// <param name="Basis">The database used; null when no database could be read and only the C# string search ran.</param>
 /// <param name="Unavailable">Why the database could not be read (Korean); null when it was.</param>
 /// <param name="NewObjectSeeds">Task ids of seeds whose object is not on the server, so only the string search ran for them.</param>
+/// <param name="EncryptedSeeds">Task ids of seeds whose definition the server hides (encrypted), so the column search (③) was skipped for them.</param>
 /// <param name="Incomplete">True when the C# file walk was cut short.</param>
 /// <param name="FullLists">Every candidate per seed and table, keyed <c>"&lt;task id&gt;|&lt;schema.table&gt;"</c>.</param>
 public sealed record SqlImpactResult(SqlImpactBasis? Basis, string? Unavailable, IReadOnlyList<ImpactTarget> Targets,
     IReadOnlyList<SqlTableShare> Tables, IReadOnlyList<string> NewObjectSeeds, bool Incomplete,
-    IReadOnlyDictionary<string, IReadOnlyList<SqlImpactModuleRow>> FullLists);
+    IReadOnlyDictionary<string, IReadOnlyList<SqlImpactModuleRow>> FullLists)
+{
+    public IReadOnlyList<string> EncryptedSeeds { get; init; } = [];
+}
 
 public interface ISqlImpactFinder
 {

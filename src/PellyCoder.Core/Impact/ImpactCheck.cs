@@ -148,6 +148,13 @@ public static class ImpactCheck
             issues.Add(Warning(LineOf(id), "ImpactSeedNotFound", $"작업 {id}: {name}가 서버에 없어(새 객체) SP 쪽 영향을 찾지 않았습니다"));
         }
 
+        foreach (var id in result.EncryptedSeeds)
+        {
+            var seed = seeds.FirstOrDefault(s => s.TaskId == id);
+            var name = seed is null ? "" : SqlImpactFinder.Display(seed.Object);
+            issues.Add(Warning(LineOf(id), "ImpactSqlEncrypted", $"작업 {id}: {name}는 암호화되어 있어 컬럼 영향을 찾지 못했습니다"));
+        }
+
         var pull = Normalize(pullDirectory).TrimEnd('/');
         var missing = result.Targets.Where(t => !spec.Tasks.Any(task => Covers(task, t, sqlObjects)));
         var places = missing.GroupBy(t => t.TargetKind == ImpactTargetKind.SqlObject

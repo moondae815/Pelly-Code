@@ -47,7 +47,7 @@ public sealed class SqlImpactFinder(IFileSystem fs, int compatLevel) : ISqlImpac
             return OnlyStrings(e.Message);
         }
 
-        return new SqlImpactResult(basis, null, [.. search.Targets, .. strings], search.Tables, search.NewObjectSeeds, incomplete, search.FullLists);
+        return new SqlImpactResult(basis, null, [.. search.Targets, .. strings], search.Tables, search.NewObjectSeeds, incomplete, search.FullLists) { EncryptedSeeds = search.EncryptedSeeds };
 
         SqlImpactResult OnlyStrings(string problem) =>
             new(null, problem, strings, [], [], incomplete, new Dictionary<string, IReadOnlyList<SqlImpactModuleRow>>());
@@ -65,6 +65,7 @@ public sealed class SqlImpactFinder(IFileSystem fs, int compatLevel) : ISqlImpac
         public List<ImpactTarget> Targets { get; } = [];
         public List<SqlTableShare> Tables { get; } = [];
         public List<string> NewObjectSeeds { get; } = [];
+        public List<string> EncryptedSeeds { get; } = [];
         public Dictionary<string, IReadOnlyList<SqlImpactModuleRow>> FullLists { get; } = new(StringComparer.Ordinal);
 
         private readonly Dictionary<string, IReadOnlyList<string>> _columns = new(StringComparer.OrdinalIgnoreCase);
@@ -89,7 +90,11 @@ public sealed class SqlImpactFinder(IFileSystem fs, int compatLevel) : ISqlImpac
                 Targets.Add(new ImpactTarget(seed.TaskId, "", display, reason, ImpactTargetKind.SqlObject, module.Name, module.TypeCode));
             }
 
-            if (def.Definition is null) return;   // encrypted or no permission: the written columns are unknown
+            if (def.Definition is null)   // encrypted or no permission: the written columns are unknown
+            {
+                EncryptedSeeds.Add(seed.TaskId);
+                return;
+            }
             foreach (var (table, columns) in Written(SqlWriteColumns.Collect(def.Definition, compatLevel, def.UsesQuotedIdentifier)))
                 await TableAsync(seed, table, columns ?? await ColumnsAsync(table, ct).ConfigureAwait(false), warned, ct).ConfigureAwait(false);
         }

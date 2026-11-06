@@ -1,8 +1,10 @@
 using PellyCoder.Core.Files;
 using System.IO.Abstractions;
 using PellyCoder.Core.Abstractions;
+using PellyCoder.Core.Asp;
 using PellyCoder.Core.Config;
 using PellyCoder.Core.Models;
+using PellyCoder.Core.Reporting;
 using PellyCoder.Core.Web;
 using static PellyCoder.Core.Fsm.Phases.WebLocateCommon;
 
@@ -29,27 +31,64 @@ public sealed class CssLocatePhase(IFileSystem fs, IUserInteraction ui, PellyOpt
         }
 
         var siteRoot = SiteRoot(fs, ctx, options);
-        if (RefuseFile(fs, ctx, options, siteRoot, ".css", "pelly css") is { } refused)
+        if (RefuseFile(fs, ctx, options, siteRoot, ".css", "pelly css", acceptPages: true) is { } refused)
             return refused;
 
         var text = ctx.Original.Text;
-        var sheet = CssSheet.Parse(text);
         var lineCount = LineCount(text);
+        var page = WebPages.IsPage(ctx.FilePath, options.Asp.Extensions) ? AspPage.Parse(text) : null;
+        var pieces = new List<Piece>();
+        if (page is null)
+        {
+            pieces.Add(new Piece(-1, null, text, CssSheet.Parse(text)));
+        }
+        else if (request.Line is not null || request.Lines is not null)
+        {
+            var range = request.Lines ?? new TextSpanInfo(request.Line!.Value, request.Line.Value);
+            if (request.Lines is { } outer && OutOfFile(outer, lineCount))
+                return NotFound(ctx, OutOfFileMessage(outer, lineCount));
+            var first = page.ClientBlockAt(range.StartLine);
+            var last = page.ClientBlockAt(range.EndLine);
+            string NotInside() => request.Lines is null
+                ? $"{range.StartLine}번 줄은 <style> 블록 안이 아닙니다. pelly asp를 쓰십시오"
+                : $"줄 {range.StartLine}-{range.EndLine} 범위가 <style> 블록 밖에 걸칩니다. pelly asp --lines를 쓰십시오";
+            if (first is null || last is null || first.Value.Index != last.Value.Index)
+                return Outside(ctx, NotInside());
+            var block = first.Value.Block;
+            if (block.Kind == AspClientBlockKind.Style && !block.Closed)
+                return Outside(ctx, $"줄 {block.OpenLine}의 <style>가 닫히지 않았습니다");
+            if (!IsEditable(block))
+                return Outside(ctx, NotInside());
+            pieces.Add(PieceOf(page, text, first.Value.Index));
+        }
+        else
+        {
+            for (var i = 0; i < page.ClientBlocks.Count; i++)
+                if (IsEditable(page.ClientBlocks[i]))
+                    pieces.Add(PieceOf(page, text, i));
+            if (pieces.Count == 0)
+                return Outside(ctx, "이 페이지에는 고칠 수 있는 <style> 블록이 없습니다");
+        }
+
+        Piece target = pieces[0];
         CssRule? rule = null;
         TextSpanInfo span;
         if (request.Selector is { } selector)
         {
-            var matches = sheet.Rules.Where(r => !r.IsAtRule && CssSelector.Matches(r, selector)).ToList();
+            var matches = pieces.SelectMany(p => p.Sheet.Rules.Where(r => !r.IsAtRule && CssSelector.Matches(r, selector))
+                .Select(r => new Hit(p, r))).ToList();
             if (matches.Count == 0)
                 return NotFound(ctx, $"선택자 '{selector}'의 규칙을 찾을 수 없습니다: {ctx.FilePath}");
-            rule = await ChooseAsync(ui, ctx, matches, "수정할 규칙을 고르십시오", Label,
+            var chosen = await ChooseAsync(ui, ctx, matches, "수정할 규칙을 고르십시오", h => Label(h.Rule),
                 $"선택자 '{selector}'의 규칙이 {matches.Count}개입니다. 대화형으로 실행해 고르거나 --lines A-B로 범위를 주십시오: ", ct);
-            if (rule is null)
+            if (chosen is null)
                 return NoChoice(ctx);
+            target = chosen.Piece;
+            rule = chosen.Rule;
         }
         else if (request.Line is { } line)
         {
-            rule = sheet.Rules
+            rule = target.Sheet.Rules
                 .Where(r => r.StartLine <= line && line <= r.EndLine)
                 .OrderBy(r => r.EndLine - r.StartLine)
                 .ThenByDescending(r => r.StartLine)
@@ -59,16 +98,18 @@ public sealed class CssLocatePhase(IFileSystem fs, IUserInteraction ui, PellyOpt
         }
         else if (request.Lines is null)
         {
-            if (sheet.Rules.Count != 1)
+            var every = pieces.SelectMany(p => p.Sheet.Rules.Select(r => new Hit(p, r))).ToList();
+            if (every.Count != 1)
                 return NotFound(ctx, "--selector, --line, --lines 중 하나를 주십시오");
-            rule = sheet.Rules[0];
+            target = every[0].Piece;
+            rule = every[0].Rule;
         }
 
         if (request.Lines is { } lines)
         {
             if (OutOfFile(lines, lineCount))
                 return NotFound(ctx, OutOfFileMessage(lines, lineCount));
-            if (CutsRule(sheet, lines))
+            if (CutsRule(target.Sheet, lines))
                 return NotFound(ctx, $"줄 {lines.StartLine}-{lines.EndLine} 범위가 규칙 중간을 자릅니다");
             span = lines;
         }
@@ -81,14 +122,33 @@ public sealed class CssLocatePhase(IFileSystem fs, IUserInteraction ui, PellyOpt
         var display = unit == WebTargetUnit.Rule ? Display(rule!) : $"줄 {span.StartLine}-{span.EndLine}";
         ctx.Target = new EditTarget(EditKind.Css, ctx.FilePath, display, span, null);
         ctx.ProjectStyle = "Web";
-        ctx.Web = new WebRunState(EditKind.Css, unit, span, text, EncodingName(ctx.Original.Encoding), OriginalAscii(fs, ctx),
+        var pageState = page is null ? null : new WebPageState(page, target.BlockIndex, target.View!,
+            Enumerable.Range(0, page.ClientBlocks.Count).Select(i => PageBlockView.Build(page, text, i)).ToList());
+        ctx.Web = new WebRunState(EditKind.Css, unit, span, target.Text, EncodingName(ctx.Original.Encoding), OriginalAscii(fs, ctx),
             siteRoot, SiteIndex(fs, ctx, options, siteRoot, codec))
         {
+            Page = pageState,
             Rule = unit == WebTargetUnit.Rule ? rule : null,
-            OriginalCss = sheet,
+            OriginalCss = target.Sheet,
         };
         return PhaseOutcome.Ok;
     }
+
+    private sealed record Piece(int BlockIndex, PageBlockView? View, string Text, CssSheet Sheet);
+
+    private sealed record Hit(Piece Piece, CssRule Rule);
+
+    private static Piece PieceOf(AspPage page, string pageText, int blockIndex)
+    {
+        var view = PageBlockView.Build(page, pageText, blockIndex);
+        return new Piece(blockIndex, view, view.Text, CssSheet.Parse(view.Text));
+    }
+
+    /// <summary>A style block with content the run can edit: closed.</summary>
+    private static bool IsEditable(AspClientBlock block) => block.Kind == AspClientBlockKind.Style && block.Closed;
+
+    private static PhaseOutcome Outside(RunContext ctx, string message) =>
+        Refuse(ctx, FailureKinds.WebOutsideBlock, message);
 
     /// <summary>True when a rule starts inside the range and ends outside it, or the other way round.</summary>
     private static bool CutsRule(CssSheet sheet, TextSpanInfo range) =>

@@ -8,7 +8,7 @@
 
 **Tech Stack:** .NET 10, Roslyn 5.9, System.Diagnostics.Process, MSBuild/vswhere(Windows CI), xUnit v3(MTP), Spectre.Console.Cli, Ollama 0.40.0
 
-**Spec:** `docs/superpowers/specs/2026-10-17-pelly-coder-v1-design.md` — D7, D8, D14, D18(제외), D19, §7.1, §7.3, §8.4, §8.5(언어 버전), §8.7.1, §8.9, §8.13, §8.15, §8.16, §11 M2 행. PRD v1.6 FR-00·FR-01·FR-06. M1 이월 근거: M1 원장 사본 `/private/tmp/claude-501/-Users-payletter-git-root-ReSet/80aff902-238e-4e70-8e26-123252df0fa0/scratchpad/m1-ledger.md`의 `Final:` 줄.
+**Spec:** `docs/superpowers/specs/2026-10-17-pelly-coder-v1-design.md` — D7, D8, D14, D18(제외), D19, §7.1, §7.3, §8.4, §8.5(언어 버전), §8.7.1, §8.9, §8.13, §8.15, §8.16, §11 M2 행. PRD v1.6 FR-00·FR-01·FR-06. M1 이월 근거: M1 원장 사본(로컬 임시 폴더)의 `Final:` 줄.
 
 **범위 밖 (이 계획에서 하지 않음):** SQL 경로 전체(`pelly sql`, SqlSafetyGuard, SqlSyntaxVerifier, SqlSchemaSlicer) · 벤치마크 실행기와 정의 30건 → **M2b**. `--test`(D18), DTO 슬라이스, `report --sanitize`, `--pause-on-exit`, 형상 관리 경고 → **M3**.
 

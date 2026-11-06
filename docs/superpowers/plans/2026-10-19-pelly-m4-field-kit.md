@@ -25,7 +25,7 @@
   * §8.1: "평가 실행기는 폐쇄망에서도 그대로 동작해야 합니다"
   * §11.1: 버전 기록의 GGUF SHA-256은 M4에서 현장 모델로 기록
   * §11.3: 반입본마다 버전 기록을 남겨 폐쇄망 결과와 외부 결과를 대조
-* M3b 결과: `docs/m3b-baseline.md`, `docs/m3b-tuning.md`, `deploy/*`, 원장 사본 `/private/tmp/claude-501/-Users-payletter-git-root-ReSet/80aff902-238e-4e70-8e26-123252df0fa0/scratchpad/m3b-ledger.md`(Task 5 minor: 실행 조건에 Ollama 버전 없음 → Task 4에서 닫음)
+* M3b 결과: `docs/m3b-baseline.md`, `docs/m3b-tuning.md`, `deploy/*`, 원장 사본(로컬 임시 폴더)(Task 5 minor: 실행 조건에 Ollama 버전 없음 → Task 4에서 닫음)
 
 **범위 밖 (현장 또는 사람이 함):**
 * 폐쇄망 설치·현장 확인·실제 코드 벤치마크 작성과 실행, KPI 최종 판정(Q6 확정), Visual Studio External Tools 실기 확인 — 이 계획은 그 도구와 절차·양식만 만든다.

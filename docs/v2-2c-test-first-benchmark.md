@@ -23,7 +23,7 @@ pelly-eval compare --test-first A/summary.json B/summary.json           # 보고
 pelly-eval apply --set test-first --repeat 1                  --out C   # apply 사례 8건
 ```
 
-저장소에 남긴 원본 출력과 검토용 diff: `docs/v2-2c-prelim/`(`A-summary.*`, `B-summary.*`, `compare.txt`, `C-apply-summary.md`, `patches/`). 원본 결과 폴더(이 세션 임시, 사라질 수 있음): `/private/tmp/claude-501/-Users-payletter-git-root-Pelly-Code/3abc0ce1-02eb-4de6-bf81-edc41e404ce3/scratchpad/v22c/{A,B,C}`.
+저장소에 남긴 원본 출력과 검토용 diff: `docs/v2-2c-prelim/`(`A-summary.*`, `B-summary.*`, `compare.txt`, `C-apply-summary.md`, `patches/`). 원본 결과 폴더는 로컬 임시 폴더에 있었고 사라질 수 있다.
 
 **시간 수치 주의.** 측정 중 일부 구간에 같은 기기에서 병렬 수정 브랜치의 전체 `dotnet test`가 함께 돌았습니다. 시간(특히 초 단위 값과 비율)은 부풀었을 수 있고, 시간 목표 판정에 쓰면 안 됩니다. 성공·실패 수는 영향이 없다고 보지만 확인하지 않았습니다.
 

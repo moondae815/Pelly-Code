@@ -1,5 +1,5 @@
-기준선: /private/tmp/claude-501/-Users-payletter-git-root-Pelly-Code/3abc0ce1-02eb-4de6-bf81-edc41e404ce3/scratchpad/v22c/A/summary.json
-후보:   /private/tmp/claude-501/-Users-payletter-git-root-Pelly-Code/3abc0ce1-02eb-4de6-bf81-edc41e404ce3/scratchpad/v22c/B/summary.json
+기준선: (로컬 임시 폴더)/summary.json
+후보:   (로컬 임시 폴더)/summary.json
 
 보고 (판정이 아닙니다):
 * 대상 작업: 테스트 우선 12건 (기준선은 이 작업만 셉니다)

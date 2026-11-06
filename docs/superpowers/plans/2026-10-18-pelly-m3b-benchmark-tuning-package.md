@@ -21,7 +21,7 @@
 **Spec:** `docs/superpowers/specs/2026-10-17-pelly-coder-v1-design.md`
 * 절: §9(S6·S7), §10.4(`publish-check`), §10.5, §10.6, §11 M3b 행, §8.14(IDE External Tools)
 * PRD: §5(오프라인 동작), §8.1·§8.2(벤치마크·회귀 차단), §11(반입 패키지·설치·업데이트), FR-08(`--sanitize`)
-* M3a 이월 근거: 원장 사본 `/private/tmp/claude-501/-Users-payletter-git-root-ReSet/80aff902-238e-4e70-8e26-123252df0fa0/scratchpad/m3a-ledger.md`의 최종 분류(멀티 타깃 테스트 프로젝트, Ctrl+C 일시 정지, 대기 시간 미보고, 누락 테스트 규칙, VSTest 종단 확인, `deploy.sh` 재실행, PRD:62).
+* M3a 이월 근거: 원장 사본(로컬 임시 폴더)의 최종 분류(멀티 타깃 테스트 프로젝트, Ctrl+C 일시 정지, 대기 시간 미보고, 누락 테스트 규칙, VSTest 종단 확인, `deploy.sh` 재실행, PRD:62).
 
 **범위 밖 (M4로 넘김):**
 * 폐쇄망 설치와 현장 확인

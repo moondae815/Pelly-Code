@@ -31,7 +31,7 @@ PRD v1.8:
 * FR-08, FR-09
 * §5(공용 서버 대기, 성능 가시성)
 
-M2b 이월 근거: 원장 사본 `/private/tmp/claude-501/-Users-payletter-git-root-ReSet/80aff902-238e-4e70-8e26-123252df0fa0/scratchpad/m2b-ledger.md`의 `Final:` 줄(M-1), M-2.
+M2b 이월 근거: 원장 사본(로컬 임시 폴더)의 `Final:` 줄(M-1), M-2.
 
 **범위 밖 (M3b로 넘김):**
 * 벤치마크 50건과 테스트 연동 판정

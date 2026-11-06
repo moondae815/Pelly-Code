@@ -236,4 +236,53 @@ public sealed class AspClientChecksTests
 
         Assert.Equal(FailureKinds.JsSafetyRejected, v.FailureKind);
     }
+
+    [Fact]
+    public void Joined_gap_uses_highest_original_level()
+    {
+        const string page =
+            "<script>\nlet a = 1;\n</script>\n<script>\nvar b = function () {};\n</script>\n";
+        // Neither edited block anchors on content; a third block is inserted.
+        const string patched =
+            "<script>\nlet a = 2;\n</script>\n<script>\nvar b = function () { return 1; };\n</script>\n<script>\nvar n = 1;\n</script>\n";
+
+        var v = Judge(page, patched, 1, 6);
+
+        Assert.Null(v.FailureKind);
+    }
+
+    [Fact]
+    public void Joined_gap_of_es5_originals_still_rejects_arrow_in_new_block()
+    {
+        const string page =
+            "<script>\nvar a = 1;\n</script>\n<script>\nvar b = function () {};\n</script>\n";
+        const string patched =
+            "<script>\nvar a = 2;\n</script>\n<script>\nvar b = function () { return 1; };\n</script>\n<script>\nvar n = () => 1;\n</script>\n";
+
+        var v = Judge(page, patched, 1, 6);
+
+        Assert.Equal(FailureKinds.JsLevelExceeded, v.FailureKind);
+    }
+
+    [Fact]
+    public void Unclosed_original_stays_unclosed_with_insert_passes()
+    {
+        const string page = "<p>a</p>\n<script>\nvar a = 1;\n";
+        const string patched = "<p>a</p>\n<script>\nvar n = 1;\n</script>\n<script>\nvar a = 2;\n";
+
+        var v = Judge(page, patched, 1, 3);
+
+        Assert.Null(v.FailureKind);
+    }
+
+    [Fact]
+    public void New_unclosed_block_in_joined_gap_rejected()
+    {
+        const string page = "<script>\nvar a = 1;\n</script>\n";
+        const string patched = "<script>\nvar n = 1;\n<script>\nvar a = 2;\n</script>\n";
+
+        var v = Judge(page, patched, 1, 3);
+
+        Assert.Equal(FailureKinds.JsSyntaxErrors, v.FailureKind);
+    }
 }

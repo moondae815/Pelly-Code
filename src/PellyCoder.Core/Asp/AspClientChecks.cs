@@ -124,10 +124,16 @@ public static class AspClientChecks
             {
                 var originals = Enumerable.Range(oFrom, oTo - oFrom).Where(i => o[i].Kind == kind && Judged(o[i])).ToList();
                 var patcheds = new List<int>();
+                // An original that was unclosed may stay unclosed; only unclosed patched blocks beyond that count are broken.
+                var allowedUnclosed = Enumerable.Range(oFrom, oTo - oFrom).Count(i => o[i].Kind == kind && !o[i].Closed);
                 for (var j = pFrom; j < pTo; j++)
                 {
                     if (p[j].Kind != kind) continue;
-                    if (!p[j].Closed) pairs.Add(new Pair(kind, [], [j], true));
+                    if (!p[j].Closed)
+                    {
+                        if (allowedUnclosed > 0) allowedUnclosed--;
+                        else pairs.Add(new Pair(kind, [], [j], true));
+                    }
                     else if (Judged(p[j])) patcheds.Add(j);
                 }
                 if (patcheds.Count > 0) pairs.Add(new Pair(kind, originals, patcheds));
@@ -282,7 +288,9 @@ public static class AspClientChecks
         var docs = new List<JsDocument?>();
         foreach (var pv in pvs)
         {
-            var verdict = JsChecks.Syntax(level, plan.Module, fileName, pv.Text);
+            // One original keeps its module flag; joined originals leave it to each patched block.
+            var module = ovs.Count == 1 ? plan.Module : JsLevels.Detect(pv.Text).Module;
+            var verdict = JsChecks.Syntax(level, module, fileName, pv.Text);
             if (verdict.Errors.Count > 0) return SyntaxFailure(rows, verdict.Errors);
             if (verdict.LevelExceeded)
             {
@@ -298,7 +306,11 @@ public static class AspClientChecks
         Put(rows, JsSyntax, AspCheckStatus.Passed);
         Put(rows, JsLevel, AspCheckStatus.Passed);
 
-        var before = ovs.Select(v => JsDocument.Parse(v.Text, JsLevels.Detect(v.Text).Level ?? plan.OriginalLevel ?? level, plan.Module)).ToList();
+        var before = ovs.Select(v =>
+        {
+            var own = JsLevels.Detect(v.Text);
+            return JsDocument.Parse(v.Text, own.Level ?? plan.OriginalLevel ?? level, own.Module);
+        }).ToList();
         return Safety(rows, before.All(d => d.Error is null) && docs.All(d => d is not null)
             ? JsSafetyGuard.NewFindings(before, docs!)
             : JsSafetyGuard.NewFindingsText(ovs.Select(v => v.Text).ToList(), pvs.Select(v => v.Text).ToList()));
@@ -327,7 +339,7 @@ public static class AspClientChecks
     internal static JsPlan Plan(AspPage page, string pageText, PageBlockView? ov, PageBlockView pv, string? jsTarget) =>
         Plan(page, pageText, ov is null ? [] : [ov], [pv], jsTarget);
 
-    /// <summary>The plan for patched blocks against their original baseline blocks (none: new blocks; several: the lowest level).</summary>
+    /// <summary>The plan for patched blocks against their original baseline blocks (none: new blocks; several: the highest level).</summary>
     internal static JsPlan Plan(AspPage page, string pageText, IReadOnlyList<PageBlockView> ovs, IReadOnlyList<PageBlockView> pvs, string? jsTarget)
     {
         var setting = (jsTarget ?? "auto").Trim();
@@ -340,17 +352,18 @@ public static class AspClientChecks
         }
         if (ovs.Concat(pvs).Any(v => v.ServerCode == PageServerCode.Statements))
             return new JsPlan(null, false, null, Mixed);
-        EcmaVersion? lowest = null;
+        // Joined originals: the highest level any of them needs, so a block keeps what its own original already used.
+        EcmaVersion? highest = null;
         var module = false;
         foreach (var ov in ovs)
         {
             var detected = JsLevels.Detect(ov.Text);
             if (detected.Level is not { } found)
                 return new JsPlan(null, false, null, $"원본이 해석되지 않음: 줄 {detected.LatestError?.Line ?? 1}");
-            if (lowest is null || JsLevels.Compare(found, lowest.Value) < 0) lowest = found;
-            module |= detected.Module;
+            if (highest is null || JsLevels.Compare(found, highest.Value) > 0) highest = found;
+            module = ovs.Count == 1 && detected.Module;
         }
-        var level = lowest!.Value;
+        var level = highest!.Value;
         var target = configured is { } wanted && JsLevels.Compare(wanted, level) >= 0 ? wanted : level;
         return new JsPlan(target, module, level, null);
     }

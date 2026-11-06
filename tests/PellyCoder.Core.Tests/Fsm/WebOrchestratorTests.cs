@@ -358,4 +358,108 @@ public sealed class WebOrchestratorTests
         Assert.Equal(FailureKinds.JsSyntaxErrors, Summary().GetProperty("failureKind").GetString());
         Assert.DoesNotContain(ServerHint, _ui.Warnings);
     }
+
+    // ---- page success paths (end to end, container "page") ----
+
+    private Task<int> RunPageEdit(EditKind kind, string path, string? function = null, string? selector = null) =>
+        FsmOrchestratorFactory.CreateWeb(_fs, _backend, _ui, _options, TimeProvider.System, kind)
+            .RunAsync(new RunRequest(path, null, function, null, "change", true, false, 2, Kind: kind, Selector: selector),
+                TestContext.Current.CancellationToken)
+            .WaitAsync(WallClock, CancellationToken.None);
+
+    private const string JsCp949Page =
+        "<%@ Language=\"VBScript\" CodePage=\"949\" %>\r\n" +
+        "<html>\r\n<p>한글 머리</p>\r\n" +
+        "<script type=\"text/javascript\">\r\n" +
+        "function helper(a) {\r\n  return a;\r\n}\r\n" +
+        "</script>\r\n" +
+        "<input type=\"text\" name=\"custId\" id=\"custId\">\r\n" +
+        "<script>\r\n" +
+        "function fnSave() {\r\n" +
+        "  var s = '<%= Replace(v, \"'\", \"\\'\") %>';\r\n" +
+        "  var n = <%= cnt %>;\r\n" +
+        "  return helper(s + n);\r\n" +
+        "}\r\n" +
+        "</script>\r\n" +
+        "<p>끝 한글</p>\n"; // mixed line end at the very end
+
+    [Fact]
+    public async Task Page_Js_Function_RetryAfterScriptCloseRejection_Exit0_BytesOutsideBlockUnchanged()
+    {
+        var path = Root + "/p/list.asp";
+        var cp949 = Encoding.GetEncoding(949);
+        _fs.AddFile(path, new MockFileData(cp949.GetBytes(JsCp949Page)));
+        _backend.Enqueue(Block("  return helper(s + n);", "  return \"</script>\" + helper(s + n);"));
+        _backend.Enqueue("Escape it.</think>", evalCount: 10);
+        _backend.Enqueue(Block("  return helper(s + n);", "  if (!s) { alert(\"빈 값\"); }\n  return helper(s + n);"));
+
+        var exit = await RunPageEdit(EditKind.Js, path, function: "fnSave");
+
+        Assert.Equal(0, exit);
+        var expected = JsCp949Page.Replace("  return helper(s + n);", "  if (!s) { alert(\"빈 값\"); }\r\n  return helper(s + n);");
+        Assert.Equal(cp949.GetBytes(expected), _fs.File.ReadAllBytes(path));
+        var summary = Summary();
+        Assert.Equal("js-page-v1", summary.GetProperty("promptVersion").GetString());
+        var web = summary.GetProperty("web");
+        Assert.Equal("page", web.GetProperty("container").GetString());
+        Assert.Equal("passed", web.GetProperty("checks").GetProperty("Names").GetString());
+    }
+
+    private const string CssHtmPage =
+        "<html>\r\n<head>\r\n<meta charset=\"utf-8\">\r\n<style>\r\n.box {\r\n  color: red;\r\n}\r\n.card {\r\n  margin: 0;\r\n}\r\n</style>\r\n</head>\r\n<p>한글</p>\r\n";
+
+    [Fact]
+    public async Task Page_Css_InHtmWithMetaCharset_Exit0_BytesOutsideBlockUnchanged()
+    {
+        var path = Root + "/help/guide.htm";
+        _fs.AddFile(path, new MockFileData(Encoding.UTF8.GetBytes(CssHtmPage)));
+        _backend.Enqueue(Block("  margin: 0;", "  margin: 0;\n  padding: 4px;"));
+
+        var exit = await RunPageEdit(EditKind.Css, path, selector: ".card");
+
+        Assert.Equal(0, exit);
+        Assert.Equal(Encoding.UTF8.GetBytes(CssHtmPage.Replace("  margin: 0;", "  margin: 0;\r\n  padding: 4px;")), _fs.File.ReadAllBytes(path));
+        var summary = Summary();
+        Assert.Equal("css-page-v1", summary.GetProperty("promptVersion").GetString());
+        Assert.Equal("page", summary.GetProperty("web").GetProperty("container").GetString());
+    }
+
+    [Fact]
+    public async Task Page_Css_InAspWithServerOutput_Exit0_BytesOutsideBlockUnchanged()
+    {
+        var path = Root + "/p/style.asp";
+        var page = CssHtmPage.Replace("color: red;", "color: <%= c %>;");
+        _fs.AddFile(path, new MockFileData(Encoding.UTF8.GetBytes(page)));
+        _backend.Enqueue(Block("  color: <%= c %>;", "  color: <%= c %>;\n  font-weight: bold;"));
+
+        var exit = await RunPageEdit(EditKind.Css, path, selector: ".box");
+
+        Assert.Equal(0, exit);
+        Assert.Equal(Encoding.UTF8.GetBytes(page.Replace("  color: <%= c %>;", "  color: <%= c %>;\r\n  font-weight: bold;")), _fs.File.ReadAllBytes(path));
+        var summary = Summary();
+        Assert.Equal("css-page-v1", summary.GetProperty("promptVersion").GetString());
+        Assert.Equal("page", summary.GetProperty("web").GetProperty("container").GetString());
+    }
+
+    [Fact]
+    public async Task Page_Js_InSharedInc_TakesNamesAndJqueryFromIncluder()
+    {
+        Prepare(Root + "/a.asp", "<script src=\"/js/jquery-1.8.3.js\"></script>\n<script>\nfunction fromParent() {}\n</script>\n<!--#include file=\"inc/x.inc\"-->\n");
+        Prepare(Root + "/js/jquery-1.8.3.js", "x");
+        var path = Root + "/inc/x.inc";
+        var inc = "<script>\nfunction own() {\n  return 1;\n}\n</script>\n";
+        Prepare(path, inc);
+        _backend.Enqueue(Block("  return 1;", "  fromParent();\n  return $(\"#a\").length;"));
+
+        var exit = await RunPageEdit(EditKind.Js, path, function: "own");
+
+        Assert.Equal(0, exit);
+        Assert.Equal(inc.Replace("  return 1;", "  fromParent();\n  return $(\"#a\").length;"), _fs.File.ReadAllText(path));
+        var summary = Summary();
+        Assert.Equal("js-page-v1", summary.GetProperty("promptVersion").GetString());
+        var web = summary.GetProperty("web");
+        Assert.Equal("page", web.GetProperty("container").GetString());
+        Assert.Equal("passed", web.GetProperty("checks").GetProperty("Names").GetString());
+        Assert.Equal("page", web.GetProperty("jquerySource").GetString());
+    }
 }

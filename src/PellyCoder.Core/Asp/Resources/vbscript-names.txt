@@ -177,6 +177,14 @@ RegExp
 Randomize
 
 [constants]
+vbBlack
+vbRed
+vbGreen
+vbYellow
+vbBlue
+vbMagenta
+vbCyan
+vbWhite
 vbTrue
 vbFalse
 vbUseDefault

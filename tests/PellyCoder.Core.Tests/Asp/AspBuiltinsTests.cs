@@ -36,6 +36,14 @@ public class AspBuiltinsTests
     [InlineData("vbMsgBoxSetForeground")]
     [InlineData("vbMsgBoxRight")]
     [InlineData("vbMsgBoxRtlReading")]
+    [InlineData("vbBlack")]
+    [InlineData("vbRed")]
+    [InlineData("vbGreen")]
+    [InlineData("vbYellow")]
+    [InlineData("vbBlue")]
+    [InlineData("vbMagenta")]
+    [InlineData("vbCyan")]
+    [InlineData("vbWhite")]
     public void Constants_Known(string name) => Assert.True(B.IsKnown(name, false));
 
     [Fact]

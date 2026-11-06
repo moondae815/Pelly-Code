@@ -10,6 +10,7 @@ namespace PellyCoder.Core.Tests.Impact;
 /// The loader's exception path, driven by a workspace factory that throws like MSBuildWorkspace does when the
 /// BuildHost folders are missing next to the app. No MSBuild runs here.
 /// </summary>
+[Collection("Culture")]
 public class MsBuildSemanticLoaderFailureTests
 {
     // A project path that does not exist: the restore pre-check passes it, so the load reaches the workspace.

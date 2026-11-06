@@ -134,6 +134,7 @@ internal static class EnglishBuildMessages
     private static readonly object Gate = new();
     private static int _holders;
     private static string?[] _saved = [];
+    private static CultureInfo? _savedDefaultUi;
 
     public static IDisposable Pin()
     {
@@ -144,6 +145,9 @@ internal static class EnglishBuildMessages
             if (_holders++ == 0)
             {
                 _saved = [.. Variables.Select(Environment.GetEnvironmentVariable)];
+                // Threads outside this flow (build host callbacks) take the default UI culture, not the current one.
+                _savedDefaultUi = CultureInfo.DefaultThreadCurrentUICulture;
+                CultureInfo.DefaultThreadCurrentUICulture = CultureInfo.InvariantCulture;
                 for (var i = 0; i < Variables.Length; i++) Environment.SetEnvironmentVariable(Variables[i], English[i]);
             }
         }
@@ -161,7 +165,10 @@ internal static class EnglishBuildMessages
             lock (Gate)
             {
                 if (--_holders == 0)
+                {
+                    CultureInfo.DefaultThreadCurrentUICulture = _savedDefaultUi;
                     for (var i = 0; i < Variables.Length; i++) Environment.SetEnvironmentVariable(Variables[i], _saved[i]);
+                }
             }
         }
     }

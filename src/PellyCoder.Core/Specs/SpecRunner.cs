@@ -101,6 +101,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
         }
 
         ApplyRun? run = null;
+        string? sqlListDir = null;
         try
         {
             // The SQL full list goes under this apply's run folder and must be there when the warnings are shown (the
@@ -111,7 +112,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             {
                 var id = "apply-" + RunLogger.NewRunId(time);
                 sqlRequest = SpecChecker.SqlRequest(fs, sqlImpact, allowDev: false, fs.Path.Combine(ws.PellyDir, "runs", id, "impact-sql.json"));
-                if (sqlRequest is not null) applyId = id;
+                if (sqlRequest is not null) { applyId = id; sqlListDir = fs.Path.Combine(ws.PellyDir, "runs", id); }
             }
 
             check = await SpecChecker.AddImpactAsync(check, impact, false, ct, sqlRequest);
@@ -128,6 +129,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
         }
         finally
         {
+            DropUnusedSqlList(sqlListDir);
             try
             {
                 if (run?.ApplyId is not null) pruneRuns?.Invoke(ws, run.ApplyId);
@@ -140,6 +142,24 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             {
                 held.Dispose();
             }
+        }
+    }
+
+    /// <summary>
+    /// A dry run or a declined warning question never writes apply.json, which would leave a run folder holding only the
+    /// SQL list; prune does not delete apply folders, so it is removed here. Best effort.
+    /// </summary>
+    private void DropUnusedSqlList(string? dir)
+    {
+        if (dir is null) return;
+        try
+        {
+            if (fs.Directory.Exists(dir) && fs.Directory.GetFileSystemEntries(dir) is [var only] && fs.Path.GetFileName(only) == "impact-sql.json")
+                fs.Directory.Delete(dir, recursive: true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // housekeeping: never changes the apply's result
         }
     }
 

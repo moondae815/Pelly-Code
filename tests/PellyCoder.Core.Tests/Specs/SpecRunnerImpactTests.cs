@@ -253,7 +253,7 @@ public sealed class SpecRunnerImpactTests : IDisposable
     }
 
     [Fact]
-    public async Task Apply_sql_list_exists_when_the_warning_question_is_asked()
+    public async Task Declined_sql_warning_leaves_no_run_folder_with_only_the_list()
     {
         Spec("- [ ] T1 sql db/a.sql 바꾼다\n");
         _sqlFinder.Tables = [new SqlTableShare("T1", new SqlObjectName("dbo", "Orders"), ["Status"], 3, 1, 0, 0)];
@@ -264,8 +264,21 @@ public sealed class SpecRunnerImpactTests : IDisposable
 
         Assert.Equal(2, code);
         Assert.Empty(_exec.Calls);
-        var dir = Assert.Single(Directory.GetDirectories(P(".pelly/runs"), "apply-*"));
-        Assert.True(File.Exists(Path.Combine(dir, "impact-sql.json")));
+        Assert.Single(_ui.ConfirmMessages);
+        Assert.Empty(Directory.GetDirectories(P(".pelly/runs"), "apply-*"));
+    }
+
+    [Fact]
+    public async Task Dry_run_with_sql_search_leaves_no_run_folder_with_only_the_list()
+    {
+        Spec("- [ ] T1 sql db/a.sql 바꾼다\n");
+        _sqlFinder.Tables = [new SqlTableShare("T1", new SqlObjectName("dbo", "Orders"), ["Status"], 3, 1, 0, 0)];
+
+        var code = await RunSql(SqlConfig("Server=prod-sql;Database=Shop;Integrated Security=true"), new ApplyOptions(false, false, false, true, true, null, false));
+
+        Assert.Equal(0, code);
+        Assert.Single(_sqlFinder.Calls);
+        Assert.Empty(Directory.GetDirectories(P(".pelly/runs"), "apply-*"));
     }
 
     [Fact]

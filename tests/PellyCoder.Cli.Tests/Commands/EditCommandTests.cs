@@ -327,7 +327,7 @@ public class EditCommandTests
 
         Assert.Equal(4, result.ExitCode);
         Assert.Equal(0, runner.Calls);
-        Assert.Contains("/w/site/p.asp", result.Output);
+        Assert.Contains("p.asp", result.Output);
     }
 
     [Fact]

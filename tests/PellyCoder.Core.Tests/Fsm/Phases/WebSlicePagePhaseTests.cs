@@ -16,8 +16,8 @@ namespace PellyCoder.Core.Tests.Fsm.Phases;
 /// <summary>JS/CSS SLICE on a page: env lines, [READ-ONLY: page] and [READ-ONLY: html] (design §4.7).</summary>
 public sealed class WebSlicePagePhaseTests
 {
-    private const string Root = "/w";
-    private const string PagePath = Root + "/p/list.asp";
+    private static readonly string Root = OperatingSystem.IsWindows() ? @"C:\w" : "/w";
+    private static readonly string PagePath = Root + "/p/list.asp";
     private static readonly WebTextCodec Codec = new("cp949");
 
     private readonly MockFileSystem _fs = new();
@@ -27,8 +27,9 @@ public sealed class WebSlicePagePhaseTests
     public WebSlicePagePhaseTests() => _guard = new FileGuard(_fs, TimeProvider.System, Codec);
 
     private async Task<RunContext> Sliced(string text, EditKind kind = EditKind.Js, string? function = "fnA", string? selector = null,
-        string file = PagePath)
+        string? file = null)
     {
+        file ??= PagePath;
         _fs.AddFile(file, new MockFileData(Encoding.UTF8.GetBytes(text)));
         var request = new RunRequest(file, null, function, null, "do it", true, false, null, Kind: kind, Selector: selector);
         var ctx = new RunContext("r1", request, _options)

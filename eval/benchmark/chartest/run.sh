@@ -32,6 +32,9 @@ for yaml in "$here"/m*.yaml; do
     dest="$out/$id-$i"
     work="$(mktemp -d "${TMPDIR:-/tmp}/chartest-work.XXXXXX")"
     cp -R "$repo/eval/corpus/$root/." "$work/"
+    if [ -f "$repo/eval/corpus/Directory.Build.props" ] && [ ! -f "$work/Directory.Build.props" ]; then
+      cp "$repo/eval/corpus/Directory.Build.props" "$work/"
+    fi
     find "$work" -type d \( -name bin -o -name obj -o -name .pelly \) -prune -exec rm -rf {} +
     mkdir -p "$dest"
     ( cd "$work" && dotnet restore "$root.sln" --nologo --disable-parallel > "$dest/restore.log" 2>&1 ) || { echo "$id#$i restore failed"; echo 4 > "$dest/exit"; rm -rf "$work"; continue; }

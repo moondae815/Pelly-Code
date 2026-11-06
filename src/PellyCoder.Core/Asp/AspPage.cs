@@ -426,6 +426,11 @@ public sealed class AspPage
                 case "With":
                     Open("With", "End With", statement);
                     break;
+                case "Else" or "ElseIf" or "Case":
+                    var owner = word == "Case" ? "Select Case" : "If";
+                    if (!_stack.Any(b => b.Name == owner))
+                        problems.Add(new AspProblem(first.Line, first.Column, "ASP004", $"`{word}`의 여는 짝이 없습니다"));
+                    break;
                 case "Next" or "Loop" or "Wend":
                     Close(word, statement);
                     break;

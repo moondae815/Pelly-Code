@@ -84,6 +84,26 @@ public class AspPageTests
         Assert.Equal("`End If`의 여는 짝이 없습니다", problem.Message);
     }
 
+    [Theory]
+    [InlineData("Else", "`Else`")]
+    [InlineData("ElseIf y Then", "`ElseIf`")]
+    [InlineData("Case 1", "`Case`")]
+    public void StrayElseElseIfCase_ASP004(string line, string name)
+    {
+        var page = AspPage.Parse("<%\nx = 1\n" + line + "\n%>");
+        var problem = Assert.Single(page.Problems);
+        Assert.Equal("ASP004", problem.Code);
+        Assert.Equal(3, problem.Line);
+        Assert.Equal(name + "의 여는 짝이 없습니다", problem.Message);
+    }
+
+    [Fact]
+    public void MatchedElseElseIfCase_NoProblem()
+    {
+        var page = AspPage.Parse("<%\nIf a Then\n x = 1\nElseIf b Then\n x = 2\nElse\n x = 3\nEnd If\nSelect Case x\nCase 1\n y = 1\nCase Else\n y = 2\nEnd Select\n%>");
+        Assert.Empty(page.Problems);
+    }
+
     [Fact]
     public void ServerScriptBlock_Parsed()
     {

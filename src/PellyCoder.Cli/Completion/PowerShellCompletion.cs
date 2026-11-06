@@ -72,8 +72,18 @@ internal static class PowerShellCompletion
             }
             $node = $tree
             $positionalSeen = $false
+            $skipValue = $false
             foreach ($word in $words) {
-                if ($word.StartsWith('-')) { continue }
+                if ($skipValue) { $skipValue = $false; continue }
+                if ($word.StartsWith('-')) {
+                    # The word after an option that takes a value (--config x.json) is that value, not a command or file.
+                    if (-not $word.Contains('=')) {
+                        foreach ($option in $node.Options) {
+                            if ($option.TakesValue -and [string]::Equals($option.Name, $word, [System.StringComparison]::OrdinalIgnoreCase)) { $skipValue = $true; break }
+                        }
+                    }
+                    continue
+                }
                 $child = $null
                 if (-not $positionalSeen) {
                     foreach ($candidate in $node.Children) {

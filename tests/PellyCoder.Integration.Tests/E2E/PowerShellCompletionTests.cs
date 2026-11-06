@@ -29,6 +29,7 @@ public sealed class PowerShellCompletionTests
         ("completion-sh", "pelly completion p"),
         ("sql-empty", "pelly sql "),
         ("sql-c", "pelly sql c"),
+        ("sql-config-sub", "pelly sql --config x.json p"),
     ];
 
     // The driver prints "<case>\t<CompletionText>" per match. Everything is ASCII, so the console code page does not matter.
@@ -195,5 +196,14 @@ public sealed class PowerShellCompletionTests
     {
         var r = await Complete(shell);
         Assert.DoesNotContain("--yes", r["ui-yes"]);
+    }
+
+    [WindowsTheory]
+    [InlineData("pwsh")]
+    [InlineData("powershell.exe")]
+    public async Task OptionValue_IsNotCountedAsAPositionalWord(string shell)
+    {
+        var r = await Complete(shell);
+        Assert.Contains("pull", r["sql-config-sub"]);
     }
 }

@@ -54,6 +54,16 @@ public class PowerShellCompletionTests
     public void Script_OffersPositionalValues() => Assert.Contains("PositionalValues = @('powershell')", Script);
 
     [Fact]
+    public void Script_SkipsTheValueOfAnOptionThatTakesOne()
+    {
+        // `pelly sql --config x.json p<Tab>`: x.json is the option's value, not a positional word.
+        Assert.Contains("$skipValue", Script);
+        Assert.Contains("TakesValue = $true", Script);
+        var walk = Script.IndexOf("foreach ($word in $words)", StringComparison.Ordinal);
+        Assert.True(walk > 0 && Script.IndexOf("$skipValue = $true", walk, StringComparison.Ordinal) > walk);
+    }
+
+    [Fact]
     public void ThinkValues_MatchThinkModeEnum() =>
         Assert.Equal(["off", "retry", "always"], PowerShellCompletion.OptionValues["think"]);
 }

@@ -13,6 +13,18 @@ public class AspSafetyGuardTests
         AspSafetyGuard.Findings(AspPage.Parse(text), sanitizers);
 
     [Fact]
+    public void FindingMovedToAnotherProcedure_IsNew()
+    {
+        const string shell = "  Set sh = CreateObject(\"WScript.Shell\")\n";
+        var original = "<%\nSub A()\n" + shell + "End Sub\nSub B()\n  x = 1\nEnd Sub\n%>";
+        var patched = "<%\nSub A()\n  x = 1\nEnd Sub\nSub B()\n" + shell + "End Sub\n%>";
+        var finding = Assert.Single(New(original, patched));
+        Assert.Equal("ShellObject", finding.Rule);
+        Assert.Equal(6, finding.Line);
+        Assert.Empty(New(original, original));
+    }
+
+    [Fact]
     public void Shell_New_Rejected()
     {
         var findings = New("<%\nx = 1\n%>", "<%\nx = 1\nSet sh = Server.CreateObject(\"WScript.Shell\")\n%>");

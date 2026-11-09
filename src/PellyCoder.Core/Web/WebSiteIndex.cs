@@ -144,6 +144,7 @@ public static class WebSiteIndex
             candidates = fs.Directory.EnumerateFiles(siteRoot, "*", options)
                 .Select(p => (Rel: Relative(root, p), Full: p, Page: !p.EndsWith(".js", StringComparison.OrdinalIgnoreCase) && WebPages.IsPage(p, extensions)))
                 .Where(c => c.Page || c.Full.EndsWith(".js", StringComparison.OrdinalIgnoreCase))
+                .Where(c => !c.Rel.Split('/')[..^1].Any(BoundedWalker.IsSkippedDirectoryName))
                 .OrderBy(c => c.Rel, StringComparer.Ordinal)
                 .ToList();
         }

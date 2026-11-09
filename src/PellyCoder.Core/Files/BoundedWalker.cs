@@ -19,6 +19,9 @@ public static class BoundedWalker
 {
     private static readonly string[] SkippedDirectories = ["bin", "obj", ".pelly", ".git", ".vs", "node_modules", "packages", "TestResults"];
 
+    /// <summary>Whether a folder of this name is never entered (build output, tool and package folders).</summary>
+    public static bool IsSkippedDirectoryName(string name) => SkippedDirectories.Contains(name, StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Lazily yields the files matching <paramref name="pattern"/> under <paramref name="root"/>.</summary>
     public static IEnumerable<string> Files(IFileSystem fs, string root, string pattern, int maxDirectories, CancellationToken ct = default) =>
         WalkCore(fs, root, pattern, maxDirectories, new State(false, root), ct);

@@ -22,6 +22,18 @@ public class WebSiteIndexSpCallTests
             spCallFunctions: wrappers);
 
     [Fact]
+    public void Index_skips_backup_and_build_folders()
+    {
+        var fs = Fs(
+            ("/site/.pelly/backup/x/a.asp", "<%\nrs.Open \"EXEC usp_x 1\", conn\n%>"),
+            ("/site/bin/b.asp", "<%\nrs.Open \"EXEC usp_x 1\", conn\n%>"),
+            ("/site/node_modules/m/c.asp", "<%\nrs.Open \"EXEC usp_x 1\", conn\n%>"),
+            ("/site/a.asp", "<%\nrs.Open \"EXEC usp_x 1\", conn\n%>"));
+        var result = Load(fs);
+        Assert.Equal("a.asp", Assert.Single(result.SpCalls).RelativePath);
+    }
+
+    [Fact]
     public void Index_lists_direct_exec_call_with_argument_count()
     {
         var fs = Fs(("/site/a.asp", "<%\nrs.Open \"EXEC usp_x 1, 2\", conn\n%>"));

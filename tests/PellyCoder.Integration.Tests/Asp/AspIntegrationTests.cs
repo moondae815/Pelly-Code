@@ -204,7 +204,7 @@ public sealed class AspIntegrationTests(ITestOutputHelper output) : IDisposable
     {
         var processes = new SystemProcessRunner(TimeProvider.System);
         var files = AspCorpusCopy.SourceFiles();
-        Assert.Equal(11, files.Count);
+        Assert.Equal(15, files.Count);
         var failures = new List<string>();
         foreach (var path in files)
         {

@@ -81,3 +81,56 @@
 - 사례 위치는 설계 §7의 `eval/benchmark/tasks/`가 아니라 `eval/benchmark/asp/`다(전용 실행기 `run.sh`와 함께 둠, 기존 벤치마크 50건 집합에 섞지 않음).
 - 개선 후보: (1) 프롬프트에 VBScript 단락 평가 없음 규칙, (2) 줄 범위 대상에서 기존 `Request` 대입 줄이 사라지면 검토 화면에 경고, (3) 재시도·검사 실패를 볼 수 있는 더 큰 페이지와 더 어려운 요청(예: 여러 블록에 걸친 변경)으로 사례 보강.
 - 측정 뒤 반영(이 측정 결과에는 들어 있지 않음): (1)은 `system.asp.txt` 규칙 9, (2)는 검토 경고 「논리」(대상 안의 `If`·`ElseIf` 한 조건에서 같은 식을 `IsNumeric`·`IsDate`로 검사하고 `CLng`·`CInt`·`CDbl`·`CDate`로 변환하면 「And/Or는 단축 평가를 하지 않습니다: …」, 원본 대상에서 `Request`를 읽던 변수의 대입이 사라지면 「기존 입력값 읽기 줄이 사라졌습니다: …」). 경고일 뿐 거부하지 않습니다. (3)은 그대로 남은 후보입니다.
+
+---
+
+# A2 예비 측정 (명세 asp 작업·SP→ASP 영향)
+
+> **예비 — Windows·현장 측정 별도.** 개발 맥(macOS)의 로컬 Ollama로 잰 값이다. **개발 SQL Server 연결(`PELLY_SQL_CONNECTION`)을 설정하지 않았으므로 `sql` 작업이 든 사례 2건(a2-001·a2-002)의 `apply`는 돌리지 못했다**(「건너뜀(DB 없음)」). 돌린 것은 `spec check --impact`(3사례)와 asp 작업만 있는 a2-003의 `apply`다. 그래서 A2의 핵심인 「sql→asp 순서 실행·그룹 되돌리기·바뀐 뒤 서명·apply 뒤 경고」는 이 측정에서 **재지 못했다**(자체 테스트는 통과). KPI 판정에는 쓰지 않는다.
+
+설계: [docs/superpowers/specs/2026-11-09-pelly-asp-a2-design.md](superpowers/specs/2026-11-09-pelly-asp-a2-design.md) §6 · 사례와 실행기: `eval/benchmark/asp-a2/`(`run.sh`)
+
+## A2-1. 코퍼스와 사례
+
+같은 SP `dbo.usp_OrderList`(`eval/corpus/Asp/db/proc/usp_OrderList.sql`, 매개변수 `@CustomerId`·`@From`·`@To`, 모두 기본값 NULL)를 세 방식으로 부르는 페이지를 `eval/corpus/Asp`에 더했다. 기존 페이지는 고치지 않았다.
+
+| 파일 | 호출 방식 |
+| :--- | :--- |
+| `admin/order/summary.asp` | `DbConn.Execute("exec dbo.usp_OrderList …")`, `LoadOrderRows` 안(인수 모름) |
+| `admin/order/export.asp` | `cmd.CommandText = "{call dbo.usp_OrderList(?, ?, ?)}"` (18행, 인수 3개) |
+| `admin/order/dashboard.asp` | 래퍼 `ExecSP("dbo.usp_OrderList", …)`(`inc/func_report.inc`, 코퍼스 `pelly.json`의 `asp.spCallFunctions`) |
+
+| 사례 | 내용 | 기대 |
+| :--- | :--- | :--- |
+| a2-001 | sql(`@Status` 조건) + asp(`summary.asp#LoadOrderRows`), 그룹 G1 | 영향 경고에 `export.asp:18`·`dashboard.asp:14`만, `apply` 종료 0, 두 파일에 `@Status` |
+| a2-002 | sql(`@Status` 추가) + asp(`export.asp#L18-21`)만, 그룹 없음 | 영향 경고에 `summary.asp:15`·`dashboard.asp:14`, apply 뒤 경고(기본값 있는 매개변수라 「기존 호출은 그대로 동작할 수 있음」)와 `aspCallersNotUpdated` 2곳 이상 |
+| a2-003 | asp 두 작업, 같은 파일 `summary.asp`의 `#FormatRow`·`#LoadOrderRows` | `spec check` 오류 0(`AspLinesAfterEdit` 없음), `apply` 종료 0, 영향 경고 없음 |
+
+## A2-2. 조건
+
+| 항목 | 값 |
+| :--- | :--- |
+| 모델 | 태그 `qwen3.6:35b-a3b-q4_K_M`, 로컬 Ollama `http://localhost:11434` |
+| 기기 | Mac (Apple M5 Pro), macOS Darwin 25.6.0 |
+| 코드 | 브랜치 `a2` (코퍼스·사례를 더하기 전 `b9cda3a`), 생각 모드 `retry`(기본) |
+| 실행 일시 | 2026-11-09, 사례 3건 × 3회 |
+| 실행 방법 | `eval/benchmark/asp-a2/run.sh --repeat 3` — 회마다 `eval/corpus/Asp`를 새 임시 폴더에 복사(`.git` 폴더로 작업 공간 루트), `pelly spec check changes/<id>.md --impact` 뒤 `pelly apply changes/<id>.md --yes` |
+| 왜 `pelly-eval apply`가 아닌가 | 그 실행기는 `eval/corpus` 전체를 작업 공간으로 쓰고 사례가 승인된 S6 정답 명세 12건이다. A2 사례는 `Asp`가 작업 공간 루트여야(코퍼스 `pelly.json`의 래퍼 설정) 하고, 영향 경고·`apply.json`의 `aspCallersNotUpdated` 기대를 표현하지 못한다 |
+| 설정 | 코퍼스 `pelly.json`(`asp.siteRoot` `.`, `asp.sqlSanitizers`, `asp.spCallFunctions` `ExecSP`), 그 밖은 기본값. `sql.connectionString` 없음 |
+
+## A2-3. 결과
+
+| 사례 | `spec check --impact` | `apply` | 평균 시간 |
+| :--- | :-: | :--- | -: |
+| a2-001 | 3/3 기대대로 | 건너뜀(DB 없음) | - |
+| a2-002 | 3/3 기대대로 | 건너뜀(DB 없음) | - |
+| a2-003 | 3/3 기대대로 | 3/3 종료 0, 모두 첫 시도, 기대 문자열(`FormatNumber(`) 있음 | 5초 |
+
+**예비 측정 결과: 영향 경고 판정 9/9(사례 3 × 3회) 기대대로, `apply` 실행은 a2-003만 3/3 성공(종료 0, 첫 시도), a2-001·a2-002의 `apply`는 개발 DB가 없어 건너뜀(0/6 측정).** 실패한 실행은 없지만, 건너뛴 부분이 A2의 중심이라 이 수치로 A2 전체를 판단할 수 없다.
+
+## A2-4. 관찰
+
+1. **DB 없이도 ASP 영향 경고는 나온다.** 개발 DB가 없으면 「영향 탐색(SQL)… 접속하지 못해」 경고가 한 번 나오고, ASP 호출 색인은 그대로 돌아 명세 밖 호출 경고가 나왔다(래퍼 `ExecSP`·`{call}`·직접 `Execute` 세 방식 모두). 인수 개수는 `{call}`만 알고(3개) 나머지는 「인수 모름」이다.
+2. **`sql` 작업은 DB 없이 `apply`가 시작도 못 한다.** 사전 점검에서 「SQL 연결 문자열이 없습니다」로 종료 4(`EnvError`)가 된다. 명세 밖 호출 경고는 그 앞에 `apply.json`에 남는다. 그래서 a2-001·a2-002의 `apply`는 `PELLY_SQL_CONNECTION`(개발 DB) 설정 뒤 `run.sh`를 다시 돌려야 잰다. 허용 목록(`sql.allowedHosts`, `sql.allowedDatabases`) 설정이 필요할 수 있다.
+3. **a2-003 두 작업이 같은 파일에서 순서와 상관없이 성공했다.** 프로시저 대상이라 `AspLinesAfterEdit` 오류가 없었고, 3회 모두 `FormatRow`에 `FormatNumber(amount, 0)`, `LoadOrderRows`에 `customerId <= 0`이면 `NULL`을 넘기는 분기가 들어갔다(같은 출력). 컴파일 검사는 맥에서 「건너뜀」, SP 확인은 「건너뜀(개발 DB 연결이 설정되지 않았습니다)」이다. 이 사례의 `LoadOrderRows`가 부르는 `usp_OrderList`는 바뀌지 않은 SP라 파일 기준 서명이 없어서다(설계 §4.4).
+4. **한계:** 사례가 3건, 코퍼스가 작고, 모델이 쉬운 요청을 첫 시도에 풀었다. 판정은 「요청한 문자열이 들어갔는가」와 경고 기대만 본다. 결과 코드를 사람이 읽는 검토는 이번 a2-003의 diff만 했다. Windows `cscript` 컴파일과 DB 연결 측정은 `deploy/field-results.md`에서 사람이 한다.

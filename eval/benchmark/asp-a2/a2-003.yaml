@@ -1,0 +1,7 @@
+id: a2-003
+needsSql: false
+checkMustContain: ["오류 0건"]
+checkMustNotContain: ["AspLinesAfterEdit"]
+exit: 0
+fileMustContain: ["admin/order/summary.asp::FormatNumber("]
+outputMustNotContain: ["영향 대상이 명세에 없습니다"]

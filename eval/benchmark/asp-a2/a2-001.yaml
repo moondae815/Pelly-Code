@@ -1,0 +1,7 @@
+id: a2-001
+needsSql: true
+checkMustContain: ["admin/order/export.asp:18", "admin/order/dashboard.asp:14"]
+checkMustNotContain: ["admin/order/summary.asp:15"]
+exit: 0
+fileMustContain: ["db/proc/usp_OrderList.sql::@Status", "admin/order/summary.asp::@Status"]
+outputMustNotContain: ["SP와 페이지가 어긋나 있을 수 있습니다"]

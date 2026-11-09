@@ -1,0 +1,8 @@
+id: a2-002
+needsSql: true
+checkMustContain: ["admin/order/summary.asp:15", "admin/order/dashboard.asp:14"]
+checkMustNotContain: ["admin/order/export.asp:18"]
+exit: 0
+fileMustContain: ["db/proc/usp_OrderList.sql::@Status", "admin/order/export.asp::Request(\"status\")"]
+outputMustContain: ["usp_OrderList의 매개변수가 바뀌었습니다", "기존 호출은 그대로 동작할 수 있음"]
+callersNotUpdatedMin: 2

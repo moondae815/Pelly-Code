@@ -1,7 +1,8 @@
 {
   "asp": {
     "siteRoot": ".",
-    "sqlSanitizers": ["SafeSQL"]
+    "sqlSanitizers": ["SafeSQL"],
+    "spCallFunctions": [{ "name": "ExecSP", "argument": 1 }]
   },
   "web": {
     "globals": ["gfnOpenPopup"]

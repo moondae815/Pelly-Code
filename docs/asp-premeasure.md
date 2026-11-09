@@ -134,3 +134,17 @@
 2. **`sql` 작업은 DB 없이 `apply`가 시작도 못 한다.** 사전 점검에서 「SQL 연결 문자열이 없습니다」로 종료 4(`EnvError`)가 된다. 명세 밖 호출 경고는 그 앞에 `apply.json`에 남는다. 그래서 a2-001·a2-002의 `apply`는 `PELLY_SQL_CONNECTION`(개발 DB) 설정 뒤 `run.sh`를 다시 돌려야 잰다. 허용 목록(`sql.allowedHosts`, `sql.allowedDatabases`) 설정이 필요할 수 있다.
 3. **a2-003 두 작업이 같은 파일에서 순서와 상관없이 성공했다.** 프로시저 대상이라 `AspLinesAfterEdit` 오류가 없었고, 3회 모두 `FormatRow`에 `FormatNumber(amount, 0)`, `LoadOrderRows`에 `customerId <= 0`이면 `NULL`을 넘기는 분기가 들어갔다(같은 출력). 컴파일 검사는 맥에서 「건너뜀」, SP 확인은 「건너뜀(개발 DB 연결이 설정되지 않았습니다)」이다. 이 사례의 `LoadOrderRows`가 부르는 `usp_OrderList`는 바뀌지 않은 SP라 파일 기준 서명이 없어서다(설계 §4.4).
 4. **한계:** 사례가 3건, 코퍼스가 작고, 모델이 쉬운 요청을 첫 시도에 풀었다. 판정은 「요청한 문자열이 들어갔는가」와 경고 기대만 본다. 결과 코드를 사람이 읽는 검토는 이번 a2-003의 diff만 했다. Windows `cscript` 컴파일과 DB 연결 측정은 `deploy/field-results.md`에서 사람이 한다.
+
+### 개발 DB 연결 측정 (2026-11-09, 1회)
+
+로컬 코퍼스 SQL Server 컨테이너의 `PellyCorpus` DB에 `PELLY_SQL_CONNECTION`과 허용 목록 환경 변수(`PELLY__sql__allowedHosts__0`, `PELLY__sql__allowedDatabases__0`)를 주고 `run.sh --repeat 1`을 돌렸다. 모델과 엔드포인트는 위와 같다.
+
+| 사례 | `spec check --impact` | `apply` | 시간 |
+|---|---|---|---|
+| a2-001 | 기대대로 | 종료 0, 두 파일에 `@Status` | 24초 |
+| a2-002 | 기대대로 | 종료 0, 기대 문구 1개 없음(아래) | 16초 |
+| a2-003 | 기대대로 | 종료 0 | 5초 |
+
+1. **a2-001(그룹 G1)의 sql→asp 순서 실행이 개발 DB에서 성공했다.**
+2. **a2-002는 사례 문장이 모호했다.** 모델이 `@Status`를 매개변수 끝이 아니라 `@CustomerId` 다음에 넣고 `export.asp`의 `?`와 `CreateParameter`도 같은 자리에 끼웠다. 끝에 더한 것이 아니므로 pelly가 「기존 호출은 그대로 동작할 수 있음」을 붙이지 않은 것은 설계(§4.5)대로다. 고치지 않은 `?` 세 개짜리 호출은 위치로 묶이므로 실제로 값이 어긋난다. 사례 문장에 「맨 끝에」를 넣어 기대와 맞췄다. 바꾼 문장으로 다시 잰 1회는 기대대로였다(종료 0, 「기존 호출은 그대로 동작할 수 있음」 경고, 15초).
+3. **처음 실행은 세 사례 모두 종료 4였다.** `run.sh`가 메인 체크아웃의 오래된 빌드(A2 이전)를 써서 `asp` 작업 줄을 읽지 못했다. 이제 벤치마크 `run.sh`(asp, asp-a2, chartest, web)는 시작할 때 pelly를 빌드한다.

@@ -29,7 +29,9 @@ while [ $# -gt 0 ]; do
   esac
 done
 pelly="$repo/src/PellyCoder.Cli/bin/Debug/net10.0/pelly.dll"
-[ -f "$pelly" ] || { echo "build first: $pelly missing" >&2; exit 4; }
+# Build first so the run never measures a stale pelly (an up-to-date build takes a few seconds).
+build_log="$(dotnet build "$repo/src/PellyCoder.Cli" -nologo -v q 2>&1)" || { printf '%s\n' "$build_log" >&2; echo "pelly build failed" >&2; exit 4; }
+[ -f "$pelly" ] || { echo "pelly.dll missing after build: $pelly" >&2; exit 4; }
 command -v python3 >/dev/null 2>&1 || { echo "python3 is required" >&2; exit 4; }
 mkdir -p "$out"
 # Prints one yaml field: a scalar (quotes removed) or, for a [..] list, one item per line.

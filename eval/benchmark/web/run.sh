@@ -71,7 +71,9 @@ for yaml in "$here"/js-*.yaml "$here"/css-*.yaml "$here"/page-*.yaml; do
   check_case "$yaml" || bad_cases=$((bad_cases + 1))
 done
 if [ "$check_only" -eq 1 ]; then [ "$bad_cases" -eq 0 ]; exit $?; fi
-[ -f "$pelly" ] || { echo "build first: $pelly missing" >&2; exit 4; }
+# Build first so the run never measures a stale pelly (an up-to-date build takes a few seconds).
+build_log="$(dotnet build "$repo/src/PellyCoder.Cli" -nologo -v q 2>&1)" || { printf '%s\n' "$build_log" >&2; echo "pelly build failed" >&2; exit 4; }
+[ -f "$pelly" ] || { echo "pelly.dll missing after build: $pelly" >&2; exit 4; }
 mkdir -p "$out"
 results="$out/results.tsv"
 printf 'id\trun\texit\tseconds\tattempts\tfailureKind\tcontains\tlevelRejections\twarnings\tchecks\n' > "$results"

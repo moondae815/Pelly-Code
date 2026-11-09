@@ -28,7 +28,8 @@ public sealed class FsmTaskExecutor(Func<RunRequest, CancellationToken, Task<Run
         else if (task.Kind == TaskKind.Asp)
         {
             request = new RunRequest(file, null, task.Symbol, null, task.Request, o.Yes, o.DryRun, o.MaxRetries,
-                Kind: EditKind.Asp, Verbose: o.Verbose, Host: host, Group: o.Group, Lines: task.Lines);
+                Kind: EditKind.Asp, Verbose: o.Verbose, Host: host, Group: o.Group, Lines: task.Lines,
+                ChangedProcedures: o.ChangedProcedures);
         }
         else
         {

@@ -349,6 +349,87 @@ public sealed class SpecRunnerAspTests : IDisposable
         Assert.Equal(Page, Read("web/a.asp"));
     }
 
+    // ── Stored procedures as the sql tasks left them (A2 design §4.4) ──
+
+    private static ApplyOptions Resume() => new(false, true, false, true, false, null, false);
+
+    private const string ProcWithStatus = "CREATE PROCEDURE dbo.usp_A @page int, @status varchar(10) = NULL AS SELECT 1;\n";
+
+    [Fact]
+    public async Task Applied_sql_signature_reaches_later_asp_tasks()
+    {
+        Make("db/a.sql", ProcWithStatus);
+        Make("db/c.sql", "CREATE PROCEDURE usp_A @page int, @status varchar(10), @kind int AS SELECT 1;\n");
+        Spec("- [ ] T1 sql db/a.sql 바꾼다\n- [ ] T2 asp web/a.asp#GetOne 바꾼다\n" +
+             "- [ ] T3 sql db/c.sql 바꾼다 [G1]\n- [ ] T4 asp web/b.asp#GetOne 바꾼다 [G1]\n");
+        var code = await Run(Opts());
+
+        Assert.Equal(0, code);
+        Assert.Null(_exec.Options[0].ChangedProcedures); // a sql task gets none
+        var t2 = Assert.Single(_exec.Options[1].ChangedProcedures!);
+        Assert.Equal("T1", t2.TaskId);
+        Assert.False(t2.Deployed);
+        Assert.Equal("dbo.usp_A", t2.Signature.Name.Display);
+        Assert.Equal(["@page", "@status"], t2.Signature.Parameters.Select(p => p.Name));
+        Assert.True(t2.Signature.Parameters[1].HasDefault);
+        // In a group, the group's own applied sql task counts, and the latest change of the same procedure wins.
+        var t4 = Assert.Single(_exec.Options[3].ChangedProcedures!);
+        Assert.Equal("T3", t4.TaskId);
+        Assert.Equal(3, t4.Signature.Parameters.Count);
+    }
+
+    [Fact]
+    public async Task Resume_uses_file_signature_of_done_sql_task()
+    {
+        Make("db/a.sql", ProcWithStatus);
+        Spec("- [x] T1 sql db/a.sql 바꾼다 <!-- run: R-old -->\n- [ ] T2 asp web/a.asp#GetOne 바꾼다\n");
+        var code = await Run(Resume());
+
+        Assert.Equal(0, code);
+        Assert.Equal(["T2"], _exec.Calls);
+        var changed = Assert.Single(_exec.Options[0].ChangedProcedures!);
+        Assert.Equal("T1", changed.TaskId);
+        Assert.Equal(["@page", "@status"], changed.Signature.Parameters.Select(p => p.Name));
+    }
+
+    [Fact]
+    public async Task Unparsable_sql_falls_back_with_warning()
+    {
+        Make("db/a.sql", "CREATE PROCEDURE ((( AS\n");
+        Spec("- [x] T1 sql db/a.sql 바꾼다 <!-- run: R-old -->\n- [ ] T2 asp web/a.asp#GetOne 바꾼다\n" +
+             "- [ ] T3 asp web/b.asp#GetOne 바꾼다\n");
+        var code = await Run(Resume());
+
+        Assert.Equal(0, code);
+        Assert.All(_exec.Options, o => Assert.Null(o.ChangedProcedures));
+        // Once per sql task, not once per asp task.
+        Assert.Equal(["T1의 SP 파일을 해석하지 못해 개발 DB의 매개변수를 씁니다"], _ui.Warnings.Where(w => w.Contains("해석하지 못해")));
+    }
+
+    [Fact]
+    public async Task Asp_tasks_without_sql_tasks_get_no_changed_procedures()
+    {
+        Spec("- [ ] T1 asp web/a.asp#GetOne 바꾼다\n");
+        var code = await Run(Opts());
+
+        Assert.Equal(0, code);
+        Assert.Null(Assert.Single(_exec.Options).ChangedProcedures);
+    }
+
+    [Fact]
+    public async Task Executor_passes_changed_procedures_to_the_request()
+    {
+        var seen = new List<RunRequest>();
+        var changed = new ChangedProcedure("T1", new PellyCoder.Core.Abstractions.SqlProcedureSignature(
+            PellyCoder.Core.Sql.SqlObjectName.Parse("dbo.usp_A"), [], null));
+        var task = new SpecTask("T2", TaskKind.Asp, "web/a.asp", "GetOne", "바꾼다", [], null, false, null, null, 1);
+        var ws = new Workspace(_root, Path.Combine(_root, ".pelly"));
+        await Recording(seen).ExecuteAsync(task, ws, new TaskRunOptions(true, false, null, false, ChangedProcedures: [changed]),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal([changed], Assert.Single(seen).ChangedProcedures!);
+    }
+
     private static GroupBuild Built(params Diagnostic[] errors) => new(true, null, null, errors);
 
     private sealed class FakeGroupVerifier : IGroupVerifier

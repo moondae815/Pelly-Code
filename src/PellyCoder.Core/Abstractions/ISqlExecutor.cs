@@ -30,7 +30,8 @@ public sealed record SqlServerProbe(string Version, string Database, bool CanVie
 
 public sealed record SqlColumnInfo(string Name, string TypeDisplay, bool Nullable, bool IsPrimaryKey);
 
-public sealed record SqlParameterInfo(string Name, string Type, bool IsOutput);
+/// <param name="HasDefault">The parameter declares a default; only parameters read from a .sql file set it (the database does not report it).</param>
+public sealed record SqlParameterInfo(string Name, string Type, bool IsOutput, bool HasDefault = false);
 
 /// <param name="FirstResultSet">Columns of the first result set; null when the server cannot describe it (temp tables, errors).</param>
 public sealed record SqlProcedureSignature(SqlObjectName Name, IReadOnlyList<SqlParameterInfo> Parameters, IReadOnlyList<SqlColumnInfo>? FirstResultSet);

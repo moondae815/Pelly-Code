@@ -7,9 +7,10 @@ namespace PellyCoder.Core.Specs;
 /// Per-run options <c>pelly apply</c> hands to every task. <paramref name="Group"/> runs the task in group mode;
 /// <paramref name="MemberOverride"/> names the target member instead of the spec's symbol (a group re-run after a rename).
 /// <paramref name="Tests"/> are the acceptance-criterion tests the task checks (cs tasks only; null when none links it).
+/// <paramref name="ChangedProcedures"/> are the stored procedures as earlier sql tasks left them (asp tasks only; null when none).
 /// </summary>
 public sealed record TaskRunOptions(bool Yes, bool DryRun, int? MaxRetries, bool Verbose, GroupRun? Group = null, string? MemberOverride = null,
-    TaskTests? Tests = null);
+    TaskTests? Tests = null, IReadOnlyList<ChangedProcedure>? ChangedProcedures = null);
 
 /// <summary>Runs one spec task and reports the detailed outcome.</summary>
 public interface ITaskExecutor

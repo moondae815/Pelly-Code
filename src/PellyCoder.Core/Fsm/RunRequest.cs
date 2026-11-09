@@ -24,7 +24,8 @@ namespace PellyCoder.Core.Fsm;
 /// (as spelled in <paramref name="VerifyTests"/>) to the <see cref="TestDeclarationHash.Of"/> their caller recorded; VERIFY's
 /// test step fails with <c>TestFileChanged</c> when a declaration no longer hashes to it. <paramref name="Lines"/>
 /// (<c>pelly asp --lines A-B</c>) is a line range target, used as given. <paramref name="Selector"/> (<c>pelly css --selector</c>)
-/// names the target CSS rule.
+/// names the target CSS rule. <paramref name="ChangedProcedures"/> (an asp task of <c>pelly apply</c>) are the stored procedures
+/// earlier sql tasks changed in their files but nobody deployed yet; the ASP pipeline uses them instead of the development database.
 /// </summary>
 public sealed record RunRequest(
     string FilePath, string? ClassName, string? MethodName, int? Line, string Request, bool Yes, bool DryRun, int? MaxRetries,
@@ -33,7 +34,7 @@ public sealed record RunRequest(
     IReadOnlyList<string>? VerifyTests = null, IReadOnlyList<string>? ExpectBreaks = null,
     IReadOnlyDictionary<string, TestCheck>? TestChecks = null,
     IReadOnlyDictionary<string, string>? ExpectedTestHashes = null,
-    TextSpanInfo? Lines = null, string? Selector = null)
+    TextSpanInfo? Lines = null, string? Selector = null, IReadOnlyList<ChangedProcedure>? ChangedProcedures = null)
 {
     /// <summary>A test-first run: it always runs the tests and judges RED before the first write and GREEN after it.</summary>
     public bool TestFirst => VerifyTests is { Count: > 0 };
@@ -44,6 +45,18 @@ public sealed record RunRequest(
     /// </summary>
     public TestCheck CheckOf(string name) =>
         TestChecks is null ? TestCheck.Red | TestCheck.Green : TestChecks.GetValueOrDefault(name, TestCheck.None);
+}
+
+/// <summary>
+/// A stored procedure as sql task <paramref name="TaskId"/> left it in its file (A2 design §4.4), read with
+/// <see cref="SqlFileSignatures.Read"/>. <paramref name="Deployed"/> is always false: pelly never deploys, and the model
+/// input says so.
+/// </summary>
+public sealed record ChangedProcedure(string TaskId, SqlProcedureSignature Signature, bool Deployed = false)
+{
+    /// <summary>The last entry of <paramref name="changed"/> naming <paramref name="name"/> (the latest change wins); null when none does.</summary>
+    public static ChangedProcedure? Find(IReadOnlyList<ChangedProcedure>? changed, SqlObjectName name) =>
+        changed?.LastOrDefault(c => c.Signature.Name.SameAs(name));
 }
 
 /// <summary>

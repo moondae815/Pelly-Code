@@ -15,6 +15,7 @@ using PellyCoder.Core.Llm;
 using PellyCoder.Core.Logging;
 using PellyCoder.Core.Models;
 using PellyCoder.Core.Reporting;
+using PellyCoder.Core.Sql;
 using PellyCoder.Core.Testing;
 using PellyCoder.Core.Workspaces;
 
@@ -59,6 +60,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
     private IGroupVerifier? Groups => groups;
     private IGroupTester? GroupTests => groupTests;
     private int GroupRetryMax => groupRetryMax ?? new RetryOptions().Max;
+    private int SqlCompatLevel => sqlCompatLevel;
 
     private FeedbackBuilder? _defaultFeedback;
     private FeedbackBuilder GroupFeedback =>
@@ -183,6 +185,11 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
         // Ungrouped sql applied, then a later ungrouped asp failed (A2 design §4.1): the SP and the page may disagree.
         private readonly List<(string SqlId, string AspId)> _mismatches = [];
 
+        // Stored procedures as the sql tasks left them (A2 design §4.4): the sql tasks applied in this apply, in the order they
+        // were applied (a group's once the group is kept), and those whose SQL file could not be parsed (warned once each).
+        private readonly List<string> _appliedSql = [];
+        private readonly HashSet<string> _unparsedSql = new(StringComparer.Ordinal);
+
         // Group test-first (design §7.3): RED of the criteria whose first linked task is in a group, from the group's baseline,
         // and the expected breaks of the criteria whose last linked task is in a group, from the group's last verdict.
         private readonly Dictionary<string, RedState> _groupRed = new(StringComparer.Ordinal);
@@ -273,7 +280,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                 RunResult? run;
                 try
                 {
-                    run = await ExecuteTaskAsync(tx, task, taskOptions with { Tests = tests }, ct);
+                    run = await ExecuteTaskAsync(tx, task, WithChangedProcedures(task, taskOptions with { Tests = tests }, null), ct);
                 }
                 catch (OperationCanceledException)
                 {
@@ -289,7 +296,11 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                         return Finish(Unreviewed(tx, 4));
                     _marked.Add(task.Id);
                     _done[task.Id] = (r.RunId, r.Original?.Path ?? FullPath(task));
-                    if (task.Kind == TaskKind.Sql) appliedSql = task.Id;
+                    if (task.Kind == TaskKind.Sql)
+                    {
+                        appliedSql = task.Id;
+                        _appliedSql.Add(task.Id);
+                    }
                     continue;
                 }
 
@@ -361,7 +372,8 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             {
                 // A group task runs alone in group mode: no build, so nothing to verify the group with.
                 var group = todo[0].Group is null ? null : new GroupRun(null);
-                var r = await owner.Executor.ExecuteAsync(todo[0], ws, new TaskRunOptions(o.Yes, true, o.MaxRetries, o.Verbose, group), ct);
+                var options = WithChangedProcedures(todo[0], new TaskRunOptions(o.Yes, true, o.MaxRetries, o.Verbose, group), null);
+                var r = await owner.Executor.ExecuteAsync(todo[0], ws, options, ct);
                 return r.ExitCode;
             }
             catch (OperationCanceledException)
@@ -601,6 +613,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             {
                 _marked.Add(task.Id);
                 _done[task.Id] = (g.Succeeded[task.Id].RunId, g.Succeeded[task.Id].Path);
+                if (task.Kind == TaskKind.Sql) _appliedSql.Add(task.Id);
             }
             return new GroupEnd(0, false);
         }
@@ -793,12 +806,67 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             CancellationToken ct)
         {
             ct.ThrowIfCancellationRequested();
-            if (await ExecuteTaskAsync(tx, task, new TaskRunOptions(true, false, o.MaxRetries, o.Verbose, run, member), ct) is not { } r)
+            if (await ExecuteTaskAsync(tx, task, WithChangedProcedures(task, new TaskRunOptions(true, false, o.MaxRetries, o.Verbose, run, member), g), ct)
+                is not { } r)
                 return null;
 
             g.LastRun[task.Id] = r.RunId;
             if (r.ExitCode == 0) g.Succeeded[task.Id] = (r.RunId, r.Original?.Path ?? FullPath(task), r.TargetDisplay, r.AddedHelpers ?? run.EditableHelpers ?? []);
             return r;
+        }
+
+        /// <summary>
+        /// <paramref name="options"/> with the stored procedures an asp task must see as the sql tasks left them (A2 design §4.4):
+        /// those of the sql tasks already done when the apply started (--resume), then of those applied in this apply, then of
+        /// the earlier tasks of the running group <paramref name="g"/>, the latest change of a procedure winning. Each signature
+        /// is read from the SQL file as it is now; a file that does not parse is left out with a warning (the task then uses the
+        /// development database, as for any other procedure). Other tasks, and an asp task with nothing changed, are unchanged.
+        /// </summary>
+        private TaskRunOptions WithChangedProcedures(SpecTask task, TaskRunOptions options, GroupState? g)
+        {
+            if (task.Kind != TaskKind.Asp) return options;
+            var byId = _doc.Spec.Tasks.ToDictionary(t => t.Id, StringComparer.Ordinal);
+            var order = _doc.Spec.Tasks.Where(t => t.Kind == TaskKind.Sql && _doneAtStart.Contains(t.Id)).Select(t => t.Id)
+                .Concat(_appliedSql)
+                .Concat(g?.Tasks.Where(t => t.Kind == TaskKind.Sql && g.Succeeded.ContainsKey(t.Id)).Select(t => t.Id) ?? []);
+
+            var changed = new List<ChangedProcedure>();
+            foreach (var id in order.Distinct(StringComparer.Ordinal))
+            {
+                // A task the apply undid since (a partial rollback clears its mark) left nothing behind.
+                if (byId.GetValueOrDefault(id) is not { } sqlTask || (!sqlTask.Done && g?.Succeeded.ContainsKey(id) != true)) continue;
+                if (FileSignatures(sqlTask) is not { } signatures)
+                {
+                    if (_unparsedSql.Add(id)) owner.Ui.Warn($"{id}의 SP 파일을 해석하지 못해 개발 DB의 매개변수를 씁니다");
+                    continue;
+                }
+                foreach (var signature in signatures.Where(s => Targets(sqlTask, s.Name)))
+                {
+                    changed.RemoveAll(c => c.Signature.Name.SameAs(signature.Name));
+                    changed.Add(new ChangedProcedure(id, signature));
+                }
+            }
+            return changed.Count == 0 ? options : options with { ChangedProcedures = changed };
+        }
+
+        /// <summary>The procedures in a sql task's file as it is now; null when it cannot be read or does not parse.</summary>
+        private IReadOnlyList<SqlProcedureSignature>? FileSignatures(SpecTask sqlTask)
+        {
+            string text;
+            try { text = owner.Guard.Read(FullPath(sqlTask)).Text; }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
+            {
+                return null;
+            }
+            return SqlFileSignatures.Read(text, owner.SqlCompatLevel);
+        }
+
+        /// <summary>Whether <paramref name="name"/> is the sql task's target: its #object, or any procedure of its file without one.</summary>
+        private static bool Targets(SpecTask sqlTask, SqlObjectName name)
+        {
+            if (sqlTask.Symbol is not { Length: > 0 } symbol) return true;
+            try { return SqlObjectName.Parse(symbol).SameAs(name); }
+            catch (FormatException) { return true; }
         }
 
         /// <summary>

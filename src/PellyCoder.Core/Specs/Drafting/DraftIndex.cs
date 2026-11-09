@@ -1,6 +1,5 @@
 using System.IO.Abstractions;
 using System.Text;
-using System.Text.RegularExpressions;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.SqlServer.TransactSql.ScriptDom;
@@ -184,11 +183,10 @@ public static class DraftIndexBuilder
     // Ported from S6 CorpusIndexBuilder.SqlMembers; null when the file does not parse.
     private static IReadOnlyList<DraftIndexMember>? SqlMembers(string text, int compatLevel)
     {
-        var fragment = SqlParsers.Create(compatLevel, true).Parse(new StringReader(text), out var errors);
-        if (errors.Count > 0)
+        if (SqlFileSignatures.Parse(text, compatLevel) is not { } script)
             return null;
         var result = new List<DraftIndexMember>();
-        foreach (var batch in ((TSqlScript)fragment).Batches)
+        foreach (var batch in script.Batches)
         {
             foreach (var st in batch.Statements)
             {
@@ -211,11 +209,5 @@ public static class DraftIndexBuilder
 
     private static string Name(SchemaObjectName n) => (n.SchemaIdentifier?.Value ?? "dbo") + "." + n.BaseIdentifier.Value;
 
-    private static string Text(TSqlFragment f)
-    {
-        var sb = new StringBuilder();
-        for (var i = f.FirstTokenIndex; i <= f.LastTokenIndex; i++)
-            sb.Append(f.ScriptTokenStream[i].Text);
-        return Regex.Replace(sb.ToString(), @"\s+", " ").Trim();
-    }
+    private static string Text(TSqlFragment f) => SqlFileSignatures.Text(f);
 }

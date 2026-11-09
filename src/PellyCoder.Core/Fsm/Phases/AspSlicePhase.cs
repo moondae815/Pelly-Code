@@ -252,12 +252,17 @@ public sealed class AspSlicePhase(FileGuard fileGuard, ITokenCounter tokens, Bud
         return string.Join('\n', pageLines.Select(page.LineText).Concat(lines.Distinct()));
     }
 
-    /// <summary>Signatures of the stored procedures called inside the target range; empty when there are none or no SQL is available.</summary>
+    /// <summary>
+    /// Signatures of the stored procedures called inside the target range; empty when there are none or no SQL is available.
+    /// A procedure an earlier sql task changed (<see cref="RunRequest.ChangedProcedures"/>) shows its file signature with a
+    /// note instead of the development database's (A2 design §4.4).
+    /// </summary>
     private async Task<string> SqlSignaturesAsync(RunContext ctx, AspPage page, AspRunState state, TextSpanInfo span, CancellationToken ct)
     {
-        if (sql is null)
+        var changed = ctx.Request.ChangedProcedures;
+        if (sql is null && changed is not { Count: > 0 })
         {
-            state.Record(SqlContextCheck, AspCheckStatus.Skipped, "개발 DB 연결(sql.connectionString)이 설정되지 않았습니다");
+            state.Record(SqlContextCheck, AspCheckStatus.Skipped, NoSqlDetail);
             return "";
         }
         var names = new List<SqlObjectName>();
@@ -268,30 +273,39 @@ public sealed class AspSlicePhase(FileGuard fileGuard, ITokenCounter tokens, Bud
         if (names.Count == 0)
             return "";
 
-        IReadOnlyList<SqlProcedureSignature> signatures;
-        try
+        var fromDb = names.Where(n => ChangedProcedure.Find(changed, n) is null).ToList();
+        IReadOnlyList<SqlProcedureSignature> signatures = [];
+        if (fromDb.Count > 0 && sql is null)
+            state.Record(SqlContextCheck, AspCheckStatus.Skipped, NoSqlDetail);
+        else if (fromDb.Count > 0)
         {
-            signatures = await sql.GetProcedureSignaturesAsync(names, ct);
-        }
-        catch (Exception ex) when (ex is SqlUnavailableException or Microsoft.Data.SqlClient.SqlException)
-        {
-            // The SQL context is optional: an unreachable server or a failed metadata query only skips it.
-            state.Record(SqlContextCheck, AspCheckStatus.Skipped,
-                $"SQL 서버를 사용할 수 없습니다: {SqlConnectionText.MaskInText(ex.Message, ctx.Options.Sql.ConnectionString)}");
-            return "";
+            try
+            {
+                signatures = await sql!.GetProcedureSignaturesAsync(fromDb, ct);
+            }
+            catch (Exception ex) when (ex is SqlUnavailableException or Microsoft.Data.SqlClient.SqlException)
+            {
+                // The SQL context is optional: an unreachable server or a failed metadata query only skips it.
+                state.Record(SqlContextCheck, AspCheckStatus.Skipped,
+                    $"SQL 서버를 사용할 수 없습니다: {SqlConnectionText.MaskInText(ex.Message, ctx.Options.Sql.ConnectionString)}");
+            }
         }
 
         var lines = new List<string>();
         foreach (var name in names)
         {
-            if (signatures.FirstOrDefault(s => s.Name.SameAs(name)) is not { } s) continue;
+            var file = ChangedProcedure.Find(changed, name);
+            if ((file?.Signature ?? signatures.FirstOrDefault(s => s.Name.SameAs(name))) is not { } s) continue;
             var parameters = s.Parameters.Select(p => $"{p.Name} {p.Type}{(p.IsOutput ? " OUTPUT" : "")}");
-            lines.Add($"PROCEDURE {s.Name.Display} ({string.Join(", ", parameters)})");
+            var note = file is null ? "" : $" -- changed by {file.TaskId}, not deployed yet";
+            lines.Add($"PROCEDURE {s.Name.Display} ({string.Join(", ", parameters)}){note}");
             if (s.FirstResultSet is { Count: > 0 } columns)
                 lines.Add($"  RESULT ({string.Join(", ", columns.Select(c => $"{c.Name} {c.TypeDisplay}"))})");
         }
         return string.Join('\n', lines);
     }
+
+    private const string NoSqlDetail = "개발 DB 연결(sql.connectionString)이 설정되지 않았습니다";
 
     /// <summary>Ten lines before and after a line range target, with a marker where the target sits.</summary>
     private static string Around(AspPage page, TextSpanInfo span, int lineCount)

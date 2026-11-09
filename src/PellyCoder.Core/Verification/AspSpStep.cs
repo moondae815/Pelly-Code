@@ -10,22 +10,27 @@ namespace PellyCoder.Core.Verification;
 
 /// <summary>
 /// Stored procedures the edit started calling must exist in the development database (design §4.5.8); a countable
-/// argument list that differs from the procedure's input parameters is a warning. Without a development connection,
-/// or when the server is unreachable, the check is recorded as skipped.
+/// argument list that differs from the procedure's input parameters is a warning. A procedure an earlier sql task changed
+/// (<see cref="RunRequest.ChangedProcedures"/>) is judged by its file signature instead: it exists even when the database
+/// does not have it yet (A2 design §4.4). Without a development connection only those procedures are checked and the rest
+/// are recorded as skipped; when the server is unreachable the database part is recorded as skipped.
 /// </summary>
 public sealed class AspSpStep(ISqlExecutor? sql, FeedbackBuilder feedback) : IVerifierStep
 {
     /// <summary>Diagnostic code of one missing procedure.</summary>
     public const string NotFoundCode = "AspSpNotFound";
 
+    private const string NoSqlDetail = "개발 DB 연결(sql.connectionString)이 설정되지 않았습니다";
+
     public string Name => "AspSp";
 
     public async Task<StepResult> VerifyAsync(RunContext ctx, CancellationToken ct)
     {
         var state = ctx.Asp ?? throw new InvalidOperationException("ASP verification needs the ASP run state.");
-        if (sql is null)
+        var changed = ctx.Request.ChangedProcedures;
+        if (sql is null && changed is not { Count: > 0 })
         {
-            state.Record(Name, AspCheckStatus.Skipped, "개발 DB 연결(sql.connectionString)이 설정되지 않았습니다");
+            state.Record(Name, AspCheckStatus.Skipped, NoSqlDetail);
             return StepResult.Pass;
         }
 
@@ -37,11 +42,21 @@ public sealed class AspSpStep(ISqlExecutor? sql, FeedbackBuilder feedback) : IVe
             .Where(c => c.ArgumentCount is not null && !original.Any(o => o.Name.SameAs(c.Name) && o.ArgumentCount == c.ArgumentCount))
             .ToList();
 
+        // A changed procedure exists (its sql task wrote it) and has its file's parameters: no database needed.
+        bool InFile(SqlObjectName n) => ChangedProcedure.Find(changed, n) is not null;
+        var fileWarnings = ArgumentWarnings(newCounted.Where(c => InFile(c.Name)),
+            c => ChangedProcedure.Find(changed, c.Name)!.Signature);
+        var dbNames = newNames.Where(n => !InFile(n)).ToList();
+        var dbCounted = newCounted.Where(c => !InFile(c.Name)).ToList();
+
+        if (sql is null)
+            return Done(state, fileWarnings, dbNames.Count > 0 || dbCounted.Count > 0 ? NoSqlDetail : null);
+
         try
         {
-            if (newNames.Count > 0)
+            if (dbNames.Count > 0)
             {
-                var missing = await sql.FindMissingAsync(newNames, ct);
+                var missing = await sql.FindMissingAsync(dbNames, ct);
                 if (missing.Count > 0)
                 {
                     var file = Path.GetFileName(ctx.FilePath);
@@ -53,30 +68,42 @@ public sealed class AspSpStep(ISqlExecutor? sql, FeedbackBuilder feedback) : IVe
                 }
             }
 
-            var warnings = await ArgumentWarningsAsync(newCounted, ct);
-            if (warnings.Count > 0)
-                state.Record(Name, AspCheckStatus.Warned, string.Join("; ", warnings));
-            else
-                state.Record(Name, AspCheckStatus.Passed);
-            return StepResult.Pass;
+            var warnings = fileWarnings;
+            if (dbCounted.Count > 0)
+            {
+                var signatures = await sql.GetProcedureSignaturesAsync(Distinct(dbCounted.Select(c => c.Name)), ct);
+                warnings = [.. warnings.Concat(ArgumentWarnings(dbCounted, c => signatures.FirstOrDefault(s => s.Name.SameAs(c.Name)))).Distinct()];
+            }
+            return Done(state, warnings, null);
         }
         catch (Exception ex) when (ex is SqlUnavailableException or Microsoft.Data.SqlClient.SqlException)
         {
-            state.Record(Name, AspCheckStatus.Skipped,
+            return Done(state, fileWarnings,
                 $"SQL 서버를 사용할 수 없습니다: {SqlConnectionText.MaskInText(ex.Message, ctx.Options.Sql.ConnectionString)}");
-            return StepResult.Pass;
         }
     }
 
-    private async Task<List<string>> ArgumentWarningsAsync(IReadOnlyList<AspSpCall> calls, CancellationToken ct)
+    /// <summary>
+    /// Records the check: warned with <paramref name="warnings"/> (and <paramref name="skipped"/>, why the rest was not checked,
+    /// after them), else skipped for <paramref name="skipped"/>, else passed. The step itself always passes here.
+    /// </summary>
+    private StepResult Done(AspRunState state, IReadOnlyList<string> warnings, string? skipped)
+    {
+        if (warnings.Count > 0)
+            state.Record(Name, AspCheckStatus.Warned, string.Join("; ", skipped is null ? warnings : [.. warnings, skipped]));
+        else if (skipped is not null)
+            state.Record(Name, AspCheckStatus.Skipped, skipped);
+        else
+            state.Record(Name, AspCheckStatus.Passed);
+        return StepResult.Pass;
+    }
+
+    private static List<string> ArgumentWarnings(IEnumerable<AspSpCall> calls, Func<AspSpCall, SqlProcedureSignature?> signatureOf)
     {
         var warnings = new List<string>();
-        if (calls.Count == 0)
-            return warnings;
-        var signatures = await sql!.GetProcedureSignaturesAsync(Distinct(calls.Select(c => c.Name)), ct);
         foreach (var call in calls)
         {
-            if (signatures.FirstOrDefault(s => s.Name.SameAs(call.Name)) is not { } signature)
+            if (signatureOf(call) is not { } signature)
                 continue;
             var inputs = signature.Parameters.Count(p => !p.IsOutput);
             if (call.ArgumentCount != inputs)

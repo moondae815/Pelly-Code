@@ -51,11 +51,13 @@ public sealed class AspSlicePhaseTests
     private AspSlicePhase Phase(BudgetOptions? budget = null, bool withSql = true) =>
         new(_guard, QwenTokenCounter.Shared, budget ?? new BudgetOptions(), withSql ? _sql : null, _options);
 
-    private async Task<RunContext> Located(string text, string? proc = null, TextSpanInfo? lines = null)
+    private async Task<RunContext> Located(string text, string? proc = null, TextSpanInfo? lines = null,
+        IReadOnlyList<ChangedProcedure>? changed = null)
     {
         _fs.AddFile(PagePath, new MockFileData(Encoding.UTF8.GetBytes(text)));
         _fs.AddFile(Root + "/util.inc", new MockFileData(Encoding.UTF8.GetBytes(UtilInc)));
-        var request = new RunRequest(PagePath, null, proc, null, "do it", true, false, null, Kind: EditKind.Asp, Lines: lines);
+        var request = new RunRequest(PagePath, null, proc, null, "do it", true, false, null, Kind: EditKind.Asp, Lines: lines,
+            ChangedProcedures: changed);
         var ctx = new RunContext("r1", request, new PellyOptions { Asp = _options })
         {
             FilePath = PagePath,
@@ -153,6 +155,49 @@ public sealed class AspSlicePhaseTests
             PartText(ctx, "sql"));
         Assert.Contains("GetProcedureSignatures", _sql.Calls);
         Assert.DoesNotContain("SqlContext", ctx.Asp!.Checks.Keys);
+    }
+
+    [Fact]
+    public async Task Slice_shows_changed_signature_with_note()
+    {
+        _sql.Signatures.Add(ItemTotal());
+        var changed = new SqlProcedureSignature(SqlObjectName.Parse("usp_ItemTotal"),
+            [new SqlParameterInfo("@ItemId", "int", false), new SqlParameterInfo("@Status", "varchar(10)", false, HasDefault: true)], null);
+        var older = new SqlProcedureSignature(SqlObjectName.Parse("dbo.usp_ItemTotal"), [], null);
+        var ctx = await Located(ProcPage, proc: "Total", changed: [new ChangedProcedure("T0", older), new ChangedProcedure("T1", changed)]);
+
+        var outcome = await Phase().ExecuteAsync(ctx, TestContext.Current.CancellationToken);
+
+        Assert.Equal(PhaseOutcome.Ok, outcome);
+        Assert.Equal("PROCEDURE usp_ItemTotal (@ItemId int, @Status varchar(10)) -- changed by T1, not deployed yet", PartText(ctx, "sql"));
+        Assert.DoesNotContain("GetProcedureSignatures", _sql.Calls); // nothing else to ask the database
+    }
+
+    [Fact]
+    public async Task Slice_changed_signature_without_db()
+    {
+        var changed = new SqlProcedureSignature(SqlObjectName.Parse("dbo.usp_ItemTotal"), [new SqlParameterInfo("@ItemId", "int", false)], null);
+        var ctx = await Located(ProcPage, proc: "Total", changed: [new ChangedProcedure("T1", changed)]);
+
+        var outcome = await Phase(withSql: false).ExecuteAsync(ctx, TestContext.Current.CancellationToken);
+
+        Assert.Equal(PhaseOutcome.Ok, outcome);
+        Assert.Equal("PROCEDURE dbo.usp_ItemTotal (@ItemId int) -- changed by T1, not deployed yet", PartText(ctx, "sql"));
+        Assert.DoesNotContain("SqlContext", ctx.Asp!.Checks.Keys);
+    }
+
+    [Fact]
+    public async Task Standalone_pelly_asp_unchanged()
+    {
+        // A changed procedure the target does not call leaves the database signature as it was.
+        _sql.Signatures.Add(ItemTotal());
+        var other = new SqlProcedureSignature(SqlObjectName.Parse("dbo.usp_Other"), [], null);
+        var ctx = await Located(ProcPage, proc: "Total", changed: [new ChangedProcedure("T1", other)]);
+
+        Assert.Equal(PhaseOutcome.Ok, await Phase().ExecuteAsync(ctx, TestContext.Current.CancellationToken));
+
+        Assert.Equal("PROCEDURE dbo.usp_ItemTotal (@ItemId int, @Total decimal(18,2) OUTPUT)\n  RESULT (Amount decimal(18,2))",
+            PartText(ctx, "sql"));
     }
 
     [Fact]

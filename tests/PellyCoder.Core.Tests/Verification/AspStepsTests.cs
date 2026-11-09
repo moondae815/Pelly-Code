@@ -38,9 +38,10 @@ public sealed class AspStepsTests
     private readonly FakeSqlExecutor _sql = new();
     private readonly FeedbackBuilder _feedback = new(QwenTokenCounter.Shared, new BudgetOptions().Feedback);
 
-    private static RunContext Ctx(string current, string original = Original, AspIncludeSet? includes = null)
+    private static RunContext Ctx(string current, string original = Original, AspIncludeSet? includes = null,
+        IReadOnlyList<ChangedProcedure>? changed = null)
     {
-        var request = new RunRequest(PagePath, null, "Total", null, "x", true, false, null, Kind: EditKind.Asp);
+        var request = new RunRequest(PagePath, null, "Total", null, "x", true, false, null, Kind: EditKind.Asp, ChangedProcedures: changed);
         var ctx = new RunContext("r1", request, new PellyOptions())
         {
             FilePath = PagePath,
@@ -289,5 +290,93 @@ public sealed class AspStepsTests
 
         Assert.True(result.Passed);
         Assert.Equal(AspCheckStatus.Skipped, ctx.Asp!.Checks["AspSp"].Status);
+    }
+
+    private static ChangedProcedure Changed(string name, params SqlParameterInfo[] parameters) =>
+        new("T1", new SqlProcedureSignature(SqlObjectName.Parse(name), parameters, null));
+
+    [Fact]
+    public async Task SpStep_uses_changed_signature_argument_count()
+    {
+        // The database still has the old one-parameter procedure; the sql task added @Status.
+        _sql.Signatures.Add(new SqlProcedureSignature(SqlObjectName.Parse("dbo.usp_New"), [new SqlParameterInfo("@Id", "int", false)], null));
+        var changed = Changed("usp_New", new SqlParameterInfo("@Id", "int", false), new SqlParameterInfo("@Status", "int", false));
+        var ctx = Ctx(Original.Replace("  Total = id", "  conn.Execute \"EXEC dbo.usp_New 1, 2\"\n  Total = id"), changed: [changed]);
+
+        var result = await new AspSpStep(_sql, _feedback).VerifyAsync(ctx, Ct);
+
+        Assert.True(result.Passed);
+        Assert.Equal(AspCheckStatus.Passed, ctx.Asp!.Checks["AspSp"].Status);
+        Assert.DoesNotContain("GetProcedureSignatures", _sql.Calls);
+    }
+
+    [Fact]
+    public async Task SpStep_changed_signature_mismatch_warns()
+    {
+        var changed = Changed("dbo.usp_New", new SqlParameterInfo("@Id", "int", false), new SqlParameterInfo("@Status", "int", false));
+        var ctx = Ctx(Original.Replace("  Total = id", "  conn.Execute \"EXEC dbo.usp_New 1\"\n  Total = id"), changed: [changed]);
+
+        var result = await new AspSpStep(_sql, _feedback).VerifyAsync(ctx, Ct);
+
+        Assert.True(result.Passed);
+        var check = ctx.Asp!.Checks["AspSp"];
+        Assert.Equal(AspCheckStatus.Warned, check.Status);
+        Assert.Equal("dbo.usp_New 인수 1개, 입력 매개변수 2개", check.Detail);
+    }
+
+    [Fact]
+    public async Task SpStep_new_procedure_not_in_db_passes()
+    {
+        _sql.Missing.Add(SqlObjectName.Parse("dbo.usp_New"));
+        var ctx = Ctx(Original.Replace("  Total = id", "  conn.Execute \"EXEC dbo.usp_New 1\"\n  Total = id"),
+            changed: [Changed("dbo.usp_New", new SqlParameterInfo("@Id", "int", false))]);
+
+        var result = await new AspSpStep(_sql, _feedback).VerifyAsync(ctx, Ct);
+
+        Assert.True(result.Passed);
+        Assert.Equal(AspCheckStatus.Passed, ctx.Asp!.Checks["AspSp"].Status);
+        Assert.DoesNotContain("FindMissing", _sql.Calls);
+    }
+
+    [Fact]
+    public async Task SpStep_without_db_checks_only_changed_procedures()
+    {
+        var changed = Changed("dbo.usp_New", new SqlParameterInfo("@Id", "int", false), new SqlParameterInfo("@Out", "int", true));
+        var ctx = Ctx(Original.Replace("  Total = id",
+            "  conn.Execute \"EXEC dbo.usp_New 1, 2, 3\"\n  conn.Execute \"EXEC dbo.usp_Unknown 1\"\n  Total = id"), changed: [changed]);
+
+        var result = await new AspSpStep(null, _feedback).VerifyAsync(ctx, Ct);
+
+        Assert.True(result.Passed);
+        var check = ctx.Asp!.Checks["AspSp"];
+        Assert.Equal(AspCheckStatus.Warned, check.Status);
+        Assert.Equal("dbo.usp_New 인수 3개, 입력 매개변수 1개; 개발 DB 연결(sql.connectionString)이 설정되지 않았습니다", check.Detail);
+    }
+
+    [Fact]
+    public async Task SpStep_without_db_rest_skipped_when_changed_pass()
+    {
+        var ctx = Ctx(Original.Replace("  Total = id",
+                "  conn.Execute \"EXEC dbo.usp_New 1\"\n  conn.Execute \"EXEC dbo.usp_Unknown 1\"\n  Total = id"),
+            changed: [Changed("dbo.usp_New", new SqlParameterInfo("@Id", "int", false))]);
+
+        var result = await new AspSpStep(null, _feedback).VerifyAsync(ctx, Ct);
+
+        Assert.True(result.Passed);
+        var check = ctx.Asp!.Checks["AspSp"];
+        Assert.Equal(AspCheckStatus.Skipped, check.Status);
+        Assert.Equal("개발 DB 연결(sql.connectionString)이 설정되지 않았습니다", check.Detail);
+    }
+
+    [Fact]
+    public async Task SpStep_without_db_only_changed_calls_passes()
+    {
+        var ctx = Ctx(Original.Replace("  Total = id", "  conn.Execute \"EXEC dbo.usp_New 1\"\n  Total = id"),
+            changed: [Changed("dbo.usp_New", new SqlParameterInfo("@Id", "int", false))]);
+
+        var result = await new AspSpStep(null, _feedback).VerifyAsync(ctx, Ct);
+
+        Assert.True(result.Passed);
+        Assert.Equal(AspCheckStatus.Passed, ctx.Asp!.Checks["AspSp"].Status);
     }
 }

@@ -179,6 +179,9 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
         private bool _rolledBack; // the whole apply was fully undone: end review rejected, or cancelled under --review-at-end
         private readonly HashSet<string> _restored = new(StringComparer.Ordinal); // tasks undone by a partial apply rollback
 
+        // Ungrouped sql applied, then a later ungrouped asp failed (A2 design §4.1): the SP and the page may disagree.
+        private readonly List<(string SqlId, string AspId)> _mismatches = [];
+
         // Group test-first (design §7.3): RED of the criteria whose first linked task is in a group, from the group's baseline,
         // and the expected breaks of the criteria whose last linked task is in a group, from the group's last verdict.
         private readonly Dictionary<string, RedState> _groupRed = new(StringComparer.Ordinal);
@@ -208,8 +211,8 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
 
             if (o.DryRun) return await DryRunAsync(todo, ct);
 
-            // Refuse before anything changes: a group cannot be verified without its build.
-            if (owner.Groups is null && todo.Any(t => t.Group is not null))
+            // Refuse before anything changes: a group cannot be verified without its build. Only a group's cs tasks are built.
+            if (owner.Groups is null && todo.Any(t => t.Group is not null && t.Kind == TaskKind.CSharp))
             {
                 owner.Ui.Warn("그룹 빌드 검증기를 사용할 수 없습니다.");
                 return 4;
@@ -227,6 +230,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             var taskOptions = new TaskRunOptions(o.Yes || o.ReviewAtEnd, false, o.MaxRetries, o.Verbose);
             int? stopCode = null;
             bool anyFailed = false;
+            string? appliedSql = null; // the latest ungrouped sql task applied in this run
 
             for (int i = 0; i < todo.Count; i++)
             {
@@ -284,10 +288,12 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                         return Finish(Unreviewed(tx, 4));
                     _marked.Add(task.Id);
                     _done[task.Id] = (r.RunId, r.Original?.Path ?? FullPath(task));
+                    if (task.Kind == TaskKind.Sql) appliedSql = task.Id;
                     continue;
                 }
 
                 anyFailed = true;
+                if (task.Kind == TaskKind.Asp && appliedSql is not null) _mismatches.Add((appliedSql, task.Id));
                 if (o.Continue && r.ExitCode == 4) { stopCode = 4; break; } // environment errors fail every later task too
 
                 string kind = r.FailureKind ?? $"exit-{r.ExitCode}";
@@ -391,11 +397,17 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
         }
 
         /// <summary>Runs a group (design §6 "작업 그룹"): scope, baseline build, tasks, verification with re-runs, approval, marks.</summary>
+        /// <remarks>
+        /// Only the group's cs tasks are build- and test-verified (A2 design §4.1): its sql and asp tasks retry inside their own
+        /// pipelines, and a group without cs tasks just runs its tasks in order. Any failure undoes every task of the group.
+        /// </remarks>
         private async Task<GroupEnd> RunGroupAsync(ApplyTransaction tx, IReadOnlyList<SpecTask> tasks, CancellationToken ct)
         {
             var g = new GroupState(tasks);
+            if (!tasks.Any(IsCs)) return await RunInGroupAsync(tx, g, null, ct);
+
             var changed = new List<string>();
-            foreach (var task in tasks)
+            foreach (var task in tasks.Where(IsCs))
             {
                 if (ProjectFileLocator.FindNearestCsproj(owner.Fs, FullPath(task)) is not { } csproj)
                     return await UnverifiableBeforeEditAsync(tx, g, $"그룹 빌드 검증 불가 ({task.Path}): 파일이 속한 프로젝트(.csproj)를 찾을 수 없습니다");
@@ -432,10 +444,21 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                 testing = new GroupTesting(plan, tests);
             }
 
+            return await RunInGroupAsync(tx, g, new GroupVerification(scope, baseline, testing), ct);
+        }
+
+        /// <summary>What a group with cs tasks is verified against: its build scope, its baseline and its test plan.</summary>
+        private sealed record GroupVerification(IReadOnlyList<string> Scope, GroupBuild Baseline, GroupTesting? Testing);
+
+        private static bool IsCs(SpecTask task) => task.Kind == TaskKind.CSharp;
+
+        /// <summary>Opens the group's checkpoint and runs it; a cancelled or crashed group is undone.</summary>
+        private async Task<GroupEnd> RunInGroupAsync(ApplyTransaction tx, GroupState g, GroupVerification? verification, CancellationToken ct)
+        {
             tx.BeginGroup(g.Id);
             try
             {
-                return await RunGroupTasksAsync(tx, g, scope, baseline, testing, ct);
+                return await RunGroupTasksAsync(tx, g, verification, ct);
             }
             catch (OperationCanceledException)
             {
@@ -550,8 +573,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             return new GroupEnd(2, false, Declined: true);
         }
 
-        private async Task<GroupEnd> RunGroupTasksAsync(ApplyTransaction tx, GroupState g, IReadOnlyList<string> scope, GroupBuild baseline,
-            GroupTesting? testing, CancellationToken ct)
+        private async Task<GroupEnd> RunGroupTasksAsync(ApplyTransaction tx, GroupState g, GroupVerification? verification, CancellationToken ct)
         {
             foreach (var task in g.Tasks)
             {
@@ -559,6 +581,36 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                 if (r.ExitCode != 0) return await UndoGroupAsync(tx, g, r.FailureKind ?? $"exit-{r.ExitCode}", r.ExitCode);
             }
 
+            if (verification is not null && await VerifyGroupAsync(tx, g, verification, ct) is { } failed) return failed;
+
+            // --review-at-end leaves the group to the review of the whole apply.
+            if (!o.Yes && !o.ReviewAtEnd)
+            {
+                foreach (var (file, before, after) in tx.GroupChanges()) owner.Ui.ShowDiff(file, before, after);
+                if (!await owner.Ui.ConfirmAsync("이 그룹을 적용할까요?", false, ct))
+                    return await UndoGroupAsync(tx, g, GroupFailureKinds.Rejected, 2);
+            }
+
+            tx.EndGroup();
+            var marks = g.Tasks.Select(t => new SpecMark(t.Id, g.Succeeded[t.Id].RunId)).ToList();
+            if (!await SpecWrittenAsync(_doc.MarkAsync(marks, CancellationToken.None),
+                    $"그룹 {g.Id}은 적용됐지만 체크 표시를 남기지 못했습니다 — --resume 전에 직접 [x]로 표시하세요."))
+                return new GroupEnd(Unreviewed(tx, 4), true);
+            foreach (var task in g.Tasks)
+            {
+                _marked.Add(task.Id);
+                _done[task.Id] = (g.Succeeded[task.Id].RunId, g.Succeeded[task.Id].Path);
+            }
+            return new GroupEnd(0, false);
+        }
+
+        /// <summary>
+        /// The group's verification build (and tests) with re-runs of the cs tasks the new errors or failing tests belong to.
+        /// Null when the group passed; otherwise the group's end (it was undone).
+        /// </summary>
+        private async Task<GroupEnd?> VerifyGroupAsync(ApplyTransaction tx, GroupState g, GroupVerification verification, CancellationToken ct)
+        {
+            var (scope, baseline, testing) = verification;
             int max = o.MaxRetries ?? owner.GroupRetryMax;
             for (int reruns = 0; ; reruns++)
             {
@@ -573,7 +625,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                 var newErrors = GroupVerifier.NewErrors(baseline, build);
                 if (newErrors.Count == 0)
                 {
-                    if (testing is null) break;
+                    if (testing is null) return null;
                     var verdict = await owner.GroupTests!.VerifyAsync(ws, testing.Baseline, testing.Plan, ct);
                     if (verdict.Unverifiable is { } reason)
                     {
@@ -595,7 +647,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                     {
                         if (verdict.Regressions.Count == 0)
                         {
-                            if (verdict.ChangedTestFile is not { } changedFile) break;
+                            if (verdict.ChangedTestFile is not { } changedFile) return null;
                             // A test edited while the group ran (or since its criterion's first linked task) proves nothing.
                             owner.Ui.Warn($"그룹 {g.Id}: 지정한 테스트가 실행 중에 바뀌었습니다: {changedFile}");
                             return await UndoGroupAsync(tx, g, GroupFailureKinds.TestFileChanged, 4);
@@ -614,7 +666,8 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                     continue;
                 }
 
-                var members = g.Tasks.Select(t => new GroupMember(t.Id, FullPath(t), g.Succeeded[t.Id].Display ?? "", g.Succeeded[t.Id].Helpers)).ToList();
+                // A sql or asp task cannot hold a C# error: it is neither blamed nor re-run.
+                var members = g.Tasks.Where(IsCs).Select(t => new GroupMember(t.Id, FullPath(t), g.Succeeded[t.Id].Display ?? "", g.Succeeded[t.Id].Helpers)).ToList();
                 var attribution = GroupErrorAttribution.Attribute(owner.Fs, ws, newErrors, members, LanguageVersion.Latest);
                 if (attribution.Unattributed.Count > 0)
                 {
@@ -644,26 +697,6 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                     if (r.ExitCode != 0) return await UndoGroupAsync(tx, g, r.FailureKind ?? $"exit-{r.ExitCode}", r.ExitCode);
                 }
             }
-
-            // --review-at-end leaves the group to the review of the whole apply.
-            if (!o.Yes && !o.ReviewAtEnd)
-            {
-                foreach (var (file, before, after) in tx.GroupChanges()) owner.Ui.ShowDiff(file, before, after);
-                if (!await owner.Ui.ConfirmAsync("이 그룹을 적용할까요?", false, ct))
-                    return await UndoGroupAsync(tx, g, GroupFailureKinds.Rejected, 2);
-            }
-
-            tx.EndGroup();
-            var marks = g.Tasks.Select(t => new SpecMark(t.Id, g.Succeeded[t.Id].RunId)).ToList();
-            if (!await SpecWrittenAsync(_doc.MarkAsync(marks, CancellationToken.None),
-                    $"그룹 {g.Id}은 적용됐지만 체크 표시를 남기지 못했습니다 — --resume 전에 직접 [x]로 표시하세요."))
-                return new GroupEnd(Unreviewed(tx, 4), true);
-            foreach (var task in g.Tasks)
-            {
-                _marked.Add(task.Id);
-                _done[task.Id] = (g.Succeeded[task.Id].RunId, g.Succeeded[task.Id].Path);
-            }
-            return new GroupEnd(0, false);
         }
 
         /// <summary>
@@ -1026,6 +1059,28 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
 
         private double Seconds(long started) => owner.Time.GetElapsedTime(started).TotalSeconds;
 
+        /// <summary>
+        /// A2 design §4.1: an ungrouped sql task kept applied while a later ungrouped asp task failed leaves the SP and the page
+        /// out of step. Not when the sql edit was undone after all (review rejected, cancelled under review, partial rollback).
+        /// </summary>
+        private void WarnMismatches()
+        {
+            if (_mismatches.Count == 0 || _rolledBack) return;
+            string group = NextFreeGroup();
+            foreach (var (sql, asp) in _mismatches)
+                if (!_restored.Contains(sql))
+                    owner.Ui.Warn($"{sql}(sql)은 적용됐고 {asp}(asp)는 실패했습니다. SP와 페이지가 어긋나 있을 수 있습니다. 함께 되돌리려면 [{group}]로 묶으십시오");
+        }
+
+        /// <summary>The smallest <c>G&lt;n&gt;</c> no task of the spec uses.</summary>
+        private string NextFreeGroup()
+        {
+            var used = _doc.Spec.Tasks.Select(t => t.Group).OfType<string>().ToHashSet(StringComparer.Ordinal);
+            int n = 1;
+            while (used.Contains($"G{n}")) n++;
+            return $"G{n}";
+        }
+
         /// <summary>RED of a criterion: its first linked task's verdict for the test; not judged when absent (or never run).</summary>
         private RedState RedOf(AcLink link)
         {
@@ -1063,9 +1118,13 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             return new AcResult(link.AcId, red, outcome, runId, breaks);
         }
 
-        /// <summary>Writes <c>apply.json</c> (best effort) and returns <paramref name="exitCode"/>.</summary>
+        /// <summary>
+        /// Ends the run: warns of each ungrouped sql task left applied before a failed ungrouped asp task, writes
+        /// <c>apply.json</c> (best effort) and returns <paramref name="exitCode"/>.
+        /// </summary>
         private int Finish(int exitCode)
         {
+            WarnMismatches();
             try
             {
                 var dir = owner.Fs.Path.Combine(ws.PellyDir, "runs", ApplyId!);

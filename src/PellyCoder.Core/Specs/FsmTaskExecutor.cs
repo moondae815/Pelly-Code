@@ -7,7 +7,8 @@ namespace PellyCoder.Core.Specs;
 
 /// <summary>
 /// Turns a spec task into a <see cref="RunRequest"/> and runs it through the FSM as a host run. A cs task's linked tests become
-/// a test-first run; a sql task never carries them.
+/// a test-first run; a sql or asp task never carries them. An asp task's target is the A1 <c>--proc</c> value (<c>#Name</c>,
+/// <c>#Class.Name</c>) or its <c>--lines</c> range (<c>#Lstart-end</c>).
 /// </summary>
 public sealed class FsmTaskExecutor(Func<RunRequest, CancellationToken, Task<RunResult>> run) : ITaskExecutor
 {
@@ -23,6 +24,11 @@ public sealed class FsmTaskExecutor(Func<RunRequest, CancellationToken, Task<Run
         {
             request = new RunRequest(file, null, null, null, task.Request, o.Yes, o.DryRun, o.MaxRetries,
                 ObjectName: task.Symbol, Kind: EditKind.Sql, Verbose: o.Verbose, Host: host);
+        }
+        else if (task.Kind == TaskKind.Asp)
+        {
+            request = new RunRequest(file, null, task.Symbol, null, task.Request, o.Yes, o.DryRun, o.MaxRetries,
+                Kind: EditKind.Asp, Verbose: o.Verbose, Host: host, Group: o.Group, Lines: task.Lines);
         }
         else
         {

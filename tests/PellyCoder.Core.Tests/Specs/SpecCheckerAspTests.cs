@@ -80,7 +80,8 @@ public sealed class SpecCheckerAspTests
         var r = Check(Fs("- [ ] T1 asp web/a.asp#L2-3 바꾼다\n- [ ] T2 asp web\\a.asp#L6-7 바꾼다\n"));
         var issue = Assert.Single(r.Issues);
         Assert.Equal("AspLinesAfterEdit", issue.Code);
-        Assert.Equal(SpecIssueSeverity.Warning, issue.Severity);
+        Assert.Equal(SpecIssueSeverity.Error, issue.Severity);
+        Assert.True(r.HasErrors);
         Assert.Contains("T2", issue.Message);
         Assert.Contains("T1", issue.Message);
     }

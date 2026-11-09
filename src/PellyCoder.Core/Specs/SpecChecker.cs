@@ -354,7 +354,7 @@ public static partial class SpecChecker
         return topLevel.Count > 0 ? topLevel : named;
     }
 
-    /// <summary>A line-range asp task after another not-done asp task on the same file: the earlier edit may shift its lines (warning).</summary>
+    /// <summary>A line-range asp task after another not-done asp task on the same file: the earlier edit may shift its lines (error).</summary>
     private static void CheckAspLinesAfterEdit(IFileSystem fs, Workspace ws, ChangeSpec spec, List<SpecIssue> issues)
     {
         var firstByFile = new Dictionary<string, SpecTask>(StringComparer.OrdinalIgnoreCase);
@@ -363,7 +363,7 @@ public static partial class SpecChecker
             var key = SpecTaskPaths.FullPath(fs.Path, ws.Root, task.Path).Replace('\\', '/');
             if (!firstByFile.TryGetValue(key, out var first)) { firstByFile[key] = task; continue; }
             if (task.Lines is not null)
-                issues.Add(new SpecIssue(task.Line, SpecIssueSeverity.Warning, "AspLinesAfterEdit",
+                issues.Add(new SpecIssue(task.Line, SpecIssueSeverity.Error, "AspLinesAfterEdit",
                     $"{task.Id}의 줄 범위는 같은 파일을 먼저 고치는 {first.Id} 뒤에 어긋날 수 있습니다. 프로시저 대상(#이름)으로 쓰거나 작업을 하나로 합치십시오"));
         }
     }

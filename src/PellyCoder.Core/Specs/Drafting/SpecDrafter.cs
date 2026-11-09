@@ -1,8 +1,8 @@
-using PellyCoder.Core.Config;
 using System.IO.Abstractions;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml;
+using PellyCoder.Core.Config;
 using PellyCoder.Core.CSharp;
 using PellyCoder.Core.Files;
 using PellyCoder.Core.Impact;

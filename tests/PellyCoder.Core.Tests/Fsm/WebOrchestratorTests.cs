@@ -405,6 +405,29 @@ public sealed class WebOrchestratorTests
         Assert.Equal("passed", web.GetProperty("checks").GetProperty("Names").GetString());
     }
 
+    private const string NameOnlyPage =
+        "<%@ Language=\"VBScript\" CodePage=\"949\" %>\n" +
+        "<form>\n<input type=\"text\" name=\"custId\">\n</form>\n" +
+        "<script>\n" +
+        "function fnSearchOrder() {\n" +
+        "  var f = document.forms[0];\n" +
+        "  return true;\n" +
+        "}\n" +
+        "</script>\n";
+
+    [Fact]
+    public async Task Page_Js_JqueryIdWithOnlyName_WarnsElements()
+    {
+        var path = Root + "/admin/order/list.asp";
+        Prepare(path, NameOnlyPage);
+        _backend.Enqueue(Block("  return true;", "  $(\"#custId\").focus();\n  return true;"));
+
+        var exit = await RunPageEdit(EditKind.Js, path, function: "fnSearchOrder");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("warned", Summary().GetProperty("web").GetProperty("checks").GetProperty("Elements").GetString());
+    }
+
     private const string CssHtmPage =
         "<html>\r\n<head>\r\n<meta charset=\"utf-8\">\r\n<style>\r\n.box {\r\n  color: red;\r\n}\r\n.card {\r\n  margin: 0;\r\n}\r\n</style>\r\n</head>\r\n<p>한글</p>\r\n";
 

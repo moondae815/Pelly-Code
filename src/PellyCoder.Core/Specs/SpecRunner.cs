@@ -38,7 +38,7 @@ namespace PellyCoder.Core.Specs;
 /// </param>
 public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor executor, IUserInteraction ui, TimeProvider time, int sqlCompatLevel,
     Action<Workspace, string>? pruneRuns = null, IGroupVerifier? groups = null, FeedbackBuilder? groupFeedback = null, int? groupRetryMax = null,
-    IImpactFinder? impact = null, IGroupTester? groupTests = null, SqlImpactSetup? sqlImpact = null)
+    IImpactFinder? impact = null, IGroupTester? groupTests = null, SqlImpactSetup? sqlImpact = null, AspOptions? asp = null)
 {
     private static readonly JsonSerializerOptions SummaryJson = new()
     {
@@ -63,7 +63,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
     public async Task<int> RunAsync(string specPath, ApplyOptions o, CancellationToken ct)
     {
         // Static check and the cheap refusals first: the impact search can take up to the semantic load timeout.
-        var check = SpecChecker.Check(fs, specPath, sqlCompatLevel);
+        var check = SpecChecker.Check(fs, specPath, sqlCompatLevel, asp);
         if (check.HasErrors)
         {
             foreach (var issue in check.Issues) ui.Warn(Format(issue));

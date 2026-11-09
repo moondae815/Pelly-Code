@@ -137,7 +137,7 @@ public sealed class SpecDraftCommand(
             Warn($"경고: 읽거나 해석할 수 없어 색인에서 뺀 파일: {skipped}");
 
         var sql = readerFactory is null ? null : new SqlImpactSetup(sqlImpact ?? new SqlImpactFinder(fs, options.Sql.CompatLevel), options.Sql, readerFactory);
-        var drafter = new SpecDrafter(fs, model, impact ?? ImpactFinders.Default(fs), sql, options.Sql.CompatLevel);
+        var drafter = new SpecDrafter(fs, model, impact ?? ImpactFinders.Default(fs), sql, options.Sql.CompatLevel, options.Asp);
 
         DraftOutcome? outcome;
         DraftFailure? failure;

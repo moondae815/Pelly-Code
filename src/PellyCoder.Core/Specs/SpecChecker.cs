@@ -5,6 +5,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using PellyCoder.Core.Abstractions;
+using PellyCoder.Core.Asp;
 using PellyCoder.Core.Config;
 using PellyCoder.Core.CSharp;
 using PellyCoder.Core.Files;
@@ -40,16 +41,19 @@ public sealed record SqlImpactRequest(IFileSystem Fs, ISqlImpactFinder Finder, S
 public static partial class SpecChecker
 {
 
-    public static SpecCheckResult Check(IFileSystem fs, string specPath, int sqlCompatLevel)
+    /// <param name="asp">The <c>asp</c> options (extensions, encoding); null means the defaults.</param>
+    public static SpecCheckResult Check(IFileSystem fs, string specPath, int sqlCompatLevel, AspOptions? asp = null)
     {
+        asp ??= new AspOptions();
         var spec = ChangeSpecParser.Parse(TextFileCodec.Read(fs, specPath).Text);
         var ws = WorkspaceLocator.Resolve(fs, specPath);
         var issues = new List<SpecIssue>(spec.Issues);
         var scans = new Scans(fs, ws.Root);
 
         foreach (var task in spec.Tasks)
-            CheckTask(fs, ws, task, sqlCompatLevel, scans, issues);
+            CheckTask(fs, ws, task, sqlCompatLevel, asp, scans, issues);
 
+        CheckAspLinesAfterEdit(fs, ws, spec, issues);
         CheckAcTests(fs, ws, spec, issues);
 
         return new SpecCheckResult(spec, ws, issues);
@@ -66,9 +70,10 @@ public static partial class SpecChecker
     /// production connection is configured. Without it no database is touched.
     /// </param>
     public static async Task<SpecCheckResult> CheckAsync(
-        IFileSystem fs, string specPath, int sqlCompatLevel, IImpactFinder? impact, bool impactAllCsTasks, CancellationToken ct, SqlImpactSetup? sql = null)
+        IFileSystem fs, string specPath, int sqlCompatLevel, IImpactFinder? impact, bool impactAllCsTasks, CancellationToken ct, SqlImpactSetup? sql = null,
+        AspOptions? asp = null)
     {
-        var check = Check(fs, specPath, sqlCompatLevel);
+        var check = Check(fs, specPath, sqlCompatLevel, asp);
         var request = impactAllCsTasks && sql is not null && !check.HasErrors
             ? SqlRequest(fs, sql, allowDev: true, SpecCheckListPath(fs, check, specPath))
             : null;
@@ -221,7 +226,7 @@ public static partial class SpecChecker
         }
     }
 
-    private static void CheckTask(IFileSystem fs, Workspace ws, SpecTask task, int compat, Scans scans, List<SpecIssue> issues)
+    private static void CheckTask(IFileSystem fs, Workspace ws, SpecTask task, int compat, AspOptions asp, Scans scans, List<SpecIssue> issues)
     {
         var before = issues.Count;
         void Error(string code, string message) => issues.Add(new SpecIssue(task.Line, SpecIssueSeverity.Error, code, message));
@@ -229,6 +234,7 @@ public static partial class SpecChecker
         var full = fs.Path.GetFullPath(fs.Path.Combine(ws.Root, task.Path.Replace('\\', '/')));
         if (!IsInside(fs, ws.Root, full)) { Error("OutsideWorkspace", $"작업 {task.Id}: 경로가 작업 공간 밖입니다: {task.Path}"); return; }
         if (!fs.File.Exists(full)) { Error("FileNotFound", $"작업 {task.Id}: 파일이 없습니다: {task.Path}"); return; }
+        if (task.Kind == TaskKind.Asp) { CheckAspTask(fs, task, full, asp, issues); return; }
         var expectedExt = task.Kind == TaskKind.CSharp ? ".cs" : ".sql";
         if (!string.Equals(fs.Path.GetExtension(full), expectedExt, StringComparison.OrdinalIgnoreCase))
         {
@@ -289,6 +295,76 @@ public static partial class SpecChecker
             var parts = IdentifierPart().Matches(word).Select(m => m.Value).Where(p => !char.IsDigit(p[0]));
             if (parts.Any(p => !known.Contains(p)))
                 issues.Add(new SpecIssue(task.Line, SpecIssueSeverity.Warning, "UnknownIdentifier", $"작업 {task.Id}: 요청문의 이름 {word}을(를) 소스에서 찾을 수 없습니다."));
+        }
+    }
+
+    /// <summary>
+    /// An asp task (design §3.3): the extension is one of <c>asp.extensions</c>, the file decodes, and the target — a procedure or
+    /// a line range — exists. No request-name check: there is no VBScript name index and it would mostly misfire.
+    /// </summary>
+    private static void CheckAspTask(IFileSystem fs, SpecTask task, string full, AspOptions asp, List<SpecIssue> issues)
+    {
+        void Error(string code, string message) => issues.Add(new SpecIssue(task.Line, SpecIssueSeverity.Error, code, message));
+
+        var ext = fs.Path.GetExtension(full);
+        if (!asp.Extensions.Contains(ext, StringComparer.OrdinalIgnoreCase))
+        {
+            Error("KindMismatch", $"작업 {task.Id}: asp 작업의 파일이 {string.Join(", ", asp.Extensions)} 중 하나가 아닙니다: {task.Path}");
+            return;
+        }
+        if (task.Done) return;
+
+        string text;
+        try { text = new AspTextCodec(asp.Encoding).Decode(full, fs.File.ReadAllBytes(full)).Text; }
+        catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException)
+        {
+            Error("AspEncoding", $"작업 {task.Id}: 파일을 읽을 수 없습니다: {task.Path} ({ex.Message})");
+            return;
+        }
+
+        if (task.Symbol is null && task.Lines is null)
+        {
+            Error("AspTargetRequired", $"작업 {task.Id}: asp 작업은 #프로시저 또는 #L시작-끝으로 대상을 지정해야 합니다.");
+            return;
+        }
+
+        var page = AspPage.Parse(text);
+        if (task.Lines is { } lines)
+        {
+            if (lines.EndLine > page.LineCount)
+                Error("LinesOutOfFile", $"작업 {task.Id}: 줄 범위 L{lines.StartLine}-{lines.EndLine}가 파일(1-{page.LineCount}줄) 밖입니다");
+            return;
+        }
+
+        var found = MatchingProcedures(page, task.Symbol!);
+        if (found.Count == 0) Error("SymbolNotFound", $"작업 {task.Id}: 심볼을 찾을 수 없습니다: {task.Symbol}");
+        else if (found.Count > 1)
+            Error("SymbolAmbiguous", $"작업 {task.Id}: 심볼 {task.Symbol}가 {found.Count}곳과 맞습니다: {string.Join(", ", found.Select(f => $"{f.Keyword} {(f.ClassName is null ? "" : f.ClassName + ".")}{f.Name} (줄 {f.DeclLine})"))}");
+    }
+
+    /// <summary>The same rule as <c>pelly asp --proc</c>: <c>Class.Name</c> is that class member; a bare name is top-level, else class members.</summary>
+    private static List<AspProcedure> MatchingProcedures(AspPage page, string wanted)
+    {
+        static bool Same(string? a, string b) => a is not null && a.Equals(b, StringComparison.OrdinalIgnoreCase);
+        var dot = wanted.IndexOf('.');
+        if (dot >= 0)
+            return page.Procedures.Where(p => Same(p.ClassName, wanted[..dot]) && Same(p.Name, wanted[(dot + 1)..])).ToList();
+        var named = page.Procedures.Where(p => Same(p.Name, wanted)).ToList();
+        var topLevel = named.Where(p => p.ClassName is null).ToList();
+        return topLevel.Count > 0 ? topLevel : named;
+    }
+
+    /// <summary>A line-range asp task after another not-done asp task on the same file: the earlier edit may shift its lines (warning).</summary>
+    private static void CheckAspLinesAfterEdit(IFileSystem fs, Workspace ws, ChangeSpec spec, List<SpecIssue> issues)
+    {
+        var firstByFile = new Dictionary<string, SpecTask>(StringComparer.OrdinalIgnoreCase);
+        foreach (var task in spec.Tasks.Where(t => t.Kind == TaskKind.Asp && !t.Done))
+        {
+            var key = SpecTaskPaths.FullPath(fs.Path, ws.Root, task.Path).Replace('\\', '/');
+            if (!firstByFile.TryGetValue(key, out var first)) { firstByFile[key] = task; continue; }
+            if (task.Lines is not null)
+                issues.Add(new SpecIssue(task.Line, SpecIssueSeverity.Warning, "AspLinesAfterEdit",
+                    $"{task.Id}의 줄 범위는 같은 파일을 먼저 고치는 {first.Id} 뒤에 어긋날 수 있습니다. 프로시저 대상(#이름)으로 쓰거나 작업을 하나로 합치십시오"));
         }
     }
 

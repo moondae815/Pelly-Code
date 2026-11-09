@@ -1,3 +1,4 @@
+using PellyCoder.Core.Config;
 using System.IO.Abstractions;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -45,7 +46,7 @@ public sealed record DraftFailure(int ExitCode, string Message, DraftCall? Call 
 /// lines, build the spec document, check it in <c>.pelly/drafts/&lt;id&gt;.md</c> (removed afterwards) and add the semantic
 /// impact targets of grouped tasks as task lines. Never writes under <c>changes/</c>.
 /// </summary>
-public sealed class SpecDrafter(IFileSystem fs, DraftModel model, IImpactFinder impact, SqlImpactSetup? sql, int sqlCompatLevel)
+public sealed class SpecDrafter(IFileSystem fs, DraftModel model, IImpactFinder impact, SqlImpactSetup? sql, int sqlCompatLevel, AspOptions? asp = null)
 {
     public const int TitleLength = 60;
     private const int BiggestFilesShown = 5;
@@ -95,7 +96,7 @@ public sealed class SpecDrafter(IFileSystem fs, DraftModel model, IImpactFinder 
             var document = Compose(request, taskLines);
             if (Write(draftPath, document) is { } writeError) return AfterCall(writeError);
 
-            var first = SpecChecker.Check(fs, draftPath, sqlCompatLevel);
+            var first = SpecChecker.Check(fs, draftPath, sqlCompatLevel, asp);
             var skipped = first.HasErrors;
             var csChecked = await SpecChecker.AddImpactAsync(first, impact, impactAllCsTasks: false, ct);
             // The SQL search picks its database like spec check --impact (design §4.4): production when configured, else development.
@@ -264,7 +265,7 @@ public sealed class SpecDrafter(IFileSystem fs, DraftModel model, IImpactFinder 
     /// </summary>
     private SpecCheckResult Recheck(string draftPath, SpecCheckResult searched, int csIssueEnd)
     {
-        var again = SpecChecker.Check(fs, draftPath, sqlCompatLevel);
+        var again = SpecChecker.Check(fs, draftPath, sqlCompatLevel, asp);
         var cs = ImpactCheck.Issues(again.Spec, ImpactCheck.Seeds(again.Spec, allCsTasks: false), searched.Impact!);
         var newLine = again.Spec.Tasks.ToDictionary(t => t.Id, t => t.Line, StringComparer.Ordinal);
         var moved = searched.Spec.Tasks

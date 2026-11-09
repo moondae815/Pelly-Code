@@ -16,7 +16,9 @@ public static class SqlImpactList
     };
 
     /// <summary>Writes (overwrites) <paramref name="path"/>, creating its folder. IO failures are the caller's to handle.</summary>
-    public static void Write(IFileSystem fs, string path, string? specId, IReadOnlyList<SqlImpactSeed> seeds, SqlImpactResult result)
+    /// <param name="asp">The SP → ASP calls (A2 design §4.3), every one including the covered ones; null writes an empty <c>asp</c>.</param>
+    public static void Write(IFileSystem fs, string path, string? specId, IReadOnlyList<SqlImpactSeed> seeds, SqlImpactResult result,
+        IReadOnlyList<AspImpactHit>? asp = null)
     {
         ArgumentNullException.ThrowIfNull(fs);
         ArgumentNullException.ThrowIfNull(seeds);
@@ -59,8 +61,41 @@ public static class SqlImpactList
                 member = t.Member,
                 reason = t.Reason,
             }),
+            asp = AspRows(asp),
         };
 
+        Save(fs, path, list);
+    }
+
+    /// <summary>The list of an SP → ASP search when no SQL search ran: the seeds and the <c>asp</c> calls only, at the same path.</summary>
+    public static void WriteAsp(IFileSystem fs, string path, string? specId, IReadOnlyList<SqlImpactSeed> seeds, IReadOnlyList<AspImpactHit> asp)
+    {
+        ArgumentNullException.ThrowIfNull(fs);
+        ArgumentNullException.ThrowIfNull(seeds);
+        ArgumentNullException.ThrowIfNull(asp);
+        Save(fs, path, new
+        {
+            specId,
+            seeds = seeds.Select(s => new { taskId = s.TaskId, line = s.Line, @object = SqlImpactFinder.Display(s.Object) }),
+            asp = AspRows(asp),
+        });
+    }
+
+    private static IEnumerable<object> AspRows(IReadOnlyList<AspImpactHit>? asp) =>
+        (asp ?? []).Select(h => new
+        {
+            taskIds = h.TaskIds,
+            path = h.Call.RelativePath.Replace('\\', '/'),
+            line = h.Call.Line,
+            @object = SqlImpactFinder.Display(h.Object),
+            arguments = h.Call.Arguments,
+            procedure = h.Call.Procedure,
+            covered = h.Covered,
+            includers = h.Includers,
+        });
+
+    private static void Save(IFileSystem fs, string path, object list)
+    {
         var dir = fs.Path.GetDirectoryName(path);
         if (!string.IsNullOrEmpty(dir)) fs.Directory.CreateDirectory(dir);
         fs.File.WriteAllText(path, JsonSerializer.Serialize(list, Json));

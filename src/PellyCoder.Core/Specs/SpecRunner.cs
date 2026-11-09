@@ -34,7 +34,11 @@ namespace PellyCoder.Core.Specs;
 /// <param name="groupTests">Runs a group's acceptance-criterion tests; a group with linked tests exits 4 without it.</param>
 /// <param name="sqlImpact">
 /// The SQL impact search at the start (design §7.1): it runs only when <c>sql.production</c> is configured, so an apply
-/// without a production connection asks, warns and reads exactly as before. No search without it.
+/// without a production connection reads no database. No search without it.
+/// </param>
+/// <param name="asp">
+/// The <c>asp</c> options (defaults when null). The SP → ASP search at the start (A2 design §4.3) runs whenever a not-done
+/// sql task exists, with or without <c>sql.production</c>: its warnings join the 「계속할까요?」 question.
 /// </param>
 public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor executor, IUserInteraction ui, TimeProvider time, int sqlCompatLevel,
     Action<Workspace, string>? pruneRuns = null, IGroupVerifier? groups = null, FeedbackBuilder? groupFeedback = null, int? groupRetryMax = null,
@@ -105,24 +109,21 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
         {
             // The SQL full list goes under this apply's run folder and must be there when the warnings are shown (the
             // person may open it before answering), so with a SQL search the apply ID is chosen now.
+            // A dry run writes no apply.json: its list goes where spec check puts it (overwritten per run), not into a run folder.
             string? applyId = null;
-            SqlImpactRequest? sqlRequest = null;
-            if (sqlImpact is not null)
-            {
-                if (o.DryRun)
-                {
-                    // A dry run writes no apply.json: its list goes where spec check puts it (overwritten per run), not into a run folder.
-                    sqlRequest = SpecChecker.SqlRequest(fs, sqlImpact, allowDev: false, SpecChecker.SpecCheckListPath(fs, check, specPath));
-                }
-                else
-                {
-                    var id = "apply-" + RunLogger.NewRunId(time);
-                    sqlRequest = SpecChecker.SqlRequest(fs, sqlImpact, allowDev: false, fs.Path.Combine(ws.PellyDir, "runs", id, "impact-sql.json"));
-                    if (sqlRequest is not null) applyId = id;
-                }
-            }
+            var id = "apply-" + RunLogger.NewRunId(time);
+            var listPath = o.DryRun
+                ? SpecChecker.SpecCheckListPath(fs, check, specPath)
+                : fs.Path.Combine(ws.PellyDir, "runs", id, "impact-sql.json");
+            var sqlRequest = sqlImpact is null ? null : SpecChecker.SqlRequest(fs, sqlImpact, allowDev: false, listPath);
 
-            check = await SpecChecker.AddImpactAsync(check, impact, false, ct, sqlRequest);
+            // The SP → ASP search reads only files: it runs whenever a not-done sql task may change a procedure (A2 design §4.3).
+            var aspRequest = check.Spec.Tasks.Any(t => t is { Kind: TaskKind.Sql, Done: false })
+                ? new AspImpactRequest(fs, asp ?? new AspOptions(), sqlCompatLevel, listPath)
+                : null;
+            if (!o.DryRun && (sqlRequest is not null || aspRequest is not null)) applyId = id;
+
+            check = await SpecChecker.AddImpactAsync(check, impact, false, ct, sqlRequest, aspRequest);
             var warnings = check.Issues.Where(i => i.Severity == SpecIssueSeverity.Warning).ToList();
             if (warnings.Count > 0)
             {

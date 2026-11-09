@@ -281,6 +281,41 @@ public sealed class SpecRunnerAspTests : IDisposable
         Assert.DoesNotContain(_ui.Warnings, w => w.Contains("어긋나"));
     }
 
+    // ── SP → ASP impact before the apply (A2 design §4.3) ──
+
+    private static ApplyOptions Ask() => new(false, false, false, false, false, null, false);
+
+    [Fact]
+    public async Task Apply_without_production_still_prompts_for_asp_callers()
+    {
+        Make("web/c.asp", "<%\nrs.Open \"EXEC usp_A 1\", conn\n%>\n");
+        Spec("- [ ] T1 sql db/a.sql 바꾼다\n");
+        _ui.ConfirmAnswers.Enqueue(false);
+
+        var code = await Run(Ask());
+
+        Assert.Equal(2, code);
+        Assert.Equal(["경고가 있습니다. 계속할까요?"], _ui.ConfirmMessages);
+        Assert.Contains(_ui.Warnings, w => w.EndsWith("작업 T1의 영향 대상이 명세에 없습니다: web/c.asp:2 (usp_A 호출, 인수 1개)", StringComparison.Ordinal));
+        Assert.Equal(Proc, Read("db/a.sql"));
+        var list = Assert.Single(Directory.GetFiles(P(".pelly/runs"), "impact-sql.json", SearchOption.AllDirectories));
+        Assert.Contains("web/c.asp", File.ReadAllText(list));
+    }
+
+    [Fact]
+    public async Task No_asp_pages_no_asp_warnings_and_no_new_prompt()
+    {
+        foreach (var page in new[] { "site/a.asp", "web/a.asp", "web/b.asp" }) File.Delete(P(page));
+        Spec("- [ ] T1 sql db/a.sql 바꾼다\n");
+
+        // No answer is queued: any confirmation fails the test.
+        var code = await Run(Ask());
+
+        Assert.Equal(0, code);
+        Assert.Empty(_ui.ConfirmMessages);
+        Assert.DoesNotContain(_ui.Warnings, w => w.Contains("영향 대상"));
+    }
+
     [Fact]
     public async Task Dry_run_asp_task()
     {

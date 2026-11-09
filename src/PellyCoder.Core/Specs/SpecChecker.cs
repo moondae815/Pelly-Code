@@ -12,6 +12,7 @@ using PellyCoder.Core.Files;
 using PellyCoder.Core.Impact;
 using PellyCoder.Core.Sql;
 using PellyCoder.Core.Testing;
+using PellyCoder.Core.Web;
 using PellyCoder.Core.Workspaces;
 using Workspace = PellyCoder.Core.Workspaces.Workspace;
 
@@ -24,6 +25,9 @@ public sealed record SpecCheckResult(ChangeSpec Spec, Workspace Workspace, IRead
     SqlImpactResult? SqlImpact = null, SqlImpactSummary? SqlImpactSummary = null)
 {
     public bool HasErrors => Issues.Any(i => i.Severity == SpecIssueSeverity.Error);
+
+    /// <summary>The SP → ASP calls (A2 design §4.3), covered ones included; null when that search did not run or threw.</summary>
+    public IReadOnlyList<AspImpactHit>? AspImpact { get; init; }
 }
 
 /// <summary>What a SQL impact search needs before a database is chosen: the finder, the <c>sql</c> options and the reader factory.</summary>
@@ -36,6 +40,11 @@ public sealed record SqlImpactSetup(ISqlImpactFinder Finder, SqlOptions Options,
 /// <param name="ListPath">Full path of the full-list JSON, overwritten by each search.</param>
 public sealed record SqlImpactRequest(IFileSystem Fs, ISqlImpactFinder Finder, SqlReaderOpen Db, SqlImpactBasis Basis, int CompatLevel,
     string PullDirectory, string ListPath);
+
+/// <summary>One SP → ASP impact search to run (A2 design §4.3): files only, no database.</summary>
+/// <param name="Asp">The <c>asp</c> options: site root, extensions, encoding and wrapper functions.</param>
+/// <param name="ListPath">Full path of the full-list JSON: the SQL search's list when that runs, else one of its own.</param>
+public sealed record AspImpactRequest(IFileSystem Fs, AspOptions Asp, int CompatLevel, string ListPath);
 
 /// <summary>Static checks of a change spec against the workspace (no model, no DB): grammar, targets, AC tests, names.</summary>
 public static partial class SpecChecker
@@ -67,7 +76,7 @@ public static partial class SpecChecker
     /// <param name="impactAllCsTasks">
     /// <c>spec check --impact</c>: seed every not-done cs task, not just the grouped ones, and — with <paramref name="sql"/> —
     /// run the SQL search from every not-done sql task on the production database, or the development one when no
-    /// production connection is configured. Without it no database is touched.
+    /// production connection is configured, and the SP → ASP search (A2 design §4.3). Without it no database is touched.
     /// </param>
     public static async Task<SpecCheckResult> CheckAsync(
         IFileSystem fs, string specPath, int sqlCompatLevel, IImpactFinder? impact, bool impactAllCsTasks, CancellationToken ct, SqlImpactSetup? sql = null,
@@ -77,7 +86,10 @@ public static partial class SpecChecker
         var request = impactAllCsTasks && sql is not null && !check.HasErrors
             ? SqlRequest(fs, sql, allowDev: true, SpecCheckListPath(fs, check, specPath))
             : null;
-        return await AddImpactAsync(check, impact, impactAllCsTasks, ct, request);
+        var aspRequest = impactAllCsTasks && !check.HasErrors
+            ? new AspImpactRequest(fs, asp ?? new AspOptions(), sqlCompatLevel, SpecCheckListPath(fs, check, specPath))
+            : null;
+        return await AddImpactAsync(check, impact, impactAllCsTasks, ct, request, aspRequest);
     }
 
     /// <summary><c>.pelly/impact/&lt;spec id&gt;-sql.json</c>: the full list of a <c>spec check --impact</c>, overwritten by each run.</summary>
@@ -101,17 +113,98 @@ public static partial class SpecChecker
 
     /// <summary>
     /// The impact half of <see cref="CheckAsync"/>, for a caller that refuses cheaply between the static check and the search.
-    /// The C# search (<paramref name="impact"/>) and the SQL search (<paramref name="sql"/>) are independent; either may run.
+    /// The C# search (<paramref name="impact"/>), the SQL search (<paramref name="sql"/>) and the SP → ASP search
+    /// (<paramref name="asp"/>) are independent; any may run. The ASP calls go into the SQL search's full list when that
+    /// search saves one, else — when there are any — into a list of their own at <see cref="AspImpactRequest.ListPath"/>.
     /// </summary>
     public static async Task<SpecCheckResult> AddImpactAsync(SpecCheckResult check, IImpactFinder? impact, bool impactAllCsTasks, CancellationToken ct,
-        SqlImpactRequest? sql = null)
+        SqlImpactRequest? sql = null, AspImpactRequest? asp = null)
     {
         if (check.HasErrors) return check;
         check = await AddCsImpactAsync(check, impact, impactAllCsTasks, ct);
-        return sql is null ? check : await AddSqlImpactAsync(check, sql, ct);
+
+        (IReadOnlyList<SqlImpactSeed> Seeds, IReadOnlyList<AspImpactHit> Hits)? found = null;
+        SpecIssue? aspFailed = null;
+        if (asp is not null)
+        {
+            try
+            {
+                found = FindAsp(check, asp);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // The warning feature never blocks a spec.
+                aspFailed = new SpecIssue(0, SpecIssueSeverity.Warning, "ImpactFailed", $"영향 탐색(ASP)을 할 수 없습니다: {ex.Message}");
+            }
+        }
+
+        if (sql is not null) check = await AddSqlImpactAsync(check, sql, ct, found?.Hits);
+        if (aspFailed is not null) return check with { Issues = [.. check.Issues, aspFailed] };
+        return found is { } f ? AddAspIssues(check, asp!, f.Seeds, f.Hits) : check;
     }
 
-    private static async Task<SpecCheckResult> AddSqlImpactAsync(SpecCheckResult check, SqlImpactRequest sql, CancellationToken ct)
+    /// <summary>The ASP calls of the stored procedures the not-done sql tasks change; null when there is no such task.</summary>
+    private static (IReadOnlyList<SqlImpactSeed> Seeds, IReadOnlyList<AspImpactHit> Hits)? FindAsp(SpecCheckResult check, AspImpactRequest request)
+    {
+        var (seeds, _) = ImpactCheck.SqlSeeds(request.Fs, check.Workspace, check.Spec, request.CompatLevel);
+        if (seeds.Count == 0) return null;
+
+        var fs = request.Fs;
+        var o = request.Asp;
+        var root = check.Workspace.Root;
+        var siteRoot = AspSiteRoot.Resolve(fs, o.SiteRoot, root);
+        if (!fs.Directory.Exists(siteRoot)) return (seeds, []);
+
+        // The W2 site index and its cache: the same pages are not parsed twice.
+        var codec = new WebCodecRouter(new WebTextCodec(o.Encoding), new AspTextCodec(o.Encoding), o.Extensions);
+        var cachePath = fs.Path.Combine(root, ".pelly", "cache", "web-site-index.json");
+        var index = WebSiteIndex.Load(fs, siteRoot, new WebFileFilter(siteRoot, new WebOptions().VendorPaths), codec, cachePath,
+            aspExtensions: o.Extensions, spCallFunctions: o.SpCallFunctions);
+
+        // The index's paths are site-relative: so are the asp tasks' for the comparison.
+        var tasks = check.Spec.Tasks
+            .Select(t => t.Kind != TaskKind.Asp ? t
+                : t with { Path = fs.Path.GetRelativePath(siteRoot, SpecTaskPaths.FullPath(fs.Path, root, t.Path)).Replace('\\', '/') })
+            .ToList();
+        var pageCodec = new AspTextCodec(o.Encoding);
+        AspPage? PageOf(SpecTask task)
+        {
+            try
+            {
+                var full = fs.Path.Combine(siteRoot, task.Path);
+                return AspPage.Parse(pageCodec.Decode(full, fs.File.ReadAllBytes(full)).Text);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or ArgumentException or NotSupportedException)
+            {
+                return null;
+            }
+        }
+
+        return (seeds, AspImpactFinder.Find(seeds, tasks, index, PageOf));
+    }
+
+    /// <summary>The SP → ASP warnings; the calls' own list is saved first when the SQL search did not save one with them.</summary>
+    private static SpecCheckResult AddAspIssues(SpecCheckResult check, AspImpactRequest request, IReadOnlyList<SqlImpactSeed> seeds,
+        IReadOnlyList<AspImpactHit> hits)
+    {
+        var shown = check.SqlImpactSummary?.ListPath;
+        if (shown is null && hits.Count > 0)
+        {
+            try
+            {
+                SqlImpactList.WriteAsp(request.Fs, request.ListPath, check.Spec.Id, seeds, hits);
+                shown = request.Fs.Path.GetRelativePath(check.Workspace.Root, request.ListPath).Replace('\\', '/');
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
+            {
+                // The warnings still say what was found; the list just says it was not saved.
+            }
+        }
+        return check with { Issues = [.. check.Issues, .. ImpactCheck.AspIssues(seeds, hits, shown)], AspImpact = hits };
+    }
+
+    private static async Task<SpecCheckResult> AddSqlImpactAsync(SpecCheckResult check, SqlImpactRequest sql, CancellationToken ct,
+        IReadOnlyList<AspImpactHit>? asp)
     {
         var (seeds, notFound) = ImpactCheck.SqlSeeds(sql.Fs, check.Workspace, check.Spec, sql.CompatLevel);
         if (seeds.Count == 0 && notFound.Count == 0) return check;
@@ -139,7 +232,7 @@ public static partial class SpecChecker
         string? shown = null;
         try
         {
-            SqlImpactList.Write(sql.Fs, sql.ListPath, check.Spec.Id, seeds, result);
+            SqlImpactList.Write(sql.Fs, sql.ListPath, check.Spec.Id, seeds, result, asp);
             shown = sql.Fs.Path.GetRelativePath(check.Workspace.Root, sql.ListPath).Replace('\\', '/');
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
@@ -343,7 +436,7 @@ public static partial class SpecChecker
     }
 
     /// <summary>The same rule as <c>pelly asp --proc</c>: <c>Class.Name</c> is that class member; a bare name is top-level, else class members.</summary>
-    private static List<AspProcedure> MatchingProcedures(AspPage page, string wanted)
+    internal static List<AspProcedure> MatchingProcedures(AspPage page, string wanted)
     {
         static bool Same(string? a, string b) => a is not null && a.Equals(b, StringComparison.OrdinalIgnoreCase);
         var dot = wanted.IndexOf('.');

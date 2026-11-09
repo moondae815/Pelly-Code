@@ -183,6 +183,35 @@ public static class ImpactCheck
         return issues;
     }
 
+    /// <summary>
+    /// Warnings for the SP → ASP impact (A2 design §4.3): one <c>ImpactMissing</c> per call no asp task covers, on the stored
+    /// procedure's first seed line, at most <see cref="SqlImpactFinder.MaxWarningsPerTable"/> per procedure and then one
+    /// 「외 n곳」 line naming the full list (<paramref name="listPath"/>, null when it could not be saved).
+    /// </summary>
+    public static IReadOnlyList<SpecIssue> AspIssues(IReadOnlyList<SqlImpactSeed> seeds, IReadOnlyList<AspImpactHit> hits, string? listPath)
+    {
+        var lines = seeds.GroupBy(s => s.TaskId, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First().Line, StringComparer.Ordinal);
+        var issues = new List<SpecIssue>();
+        foreach (var sp in hits.Where(h => !h.Covered).GroupBy(h => SqlImpactFinder.Display(h.Object).ToUpperInvariant()))
+        {
+            var first = sp.First();
+            var line = lines.GetValueOrDefault(first.TaskIds.Split(", ")[0]);
+            var missing = sp.ToList();
+            foreach (var hit in missing.Take(SqlImpactFinder.MaxWarningsPerTable))
+            {
+                var call = hit.Call;
+                var arguments = call.Arguments is { } n ? $"인수 {n}개" : "인수 모름";
+                var include = hit.Includers > 0 ? $" (include: 그 파일을 쓰는 페이지 {hit.Includers}곳)" : "";
+                issues.Add(Warning(line, "ImpactMissing",
+                    $"작업 {hit.TaskIds}의 영향 대상이 명세에 없습니다: {Normalize(call.RelativePath)}:{call.Line} ({call.Object.Display} 호출, {arguments}){include}"));
+            }
+            if (missing.Count > SqlImpactFinder.MaxWarningsPerTable)
+                issues.Add(Warning(line, "ImpactMissing",
+                    $"작업 {first.TaskIds}의 영향 대상이 명세에 없습니다: {SqlImpactFinder.Display(first.Object)} 호출 외 {missing.Count - SqlImpactFinder.MaxWarningsPerTable}곳 — 전체 목록: {listPath ?? "(저장 실패)"}"));
+        }
+        return issues;
+    }
+
     /// <summary>The task's <c>#객체</c>, else its file's only definition; null when neither tells one object.</summary>
     private static SqlObjectName? TaskObject(IFileSystem fs, Workspace ws, SpecTask task, int compatLevel)
     {

@@ -41,7 +41,8 @@ internal static class WebLocateCommon
     {
         var cachePath = fs.Path.Combine(ctx.Workspace!.Root, ".pelly", "cache", "web-site-index.json");
         var filter = new WebFileFilter(siteRoot, options.Web.VendorPaths);
-        return new Lazy<WebSiteIndexResult>(() => WebSiteIndex.Load(fs, siteRoot, filter, codec, cachePath, aspExtensions: options.Asp.Extensions));
+        return new Lazy<WebSiteIndexResult>(() => WebSiteIndex.Load(fs, siteRoot, filter, codec, cachePath, aspExtensions: options.Asp.Extensions,
+            spCallFunctions: options.Asp.SpCallFunctions));
     }
 
     /// <summary>Every byte of the original file is below 0x80 (a BOM is not).</summary>

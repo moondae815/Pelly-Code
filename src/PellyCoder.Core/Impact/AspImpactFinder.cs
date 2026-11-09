@@ -10,7 +10,10 @@ namespace PellyCoder.Core.Impact;
 /// </summary>
 /// <param name="TaskIds">The not-done sql tasks that change <paramref name="Object"/>, joined by <c>", "</c>.</param>
 /// <param name="Object">The seed's stored procedure (the sql task's object), not the name as the page writes it.</param>
-/// <param name="Covered">A not-done asp task of the same file edits the call: its procedure holds it, or its line range does.</param>
+/// <param name="Covered">
+/// An asp task of the same file edits the call — its procedure holds it, or its line range does. A done task counts too: it
+/// already fixed the call, so <c>apply --resume</c> does not warn about it again.
+/// </param>
 /// <param name="Includers">Pages that include the call's file (directly or through other includes); 0 for a page nobody includes.</param>
 public sealed record AspImpactHit(string TaskIds, SqlObjectName Object, AspSpCallEntry Call, bool Covered, int Includers);
 
@@ -46,7 +49,7 @@ public static class AspImpactFinder
         }
         if (groups.Count == 0) return [];
 
-        var aspTasks = tasks.Where(t => t is { Kind: TaskKind.Asp, Done: false }).ToList();
+        var aspTasks = tasks.Where(t => t.Kind == TaskKind.Asp).ToList();
         var ranges = new Dictionary<string, IReadOnlyList<(int Start, int End)>?>(StringComparer.Ordinal);
         IReadOnlyList<(int Start, int End)>? ProcedureLines(SpecTask task)
         {

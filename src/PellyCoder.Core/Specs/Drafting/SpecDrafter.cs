@@ -103,7 +103,13 @@ public sealed class SpecDrafter(IFileSystem fs, DraftModel model, IImpactFinder 
             var sqlRequest = sql is null || skipped
                 ? null
                 : SpecChecker.SqlRequest(fs, sql, allowDev: true, SpecChecker.SpecCheckListPath(fs, first, draftPath));
-            var searched = sqlRequest is null ? csChecked : await SpecChecker.AddImpactAsync(csChecked, null, false, ct, sqlRequest);
+            // The SP → ASP search as spec check --impact runs it (A2 design §4.3): warnings only, no asp task line is added.
+            var aspRequest = skipped
+                ? null
+                : new AspImpactRequest(fs, asp ?? new AspOptions(), sqlCompatLevel, SpecChecker.SpecCheckListPath(fs, first, draftPath));
+            var searched = sqlRequest is null && aspRequest is null
+                ? csChecked
+                : await SpecChecker.AddImpactAsync(csChecked, null, false, ct, sqlRequest, aspRequest);
 
             var (lines, added, skippedForCap) = AddImpactTasks(ws, first.Spec, taskLines, searched.Impact);
             var check = searched;
@@ -278,6 +284,7 @@ public sealed class SpecDrafter(IFileSystem fs, DraftModel model, IImpactFinder 
             Impact = searched.Impact,
             SqlImpact = searched.SqlImpact,
             SqlImpactSummary = searched.SqlImpactSummary,
+            AspImpact = searched.AspImpact,
         };
     }
 

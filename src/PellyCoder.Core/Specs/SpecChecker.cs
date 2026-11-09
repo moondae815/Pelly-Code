@@ -183,24 +183,32 @@ public static partial class SpecChecker
         return (seeds, AspImpactFinder.Find(seeds, tasks, index, PageOf));
     }
 
-    /// <summary>The SP → ASP warnings; the calls' own list is saved first when the SQL search did not save one with them.</summary>
+    /// <summary>
+    /// The SP → ASP warnings. When the SQL search did not save a list with the calls, their own list is saved first and
+    /// recorded as the summary's list (apply.json): when there is a call, or — with an empty <c>asp</c> — when an older list
+    /// is at that path, so stale rows never survive. With neither, nothing is written (an apply without callers stays as before).
+    /// </summary>
     private static SpecCheckResult AddAspIssues(SpecCheckResult check, AspImpactRequest request, IReadOnlyList<SqlImpactSeed> seeds,
         IReadOnlyList<AspImpactHit> hits)
     {
         var shown = check.SqlImpactSummary?.ListPath;
-        if (shown is null && hits.Count > 0)
+        var ownList = false;
+        if (shown is null && (hits.Count > 0 || request.Fs.File.Exists(request.ListPath)))
         {
             try
             {
                 SqlImpactList.WriteAsp(request.Fs, request.ListPath, check.Spec.Id, seeds, hits);
                 shown = request.Fs.Path.GetRelativePath(check.Workspace.Root, request.ListPath).Replace('\\', '/');
+                ownList = true;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
             {
                 // The warnings still say what was found; the list just says it was not saved.
             }
         }
-        return check with { Issues = [.. check.Issues, .. ImpactCheck.AspIssues(seeds, hits, shown)], AspImpact = hits };
+        var issues = ImpactCheck.AspIssues(seeds, hits, shown);
+        var summary = ownList && check.SqlImpactSummary is null ? new SqlImpactSummary(null, seeds.Count, issues.Count, shown) : check.SqlImpactSummary;
+        return check with { Issues = [.. check.Issues, .. issues], AspImpact = hits, SqlImpactSummary = summary };
     }
 
     private static async Task<SpecCheckResult> AddSqlImpactAsync(SpecCheckResult check, SqlImpactRequest sql, CancellationToken ct,

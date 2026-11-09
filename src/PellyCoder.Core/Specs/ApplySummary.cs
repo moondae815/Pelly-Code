@@ -43,7 +43,10 @@ public sealed record ApplySummary(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SqlImpactSummary? SqlImpact = null);
 
 /// <summary>What the SQL impact search did (design §8).</summary>
-/// <param name="Basis"><c>prod</c> or <c>dev</c>: the database whose dependencies were read; null when none could be read or the search failed.</param>
+/// <param name="Basis">
+/// <c>prod</c> or <c>dev</c>: the database whose dependencies were read; null when none could be read, the search failed, or
+/// only the SP → ASP search ran (A2 design §4.3: then the list holds only the ASP calls).
+/// </param>
 /// <param name="Seeds">The sql tasks the search started from.</param>
 /// <param name="Warnings">The warnings it added.</param>
 /// <param name="ListPath">Workspace-relative path (with '/') of the full list; null when none was written.</param>

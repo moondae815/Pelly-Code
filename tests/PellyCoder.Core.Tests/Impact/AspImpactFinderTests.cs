@@ -72,8 +72,21 @@ public sealed class AspImpactFinderTests
             Call("c.asp", 5, "usp_X", proc: "GetList")));
 
         Assert.Equal(4, hits.Count);
-        Assert.All(hits, h => Assert.False(h.Covered));
-        Assert.Equal(4, ImpactCheck.AspIssues(seeds, hits, null).Count);
+        Assert.Equal([false, false, false, true], hits.Select(h => h.Covered));
+        Assert.Equal(3, ImpactCheck.AspIssues(seeds, hits, null).Count);
+    }
+
+    [Fact]
+    public void Done_asp_task_covers_its_call()
+    {
+        // A finished asp task already fixed its calls: apply --resume must not warn about them again.
+        var seeds = new[] { Seed("T1", "usp_X") };
+        var tasks = new[] { Asp("T2", "a.asp", "GetList", done: true), Asp("T3", "b.asp", null, new TextSpanInfo(1, 9), done: true) };
+        var hits = Find(seeds, tasks, Index(Call("a.asp", 5, "usp_X", proc: "GetList"), Call("b.asp", 5, "usp_X")));
+
+        Assert.Equal(2, hits.Count);
+        Assert.All(hits, h => Assert.True(h.Covered));
+        Assert.Empty(ImpactCheck.AspIssues(seeds, hits, null));
     }
 
     [Fact]
@@ -220,5 +233,19 @@ public sealed class AspImpactFinderTests
 
         Assert.Empty(r.Issues);
         Assert.False(fs.File.Exists(W(".pelly/impact/x-sql.json")));
+    }
+
+    [Fact]
+    public async Task Asp_list_overwrites_stale_rows_when_no_caller_is_left()
+    {
+        var fs = Fs("- [ ] T1 sql db/one.sql 바꾼다\n", ("web/list.asp", Caller));
+        await CheckAsync(fs, impactFlag: true);
+        fs.File.WriteAllText(W("web/list.asp"), "<%\nx = 1\n%>\n");
+
+        var r = await CheckAsync(fs, impactFlag: true);
+
+        Assert.Empty(r.Issues);
+        using var json = JsonDocument.Parse(fs.File.ReadAllText(W(".pelly/impact/x-sql.json")));
+        Assert.Empty(json.RootElement.GetProperty("asp").EnumerateArray());
     }
 }

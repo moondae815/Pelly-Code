@@ -70,6 +70,21 @@ public sealed class SpecDrafterTests
     private static string[] Codes(DraftOutcome o) => o.Check.Issues.Select(i => i.Code).ToArray();
 
     [Fact]
+    public async Task Draft_shows_asp_impact_warning()
+    {
+        var fs = Fs();
+        fs.AddFile("/ws/db/one.sql", "CREATE PROCEDURE dbo.usp_One AS SELECT 1;\n");
+        fs.AddFile("/ws/web/list.asp", "<%\nrs.Open \"EXEC usp_One 1, 2\", conn\n%>\n");
+
+        var run = await Draft("- [ ] T1 sql db/one.sql 바꾼다", fs: fs, scopes: ["/ws/db"]);
+
+        var o = run.Outcome!;
+        var issue = Assert.Single(o.Check.Issues, i => i.Code == "ImpactMissing");
+        Assert.Equal("작업 T1의 영향 대상이 명세에 없습니다: web/list.asp:2 (usp_One 호출, 인수 2개)", issue.Message);
+        Assert.Equal(["- [ ] T1 sql db/one.sql 바꾼다"], TaskLines(o)); // no asp task line is added
+    }
+
+    [Fact]
     public async Task ScopeOverBudget_NoModelCall_Exit4()
     {
         var fs = Fs();

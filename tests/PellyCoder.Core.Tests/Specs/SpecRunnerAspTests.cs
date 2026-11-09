@@ -303,6 +303,22 @@ public sealed class SpecRunnerAspTests : IDisposable
     }
 
     [Fact]
+    public async Task Apply_records_asp_only_list_path_in_apply_json()
+    {
+        Make("web/c.asp", "<%\nrs.Open \"EXEC usp_A 1\", conn\n%>\n");
+        Spec("- [ ] T1 sql db/a.sql 바꾼다\n");
+        _ui.ConfirmAnswers.Enqueue(true);
+
+        var code = await Run(Ask());
+
+        Assert.Equal(0, code);
+        var applyJson = Assert.Single(Directory.GetFiles(P(".pelly/runs"), "apply.json", SearchOption.AllDirectories));
+        var runDir = Path.GetFileName(Path.GetDirectoryName(applyJson)!);
+        using var json = System.Text.Json.JsonDocument.Parse(File.ReadAllText(applyJson));
+        Assert.Equal($".pelly/runs/{runDir}/impact-sql.json", json.RootElement.GetProperty("sqlImpact").GetProperty("listPath").GetString());
+    }
+
+    [Fact]
     public async Task No_asp_pages_no_asp_warnings_and_no_new_prompt()
     {
         foreach (var page in new[] { "site/a.asp", "web/a.asp", "web/b.asp" }) File.Delete(P(page));

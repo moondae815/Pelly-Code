@@ -583,7 +583,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             catch (OperationCanceledException) { return new GroupEnd(await CancelledAsync(tx), true); }
             if (go) return null;
 
-            foreach (var t in g.Tasks) _results.Add(new ApplyTaskResult(t.Id, null, 2, FailureKinds.TestRedDeclined, 0, g.Id));
+            foreach (var t in g.Tasks) _results.Add(ApplyTaskResult.For(t, null, 2, FailureKinds.TestRedDeclined, 0, g.Id));
             var marks = g.Tasks.Select(t => new SpecMark(t.Id, ApplyId!, FailureKinds.TestRedDeclined)).ToList();
             if (!await SpecWrittenAsync(_doc.MarkAsync(marks, CancellationToken.None))) return new GroupEnd(Unreviewed(tx, 4), true);
             _marked.AddRange(g.Tasks.Select(t => t.Id));
@@ -891,11 +891,11 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             }
             catch (OperationCanceledException)
             {
-                _results.Add(new ApplyTaskResult(task.Id, null, 2, null, Seconds(started), task.Group));
+                _results.Add(ApplyTaskResult.For(task, null, 2, null, Seconds(started), task.Group));
                 throw;
             }
 
-            _results.Add(new ApplyTaskResult(task.Id, r.RunId, r.ExitCode, r.FailureKind, Seconds(started), task.Group));
+            _results.Add(ApplyTaskResult.For(task, r.RunId, r.ExitCode, r.FailureKind, Seconds(started), task.Group));
             _firstRuns.TryAdd(task.Id, r);
             _lastRuns[task.Id] = r;
             _ends[task.Id] = r.ExitCode;
@@ -940,7 +940,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
         {
             owner.Ui.Warn(reason);
             // No task ran, so the report would not see the group otherwise.
-            foreach (var t in g.Tasks) _results.Add(new ApplyTaskResult(t.Id, null, 4, kind, 0, g.Id));
+            foreach (var t in g.Tasks) _results.Add(ApplyTaskResult.For(t, null, 4, kind, 0, g.Id));
             var marks = g.Tasks.Select(t => new SpecMark(t.Id, ApplyId!, kind)).ToList();
             if (!await SpecWrittenAsync(_doc.MarkAsync(marks, CancellationToken.None))) return new GroupEnd(Unreviewed(tx, 4), true);
             _marked.AddRange(g.Tasks.Select(t => t.Id));

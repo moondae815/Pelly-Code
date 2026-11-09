@@ -237,6 +237,37 @@ public sealed class SpecRunnerAspTests : IDisposable
         Assert.Single(_builds.Calls); // the baseline; no verification build after a failed member
     }
 
+    private System.Text.Json.JsonDocument ApplyJson() =>
+        System.Text.Json.JsonDocument.Parse(File.ReadAllText(Assert.Single(Directory.GetFiles(P(".pelly/runs"), "apply.json", SearchOption.AllDirectories))));
+
+    [Fact]
+    public async Task Apply_json_task_entries_carry_kind_and_asp_target()
+    {
+        Spec("- [ ] T1 asp web/a.asp#GetOne 바꾼다\n- [ ] T2 asp web/b.asp#L2-4 바꾼다\n- [ ] T3 sql db/a.sql 바꾼다\n");
+        Assert.Equal(0, await Run(Opts()));
+
+        using var json = ApplyJson();
+        var tasks = json.RootElement.GetProperty("tasks").EnumerateArray().ToDictionary(e => e.GetProperty("taskId").GetString()!);
+        Assert.Equal("asp", tasks["T1"].GetProperty("kind").GetString());
+        Assert.Equal("GetOne", tasks["T1"].GetProperty("proc").GetString());
+        Assert.False(tasks["T1"].TryGetProperty("lines", out _));
+        Assert.Equal("asp", tasks["T2"].GetProperty("kind").GetString());
+        Assert.Equal("2-4", tasks["T2"].GetProperty("lines").GetString());
+        Assert.False(tasks["T2"].TryGetProperty("proc", out _));
+        Assert.Equal("sql", tasks["T3"].GetProperty("kind").GetString());
+        Assert.False(tasks["T3"].TryGetProperty("proc", out _));
+    }
+
+    [Fact]
+    public void Old_apply_json_task_entries_still_parse()
+    {
+        var old = System.Text.Json.JsonSerializer.Deserialize<ApplyTaskResult>(
+            "{\"taskId\":\"T1\",\"runId\":null,\"exitCode\":0,\"failureKind\":null,\"seconds\":1,\"group\":null}",
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+        Assert.NotNull(old);
+        Assert.Null(old.Kind);
+    }
+
     [Fact]
     public async Task No_group_sql_applied_asp_failed_warns_mismatch()
     {

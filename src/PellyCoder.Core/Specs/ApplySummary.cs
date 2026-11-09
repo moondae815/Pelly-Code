@@ -10,7 +10,21 @@ public sealed record ApplyOptions(bool Continue, bool Resume, bool ReviewAtEnd, 
 /// One task's outcome inside an apply (<paramref name="RunId"/> is null when the executor threw). <paramref name="Group"/> is the
 /// task's group ID (group tasks only); when the group fails as a whole, <paramref name="FailureKind"/> carries the group's kind.
 /// </summary>
-public sealed record ApplyTaskResult(string TaskId, string? RunId, int ExitCode, string? FailureKind, double Seconds, string? Group = null);
+/// <param name="Kind"><c>cs</c>, <c>sql</c> or <c>asp</c> (A2 design §4.1); null in an older file.</param>
+/// <param name="Proc">An asp task's procedure target (<c>#이름</c>); null otherwise.</param>
+/// <param name="Lines">An asp task's line range (<c>#L120-148</c>) as <c>120-148</c>; null otherwise.</param>
+public sealed record ApplyTaskResult(string TaskId, string? RunId, int ExitCode, string? FailureKind, double Seconds, string? Group = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Kind = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Proc = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Lines = null)
+{
+    /// <summary>A result for <paramref name="task"/>, carrying its kind and asp target.</summary>
+    public static ApplyTaskResult For(SpecTask task, string? runId, int exitCode, string? failureKind, double seconds, string? group) =>
+        new(task.Id, runId, exitCode, failureKind, seconds, group,
+            task.Kind switch { TaskKind.Sql => "sql", TaskKind.Asp => "asp", _ => "cs" },
+            task.Kind == TaskKind.Asp && task.Lines is null ? task.Symbol : null,
+            task.Kind == TaskKind.Asp && task.Lines is { } l ? $"{l.StartLine}-{l.EndLine}" : null);
+}
 
 /// <summary>How an acceptance criterion with a <c>test:</c> ended in an apply.</summary>
 public enum AcOutcome { Met, NotMet, NotRun, Unverified }

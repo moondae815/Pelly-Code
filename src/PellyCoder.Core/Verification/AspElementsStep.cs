@@ -16,6 +16,7 @@ namespace PellyCoder.Core.Verification;
 public sealed class AspElementsStep(IFileSystem fs, PellyOptions options, ITextFileCodec codec) : IVerifierStep
 {
     public const string Row = "JsElements";
+    public const string IndexUnreadable = "사이트 색인을 읽지 못함";
 
     public string Name => "Elements";
 
@@ -28,8 +29,15 @@ public sealed class AspElementsStep(IFileSystem fs, PellyOptions options, ITextF
         var patched = AspPage.Parse(ctx.Current.Text);
         if (!HasScript(original) && !HasScript(patched)) return Task.FromResult(StepResult.Pass);
 
-        var index = WebLocateCommon.SiteIndex(fs, ctx, options, state.SiteRoot, codec);
-        var related = PageScripts.RelatedTexts(fs, state.SiteRoot, ctx.FilePath, original, codec, index.Value);
+        state.SiteIndex ??= WebLocateCommon.SiteIndex(fs, ctx, options, state.SiteRoot, codec);
+        WebSiteIndexResult index;
+        try { index = state.SiteIndex.Value; }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            state.Record(Row, AspCheckStatus.Skipped, IndexUnreadable);
+            return Task.FromResult(StepResult.Pass);
+        }
+        var related = PageScripts.RelatedTexts(fs, state.SiteRoot, ctx.FilePath, original, codec, index);
         var warnings = PageElements.NewBroken(original, ctx.Original.Text, patched, ctx.Current.Text, related);
         if (warnings.Count == 0) state.Record(Row, AspCheckStatus.Passed);
         else state.Record(Row, AspCheckStatus.Warned, string.Join(", ", warnings));

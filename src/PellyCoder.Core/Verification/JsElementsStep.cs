@@ -27,7 +27,14 @@ public sealed class JsElementsStep(IFileSystem fs, ITextFileCodec codec) : IVeri
         }
 
         var original = state.Page.OriginalPage;
-        var related = PageScripts.RelatedTexts(fs, state.SiteRoot, ctx.FilePath, original, codec, state.SiteIndex.Value);
+        WebSiteIndexResult index;
+        try { index = state.SiteIndex.Value; }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            state.Record(Row, AspCheckStatus.Skipped, AspElementsStep.IndexUnreadable);
+            return Task.FromResult(StepResult.Pass);
+        }
+        var related = PageScripts.RelatedTexts(fs, state.SiteRoot, ctx.FilePath, original, codec, index);
         var warnings = PageElements.NewBroken(original, ctx.Original.Text, AspPage.Parse(ctx.Current.Text), ctx.Current.Text, related);
         if (warnings.Count == 0) state.Record(Row, AspCheckStatus.Passed);
         else state.Record(Row, AspCheckStatus.Warned, string.Join(", ", warnings));

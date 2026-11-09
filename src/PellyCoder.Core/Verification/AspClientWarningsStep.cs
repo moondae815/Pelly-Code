@@ -52,7 +52,7 @@ public sealed class AspClientWarningsStep(IFileSystem fs, PellyOptions options, 
             var before = JsDocument.Parse(ov?.Text ?? "", plan.OriginalLevel ?? level, plan.Module);
             judged = true;
 
-            index ??= WebLocateCommon.SiteIndex(fs, ctx, options, state.SiteRoot, codec);
+            index ??= state.SiteIndex ??= WebLocateCommon.SiteIndex(fs, ctx, options, state.SiteRoot, codec);
             found ??= JqueryVersions.Find(fs, state.SiteRoot);
             var scripts = PageScripts.Collect(fs, state.SiteRoot, ctx.FilePath, patched, patchedIndex, codec, index.Value, found,
                 options.Web.JqueryVersion, text);

@@ -170,4 +170,16 @@ public sealed class PageElementsTests
         var patched = "<input id=\"k\">\n<script>\nvar e = document.getElementsByName(\"k\");\n</script>\n";
         Assert.Equal(["[name=k](줄 3) — name 없음, id=\"k\"는 있음(줄 1)"], Check(original, patched));
     }
+
+    [Fact]
+    public void Definitions_LargePage_IsFast()
+    {
+        var text = string.Concat(Enumerable.Range(0, 8000).Select(i => $"<td><input id=\"a{i}\" name=\"n{i}\"></td>\n"));
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var defs = PageElements.Definitions(text, null);
+        watch.Stop();
+        Assert.Equal(16000, defs.Count);
+        Assert.Equal(new ElementDef(ElementKind.Name, "n7999", null, 8000), defs[^1]);
+        Assert.True(watch.ElapsedMilliseconds < 1000, $"took {watch.ElapsedMilliseconds} ms");
+    }
 }

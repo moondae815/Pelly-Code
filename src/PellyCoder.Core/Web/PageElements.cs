@@ -46,16 +46,17 @@ public static class PageElements
             if (!PageBlockView.IsJavaScriptBlock(page.ClientBlocks[i])) continue;
             var view = PageBlockView.Build(page, pageTextLf, i).Text;
             var mask = JsTokenScan.Mask(view);
+            var starts = LineStarts(view);
             foreach (Match m in DocumentLookup.Matches(mask))
             {
                 if (Literal(view, mask, m) is not { } value) continue;
                 var kind = m.Groups["m"].Value == "getElementById" ? ElementKind.Id : ElementKind.Name;
-                if (Regex.IsMatch(value, @"^[\w-]+$")) result.Add(new ElementRef(kind, value, LineAt(view, m.Index)));
+                if (Regex.IsMatch(value, @"^[\w-]+$")) result.Add(new ElementRef(kind, value, LineAt(starts, m.Index)));
             }
             foreach (Match m in JqueryCall.Matches(mask))
             {
                 if (Literal(view, mask, m) is not { } value || value.TrimStart().StartsWith('<')) continue;
-                var line = LineAt(view, m.Index);
+                var line = LineAt(starts, m.Index);
                 foreach (Match s in SelectorId.Matches(value)) result.Add(new ElementRef(ElementKind.Id, s.Groups["v"].Value, line));
                 foreach (Match s in SelectorName.Matches(value)) result.Add(new ElementRef(ElementKind.Name, s.Groups["v"].Value, line));
             }
@@ -85,16 +86,17 @@ public static class PageElements
     public static IReadOnlyList<ElementDef> Definitions(string textLf, string? file)
     {
         var result = new List<ElementDef>();
+        var starts = LineStarts(textLf);
         foreach (Match m in Attribute.Matches(textLf))
         {
             var value = m.Groups["v"].Value;
             var server = value.IndexOf("<%", StringComparison.Ordinal);
             if (server >= 0) value = value[..server] + "*";
-            result.Add(new ElementDef(KindOf(m), value, file, LineAt(textLf, m.Index)));
+            result.Add(new ElementDef(KindOf(m), value, file, LineAt(starts, m.Index)));
         }
         foreach (var regex in new[] { PropertySet, SetAttribute })
             foreach (Match m in regex.Matches(textLf))
-                result.Add(new ElementDef(KindOf(m), m.Groups["v"].Value, file, LineAt(textLf, m.Index)));
+                result.Add(new ElementDef(KindOf(m), m.Groups["v"].Value, file, LineAt(starts, m.Index)));
         return result.Distinct().ToList();
     }
 
@@ -141,11 +143,18 @@ public static class PageElements
     private static ElementKind KindOf(Match m) =>
         string.Equals(m.Groups["k"].Value, "id", StringComparison.OrdinalIgnoreCase) ? ElementKind.Id : ElementKind.Name;
 
-    private static int LineAt(string text, int index)
+    /// <summary>Start offset of every line; built once per text so each match costs a binary search, not a rescan.</summary>
+    private static List<int> LineStarts(string text)
     {
-        var line = 1;
-        for (var i = 0; i < index && i < text.Length; i++)
-            if (text[i] == '\n') line++;
-        return line;
+        var starts = new List<int> { 0 };
+        for (var i = 0; i < text.Length; i++)
+            if (text[i] == '\n') starts.Add(i + 1);
+        return starts;
+    }
+
+    private static int LineAt(List<int> starts, int index)
+    {
+        var found = starts.BinarySearch(index);
+        return found >= 0 ? found + 1 : ~found;
     }
 }

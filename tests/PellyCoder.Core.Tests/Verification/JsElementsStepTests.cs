@@ -98,4 +98,20 @@ public sealed class JsElementsStepTests
         Assert.Equal(StepResult.Pass, result);
         Assert.Equal(AspCheckStatus.Warned, row!.Status);
     }
+
+    [Fact]
+    public void Page_SiteIndexUnreadable_SkippedNotThrown()
+    {
+        var page = AspPage.Parse(Original);
+        var views = Enumerable.Range(0, page.ClientBlocks.Count).Select(i => PageBlockView.Build(page, Original, i)).ToList();
+        var state = new WebRunState(EditKind.Js, WebTargetUnit.Lines, new TextSpanInfo(4, 4), Original, "CP949", true, Root,
+            new Lazy<WebSiteIndexResult>(() => throw new IOException("locked")))
+        {
+            Page = new WebPageState(page, 0, views[0], views),
+        };
+        var (result, row) = Run(Ctx(PagePath, Original, Original, state));
+        Assert.Equal(StepResult.Pass, result);
+        Assert.Equal(AspCheckStatus.Skipped, row!.Status);
+        Assert.Equal("사이트 색인을 읽지 못함", row.Detail);
+    }
 }

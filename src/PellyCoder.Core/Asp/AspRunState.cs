@@ -33,6 +33,12 @@ public sealed class AspRunState(
     public string SiteRoot { get; } = siteRoot;
 
     /// <summary>
+    /// The site index the client-side warning steps share across steps and retries (loaded at most once per run).
+    /// Null until a step needs it.
+    /// </summary>
+    public Lazy<PellyCoder.Core.Web.WebSiteIndexResult>? SiteIndex { get; set; }
+
+    /// <summary>
     /// ADO constants (<c>adOpenStatic</c> …) are known regardless of includes: <c>asp.adoConstants</c> is on or the site's
     /// <c>global.asa</c> has a typelib METADATA (set by LOCATE).
     /// </summary>

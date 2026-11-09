@@ -11,6 +11,7 @@ using PellyCoder.Core.Models;
 using PellyCoder.Core.Patchers;
 using PellyCoder.Core.Tests.Fakes;
 using PellyCoder.Core.Verification;
+using PellyCoder.Core.Web;
 using PellyCoder.Core.Workspaces;
 
 namespace PellyCoder.Core.Tests.Verification;
@@ -29,7 +30,7 @@ public sealed class AspElementsStepTests
         "</script>\n";                                  // 6
 
     private static async Task<(RunContext Ctx, StepResult Result)> Edit(string rel, (string Path, string Text)[] files,
-        int from, int to, string search, string replace)
+        int from, int to, string search, string replace, Lazy<WebSiteIndexResult>? siteIndex = null)
     {
         var fs = new MockFileSystem();
         foreach (var (p, t) in files) fs.AddFile(Root + "/" + p, new MockFileData(Encoding.UTF8.GetBytes(t)));
@@ -47,6 +48,7 @@ public sealed class AspElementsStepTests
         var apply = new AspApplyPhase(guard, new FeedbackBuilder(QwenTokenCounter.Shared, new BudgetOptions().Feedback),
             new ScriptedUserInteraction(), options.Asp, Codec, options.Web);
         Assert.Equal(PhaseOutcome.Ok, await apply.ExecuteAsync(ctx, ct));
+        ctx.Asp!.SiteIndex = siteIndex;
         var result = await new AspElementsStep(fs, options, Codec).VerifyAsync(ctx, ct);
         Assert.True(result.Passed);
         return (ctx, result);
@@ -95,5 +97,26 @@ public sealed class AspElementsStepTests
         var (ctx, _) = await Edit("inc/form.inc", [("inc/form.inc", inc), ("a.asp", parent)], 2, 2,
             "function g() { return 1; }", "function g() { $(\"#q\").focus(); return 1; }");
         Assert.Equal(AspCheckStatus.Passed, ctx.Asp!.Checks[AspElementsStep.Row].Status);
+    }
+
+    [Fact]
+    public async Task SiteIndex_SharedAcrossStepsAndAttempts()
+    {
+        var loads = 0;
+        var index = new Lazy<WebSiteIndexResult>(() => { loads++; return new WebSiteIndexResult([], 0, false); });
+        var (ctx, _) = await Edit("p.asp", [("p.asp", Page)], 2, 2, "<div id=\"a\"></div>", "<div></div>", index);
+        var ct = TestContext.Current.CancellationToken;
+        await new AspElementsStep(new MockFileSystem(), new PellyOptions(), Codec).VerifyAsync(ctx, ct);
+        Assert.Equal(1, loads);
+    }
+
+    [Fact]
+    public async Task SiteIndexUnreadable_SkippedNotThrown()
+    {
+        var index = new Lazy<WebSiteIndexResult>(() => throw new UnauthorizedAccessException("denied"));
+        var (ctx, _) = await Edit("p.asp", [("p.asp", Page)], 2, 2, "<div id=\"a\"></div>", "<div></div>", index);
+        var row = ctx.Asp!.Checks[AspElementsStep.Row];
+        Assert.Equal(AspCheckStatus.Skipped, row.Status);
+        Assert.Equal("사이트 색인을 읽지 못함", row.Detail);
     }
 }

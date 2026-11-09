@@ -32,6 +32,43 @@ public class PageScriptsTests
         return PageScripts.Collect(fs, Root, full, page, block, Codec, index ?? Index(fs), JqueryVersions.Find(fs, Root), configured);
     }
 
+    private static IReadOnlyList<RelatedText> Related(MockFileSystem fs, string rel)
+    {
+        var full = Root + "/" + rel;
+        var text = Codec.Decode(full, fs.File.ReadAllBytes(full)).Text;
+        return PageScripts.RelatedTexts(fs, Root, full, AspPage.Parse(text), Codec, Index(fs));
+    }
+
+    [Fact]
+    public void RelatedTexts_IncludesIncludeFiles_And_ScriptSrc()
+    {
+        var fs = Fs(
+            ("/site/a/p.asp", "<!--#include virtual=\"/inc/head.inc\"-->\n<p></p>\n"),
+            ("/site/inc/head.inc", "<script src=\"/js/app.js\"></script>\n<input id=\"q\">\n"),
+            ("/site/js/app.js", "function app() {}\n"));
+        var related = Related(fs, "a/p.asp");
+        Assert.Equal(new[] { "inc/head.inc", "js/app.js" }, related.Select(r => r.File));
+        Assert.Contains("<input id=\"q\">", related[0].TextLf);
+    }
+
+    [Fact]
+    public void RelatedTexts_IncludesIncluderPages()
+    {
+        var fs = Fs(
+            ("/site/a.asp", "<!--#include file=\"inc/form.inc\"-->\n<input id=\"q\">\n"),
+            ("/site/inc/form.inc", "<script>\n$(\"#q\").hide();\n</script>\n"));
+        var related = Related(fs, "inc/form.inc");
+        Assert.Contains("a.asp", related.Select(r => r.File));
+        Assert.DoesNotContain("inc/form.inc", related.Select(r => r.File));
+    }
+
+    [Fact]
+    public void RelatedTexts_MissingFile_Skipped()
+    {
+        var fs = Fs(("/site/a.asp", "<!--#include file=\"inc/none.inc\"-->\n<script src=\"/js/none.js\"></script>\n"));
+        Assert.Empty(Related(fs, "a.asp"));
+    }
+
     private const string Two = "<script>\nfunction first() {}\n</script>\n<script>\nfunction second() {}\n</script>\n";
 
     [Fact]

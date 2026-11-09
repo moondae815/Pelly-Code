@@ -51,6 +51,59 @@ public static class PageScripts
         return new PageScriptContext(names, sources, jquery, source);
     }
 
+    /// <summary>
+    /// The texts whose ids and names the page can see (element check design §4.2): the page's includes (recursively), the pages
+    /// that include it and their includes, and the site <c>.js</c> files any of them loads by <c>&lt;script src&gt;</c>. The target
+    /// file itself is never part of the list. Each file once, in the order first reached; unreadable files are skipped.
+    /// </summary>
+    public static IReadOnlyList<RelatedText> RelatedTexts(IFileSystem fs, string siteRoot, string pagePath, AspPage page,
+        ITextFileCodec codec, WebSiteIndexResult index)
+    {
+        var root = siteRoot.Replace('\\', '/').TrimEnd('/');
+        var rel = WebSiteIndex.Relative(root, pagePath);
+        var walker = new Walker(fs, siteRoot, codec, index, rel, -1);
+        var result = new List<RelatedText>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { rel };
+
+        void Add(string fileRel, string text) => result.Add(new RelatedText(fileRel, text.Replace("\r\n", "\n")));
+
+        void Scripts(string fromRel, AspPage from)
+        {
+            var dir = PagePaths.Directory(fromRel);
+            foreach (var block in from.ClientBlocks)
+            {
+                if (block.Kind != AspClientBlockKind.Script || block.Src is null) continue;
+                if (PagePaths.ResolveScriptSrc(dir, block.Src) is not { } src || !seen.Add(src)) continue;
+                if (walker.ReadText(fs.Path.Combine(siteRoot, src)) is { } js) Add(src, js);
+            }
+        }
+
+        void Includes(string fromRel, AspPage from, int depth, ref int files)
+        {
+            Scripts(fromRel, from);
+            foreach (var include in from.Includes)
+            {
+                if (PagePaths.ResolveInclude(PagePaths.Directory(fromRel), include) is not { } target || !seen.Add(target)) continue;
+                if (depth > MaxIncludeDepth || files >= MaxIncludeFiles) continue;
+                if (walker.Load(target) is not { } loaded) continue;
+                files++;
+                Add(target, loaded.Text);
+                Includes(target, loaded.Page, depth + 1, ref files);
+            }
+        }
+
+        var count = 0;
+        Includes(rel, page, 1, ref count);
+        foreach (var includer in index.IncludersOf(rel).Take(MaxIncluders))
+        {
+            if (!seen.Add(includer) || walker.Load(includer) is not { } parent) continue;
+            Add(includer, parent.Text);
+            var parentFiles = 0;
+            Includes(includer, parent.Page, 1, ref parentFiles);
+        }
+        return result;
+    }
+
     private sealed record Loaded(AspPage Page, string Text);
 
     private sealed class Walker(IFileSystem fs, string siteRoot, ITextFileCodec codec, WebSiteIndexResult index, string targetRel, int targetBlock)

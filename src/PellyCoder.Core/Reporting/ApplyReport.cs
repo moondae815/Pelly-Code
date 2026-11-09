@@ -13,7 +13,9 @@ public sealed record Ratio(int Ok, int Total)
 /// <param name="GroupBuild">Groups whose build passed over the groups that reached the build.</param>
 /// <param name="GroupsUnverifiable">Groups the build could not judge (left out of <paramref name="GroupBuild"/>).</param>
 /// <param name="Resumed"><c>--resume</c> applies (left out of the completion rates).</param>
-public sealed record ApplyReportData(Ratio Completion, Ratio Completion3To8, Ratio GroupBuild, int GroupsUnverifiable, int Resumed, AcCounts? Criteria = null);
+/// <param name="AspCallersNotUpdated">ASP calls left behind after a sql task changed a procedure's parameters, over all applies (A2 design §4.5).</param>
+public sealed record ApplyReportData(Ratio Completion, Ratio Completion3To8, Ratio GroupBuild, int GroupsUnverifiable, int Resumed, AcCounts? Criteria = null,
+    int AspCallersNotUpdated = 0);
 
 /// <summary>Acceptance-criterion counts from apply.json: Met of Judged, RedWarned of RedChecked, plus unverified criteria and <c>breaks:</c> tests left out of regression.</summary>
 public sealed record AcCounts(int Met, int Judged, int RedWarned, int RedChecked, int Unverified, int BreaksExcluded);
@@ -49,7 +51,8 @@ public static class ApplyReport
             new Ratio(passed, passed + failed),
             unverifiable,
             applies.Count - fresh.Count,
-            CountCriteria(applies));
+            CountCriteria(applies),
+            applies.Sum(a => a.Summary.AspCallersNotUpdated?.Count ?? 0));
     }
 
     private static AcCounts? CountCriteria(IReadOnlyList<ApplyRecord> applies)

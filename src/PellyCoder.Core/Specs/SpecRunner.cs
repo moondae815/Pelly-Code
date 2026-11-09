@@ -134,7 +134,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                     return 2;
             }
 
-            run = new ApplyRun(this, ws, specPath, o, warnings, check.Impact, check.SqlImpactSummary, applyId);
+            run = new ApplyRun(this, ws, specPath, o, warnings, check.Impact, check.SqlImpactSummary, applyId, check.AspImpact);
             return await run.ExecuteAsync(ct);
         }
         finally
@@ -164,7 +164,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
     /// <param name="sqlImpact">The start-of-apply SQL impact search; null when none ran.</param>
     /// <param name="presetApplyId">The apply ID chosen before the SQL impact search; null lets the apply choose it when it starts.</param>
     private sealed class ApplyRun(SpecRunner owner, Workspace ws, string specPath, ApplyOptions o, IReadOnlyList<SpecIssue> warnings, ImpactResult? impact,
-        SqlImpactSummary? sqlImpact, string? presetApplyId)
+        SqlImpactSummary? sqlImpact, string? presetApplyId, IReadOnlyList<AspImpactHit>? aspImpact)
     {
         private readonly List<ApplyTaskResult> _results = [];
         private readonly List<string> _marked = [];
@@ -189,6 +189,10 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
         // were applied (a group's once the group is kept), and those whose SQL file could not be parsed (warned once each).
         private readonly List<string> _appliedSql = [];
         private readonly HashSet<string> _unparsedSql = new(StringComparer.Ordinal);
+
+        // ASP calls of the procedures the sql tasks change, found before the apply (A2 design §4.5): the calls and their
+        // lines are those of the pages before any asp task of this apply edited them.
+        private IReadOnlyList<AspCallerNotUpdated> _callersNotUpdated = [];
 
         // Group test-first (design §7.3): RED of the criteria whose first linked task is in a group, from the group's baseline,
         // and the expected breaks of the criteria whose last linked task is in a group, from the group's last verdict.
@@ -1141,6 +1145,44 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                     owner.Ui.Warn($"{sql}(sql)은 적용됐고 {asp}(asp)는 실패했습니다. SP와 페이지가 어긋나 있을 수 있습니다. 함께 되돌리려면 [{group}]로 묶으십시오");
         }
 
+        /// <summary>
+        /// A2 design §4.5: for each sql task applied in this apply (not those done when it started), compares its procedures'
+        /// parameters before the task and now; when they differ, warns of the procedure's calls that no asp task applied in this
+        /// apply edits, and records them for <c>apply.json</c>. Never changes the exit code.
+        /// </summary>
+        private void WarnParameterChanges()
+        {
+            if (_rolledBack || _appliedSql.Count == 0 || aspImpact is not { Count: > 0 }) return;
+            var applied = _done.Keys.Where(id => !_restored.Contains(id)).ToHashSet(StringComparer.Ordinal);
+            var byId = _doc.Spec.Tasks.ToDictionary(t => t.Id, StringComparer.Ordinal);
+            var recorded = new List<AspCallerNotUpdated>();
+            var seen = new List<SqlObjectName>();
+
+            foreach (var id in _appliedSql.Distinct(StringComparer.Ordinal))
+            {
+                if (!applied.Contains(id) || byId.GetValueOrDefault(id) is not { } sqlTask) continue;
+                if (_firstRuns.GetValueOrDefault(id)?.Original is not { } original) continue;
+                if (SqlFileSignatures.Read(original.Text, owner.SqlCompatLevel) is not { } before || FileSignatures(sqlTask) is not { } after) continue;
+
+                foreach (var now in after.Where(s => Targets(sqlTask, s.Name)))
+                {
+                    if (seen.Any(n => n.SameAs(now.Name))) continue;
+                    if (before.FirstOrDefault(s => s.Name.SameAs(now.Name)) is not { } was) continue;
+                    if (ParameterChange.Compare(was, now) is not { } change) continue;
+                    seen.Add(now.Name);
+
+                    var callers = aspImpact.Where(h => h.Object.SameAs(now.Name) && !h.CoveredBy.Any(applied.Contains)).Select(h => h.Call).ToList();
+                    if (callers.Count == 0) continue;
+                    var first = callers[0];
+                    var more = callers.Count > 1 ? $" 외 {callers.Count - 1}곳" : "";
+                    var note = change.OnlyTrailingDefaultsAdded ? " — 기존 호출은 그대로 동작할 수 있음" : "";
+                    owner.Ui.Warn($"{now.Name.Display}의 매개변수가 바뀌었습니다({change.Summary}). 고치지 않은 호출: {first.RelativePath.Replace('\\', '/')}:{first.Line}{more}{note}");
+                    recorded.AddRange(callers.Select(c => new AspCallerNotUpdated(now.Name.Display, c.RelativePath.Replace('\\', '/'), c.Line, change.Summary)));
+                }
+            }
+            _callersNotUpdated = recorded;
+        }
+
         /// <summary>The smallest <c>G&lt;n&gt;</c> no task of the spec uses.</summary>
         private string NextFreeGroup()
         {
@@ -1194,13 +1236,15 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
         private int Finish(int exitCode)
         {
             WarnMismatches();
+            WarnParameterChanges();
             try
             {
                 var dir = owner.Fs.Path.Combine(ws.PellyDir, "runs", ApplyId!);
                 owner.Fs.Directory.CreateDirectory(dir);
                 var summary = new ApplySummary(ApplyId!, SpecId, _results, exitCode, warnings, _archived,
                     impact is null ? null : impact.Mode == ImpactMode.Semantic ? "semantic" : "name", impact?.Fallback?.Kind.ToString(),
-                    _doc?.Spec.Tasks.Count ?? 0, o.Resume, _links.Count > 0 ? _links.Select(CriterionResult).ToList() : null, sqlImpact);
+                    _doc?.Spec.Tasks.Count ?? 0, o.Resume, _links.Count > 0 ? _links.Select(CriterionResult).ToList() : null, sqlImpact,
+                    _callersNotUpdated.Count > 0 ? _callersNotUpdated : null);
                 owner.Fs.File.WriteAllText(owner.Fs.Path.Combine(dir, "apply.json"), JsonSerializer.Serialize(summary, SummaryJson));
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

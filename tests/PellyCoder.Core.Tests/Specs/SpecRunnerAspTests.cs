@@ -430,6 +430,129 @@ public sealed class SpecRunnerAspTests : IDisposable
         Assert.Equal([changed], Assert.Single(seen).ChangedProcedures!);
     }
 
+    // A2 design §4.5: parameters changed by an applied sql task, calls no applied asp task covers.
+    private const string ProcNewParam = "CREATE PROCEDURE dbo.usp_A @status varchar(10) AS SELECT 1;\n";
+    private const string ProcNewDefault = "CREATE PROCEDURE dbo.usp_A @status varchar(10) = NULL AS SELECT 1;\n";
+    private const string CallerPage = "<%\nrs.Open \"EXEC usp_A 1\", conn\n%>\n";
+    private const string Changed = "의 매개변수가 바뀌었습니다";
+
+    private IEnumerable<string> ChangeWarnings => _ui.Warnings.Where(w => w.Contains(Changed, StringComparison.Ordinal));
+
+    [Fact]
+    public async Task Parameter_added_and_uncovered_caller_warns()
+    {
+        Make("web/c.asp", CallerPage);
+        Spec("- [ ] T1 sql db/a.sql 바꾼다\n");
+        _exec.Rewrite["T1"] = ProcNewParam;
+
+        var code = await Run(Opts());
+
+        Assert.Equal(0, code); // the exit code is not changed
+        var warning = Assert.Single(ChangeWarnings);
+        Assert.EndsWith("dbo.usp_A의 매개변수가 바뀌었습니다(@status 추가). 고치지 않은 호출: web/c.asp:2", warning, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Several_callers_are_counted_after_the_first()
+    {
+        Make("web/c.asp", CallerPage);
+        Make("web/d.asp", CallerPage);
+        Make("web/e.asp", CallerPage);
+        Spec("- [ ] T1 sql db/a.sql 바꾼다\n");
+        _exec.Rewrite["T1"] = ProcNewParam;
+
+        await Run(Opts());
+
+        Assert.EndsWith("고치지 않은 호출: web/c.asp:2 외 2곳", Assert.Single(ChangeWarnings), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Trailing_default_parameter_adds_may_still_work_note()
+    {
+        Make("web/c.asp", CallerPage);
+        Spec("- [ ] T1 sql db/a.sql 바꾼다\n");
+        _exec.Rewrite["T1"] = ProcNewDefault;
+
+        await Run(Opts());
+
+        Assert.EndsWith("(@status 추가). 고치지 않은 호출: web/c.asp:2 — 기존 호출은 그대로 동작할 수 있음",
+            Assert.Single(ChangeWarnings), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Parameters_unchanged_no_warning()
+    {
+        Make("web/c.asp", CallerPage);
+        Spec("- [ ] T1 sql db/a.sql 바꾼다\n"); // the body changes only: a comment is appended
+
+        await Run(Opts());
+
+        Assert.Empty(ChangeWarnings);
+        Assert.DoesNotContain("aspCallersNotUpdated", File.ReadAllText(Assert.Single(Directory.GetFiles(P(".pelly/runs"), "apply.json", SearchOption.AllDirectories))));
+    }
+
+    [Fact]
+    public async Task Covered_callers_not_listed()
+    {
+        Make("web/a.asp", "<%\nFunction GetOne()\n  rs.Open \"EXEC usp_A 1\", conn\nEnd Function\n%>\n");
+        Make("web/c.asp", CallerPage);
+        Spec("- [ ] T1 sql db/a.sql 바꾼다\n- [ ] T2 asp web/a.asp#GetOne 넘긴다\n");
+        _exec.Rewrite["T1"] = ProcNewParam;
+
+        await Run(Opts());
+
+        var warning = Assert.Single(ChangeWarnings);
+        Assert.EndsWith("고치지 않은 호출: web/c.asp:2", warning, StringComparison.Ordinal);
+        Assert.DoesNotContain("a.asp", warning, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Covering_asp_task_that_failed_does_not_cover()
+    {
+        Make("web/a.asp", "<%\nFunction GetOne()\n  rs.Open \"EXEC usp_A 1\", conn\nEnd Function\n%>\n");
+        Spec("- [ ] T1 sql db/a.sql 바꾼다\n- [ ] T2 asp web/a.asp#GetOne 넘긴다\n");
+        _exec.Rewrite["T1"] = ProcNewParam;
+        _exec.Exit["T2"] = 1;
+
+        await Run(Opts());
+
+        Assert.EndsWith("고치지 않은 호출: web/a.asp:3", Assert.Single(ChangeWarnings), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Done_sql_task_on_resume_not_compared()
+    {
+        Make("db/a.sql", ProcNewParam); // changed by the earlier apply
+        Make("web/c.asp", CallerPage);
+        Spec("- [x] T1 sql db/a.sql 바꾼다 <!-- run: R-old -->\n- [ ] T2 asp web/a.asp#GetOne 바꾼다\n");
+
+        var code = await Run(Resume());
+
+        Assert.Equal(0, code);
+        Assert.Empty(ChangeWarnings);
+    }
+
+    [Fact]
+    public async Task Apply_json_lists_callers_not_updated()
+    {
+        Make("web/c.asp", CallerPage);
+        Make("web/d.asp", "<%\n\nrs.Open \"EXEC dbo.usp_A\", conn\n%>\n");
+        Spec("- [ ] T1 sql db/a.sql 바꾼다\n");
+        _exec.Rewrite["T1"] = "CREATE PROCEDURE dbo.usp_A @from int, @to int AS SELECT 1;\n";
+
+        await Run(Opts());
+
+        using var json = System.Text.Json.JsonDocument.Parse(
+            File.ReadAllText(Assert.Single(Directory.GetFiles(P(".pelly/runs"), "apply.json", SearchOption.AllDirectories))));
+        var rows = json.RootElement.GetProperty("aspCallersNotUpdated").EnumerateArray().ToList();
+        Assert.Equal(2, rows.Count);
+        Assert.Equal("dbo.usp_A", rows[0].GetProperty("object").GetString());
+        Assert.Equal("web/c.asp", rows[0].GetProperty("path").GetString());
+        Assert.Equal(2, rows[0].GetProperty("line").GetInt32());
+        Assert.Equal("@from 추가, @to 추가", rows[0].GetProperty("summary").GetString());
+        Assert.Equal("web/d.asp", rows[1].GetProperty("path").GetString());
+    }
+
     private static GroupBuild Built(params Diagnostic[] errors) => new(true, null, null, errors);
 
     private sealed class FakeGroupVerifier : IGroupVerifier
@@ -455,6 +578,9 @@ public sealed class SpecRunnerAspTests : IDisposable
         public Dictionary<string, int> Exit { get; } = [];
         public Dictionary<string, string> Display { get; } = [];
 
+        /// <summary>Task ID → the whole text its file gets instead of the appended comment.</summary>
+        public Dictionary<string, string> Rewrite { get; } = [];
+
         public async Task<RunResult> ExecuteAsync(SpecTask task, Workspace ws, TaskRunOptions o, CancellationToken ct)
         {
             Calls.Add(task.Id);
@@ -468,7 +594,8 @@ public sealed class SpecRunnerAspTests : IDisposable
             if (exit != 0 || o.DryRun)
                 return new RunResult(exit, runId, path, original, original, exit == 0 ? null : "Verify", display);
             var comment = task.Kind switch { TaskKind.Sql => "-- ", TaskKind.Asp => "' ", _ => "// " };
-            var written = await guard.WriteAsync(original, original.Text + comment + task.Id + "\n", CancellationToken.None);
+            var newText = Rewrite.TryGetValue(task.Id, out var whole) ? whole : original.Text + comment + task.Id + "\n";
+            var written = await guard.WriteAsync(original, newText, CancellationToken.None);
             return new RunResult(0, runId, path, original, written.Snapshot, null, display);
         }
     }

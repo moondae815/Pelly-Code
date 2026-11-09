@@ -28,6 +28,10 @@ public sealed record AcResult(string AcId, RedState Red, AcOutcome Outcome, stri
 /// <param name="Resumed">Whether the apply ran with <c>--resume</c>.</param>
 /// <param name="Criteria">Per-criterion results when any criterion has a <c>test:</c>; null (and absent from the file) otherwise.</param>
 /// <param name="SqlImpact">The start-of-apply SQL impact search; null (and absent from the file) when none ran.</param>
+/// <param name="AspCallersNotUpdated">
+/// ASP calls left as they were after an applied sql task changed the procedure's parameters (A2 design §4.5); null (and absent
+/// from the file) when there are none.
+/// </param>
 public sealed record ApplySummary(
     string ApplyId,
     string SpecId,
@@ -40,7 +44,14 @@ public sealed record ApplySummary(
     int TaskCount = 0,
     bool Resumed = false,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<AcResult>? Criteria = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SqlImpactSummary? SqlImpact = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SqlImpactSummary? SqlImpact = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<AspCallerNotUpdated>? AspCallersNotUpdated = null);
+
+/// <summary>One ASP call of a procedure whose parameters changed that no applied asp task edited (A2 design §4.5).</summary>
+/// <param name="Object">The procedure, as its SQL file names it.</param>
+/// <param name="Path">Relative to the site root, with '/'.</param>
+/// <param name="Summary">What changed, as in the warning: <c>@status 추가</c>.</param>
+public sealed record AspCallerNotUpdated(string Object, string Path, int Line, string Summary);
 
 /// <summary>What the SQL impact search did (design §8).</summary>
 /// <param name="Basis">

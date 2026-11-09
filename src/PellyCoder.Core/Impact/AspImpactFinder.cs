@@ -10,12 +10,17 @@ namespace PellyCoder.Core.Impact;
 /// </summary>
 /// <param name="TaskIds">The not-done sql tasks that change <paramref name="Object"/>, joined by <c>", "</c>.</param>
 /// <param name="Object">The seed's stored procedure (the sql task's object), not the name as the page writes it.</param>
-/// <param name="Covered">
-/// An asp task of the same file edits the call — its procedure holds it, or its line range does. A done task counts too: it
-/// already fixed the call, so <c>apply --resume</c> does not warn about it again.
+/// <param name="CoveredBy">
+/// The asp tasks of the same file that edit the call — their procedure holds it, or their line range does — done ones too:
+/// a done task already fixed the call, so <c>apply --resume</c> does not warn about it again. The after-apply check (§4.5)
+/// counts only those applied in that apply, hence the ids.
 /// </param>
 /// <param name="Includers">Pages that include the call's file (directly or through other includes); 0 for a page nobody includes.</param>
-public sealed record AspImpactHit(string TaskIds, SqlObjectName Object, AspSpCallEntry Call, bool Covered, int Includers);
+public sealed record AspImpactHit(string TaskIds, SqlObjectName Object, AspSpCallEntry Call, IReadOnlyList<string> CoveredBy, int Includers)
+{
+    /// <summary>Some asp task edits the call.</summary>
+    public bool Covered => CoveredBy.Count > 0;
+}
 
 /// <summary>
 /// SP → ASP impact (A2 design §4.3): the site index's stored procedure calls whose name is a seed's object. Separate from
@@ -79,7 +84,7 @@ public static class AspImpactFinder
             if (group.Ids is null) continue;
             if (!includers.TryGetValue(call.RelativePath, out var count))
                 includers[call.RelativePath] = count = index.IncludersOf(call.RelativePath).Count;
-            hits.Add(new AspImpactHit(string.Join(", ", group.Ids), group.Object, call, aspTasks.Any(t => Covers(t, call)), count));
+            hits.Add(new AspImpactHit(string.Join(", ", group.Ids), group.Object, call, aspTasks.Where(t => Covers(t, call)).Select(t => t.Id).ToList(), count));
         }
         return hits;
     }

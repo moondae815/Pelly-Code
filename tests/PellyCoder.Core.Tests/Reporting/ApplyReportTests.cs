@@ -14,6 +14,22 @@ public sealed class ApplyReportTests
         new("T", "R", exit, kind, 1, group);
 
     [Fact]
+    public void Report_counts_callers_not_updated()
+    {
+        static ApplyRecord With(string id, params AspCallerNotUpdated[] callers) =>
+            new(new ApplySummary(id, "spec", [], 0, [], false, AspCallersNotUpdated: callers.Length == 0 ? null : callers), DateTimeOffset.UnixEpoch);
+
+        var d = ApplyReport.Build([
+            With("apply-1", new AspCallerNotUpdated("dbo.usp_A", "web/c.asp", 2, "@s 추가"), new AspCallerNotUpdated("dbo.usp_A", "web/d.asp", 5, "@s 추가")),
+            With("apply-2"),
+            With("apply-3", new AspCallerNotUpdated("dbo.usp_B", "web/e.asp", 9, "@x 삭제")),
+        ]);
+
+        Assert.Equal(3, d.AspCallersNotUpdated);
+        Assert.Equal(0, ApplyReport.Build([With("apply-4")]).AspCallersNotUpdated);
+    }
+
+    [Fact]
     public void Completion_counts_fresh_applies_that_archived_with_exit_0()
     {
         var applies = new[]

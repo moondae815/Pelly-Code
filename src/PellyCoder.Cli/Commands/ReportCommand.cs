@@ -125,6 +125,7 @@ public sealed class ReportCommand(IFileSystem fs, IAnsiConsole console) : Comman
         table.AddRow("명세 완료율", Markup.Escape(RatioText(a.Completion, $"건, 이어서 하기 {a.Resumed}건 제외")));
         table.AddRow("명세 완료율(작업 3~8개)", Markup.Escape(RatioText(a.Completion3To8, "건")));
         table.AddRow("그룹 빌드 통과율", Markup.Escape(RatioText(a.GroupBuild, $"그룹, 검증 불가 {a.GroupsUnverifiable}그룹 제외")));
+        if (a.AspCallersNotUpdated > 0) table.AddRow("SP 매개변수 변경 뒤 고치지 않은 ASP 호출", Markup.Escape($"{a.AspCallersNotUpdated}곳"));
         console.Write(table);
     }
 

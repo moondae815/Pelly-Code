@@ -134,8 +134,79 @@ public sealed class ChangeSpecParserTests
             "- [ ] T1 cs A.cs#M x [G1]\n- [ ] T2 cs B.cs#M x\n- [ ] T3 cs C.cs#M x [G1]\n"));
 
     [Fact]
-    public void Sql_in_group_is_an_error() =>
-        AssertCode("SqlInGroup", Spec("- [ ] T1 sql db/a.sql x [G1]\n"));
+    public void Sql_in_group_is_allowed()
+    {
+        var spec = ChangeSpecParser.Parse(Spec("- [ ] T1 sql db/a.sql 요청 [G1]\n"));
+        Assert.DoesNotContain(spec.Issues, i => i.Code == "SqlInGroup");
+        Assert.Equal("G1", Assert.Single(spec.Tasks).Group);
+    }
+
+    [Fact]
+    public void Asp_task_with_procedure_symbol()
+    {
+        var spec = ChangeSpecParser.Parse(Spec("- [ ] T2 asp admin/order/list.asp#Search 상태를 넘긴다 [G1]\n"));
+        var t = Assert.Single(spec.Tasks);
+        Assert.Equal(TaskKind.Asp, t.Kind);
+        Assert.Equal("admin/order/list.asp", t.Path);
+        Assert.Equal("Search", t.Symbol);
+        Assert.Null(t.Lines);
+        Assert.Equal("G1", t.Group);
+        Assert.Empty(spec.Issues);
+    }
+
+    [Fact]
+    public void Asp_task_with_class_member_symbol()
+    {
+        var spec = ChangeSpecParser.Parse(Spec("- [ ] T1 asp p.asp#Order.Save 요청\n"));
+        Assert.Equal("Order.Save", Assert.Single(spec.Tasks).Symbol);
+    }
+
+    [Fact]
+    public void Asp_task_with_lines()
+    {
+        var spec = ChangeSpecParser.Parse(Spec("- [ ] T1 asp p.asp#L120-148 요청\n"));
+        var t = Assert.Single(spec.Tasks);
+        Assert.Equal(TaskKind.Asp, t.Kind);
+        Assert.Null(t.Symbol);
+        Assert.Equal(new PellyCoder.Core.Models.TextSpanInfo(120, 148), t.Lines);
+        Assert.Empty(spec.Issues);
+    }
+
+    [Fact]
+    public void Lines_on_cs_task_is_error() =>
+        AssertCode("LinesNotSupported", Spec("- [ ] T1 cs a.cs#L1-2 요청\n"));
+
+    [Fact]
+    public void Lines_reversed_is_error() =>
+        AssertCode("LinesOutOfFile", Spec("- [ ] T1 asp p.asp#L20-10 요청\n"));
+
+    [Fact]
+    public void Lines_zero_is_error() =>
+        AssertCode("LinesOutOfFile", Spec("- [ ] T1 asp p.asp#L0-3 요청\n"));
+
+    [Fact]
+    public void Asp_checkbox_line_is_recognized_as_task()
+    {
+        var spec = ChangeSpecParser.Parse(Spec("- [ ] T1 asp\n"));
+        Assert.Contains(spec.Issues, i => i.Code == "InvalidTaskLine");
+        var outside = ChangeSpecParser.Parse(Front + "## 목표\n- [ ] T1 asp p.asp#F 요청\n## 작업\n- [ ] T2 cs A.cs#M x\n");
+        Assert.Contains(outside.Issues, i => i.Code == "InvalidTaskLine");
+    }
+
+    [Fact]
+    public void Done_asp_task_with_run_comment()
+    {
+        var spec = ChangeSpecParser.Parse(Spec("- [x] T2 asp p.asp#F 요청 <!-- run: r1 -->\n"));
+        var t = Assert.Single(spec.Tasks);
+        Assert.True(t.Done);
+        Assert.Equal("r1", t.RunId);
+        Assert.Equal(TaskKind.Asp, t.Kind);
+    }
+
+    [Fact]
+    public void KindKeyword_round_trips() =>
+        Assert.Equal(["cs", "sql", "asp"],
+            new[] { TaskKind.CSharp, TaskKind.Sql, TaskKind.Asp }.Select(ChangeSpecParser.KindKeyword));
 
     [Fact]
     public void Unknown_ac_is_an_error() =>

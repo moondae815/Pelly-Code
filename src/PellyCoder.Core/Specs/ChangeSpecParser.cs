@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using PellyCoder.Core.Models;
 using PellyCoder.Core.Testing;
 
 namespace PellyCoder.Core.Specs;
@@ -9,16 +10,16 @@ public static class ChangeSpecParser
     public const int MaxTasks = 20;
 
     private static readonly Regex TaskLine = new(
-        @"^- \[( |x)\]\s+(T\d+)\s+(cs|sql)\s+(\S+?)(?:#(\S+))?\s+(.+?)(?:\s+\((AC\d+(?:\s*,\s*AC\d+)*)\))?(?:\s+\[(G\d+)\][.,;:]?)?(?:\s*<!--\s*(run|failed):\s*([^>]*?)\s*-->)?\s*$",
+        @"^- \[( |x)\]\s+(T\d+)\s+(cs|sql|asp)\s+(\S+?)(?:#(\S+))?\s+(.+?)(?:\s+\((AC\d+(?:\s*,\s*AC\d+)*)\))?(?:\s+\[(G\d+)\][.,;:]?)?(?:\s*<!--\s*(run|failed):\s*([^>]*?)\s*-->)?\s*$",
         RegexOptions.CultureInvariant);
 
     private static readonly Regex TaskShaped = new(
-        @"^\s*(?:[-*+]|\d+[.)])\s*\[.?\]|\bT\d+\s+(?:cs|sql)\s",
+        @"^\s*(?:[-*+]|\d+[.)])\s*\[.?\]|\bT\d+\s+(?:cs|sql|asp)\s",
         RegexOptions.CultureInvariant);
 
     // A checkbox list item that starts with a task ID and kind: a task line wherever it stands.
     private static readonly Regex TaskCheckbox = new(
-        @"^\s*(?:[-*+]|\d+[.)])\s*\[.?\]\s*T\d+\s+(?:cs|sql)\b",
+        @"^\s*(?:[-*+]|\d+[.)])\s*\[.?\]\s*T\d+\s+(?:cs|sql|asp)\b",
         RegexOptions.CultureInvariant);
 
     private static readonly Regex CriterionLine = new(@"^- (AC\d+):\s*(.+?)\s*$", RegexOptions.CultureInvariant);
@@ -99,10 +100,10 @@ public static class ChangeSpecParser
             {
                 var m = TaskLine.Match(line);
                 if (m.Success)
-                    tasks.Add(ToTask(m, lineNo));
+                    tasks.Add(ToTask(m, lineNo, issues));
                 else if (TaskShaped.IsMatch(line))
                     issues.Add(Error(lineNo, "InvalidTaskLine",
-                        "작업 줄이 문법에 맞지 않습니다: - [ ] <ID> <cs|sql> <파일>[#심볼] <요청> [(AC 참조)] [[G<n>]]"));
+                        "작업 줄이 문법에 맞지 않습니다: - [ ] <ID> <cs|sql|asp> <파일>[#심볼] <요청> [(AC 참조)] [[G<n>]]"));
             }
             else if (TaskCheckbox.IsMatch(line))
             {
@@ -187,8 +188,35 @@ public static class ChangeSpecParser
         return (line[..colon].Trim(), start..end);
     }
 
-    private static SpecTask ToTask(Match m, int lineNo)
+    private static readonly Regex LinesTarget = new(@"^L(\d+)-(\d+)$", RegexOptions.CultureInvariant);
+
+    public static string KindKeyword(TaskKind kind) => kind switch
     {
+        TaskKind.CSharp => "cs",
+        TaskKind.Sql => "sql",
+        TaskKind.Asp => "asp",
+        _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+    };
+
+    private static SpecTask ToTask(Match m, int lineNo, List<SpecIssue> issues)
+    {
+        var kind = m.Groups[3].Value switch { "cs" => TaskKind.CSharp, "sql" => TaskKind.Sql, _ => TaskKind.Asp };
+        var taskId = m.Groups[2].Value;
+        var symbol = m.Groups[5].Success ? m.Groups[5].Value : null;
+        TextSpanInfo? span = null;
+        if (symbol is not null && LinesTarget.Match(symbol) is { Success: true } lm)
+        {
+            symbol = null;
+            if (kind != TaskKind.Asp)
+                issues.Add(Error(lineNo, "LinesNotSupported", $"작업 {taskId}: #L 줄 범위는 asp 작업에만 쓸 수 있습니다."));
+            else if (!int.TryParse(lm.Groups[1].Value, out var a) || !int.TryParse(lm.Groups[2].Value, out var b)
+                     || a < 1 || b < a)
+                issues.Add(Error(lineNo, "LinesOutOfFile",
+                    $"작업 {taskId}: 줄 범위가 올바르지 않습니다: L{lm.Groups[1].Value}-{lm.Groups[2].Value}"));
+            else
+                span = new TextSpanInfo(a, b);
+        }
+
         var acRefs = m.Groups[7].Success
             ? m.Groups[7].Value.Split(',').Select(s => s.Trim()).ToArray()
             : Array.Empty<string>();
@@ -208,17 +236,20 @@ public static class ChangeSpecParser
         }
 
         return new SpecTask(
-            m.Groups[2].Value,
-            m.Groups[3].Value == "cs" ? TaskKind.CSharp : TaskKind.Sql,
+            taskId,
+            kind,
             m.Groups[4].Value,
-            m.Groups[5].Success ? m.Groups[5].Value : null,
+            symbol,
             m.Groups[6].Value,
             acRefs,
             m.Groups[8].Success ? m.Groups[8].Value : null,
             m.Groups[1].Value == "x",
             runId,
             failure,
-            lineNo);
+            lineNo)
+        {
+            Lines = span,
+        };
     }
 
     private static void Validate(
@@ -243,8 +274,6 @@ public static class ChangeSpecParser
                 if (current is not null && finished.Contains(current))
                     issues.Add(Error(task.Line, "GroupNotContiguous", $"그룹 {current}의 작업은 연속해야 합니다."));
             }
-            if (task.Group is not null && task.Kind == TaskKind.Sql)
-                issues.Add(Error(task.Line, "SqlInGroup", $"sql 작업 {task.Id}는 그룹에 넣을 수 없습니다."));
         }
 
         var known = criteria.Select(c => c.Id).ToHashSet(StringComparer.Ordinal);

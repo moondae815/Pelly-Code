@@ -1,8 +1,10 @@
+using PellyCoder.Core.Models;
+
 namespace PellyCoder.Core.Specs;
 
 public enum SpecStatus { Draft, InProgress, Done }
 
-public enum TaskKind { CSharp, Sql }
+public enum TaskKind { CSharp, Sql, Asp }
 
 public enum SpecIssueSeverity { Error, Warning }
 
@@ -26,7 +28,11 @@ public sealed record SpecTask(
     bool Done,
     string? RunId,
     string? Failure,
-    int Line);
+    int Line)
+{
+    /// <summary>The <c>#L start-end</c> target of an asp task (1-based, inclusive); null for a symbol target.</summary>
+    public TextSpanInfo? Lines { get; init; }
+}
 
 public sealed record ChangeSpec(
     string? Id,

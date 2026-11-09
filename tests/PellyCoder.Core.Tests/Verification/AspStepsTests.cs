@@ -311,6 +311,21 @@ public sealed class AspStepsTests
     }
 
     [Fact]
+    public async Task SpStep_changed_signature_accepts_omitted_trailing_defaults()
+    {
+        var changed = Changed("dbo.usp_New", new SqlParameterInfo("@Id", "int", false), new SqlParameterInfo("@Status", "int", false, HasDefault: true),
+            new SqlParameterInfo("@Out", "int", true));
+        var ok = Ctx(Original.Replace("  Total = id", "  conn.Execute \"EXEC dbo.usp_New 1\"\n  Total = id"), changed: [changed]);
+        Assert.True((await new AspSpStep(_sql, _feedback).VerifyAsync(ok, Ct)).Passed);
+        Assert.Equal(AspCheckStatus.Passed, ok.Asp!.Checks["AspSp"].Status);
+
+        var tooMany = Ctx(Original.Replace("  Total = id", "  conn.Execute \"EXEC dbo.usp_New 1, 2, 3\"\n  Total = id"), changed: [changed]);
+        await new AspSpStep(_sql, _feedback).VerifyAsync(tooMany, Ct);
+        Assert.Equal(AspCheckStatus.Warned, tooMany.Asp!.Checks["AspSp"].Status);
+        Assert.Equal("dbo.usp_New 인수 3개, 입력 매개변수 1~2개", tooMany.Asp.Checks["AspSp"].Detail);
+    }
+
+    [Fact]
     public async Task SpStep_changed_signature_mismatch_warns()
     {
         var changed = Changed("dbo.usp_New", new SqlParameterInfo("@Id", "int", false), new SqlParameterInfo("@Status", "int", false));

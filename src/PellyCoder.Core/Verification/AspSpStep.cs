@@ -45,7 +45,7 @@ public sealed class AspSpStep(ISqlExecutor? sql, FeedbackBuilder feedback) : IVe
         // A changed procedure exists (its sql task wrote it) and has its file's parameters: no database needed.
         bool InFile(SqlObjectName n) => ChangedProcedure.Find(changed, n) is not null;
         var fileWarnings = ArgumentWarnings(newCounted.Where(c => InFile(c.Name)),
-            c => ChangedProcedure.Find(changed, c.Name)!.Signature);
+            c => ChangedProcedure.Find(changed, c.Name)!.Signature, allowOmittedDefaults: true);
         var dbNames = newNames.Where(n => !InFile(n)).ToList();
         var dbCounted = newCounted.Where(c => !InFile(c.Name)).ToList();
 
@@ -98,7 +98,8 @@ public sealed class AspSpStep(ISqlExecutor? sql, FeedbackBuilder feedback) : IVe
         return StepResult.Pass;
     }
 
-    private static List<string> ArgumentWarnings(IEnumerable<AspSpCall> calls, Func<AspSpCall, SqlProcedureSignature?> signatureOf)
+    private static List<string> ArgumentWarnings(IEnumerable<AspSpCall> calls, Func<AspSpCall, SqlProcedureSignature?> signatureOf,
+        bool allowOmittedDefaults = false)
     {
         var warnings = new List<string>();
         foreach (var call in calls)
@@ -106,8 +107,10 @@ public sealed class AspSpStep(ISqlExecutor? sql, FeedbackBuilder feedback) : IVe
             if (signatureOf(call) is not { } signature)
                 continue;
             var inputs = signature.Parameters.Count(p => !p.IsOutput);
-            if (call.ArgumentCount != inputs)
-                warnings.Add($"{call.Name.Display} 인수 {call.ArgumentCount}개, 입력 매개변수 {inputs}개");
+            // A signature read from a .sql file knows its defaults: trailing parameters with one may be left out of the call.
+            var required = allowOmittedDefaults ? signature.Parameters.Count(p => !p.IsOutput && !p.HasDefault) : inputs;
+            if (call.ArgumentCount < required || call.ArgumentCount > inputs)
+                warnings.Add($"{call.Name.Display} 인수 {call.ArgumentCount}개, 입력 매개변수 {(required == inputs ? inputs.ToString() : $"{required}~{inputs}")}개");
         }
         return [.. warnings.Distinct()];
     }

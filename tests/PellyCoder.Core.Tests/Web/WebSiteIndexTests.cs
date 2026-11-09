@@ -71,7 +71,7 @@ public class WebSiteIndexTests
         Assert.Equal(new[] { "gone", "one" }, Load(fs).Names.OrderBy(n => n, StringComparer.Ordinal));
         Assert.True(fs.File.Exists(Cache));
         var json = fs.File.ReadAllText(Cache);
-        Assert.Contains("\"version\":2", json);
+        Assert.Contains("\"version\":3", json);
         Assert.Contains("\"a.js\"", json);
         Assert.DoesNotContain(fs.AllFiles, f => f.EndsWith(".tmp"));
 
@@ -87,18 +87,18 @@ public class WebSiteIndexTests
     {
         var fs = Fs(("/site/a.js", "function one() {}\n"), (Cache, "{ not json"));
         Assert.Equal(new[] { "one" }, Load(fs).Names);
-        Assert.Contains("\"version\":2", fs.File.ReadAllText(Cache));
+        Assert.Contains("\"version\":3", fs.File.ReadAllText(Cache));
 
         fs.File.WriteAllText(Cache, "{\"version\":99,\"files\":{}}");
         Assert.Equal(new[] { "one" }, Load(fs).Names);
     }
 
     [Theory]
-    [InlineData("{\"version\":2,\"files\":null}")]
-    [InlineData("{\"version\":2,\"files\":{\"a.js\":null}}")]
-    [InlineData("{\"version\":2,\"files\":{\"a.js\":{\"sha256\":\"SHA\",\"entries\":null}}}")]
-    [InlineData("{\"version\":2,\"files\":{\"a.js\":{\"sha256\":\"SHA\",\"entries\":[null]}}}")]
-    [InlineData("{\"version\":2,\"files\":{\"a.js\":{\"sha256\":\"SHA\",\"entries\":[{\"name\":null,\"line\":1,\"declaration\":\"x\"}]}}}")]
+    [InlineData("{\"version\":3,\"files\":null}")]
+    [InlineData("{\"version\":3,\"files\":{\"a.js\":null}}")]
+    [InlineData("{\"version\":3,\"files\":{\"a.js\":{\"sha256\":\"SHA\",\"entries\":null}}}")]
+    [InlineData("{\"version\":3,\"files\":{\"a.js\":{\"sha256\":\"SHA\",\"entries\":[null]}}}")]
+    [InlineData("{\"version\":3,\"files\":{\"a.js\":{\"sha256\":\"SHA\",\"entries\":[{\"name\":null,\"line\":1,\"declaration\":\"x\"}]}}}")]
     public void Index_NullMembersCache_Rebuilt(string cache)
     {
         const string text = "function one() {}\n";

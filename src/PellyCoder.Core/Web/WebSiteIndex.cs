@@ -3,6 +3,8 @@ using System.Text.Json;
 using Acornima;
 using Acornima.Ast;
 using PellyCoder.Core.Asp;
+using PellyCoder.Core.Config;
+using PellyCoder.Core.Sql;
 using PellyCoder.Core.Files;
 
 namespace PellyCoder.Core.Web;
@@ -12,6 +14,9 @@ public enum JsIndexSource { Js, Page }
 
 public sealed record JsIndexEntry(string Name, string RelativePath, int Line, string Declaration, JsIndexSource Source = JsIndexSource.Js);
 
+/// <summary>A stored procedure call found in a page or include. <see cref="Procedure"/> is the enclosing Function or Sub, null outside one.</summary>
+public sealed record AspSpCallEntry(string RelativePath, int Line, SqlObjectName Object, int? Arguments, string? Procedure);
+
 public sealed record WebSiteIndexResult(IReadOnlyList<JsIndexEntry> Entries, int Files, bool Truncated)
 {
     private IReadOnlySet<string>? _allNames;
@@ -20,6 +25,9 @@ public sealed record WebSiteIndexResult(IReadOnlyList<JsIndexEntry> Entries, int
 
     /// <summary>Pages scanned (a separate limit from <see cref="Files"/>, which counts <c>.js</c> files).</summary>
     public int PageFiles { get; init; }
+
+    /// <summary>Stored procedure calls in pages and includes (<c>asp.extensions</c> files only).</summary>
+    public IReadOnlyList<AspSpCallEntry> SpCalls { get; init; } = [];
 
     /// <summary>Page (site-relative, '/') to the files it includes directly (site-relative, '/').</summary>
     public IReadOnlyDictionary<string, IReadOnlyList<string>> Includes { get; init; } =
@@ -71,11 +79,13 @@ public sealed record WebSiteIndexResult(IReadOnlyList<JsIndexEntry> Entries, int
 /// <summary>Top-level function and variable names of the site's own JavaScript files, cached by file hash.</summary>
 public static class WebSiteIndex
 {
-    private const int CacheVersion = 2;
+    private const int CacheVersion = 3;
 
     private sealed class CacheFile
     {
         public int Version { get; set; }
+        /// <summary>The wrapper functions the cached calls were found with; a change refreshes the pages.</summary>
+        public string SpKey { get; set; } = "";
         public Dictionary<string, CacheItem> Files { get; set; } = new();
     }
 
@@ -84,6 +94,16 @@ public static class WebSiteIndex
         public string Sha256 { get; set; } = "";
         public List<CacheEntry> Entries { get; set; } = new();
         public List<string> Includes { get; set; } = new();
+        public List<CacheSpCall> SpCalls { get; set; } = new();
+    }
+
+    internal sealed class CacheSpCall
+    {
+        public int Line { get; set; }
+        public string? Schema { get; set; }
+        public string Name { get; set; } = "";
+        public int? Arguments { get; set; }
+        public string? Procedure { get; set; }
     }
 
     internal sealed class CacheEntry
@@ -100,10 +120,14 @@ public static class WebSiteIndex
     };
 
     public static WebSiteIndexResult Load(IFileSystem fs, string siteRoot, WebFileFilter filter, ITextFileCodec codec,
-        string cachePath, int maxFiles = 2000, long maxBytes = 1_048_576, IReadOnlyList<string>? aspExtensions = null)
+        string cachePath, int maxFiles = 2000, long maxBytes = 1_048_576, IReadOnlyList<string>? aspExtensions = null,
+        IReadOnlyList<AspSpCallFunction>? spCallFunctions = null)
     {
         var old = ReadCache(fs, cachePath);
-        var fresh = new CacheFile { Version = CacheVersion };
+        var wrappers = spCallFunctions ?? [];
+        var spKey = string.Join("|", wrappers.Select(w => $"{w.Name.ToLowerInvariant()}:{w.Argument}"));
+        var fresh = new CacheFile { Version = CacheVersion, SpKey = spKey };
+        var spCalls = new List<AspSpCallEntry>();
         var entries = new List<JsIndexEntry>();
         var includes = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
         var files = 0;
@@ -152,27 +176,39 @@ public static class WebSiteIndex
 
             var sha = TextFileCodec.HashHex(bytes);
             CacheItem item;
-            if (old.Files.TryGetValue(rel, out var hit) && hit.Sha256 == sha) item = hit;
-            else item = isPage ? ExtractPage(rel, sha, text) : new CacheItem { Sha256 = sha, Entries = Extract(text) };
+            var reusable = !isPage || old.SpKey == spKey;
+            if (reusable && old.Files.TryGetValue(rel, out var hit) && hit.Sha256 == sha) item = hit;
+            else item = isPage ? ExtractPage(rel, sha, text, extensions.Any(e => rel.EndsWith(e, StringComparison.OrdinalIgnoreCase)) ? wrappers : null) : new CacheItem { Sha256 = sha, Entries = Extract(text) };
             fresh.Files[rel] = item;
             var source = isPage ? JsIndexSource.Page : JsIndexSource.Js;
             foreach (var it in item.Entries) entries.Add(new JsIndexEntry(it.Name, rel, it.Line, it.Declaration, source));
             if (isPage)
             {
                 if (item.Includes.Count > 0) includes[rel] = item.Includes;
+                foreach (var c in item.SpCalls)
+                    spCalls.Add(new AspSpCallEntry(rel, c.Line, new SqlObjectName(c.Schema, c.Name), c.Arguments, c.Procedure));
                 pageFiles++;
             }
             else files++;
         }
 
         WriteCache(fs, cachePath, fresh);
-        return new WebSiteIndexResult(entries, files, truncated) { PageFiles = pageFiles, Includes = includes };
+        return new WebSiteIndexResult(entries, files, truncated) { PageFiles = pageFiles, Includes = includes, SpCalls = spCalls };
     }
 
-    private static CacheItem ExtractPage(string rel, string sha, string textLf)
+    private static CacheItem ExtractPage(string rel, string sha, string textLf, IReadOnlyList<AspSpCallFunction>? wrappers)
     {
         var page = AspPage.Parse(textLf);
         var item = new CacheItem { Sha256 = sha, Entries = PageDeclarations(page, textLf) };
+        foreach (var call in wrappers is null ? [] : AspSpCallFinder.Find(page, wrappers))
+        {
+            var proc = page.Procedures.FirstOrDefault(p => call.Line >= p.DeclLine && call.Line <= p.EndLine);
+            item.SpCalls.Add(new CacheSpCall
+            {
+                Line = call.Line, Schema = call.Name.Schema, Name = call.Name.Name, Arguments = call.ArgumentCount,
+                Procedure = proc is null ? null : proc.ClassName is null ? proc.Name : proc.ClassName + "." + proc.Name,
+            });
+        }
         var dir = PagePaths.Directory(rel);
         foreach (var inc in page.Includes)
             if (PagePaths.ResolveInclude(dir, inc) is { } target && !item.Includes.Contains(target, StringComparer.OrdinalIgnoreCase))
@@ -301,7 +337,7 @@ public static class WebSiteIndex
     /// <summary>False when the JSON left a member null (a hand-edited or partly written cache); it is then rebuilt.</summary>
     private static bool Complete(CacheFile c) =>
         c.Files is not null && c.Files.Values.All(item => item is { Sha256: not null, Entries: not null }
-            && item.Includes is not null && item.Entries.All(e => e is { Name: not null, Declaration: not null }));
+            && item.Includes is not null && item.SpCalls is not null && item.SpCalls.All(x => x?.Name is not null) && item.Entries.All(e => e is { Name: not null, Declaration: not null }));
 
     private static void WriteCache(IFileSystem fs, string path, CacheFile cache)
     {

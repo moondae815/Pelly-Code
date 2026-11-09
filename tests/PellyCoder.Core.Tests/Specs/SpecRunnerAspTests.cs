@@ -269,6 +269,19 @@ public sealed class SpecRunnerAspTests : IDisposable
     }
 
     [Fact]
+    public async Task Mismatch_warning_is_recorded_in_apply_json()
+    {
+        Spec("- [ ] T1 sql db/a.sql 바꾼다\n- [ ] T2 asp web/a.asp#GetOne 바꾼다\n");
+        _exec.Exit["T2"] = 1;
+        Assert.Equal(1, await Run(Opts()));
+
+        using var json = ApplyJson();
+        var message = json.RootElement.GetProperty("warnings").EnumerateArray()
+            .Select(w => w.GetProperty("message").GetString()!).Single(m => m.Contains("어긋나"));
+        Assert.StartsWith("T1(sql)은 적용됐고 T2(asp)는 실패했습니다.", message);
+    }
+
+    [Fact]
     public async Task No_group_sql_applied_asp_failed_warns_mismatch()
     {
         Spec("- [ ] T1 sql db/a.sql 바꾼다\n- [ ] T2 asp web/a.asp#GetOne 바꾼다\n" +

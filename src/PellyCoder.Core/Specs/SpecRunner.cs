@@ -184,6 +184,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
 
         // Ungrouped sql applied, then a later ungrouped asp failed (A2 design §4.1): the SP and the page may disagree.
         private readonly List<(string SqlId, string AspId)> _mismatches = [];
+        private readonly List<SpecIssue> _mismatchIssues = [];
 
         // Stored procedures as the sql tasks left them (A2 design §4.4): the sql tasks applied in this apply, in the order they
         // were applied (a group's once the group is kept), and those whose SQL file could not be parsed (warned once each).
@@ -1141,8 +1142,13 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             if (_mismatches.Count == 0 || _rolledBack) return;
             string group = NextFreeGroup();
             foreach (var (sql, asp) in _mismatches)
-                if (!_restored.Contains(sql))
-                    owner.Ui.Warn($"{sql}(sql)은 적용됐고 {asp}(asp)는 실패했습니다. SP와 페이지가 어긋나 있을 수 있습니다. 함께 되돌리려면 [{group}]로 묶으십시오");
+            {
+                if (_restored.Contains(sql)) continue;
+                var message = $"{sql}(sql)은 적용됐고 {asp}(asp)는 실패했습니다. SP와 페이지가 어긋나 있을 수 있습니다. 함께 되돌리려면 [{group}]로 묶으십시오";
+                owner.Ui.Warn(message);
+                _mismatchIssues.Add(new SpecIssue(_doc?.Spec.Tasks.FirstOrDefault(t => t.Id == asp)?.Line ?? 0, SpecIssueSeverity.Warning,
+                    "SqlAspMismatch", message));
+            }
         }
 
         /// <summary>
@@ -1241,7 +1247,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             {
                 var dir = owner.Fs.Path.Combine(ws.PellyDir, "runs", ApplyId!);
                 owner.Fs.Directory.CreateDirectory(dir);
-                var summary = new ApplySummary(ApplyId!, SpecId, _results, exitCode, warnings, _archived,
+                var summary = new ApplySummary(ApplyId!, SpecId, _results, exitCode, [.. warnings, .. _mismatchIssues], _archived,
                     impact is null ? null : impact.Mode == ImpactMode.Semantic ? "semantic" : "name", impact?.Fallback?.Kind.ToString(),
                     _doc?.Spec.Tasks.Count ?? 0, o.Resume, _links.Count > 0 ? _links.Select(CriterionResult).ToList() : null, sqlImpact,
                     _callersNotUpdated.Count > 0 ? _callersNotUpdated : null);

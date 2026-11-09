@@ -258,7 +258,7 @@ public sealed class WebOrchestratorTests
 
         Assert.Equal(0, exit); // the unknown name is a warning, never a rejection
         var line = Assert.Single(_ui.Warnings, w => w.StartsWith("검사: ", StringComparison.Ordinal));
-        Assert.Equal("검사: 인코딩 통과, 문법 통과, 문법 수준 통과, 대상 모양 통과, 안전 통과, 이름 경고(newHelper(줄 3)), API 통과", line);
+        Assert.Equal("검사: 인코딩 통과, 문법 통과, 문법 수준 통과, 대상 모양 통과, 안전 통과, 이름 경고(newHelper(줄 3)), API 통과, 요소 건너뜀(페이지가 아님)", line);
         Assert.Contains(Banner, _ui.Warnings);
         Assert.True(_ui.Warnings.IndexOf(line) < _ui.Warnings.IndexOf(Banner));
         Assert.Equal(1, Summary().GetProperty("web").GetProperty("nameWarnings").GetInt32());

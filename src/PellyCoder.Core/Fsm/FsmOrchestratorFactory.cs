@@ -161,7 +161,7 @@ public static class FsmOrchestratorFactory
         };
         IVerifierStep[] steps = kind switch
         {
-            EditKind.Js => [new RulesStep(feedback), new JsNamesStep(options.Web.Globals), new JsApiStep()],
+            EditKind.Js => [new RulesStep(feedback), new JsNamesStep(options.Web.Globals), new JsApiStep(), new JsElementsStep(fs, codec)],
             EditKind.Css => [new RulesStep(feedback), new CssPropertyStep()],
             _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null),
         };

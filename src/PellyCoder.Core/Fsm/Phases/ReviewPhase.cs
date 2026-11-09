@@ -44,6 +44,7 @@ public sealed class ReviewPhase(IUserInteraction ui) : IPhase
         (WebApplyPhase.SafetyCheck, "안전"),
         ("Names", "이름"),
         ("Api", "API"),
+        (JsElementsStep.Row, "요소"),
         ("Properties", "속성"),
         (CssPropertyStep.OverrideCheck, "덮어쓰기"),
     ];

@@ -9,7 +9,9 @@ using PellyCoder.Core.Asp;
 using PellyCoder.Core.Config;
 using PellyCoder.Core.CSharp;
 using PellyCoder.Core.Files;
+using PellyCoder.Core.Fsm.Phases;
 using PellyCoder.Core.Impact;
+using PellyCoder.Core.Models;
 using PellyCoder.Core.Sql;
 using PellyCoder.Core.Testing;
 using PellyCoder.Core.Web;
@@ -50,19 +52,21 @@ public sealed record AspImpactRequest(IFileSystem Fs, AspOptions Asp, int Compat
 public static partial class SpecChecker
 {
 
-    /// <param name="asp">The <c>asp</c> options (extensions, encoding); null means the defaults.</param>
-    public static SpecCheckResult Check(IFileSystem fs, string specPath, int sqlCompatLevel, AspOptions? asp = null)
+    /// <param name="asp">The <c>asp</c> options (extensions, encoding, site root); null means the defaults.</param>
+    /// <param name="web">The <c>web</c> options (vendor paths) for js and css tasks; null means the defaults.</param>
+    public static SpecCheckResult Check(IFileSystem fs, string specPath, int sqlCompatLevel, AspOptions? asp = null, WebOptions? web = null)
     {
         asp ??= new AspOptions();
+        web ??= new WebOptions();
         var spec = ChangeSpecParser.Parse(TextFileCodec.Read(fs, specPath).Text);
         var ws = WorkspaceLocator.Resolve(fs, specPath);
         var issues = new List<SpecIssue>(spec.Issues);
         var scans = new Scans(fs, ws.Root);
 
         foreach (var task in spec.Tasks)
-            CheckTask(fs, ws, task, sqlCompatLevel, asp, scans, issues);
+            CheckTask(fs, ws, task, sqlCompatLevel, asp, web, scans, issues);
 
-        CheckAspLinesAfterEdit(fs, ws, spec, issues);
+        CheckLinesAfterEdit(fs, ws, spec, issues);
         CheckAcTests(fs, ws, spec, issues);
 
         return new SpecCheckResult(spec, ws, issues);
@@ -80,9 +84,9 @@ public static partial class SpecChecker
     /// </param>
     public static async Task<SpecCheckResult> CheckAsync(
         IFileSystem fs, string specPath, int sqlCompatLevel, IImpactFinder? impact, bool impactAllCsTasks, CancellationToken ct, SqlImpactSetup? sql = null,
-        AspOptions? asp = null)
+        AspOptions? asp = null, WebOptions? web = null)
     {
-        var check = Check(fs, specPath, sqlCompatLevel, asp);
+        var check = Check(fs, specPath, sqlCompatLevel, asp, web);
         var request = impactAllCsTasks && sql is not null && !check.HasErrors
             ? SqlRequest(fs, sql, allowDev: true, SpecCheckListPath(fs, check, specPath))
             : null;
@@ -327,7 +331,8 @@ public static partial class SpecChecker
         }
     }
 
-    private static void CheckTask(IFileSystem fs, Workspace ws, SpecTask task, int compat, AspOptions asp, Scans scans, List<SpecIssue> issues)
+    private static void CheckTask(IFileSystem fs, Workspace ws, SpecTask task, int compat, AspOptions asp, WebOptions web, Scans scans,
+        List<SpecIssue> issues)
     {
         var before = issues.Count;
         void Error(string code, string message) => issues.Add(new SpecIssue(task.Line, SpecIssueSeverity.Error, code, message));
@@ -336,6 +341,7 @@ public static partial class SpecChecker
         if (!IsInside(fs, ws.Root, full)) { Error("OutsideWorkspace", $"작업 {task.Id}: 경로가 작업 공간 밖입니다: {task.Path}"); return; }
         if (!fs.File.Exists(full)) { Error("FileNotFound", $"작업 {task.Id}: 파일이 없습니다: {task.Path}"); return; }
         if (task.Kind == TaskKind.Asp) { CheckAspTask(fs, task, full, asp, issues); return; }
+        if (task.Kind is TaskKind.Js or TaskKind.Css) { CheckWebTask(fs, ws, task, full, asp, web, issues); return; }
         var expectedExt = task.Kind == TaskKind.CSharp ? ".cs" : ".sql";
         if (!string.Equals(fs.Path.GetExtension(full), expectedExt, StringComparison.OrdinalIgnoreCase))
         {
@@ -443,6 +449,74 @@ public static partial class SpecChecker
             Error("SymbolAmbiguous", $"작업 {task.Id}: 심볼 {task.Symbol}가 {found.Count}곳과 맞습니다: {string.Join(", ", found.Select(f => $"{f.Keyword} {(f.ClassName is null ? "" : f.ClassName + ".")}{f.Name} (줄 {f.DeclLine})"))}");
     }
 
+    /// <summary>
+    /// A js or css task (W3 design §3.3): extension, readable text, not a minified or vendor file, a target, and that target —
+    /// a function, a selector or a line range that, on a page, lies inside one script or style block.
+    /// </summary>
+    private static void CheckWebTask(IFileSystem fs, Workspace ws, SpecTask task, string full, AspOptions asp, WebOptions web, List<SpecIssue> issues)
+    {
+        void Error(string code, string message) => issues.Add(new SpecIssue(task.Line, SpecIssueSeverity.Error, code, message));
+
+        var keyword = ChangeSpecParser.KindKeyword(task.Kind);
+        var own = task.Kind == TaskKind.Js ? ".js" : ".css";
+        var allowed = new[] { own }.Concat(WebPages.PageExtensions(asp.Extensions)).ToList();
+        var ext = fs.Path.GetExtension(full);
+        if (!allowed.Contains(ext, StringComparer.OrdinalIgnoreCase))
+        {
+            Error("KindMismatch", $"작업 {task.Id}: {keyword} 작업의 파일이 {string.Join(", ", allowed)} 중 하나가 아닙니다: {task.Path}");
+            return;
+        }
+        if (task.Done) return;
+
+        var isPage = WebPages.IsPage(full, asp.Extensions);
+        string text;
+        try
+        {
+            var codec = new WebCodecRouter(new WebTextCodec(asp.Encoding), new AspTextCodec(asp.Encoding), asp.Extensions);
+            text = codec.Decode(full, fs.File.ReadAllBytes(full)).Text;
+        }
+        catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException)
+        {
+            Error("WebEncoding", $"작업 {task.Id}: 파일을 읽을 수 없습니다: {task.Path} ({ex.Message})");
+            return;
+        }
+
+        if (!isPage)
+        {
+            var siteRoot = AspSiteRoot.Resolve(fs, asp.SiteRoot, ws.Root);
+            var (verdict, reason) = new WebFileFilter(siteRoot, web.VendorPaths).Classify(full, text);
+            if (verdict != WebFileVerdict.Ok)
+            {
+                Error("WebVendorFile", $"작업 {task.Id}: 고칠 수 없는 파일입니다: {task.Path} — {reason}");
+                return;
+            }
+        }
+
+        if (task.Symbol is null && task.Lines is null)
+        {
+            var what = task.Kind == TaskKind.Js ? "#함수" : "#선택자";
+            Error("WebTargetRequired", $"작업 {task.Id}: {keyword} 작업에는 대상({what} 또는 #L시작-끝)이 필요합니다");
+            return;
+        }
+
+        if (task.Lines is { } lines)
+        {
+            var lineCount = WebLocateCommon.LineCount(text);
+            if (lines.EndLine > lineCount)
+                Error("LinesOutOfFile", $"작업 {task.Id}: 줄 범위 L{lines.StartLine}-{lines.EndLine}가 파일(1-{lineCount}줄) 밖입니다");
+            else if (isPage && !WebTargetLookup.LinesInOneBlock(AspPage.Parse(text), lines, task.Kind == TaskKind.Js ? EditKind.Js : EditKind.Css))
+                Error("LinesOutsideBlock",
+                    $"작업 {task.Id}: 줄 범위가 {(task.Kind == TaskKind.Js ? "<script>" : "<style>")} 블록 하나 안에 있지 않습니다. asp 작업으로 쓰십시오");
+            return;
+        }
+
+        var found = task.Kind == TaskKind.Js
+            ? WebTargetLookup.Function(text, isPage, task.Symbol!)
+            : WebTargetLookup.Rule(text, isPage, task.Symbol!);
+        if (found == WebTargetFind.NotFound) Error("SymbolNotFound", $"작업 {task.Id}: 심볼을 찾을 수 없습니다: {task.Symbol}");
+        else if (found == WebTargetFind.Ambiguous) Error("SymbolAmbiguous", $"작업 {task.Id}: 심볼 {task.Symbol}가 여러 곳과 맞습니다");
+    }
+
     /// <summary>The same rule as <c>pelly asp --proc</c>: <c>Class.Name</c> is that class member; a bare name is top-level, else class members.</summary>
     internal static List<AspProcedure> MatchingProcedures(AspPage page, string wanted)
     {
@@ -455,16 +529,19 @@ public static partial class SpecChecker
         return topLevel.Count > 0 ? topLevel : named;
     }
 
-    /// <summary>A line-range asp task after another not-done asp task on the same file: the earlier edit may shift its lines (error).</summary>
-    private static void CheckAspLinesAfterEdit(IFileSystem fs, Workspace ws, ChangeSpec spec, List<SpecIssue> issues)
+    /// <summary>
+    /// A line-range task after another not-done task of any kind on the same file: the earlier edit may shift its lines (error,
+    /// W3 design §3.2). An asp task keeps the A2 code <c>AspLinesAfterEdit</c>; a js or css task gets <c>LinesAfterEdit</c>.
+    /// </summary>
+    private static void CheckLinesAfterEdit(IFileSystem fs, Workspace ws, ChangeSpec spec, List<SpecIssue> issues)
     {
         var firstByFile = new Dictionary<string, SpecTask>(StringComparer.OrdinalIgnoreCase);
-        foreach (var task in spec.Tasks.Where(t => t.Kind == TaskKind.Asp && !t.Done))
+        foreach (var task in spec.Tasks.Where(t => !t.Done))
         {
             var key = SpecTaskPaths.FullPath(fs.Path, ws.Root, task.Path).Replace('\\', '/');
             if (!firstByFile.TryGetValue(key, out var first)) { firstByFile[key] = task; continue; }
             if (task.Lines is not null)
-                issues.Add(new SpecIssue(task.Line, SpecIssueSeverity.Error, "AspLinesAfterEdit",
+                issues.Add(new SpecIssue(task.Line, SpecIssueSeverity.Error, task.Kind == TaskKind.Asp ? "AspLinesAfterEdit" : "LinesAfterEdit",
                     $"{task.Id}의 줄 범위는 같은 파일을 먼저 고치는 {first.Id} 뒤에 어긋날 수 있습니다. 프로시저 대상(#이름)으로 쓰거나 작업을 하나로 합치십시오"));
         }
     }

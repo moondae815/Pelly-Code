@@ -33,6 +33,6 @@ public static class SpecRunnerFactory
         return new SpecRunner(
             fs, new FileGuard(fs, time), executor, ui, time, options.Sql.CompatLevel,
             (ws, id) => new RunLogger(fs, time).Prune(ws, options.Log.RetentionDays, id),
-            groups, new FeedbackBuilder(QwenTokenCounter.Shared, options.Budget.Feedback), options.Retry.Max, impact, groupTests, sqlImpact, options.Asp);
+            groups, new FeedbackBuilder(QwenTokenCounter.Shared, options.Budget.Feedback), options.Retry.Max, impact, groupTests, sqlImpact, options.Asp, options.Web);
     }
 }

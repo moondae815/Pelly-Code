@@ -52,7 +52,7 @@ public sealed class SpecCheckCommand(IFileSystem fs, OptionsResolver resolver, I
         }
 
         var sql = readerFactory is null ? null : new SqlImpactSetup(sqlImpact ?? new SqlImpactFinder(fs, options.Sql.CompatLevel), options.Sql, readerFactory);
-        var result = await SpecChecker.CheckAsync(fs, spec, options.Sql.CompatLevel, impact ?? ImpactFinders.Default(fs), settings.Impact, cancellation, sql, options.Asp);
+        var result = await SpecChecker.CheckAsync(fs, spec, options.Sql.CompatLevel, impact ?? ImpactFinders.Default(fs), settings.Impact, cancellation, sql, options.Asp, options.Web);
         foreach (var issue in result.Issues)
         {
             var where = issue.Line > 0 ? $"줄 {issue.Line}: " : "";

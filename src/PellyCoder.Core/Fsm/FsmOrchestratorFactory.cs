@@ -125,6 +125,7 @@ public static class FsmOrchestratorFactory
             new AspApplyPhase(fileGuard, feedback, ui, options.Asp, codec, options.Web),
             new VerifyPhase([
                 new AspNamesStep(feedback), new RulesStep(feedback), new AspClientWarningsStep(fs, options, codec), new AspElementsStep(fs, options, codec),
+                new AspJsSignatureStep(fs, options, codec),
                 new AspCompileStep(processes, feedback, fs, isWindows ?? OperatingSystem.IsWindows), new AspSpStep(sql, feedback),
             ]),
             new ReviewPhase(ui),

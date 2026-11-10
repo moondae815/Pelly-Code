@@ -25,6 +25,7 @@ public sealed class ReviewPhase(IUserInteraction ui) : IPhase
         ("AspCompile", "컴파일"),
         ("AspSp", "SP"),
         (AspApplyPhase.LogicCheck, "논리"),
+        (AspJsSignatureStep.Row, "JS 서명"),
     ];
 
     /// <summary>Shown with every JS/CSS review, also with --yes: no check runs the code in a browser.</summary>

@@ -104,4 +104,48 @@ public sealed class FsmTaskExecutorTests
         Assert.Equal(["T.A"], noBreaks.VerifyTests);
         Assert.Null(noBreaks.ExpectBreaks);
     }
+
+    private static SpecTask LinesTask(TaskKind kind, string path) =>
+        Task(kind, path, null) with { Lines = new TextSpanInfo(10, 20) };
+
+    [Fact]
+    public async Task Js_FunctionTarget_BuildsJsRequest()
+    {
+        var r = await Run(Task(TaskKind.Js, "web/js/order.js", "fnSearch"));
+        Assert.Equal(EditKind.Js, r.Kind);
+        Assert.Equal("fnSearch", r.MethodName);
+        Assert.Null(r.ClassName);
+        Assert.Null(r.Lines);
+        Assert.Null(r.Selector);
+        Assert.NotNull(r.Host);
+        Assert.True(r.Yes);
+    }
+
+    [Fact]
+    public async Task Js_LinesTarget()
+    {
+        var r = await Run(LinesTask(TaskKind.Js, "web/a.asp"));
+        Assert.Equal(EditKind.Js, r.Kind);
+        Assert.Null(r.MethodName);
+        Assert.Equal(new TextSpanInfo(10, 20), r.Lines);
+    }
+
+    [Fact]
+    public async Task Css_SelectorTarget_BuildsCssRequest()
+    {
+        var r = await Run(Task(TaskKind.Css, "web/css/admin.css", ".search-box"));
+        Assert.Equal(EditKind.Css, r.Kind);
+        Assert.Equal(".search-box", r.Selector);
+        Assert.Null(r.MethodName);
+        Assert.Null(r.Lines);
+    }
+
+    [Fact]
+    public async Task Css_LinesTarget()
+    {
+        var r = await Run(LinesTask(TaskKind.Css, "web/css/admin.css"));
+        Assert.Equal(EditKind.Css, r.Kind);
+        Assert.Null(r.Selector);
+        Assert.Equal(new TextSpanInfo(10, 20), r.Lines);
+    }
 }

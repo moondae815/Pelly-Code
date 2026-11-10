@@ -42,7 +42,12 @@ public sealed record AspSummary(string Unit, string Encoding, IReadOnlyDictionar
 /// </summary>
 public sealed record WebSummary(string Unit, string Encoding, string? OriginalLevel, string? TargetLevel, string? Jquery,
     IReadOnlyDictionary<string, string> Checks, int LevelRejections, int NameWarnings, int ApiWarnings, int PropertyWarnings,
-    string Container = "file", WebBlockSummary? Block = null, string? JquerySource = null);
+    string Container = "file", WebBlockSummary? Block = null, string? JquerySource = null,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    WebSignatureSummary? SignatureChange = null);
+
+/// <summary>The target JS function's signature before and after a run that changed it (W3 design §4.2), e.g. <c>fnSearch(f)</c>.</summary>
+public sealed record WebSignatureSummary(string Before, string After);
 
 /// <summary>The client block a page run edited: <c>script</c> or <c>style</c>, its tag lines and the server code inside (<c>none</c>, <c>output</c>, <c>statements</c>).</summary>
 public sealed record WebBlockSummary(string Kind, int StartLine, int EndLine, string ServerCode);
@@ -199,7 +204,8 @@ public sealed class RunLogger(IFileSystem fs, TimeProvider time)
             web.Page is { } p ? new WebBlockSummary(
                 p.OriginalView.Block.Kind == AspClientBlockKind.Script ? "script" : "style",
                 p.OriginalView.Block.OpenLine, p.OriginalView.Block.CloseLine, p.OriginalView.ServerCode.ToString().ToLowerInvariant()) : null,
-            web.JquerySource);
+            web.JquerySource,
+            web.SignatureChange is { } change ? new WebSignatureSummary(change.Before.Display, change.After.Display) : null);
     }
 
     private static AspSummary? SummarizeAsp(RunContext ctx)

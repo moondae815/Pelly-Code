@@ -46,6 +46,12 @@ public sealed class WebRunState(
     /// <summary>The target function in the original file; null unless <see cref="Unit"/> is Function.</summary>
     public JsFunction? Function { get; init; }
 
+    /// <summary>The target function's name and parameters may change: a spec js task or <c>pelly js --signature</c> (W3 design §4.2).</summary>
+    public bool AllowSignatureChange { get; init; }
+
+    /// <summary>The target function's signature before and after the last accepted patch; null when it kept its signature.</summary>
+    public (JsSignature Before, JsSignature After)? SignatureChange { get; set; }
+
     /// <summary>The target rule in the original sheet; null unless <see cref="Unit"/> is Rule.</summary>
     public CssRule? Rule { get; init; }
 

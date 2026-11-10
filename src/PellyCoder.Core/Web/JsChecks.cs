@@ -52,12 +52,19 @@ public static class JsChecks
         return new JsSyntaxVerdict(null, errors.OrderBy(d => d.Line).ToArray(), false, null, null);
     }
 
-    /// <summary>Why the patched file changed the target's shape (name, parameters, new top-level names); null when it did not.</summary>
+    private const string SignatureHint = " — 부르는 곳도 고쳐야 하면 명세(js 작업)로 하거나 --signature를 쓰십시오";
+
+    /// <summary>
+    /// Why the patched file changed the target's shape (name, parameters, new top-level names); null when it did not. With
+    /// <see cref="WebRunState.AllowSignatureChange"/> the name and parameters may change (W3 design §4.2): the change is recorded
+    /// in <see cref="WebRunState.SignatureChange"/>, and the target's new name is not a new top-level declaration.
+    /// </summary>
     public static string? ShapeViolation(WebRunState state, JsDocument? patched, string patchedText)
     {
         if (state.Unit != WebTargetUnit.Function || state.Function is null) return null;
         var target = state.Function;
         var name = target.QualifiedName;
+        state.SignatureChange = null;
 
         IReadOnlyList<JsFunction> functions;
         if (state.Fallback) functions = JsTokenScan.FunctionDeclarations(patchedText);
@@ -67,19 +74,22 @@ public static class JsChecks
         // Same-named functions (two constructors' this.init, a name declared twice) are allowed: the count must stay the same
         // and the one at the target's position among them (as WebSlicePhase re-finds it) keeps its parameters.
         var originals = (state.Fallback ? null : state.OriginalJs?.Functions) ?? JsTokenScan.FunctionDeclarations(state.OriginalText);
-        var was = originals.Where(f => f.QualifiedName == name).ToList();
-        var same = functions.Where(f => f.QualifiedName == name).ToList();
-        var (expected, index) = Occurrence(was.Count, was.FindIndex(f => f.DeclLine == target.DeclLine));
-        if (same.Count != expected) return $"함수 {name}를 찾을 수 없습니다(이름을 바꾸지 마십시오)";
-        var now = same[index];
-        if (!now.Parameters.SequenceEqual(target.Parameters))
-            return $"함수 {name}의 매개변수를 바꿀 수 없습니다: ({string.Join(", ", target.Parameters)}) → ({string.Join(", ", now.Parameters)})";
+        if (JsTargetMatch.Find(originals, functions, target, state.AllowSignatureChange) is not { } now)
+            return state.AllowSignatureChange
+                ? $"함수 {name}를 찾을 수 없습니다(새 이름의 함수가 여럿이라 어느 것이 대상인지 알 수 없습니다)"
+                : $"함수 {name}를 찾을 수 없습니다(이름을 바꾸지 마십시오)" + SignatureHint;
+        if (!now.Parameters.SequenceEqual(target.Parameters) && !state.AllowSignatureChange)
+            return $"함수 {name}의 매개변수를 바꿀 수 없습니다: ({string.Join(", ", target.Parameters)}) → ({string.Join(", ", now.Parameters)})" + SignatureHint;
 
         if (!state.Fallback && patched is not null && state.OriginalJs is { } original)
         {
-            var added = patched.TopLevelNames.Where(n => !original.TopLevelNames.Contains(n)).OrderBy(n => n, StringComparer.Ordinal).ToList();
+            var renamedTo = now.QualifiedName != name && now.Owner is null ? now.Name : null;
+            var added = patched.TopLevelNames.Where(n => !original.TopLevelNames.Contains(n) && n != renamedTo)
+                .OrderBy(n => n, StringComparer.Ordinal).ToList();
             if (added.Count > 0) return $"함수 밖에 새 최상위 선언을 만들 수 없습니다: {string.Join(", ", added)}";
         }
+        if (now.QualifiedName != name || !now.Parameters.SequenceEqual(target.Parameters))
+            state.SignatureChange = (JsSignature.Of(target), JsSignature.Of(now));
         return null;
     }
 

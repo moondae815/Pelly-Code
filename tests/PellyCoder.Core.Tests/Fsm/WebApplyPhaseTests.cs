@@ -277,4 +277,43 @@ public sealed class WebApplyPhaseTests
         Assert.Contains("var w = 1;", Disk(JsPath));
         Assert.Equal(AspCheckStatus.Passed, ctx.Web.Checks["Safety"].Status);
     }
+
+    private async Task<RunContext> SlicedJsSignature(string text, string function = "saveForm")
+    {
+        _fs.AddFile(JsPath, new MockFileData(Encoding.UTF8.GetBytes(text)));
+        var request = new RunRequest(JsPath, null, function, null, "do it", true, false, null, Kind: EditKind.Js, AllowSignatureChange: true);
+        var ctx = NewContext(JsPath, request);
+        var ct = TestContext.Current.CancellationToken;
+        Assert.Equal(PhaseOutcome.Ok, await new JsLocatePhase(_fs, new ScriptedUserInteraction(), _options, Codec).ExecuteAsync(ctx, ct));
+        Assert.True(ctx.Web!.AllowSignatureChange);
+        Assert.Equal(PhaseOutcome.Ok, await new WebSlicePhase(_guard, QwenTokenCounter.Shared, new BudgetOptions()).ExecuteAsync(ctx, ct));
+        return ctx;
+    }
+
+    [Fact]
+    public async Task Apply_RenameAllowed_RecordsSignatureChange()
+    {
+        var ctx = await SlicedJsSignature(OrderJs);
+        Assert.Equal(PhaseOutcome.Ok, await Apply(ctx, "function saveForm(id) {", "function saveAll(id, all) {"));
+        Assert.Equal("saveForm(id)", ctx.Web!.SignatureChange!.Value.Before.Display);
+        Assert.Equal("saveAll(id, all)", ctx.Web.SignatureChange!.Value.After.Display);
+        Assert.Contains("function saveAll(id, all) {", Disk(JsPath));
+    }
+
+    [Fact]
+    public async Task Apply_RenameNotAllowed_Refused()
+    {
+        var ctx = await SlicedJs(OrderJs);
+        Assert.Equal(PhaseOutcome.ShapeRejected, await Apply(ctx, "function saveForm(id) {", "function saveAll(id) {"));
+    }
+
+    [Fact]
+    public async Task Slice_Retry_FindsRenamedTarget()
+    {
+        var ctx = await SlicedJsSignature(OrderJs);
+        Assert.Equal(PhaseOutcome.Ok, await Apply(ctx, "function saveForm(id) {", "function saveAll(id) {"));
+        var again = await new WebSlicePhase(_guard, QwenTokenCounter.Shared, new BudgetOptions()).ExecuteAsync(ctx, TestContext.Current.CancellationToken);
+        Assert.Equal(PhaseOutcome.Ok, again);
+        Assert.Equal(new TextSpanInfo(5, 8), ctx.Web!.CurrentSpan);
+    }
 }

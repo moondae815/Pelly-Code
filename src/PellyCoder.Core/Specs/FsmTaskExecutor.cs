@@ -35,7 +35,7 @@ public sealed class FsmTaskExecutor(Func<RunRequest, CancellationToken, Task<Run
         else if (task.Kind == TaskKind.Js)
         {
             request = new RunRequest(file, null, task.Symbol, null, task.Request, o.Yes, o.DryRun, o.MaxRetries,
-                Kind: EditKind.Js, Verbose: o.Verbose, Host: host, Group: o.Group, Lines: task.Lines);
+                Kind: EditKind.Js, Verbose: o.Verbose, Host: host, Group: o.Group, Lines: task.Lines, AllowSignatureChange: true);
         }
         else if (task.Kind == TaskKind.Css)
         {

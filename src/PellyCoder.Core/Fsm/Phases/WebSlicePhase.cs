@@ -165,12 +165,16 @@ public sealed class WebSlicePhase(FileGuard fileGuard, ITokenCounter tokens, Bud
         return Task.FromResult(PhaseOutcome.Ok);
     }
 
-    /// <summary>The function with the original's qualified name; among same-named ones, the one at the same position.</summary>
+    /// <summary>
+    /// The function with the original's qualified name; among same-named ones, the one at the same position. When the signature
+    /// may change, a renamed target is found by <see cref="JsTargetMatch.Renamed"/>.
+    /// </summary>
     private static JsFunction? RefindFunction(IReadOnlyList<JsFunction> functions, WebRunState state)
     {
         var original = state.Function!;
         var originals = state.OriginalJs?.Functions ?? JsTokenScan.FunctionDeclarations(state.OriginalText);
-        return Refind(originals, functions, f => f.QualifiedName == original.QualifiedName, f => f.DeclLine == original.DeclLine);
+        return Refind(originals, functions, f => f.QualifiedName == original.QualifiedName, f => f.DeclLine == original.DeclLine)
+            ?? (state.AllowSignatureChange ? JsTargetMatch.Renamed(originals, functions, original) : null);
     }
 
     /// <summary>The rule with the original's selector and container; among same ones, the one at the same position.</summary>

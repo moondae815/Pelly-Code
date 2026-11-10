@@ -29,6 +29,10 @@ public sealed class JsSettings : RunSettings
     [CommandOption("--lines <A-B>")]
     [Description("대상 줄 범위, 예: 10-25 (--function, --line과 함께 쓸 수 없음)")]
     public string? Lines { get; init; }
+
+    [CommandOption("--signature")]
+    [Description("대상 함수의 이름·매개변수 변경을 허용 (부르는 곳은 직접 고쳐야 함)")]
+    public bool Signature { get; init; }
 }
 
 /// <summary><c>pelly js</c>: validates arguments, merges configuration, then hands the run to <see cref="IRunner"/>.</summary>

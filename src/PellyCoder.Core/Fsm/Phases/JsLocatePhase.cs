@@ -163,6 +163,7 @@ public sealed class JsLocatePhase(IFileSystem fs, IUserInteraction ui, PellyOpti
         ctx.Web = new WebRunState(EditKind.Js, unit, span, target.Text, EncodingName(ctx.Original.Encoding), OriginalAscii(fs, ctx),
             siteRoot, siteIndex)
         {
+            AllowSignatureChange = request.AllowSignatureChange,
             Page = pageState,
             Function = unit == WebTargetUnit.Function ? function : null,
             OriginalJs = document,

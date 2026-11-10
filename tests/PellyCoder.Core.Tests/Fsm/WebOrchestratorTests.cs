@@ -485,4 +485,38 @@ public sealed class WebOrchestratorTests
         Assert.Equal("passed", web.GetProperty("checks").GetProperty("Names").GetString());
         Assert.Equal("page", web.GetProperty("jquerySource").GetString());
     }
+
+    private Task<int> RunJsSignature() =>
+        FsmOrchestratorFactory.CreateWeb(_fs, _backend, _ui, _options, TimeProvider.System, EditKind.Js)
+            .RunAsync(new RunRequest(JsPath, null, "saveForm", null, "rename it", true, false, null, Kind: EditKind.Js, AllowSignatureChange: true),
+                TestContext.Current.CancellationToken)
+            .WaitAsync(WallClock, CancellationToken.None);
+
+    [Fact]
+    public async Task Js_Signature_RenameApproved_SummaryHasSignatureChange()
+    {
+        Prepare(JsPath, OrderJs);
+        _backend.Enqueue(Block("function saveForm(id) {", "function saveAll(id, all) {"));
+
+        Assert.Equal(0, await RunJsSignature());
+
+        Assert.Contains("function saveAll(id, all) {", _fs.File.ReadAllText(JsPath));
+        var change = Summary().GetProperty("web").GetProperty("signatureChange");
+        Assert.Equal("saveForm(id)", change.GetProperty("before").GetString());
+        Assert.Equal("saveAll(id, all)", change.GetProperty("after").GetString());
+        Assert.Contains(_ui.Warnings, n => n == "함수 서명 변경: saveForm(id) → saveAll(id, all)");
+        Assert.Contains("Rename the target function or change its parameters only when the request asks for it", _backend.Requests[0].RawPrompt);
+    }
+
+    [Fact]
+    public async Task Js_NoSignature_PromptUnchanged_NoSignatureField()
+    {
+        Prepare(JsPath, OrderJs);
+        _backend.Enqueue(Block(Body, Good));
+
+        Assert.Equal(0, await RunJs());
+
+        Assert.Contains("Do not rename the target function and do not change its parameters.", _backend.Requests[0].RawPrompt);
+        Assert.False(Summary().GetProperty("web").TryGetProperty("signatureChange", out _));
+    }
 }

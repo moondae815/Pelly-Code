@@ -115,4 +115,20 @@ public class JsCommandTests
         Assert.Contains("요청문(REQUEST)이 필요합니다", result.Output);
         Assert.Equal(0, runner.Calls);
     }
+
+    [Fact]
+    public void Js_SignatureFlag_SetsAllowSignatureChange()
+    {
+        var (app, runner) = Build();
+        Assert.Equal(0, app.Run("js", File, "요청", "--function", "fnSearch", "--signature", "--dry-run").ExitCode);
+        Assert.True(runner.Request!.AllowSignatureChange);
+    }
+
+    [Fact]
+    public void Js_NoFlag_False()
+    {
+        var (app, runner) = Build();
+        Assert.Equal(0, app.Run("js", File, "요청", "--function", "fnSearch", "--dry-run").ExitCode);
+        Assert.False(runner.Request!.AllowSignatureChange);
+    }
 }

@@ -69,6 +69,8 @@ public sealed class ReviewPhase(IUserInteraction ui) : IPhase
         {
             if (CheckLine(web.Checks, WebCheckLabels) is { } line)
                 Notice(ctx, line);
+            if (web.SignatureChange is { } change)
+                Notice(ctx, $"함수 서명 변경: {change.Before.Display} → {change.After.Display}");
             // A pure-ASCII file got non-ASCII text: it is now saved in the configured encoding, which the page must match.
             if (web.OriginalAscii && ctx.Current.Text.AsSpan().IndexOfAnyExceptInRange((char)0, (char)0x7F) >= 0)
                 Notice(ctx, $"이 파일은 ASCII였고 {web.EncodingName}로 저장했습니다");

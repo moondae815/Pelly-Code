@@ -9,7 +9,8 @@ internal static class WebTestState
 {
     private static readonly Lazy<WebSiteIndexResult> NoIndex = new(() => throw new InvalidOperationException("site index not used"));
 
-    public static WebRunState Js(string original, string? function = null, EcmaVersion? target = null, bool module = false, WebTargetUnit? unit = null, int occurrence = 0)
+    public static WebRunState Js(string original, string? function = null, EcmaVersion? target = null, bool module = false, WebTargetUnit? unit = null, int occurrence = 0,
+        bool allowSignature = false)
     {
         var level = JsLevels.Detect(original);
         var fallback = level.Level is null;
@@ -23,6 +24,7 @@ internal static class WebTestState
             Module = level.Module || module,
             OriginalLevel = level.Level,
             TargetLevel = fallback ? null : (target ?? level.Level),
+            AllowSignatureChange = allowSignature,
         };
     }
 

@@ -370,4 +370,22 @@ public sealed class PromptBuilderTests
         Assert.DoesNotContain("JavaScript ES5", system);
         Assert.DoesNotContain("### FEEDBACK", user);
     }
+
+    private const string NoRename = "Do not rename the target function and do not change its parameters.";
+    private const string MayRename = "Rename the target function or change its parameters only when the request asks for it; other tasks update its callers.";
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void BuildWeb_Js_SignatureAllowed_SentenceReplaced(bool page)
+    {
+        var target = new EditTarget(EditKind.Js, @"C:\site\js\order.js", "function saveForm", new TextSpanInfo(6, 13), null);
+        var allowed = NewBuilder().BuildWeb(target, JsSlice(), "이름을 바꾼다", null, page: page, allowSignature: true).BasePrompt;
+        Assert.Contains(MayRename, allowed);
+        Assert.DoesNotContain(NoRename, allowed);
+        Assert.Contains("Do not add new top-level declarations outside the target function.", allowed);
+        var plain = NewBuilder().BuildWeb(target, JsSlice(), "이름을 바꾼다", null, page: page).BasePrompt;
+        Assert.Contains(NoRename, plain);
+        Assert.DoesNotContain(MayRename, plain);
+    }
 }

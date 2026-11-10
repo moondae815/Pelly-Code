@@ -133,7 +133,7 @@ public static class RunArguments
 
     public static RunRequest JsRequest(JsSettings s, string file, string requestText) =>
         new(file, null, s.Function, s.Line, requestText, s.Yes, s.DryRun, s.MaxRetries,
-            Kind: EditKind.Js, Verbose: s.Verbose, Lines: s.Lines is null ? null : ParseLines(s.Lines));
+            Kind: EditKind.Js, Verbose: s.Verbose, Lines: s.Lines is null ? null : ParseLines(s.Lines), AllowSignatureChange: s.Signature);
 
     public static RunRequest CssRequest(CssSettings s, string file, string requestText) =>
         new(file, null, null, s.Line, requestText, s.Yes, s.DryRun, s.MaxRetries,

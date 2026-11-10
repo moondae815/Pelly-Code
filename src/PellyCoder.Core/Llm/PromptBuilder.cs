@@ -164,10 +164,18 @@ public sealed class PromptBuilder(QwenChatTemplate template, PromptResources res
         return Finish(system, lines, requestText, feedback, selection);
     }
 
+    internal const string SignatureForbiddenRule = "Do not rename the target function and do not change its parameters.";
+    internal const string SignatureAllowedRule =
+        "Rename the target function or change its parameters only when the request asks for it; other tasks update its callers.";
+
     /// <summary>A <c>pelly js</c> or <c>pelly css</c> prompt; <paramref name="target"/>'s kind picks the resources and part order.</summary>
     /// <param name="page">The run edits a block of an ASP page: the page prompts and the page context order are used.</param>
+    /// <param name="allowSignature">
+    /// The target function may change its name and parameters (W3 design §4.2): the JS rule forbidding it is swapped for
+    /// <see cref="SignatureAllowedRule"/>. The prompt files and their versions stay the same.
+    /// </param>
     public PromptBuildResult BuildWeb(EditTarget target, Slice slice, string request, Feedback? feedback, IReadOnlyList<ProjectRule>? rules = null,
-        bool page = false)
+        bool page = false, bool allowSignature = false)
     {
         var css = target.Kind == EditKind.Css;
         var requestText = request.Trim();
@@ -178,6 +186,7 @@ public sealed class PromptBuilder(QwenChatTemplate template, PromptResources res
             (false, true) => (resources.SystemJsPage, resources.FewShotJsPage),
             _ => (resources.SystemJs, resources.FewShotJs),
         };
+        if (allowSignature && !css) systemText = systemText.Replace(SignatureForbiddenRule, SignatureAllowedRule);
         var system = systemText.Replace(HintPlaceholder, slice.LanguageHint) + "\n\n" + fewShotText;
 
         var lines = new List<string>

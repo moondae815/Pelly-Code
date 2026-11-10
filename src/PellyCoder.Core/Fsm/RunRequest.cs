@@ -26,6 +26,7 @@ namespace PellyCoder.Core.Fsm;
 /// (<c>pelly asp --lines A-B</c>) is a line range target, used as given. <paramref name="Selector"/> (<c>pelly css --selector</c>)
 /// names the target CSS rule. <paramref name="ChangedProcedures"/> (an asp task of <c>pelly apply</c>) are the stored procedures
 /// earlier sql tasks changed in their files but nobody deployed yet; the ASP pipeline uses them instead of the development database.
+/// <paramref name="AllowSignatureChange"/> (a spec js task, <c>pelly js --signature</c>) lets the target JS function change its name and parameters.
 /// </summary>
 public sealed record RunRequest(
     string FilePath, string? ClassName, string? MethodName, int? Line, string Request, bool Yes, bool DryRun, int? MaxRetries,
@@ -34,7 +35,8 @@ public sealed record RunRequest(
     IReadOnlyList<string>? VerifyTests = null, IReadOnlyList<string>? ExpectBreaks = null,
     IReadOnlyDictionary<string, TestCheck>? TestChecks = null,
     IReadOnlyDictionary<string, string>? ExpectedTestHashes = null,
-    TextSpanInfo? Lines = null, string? Selector = null, IReadOnlyList<ChangedProcedure>? ChangedProcedures = null)
+    TextSpanInfo? Lines = null, string? Selector = null, IReadOnlyList<ChangedProcedure>? ChangedProcedures = null,
+    bool AllowSignatureChange = false)
 {
     /// <summary>A test-first run: it always runs the tests and judges RED before the first write and GREEN after it.</summary>
     public bool TestFirst => VerifyTests is { Count: > 0 };

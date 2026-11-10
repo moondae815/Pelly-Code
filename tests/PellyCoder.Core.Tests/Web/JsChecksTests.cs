@@ -102,7 +102,7 @@ public class JsChecksTests
         var state = WebTestState.Js(Plain, "fnSearch");
         var patched = "function fnFind(a, b) {\n  return a;\n}\n";
         var msg = JsChecks.ShapeViolation(state, JsDocument.Parse(patched, EcmaVersion.ES5, false), patched);
-        Assert.Equal("함수 fnSearch를 찾을 수 없습니다(이름을 바꾸지 마십시오)", msg);
+        Assert.Equal("함수 fnSearch를 찾을 수 없습니다(이름을 바꾸지 마십시오) — 부르는 곳도 고쳐야 하면 명세(js 작업)로 하거나 --signature를 쓰십시오", msg);
     }
 
     [Fact]
@@ -111,7 +111,7 @@ public class JsChecksTests
         var state = WebTestState.Js(Plain, "fnSearch");
         var patched = "function fnSearch(a, b, c) {\n  return a;\n}\n";
         var msg = JsChecks.ShapeViolation(state, JsDocument.Parse(patched, EcmaVersion.ES5, false), patched);
-        Assert.Equal("함수 fnSearch의 매개변수를 바꿀 수 없습니다: (a, b) → (a, b, c)", msg);
+        Assert.Equal("함수 fnSearch의 매개변수를 바꿀 수 없습니다: (a, b) → (a, b, c) — 부르는 곳도 고쳐야 하면 명세(js 작업)로 하거나 --signature를 쓰십시오", msg);
     }
 
     [Fact]
@@ -146,7 +146,7 @@ public class JsChecksTests
         var state = WebTestState.Js(original, "fnSearch");
         Assert.True(state.Fallback);
         var msg = JsChecks.ShapeViolation(state, null, original.Replace("(a, b)", "(a, b, c)"));
-        Assert.Equal("함수 fnSearch의 매개변수를 바꿀 수 없습니다: (a, b) → (a, b, c)", msg);
+        Assert.Equal("함수 fnSearch의 매개변수를 바꿀 수 없습니다: (a, b) → (a, b, c) — 부르는 곳도 고쳐야 하면 명세(js 작업)로 하거나 --signature를 쓰십시오", msg);
         Assert.Null(JsChecks.ShapeViolation(state, null, original.Replace("return a;", "return b;")));
     }
 
@@ -169,7 +169,7 @@ public class JsChecksTests
         var state = WebTestState.Js(TwoInits, "this.init", occurrence: 1);
         var patched = TwoInits.Replace("function (y)", "function (y, z)");
         var msg = JsChecks.ShapeViolation(state, JsDocument.Parse(patched, EcmaVersion.ES5, false), patched);
-        Assert.Equal("함수 this.init의 매개변수를 바꿀 수 없습니다: (y) → (y, z)", msg);
+        Assert.Equal("함수 this.init의 매개변수를 바꿀 수 없습니다: (y) → (y, z) — 부르는 곳도 고쳐야 하면 명세(js 작업)로 하거나 --signature를 쓰십시오", msg);
     }
 
     [Fact]
@@ -177,7 +177,7 @@ public class JsChecksTests
     {
         var state = WebTestState.Js(TwoInits, "this.init", occurrence: 1);
         var patched = TwoInits.Replace("this.init = function (x)", "this.start = function (x)");
-        Assert.Equal("함수 this.init를 찾을 수 없습니다(이름을 바꾸지 마십시오)",
+        Assert.Equal("함수 this.init를 찾을 수 없습니다(이름을 바꾸지 마십시오) — 부르는 곳도 고쳐야 하면 명세(js 작업)로 하거나 --signature를 쓰십시오",
             JsChecks.ShapeViolation(state, JsDocument.Parse(patched, EcmaVersion.ES5, false), patched));
     }
 
@@ -189,7 +189,7 @@ public class JsChecksTests
         var patched = original.Replace("a * 2", "a * 3");
         Assert.Null(JsChecks.ShapeViolation(state, JsDocument.Parse(patched, EcmaVersion.ES5, false), patched));
         var added = original.Replace("function f(a) {\n  return a * 2", "function f(a, b) {\n  return a * 2");
-        Assert.Equal("함수 f의 매개변수를 바꿀 수 없습니다: (a) → (a, b)",
+        Assert.Equal("함수 f의 매개변수를 바꿀 수 없습니다: (a) → (a, b) — 부르는 곳도 고쳐야 하면 명세(js 작업)로 하거나 --signature를 쓰십시오",
             JsChecks.ShapeViolation(state, JsDocument.Parse(added, EcmaVersion.ES5, false), added));
     }
 
@@ -200,9 +200,55 @@ public class JsChecksTests
         var state = WebTestState.Js(original, "f", occurrence: 1);
         Assert.True(state.Fallback);
         Assert.Null(JsChecks.ShapeViolation(state, null, original.Replace("return b;", "return b + 1;")));
-        Assert.Equal("함수 f의 매개변수를 바꿀 수 없습니다: (b) → (b, c)",
+        Assert.Equal("함수 f의 매개변수를 바꿀 수 없습니다: (b) → (b, c) — 부르는 곳도 고쳐야 하면 명세(js 작업)로 하거나 --signature를 쓰십시오",
             JsChecks.ShapeViolation(state, null, original.Replace("function f(b)", "function f(b, c)")));
-        Assert.Equal("함수 f를 찾을 수 없습니다(이름을 바꾸지 마십시오)",
+        Assert.Equal("함수 f를 찾을 수 없습니다(이름을 바꾸지 마십시오) — 부르는 곳도 고쳐야 하면 명세(js 작업)로 하거나 --signature를 쓰십시오",
             JsChecks.ShapeViolation(state, null, original + "function f(c) {\n}\n"));
+    }
+
+    [Fact]
+    public void Shape_RenameAllowed_PassesAndRecordsChange()
+    {
+        var state = WebTestState.Js(Plain, "fnSearch", allowSignature: true);
+        var patched = Plain.Replace("function fnSearch(", "function fnFind(");
+        Assert.Null(JsChecks.ShapeViolation(state, JsDocument.Parse(patched, EcmaVersion.ES5, false), patched));
+        Assert.Equal("fnSearch(a, b)", state.SignatureChange!.Value.Before.Display);
+        Assert.Equal("fnFind(a, b)", state.SignatureChange!.Value.After.Display);
+    }
+
+    [Fact]
+    public void Shape_ParamsAllowed()
+    {
+        var state = WebTestState.Js(Plain, "fnSearch", allowSignature: true);
+        var patched = Plain.Replace("(a, b)", "(a, b, page)");
+        Assert.Null(JsChecks.ShapeViolation(state, JsDocument.Parse(patched, EcmaVersion.ES5, false), patched));
+        Assert.Equal("fnSearch(a, b, page)", state.SignatureChange!.Value.After.Display);
+    }
+
+    [Fact]
+    public void Shape_Allowed_Unchanged_NoChangeRecorded()
+    {
+        var state = WebTestState.Js(Plain, "fnSearch", allowSignature: true);
+        var patched = Plain.Replace("return a + b;", "return a - b;");
+        Assert.Null(JsChecks.ShapeViolation(state, JsDocument.Parse(patched, EcmaVersion.ES5, false), patched));
+        Assert.Null(state.SignatureChange);
+    }
+
+    [Fact]
+    public void Shape_RenameAllowed_NewOtherTopLevel_StillRefused()
+    {
+        var state = WebTestState.Js(Plain, "fnSearch", allowSignature: true);
+        var patched = Plain.Replace("function fnSearch(", "function fnFind(") + "function helper() {}\n";
+        Assert.Equal("함수 fnSearch를 찾을 수 없습니다(새 이름의 함수가 여럿이라 어느 것이 대상인지 알 수 없습니다)",
+            JsChecks.ShapeViolation(state, JsDocument.Parse(patched, EcmaVersion.ES5, false), patched));
+    }
+
+    [Fact]
+    public void Shape_NotAllowed_MessageHasHint()
+    {
+        var state = WebTestState.Js(Plain, "fnSearch");
+        var patched = Plain.Replace("function fnSearch(", "function fnFind(");
+        Assert.EndsWith("— 부르는 곳도 고쳐야 하면 명세(js 작업)로 하거나 --signature를 쓰십시오",
+            JsChecks.ShapeViolation(state, JsDocument.Parse(patched, EcmaVersion.ES5, false), patched));
     }
 }

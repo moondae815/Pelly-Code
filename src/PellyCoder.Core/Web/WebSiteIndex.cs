@@ -33,6 +33,13 @@ public sealed record WebSiteIndexResult(IReadOnlyList<JsIndexEntry> Entries, int
     public IReadOnlyDictionary<string, IReadOnlyList<string>> Includes { get; init; } =
         new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>JS calls of every <c>.js</c> file and page (script blocks and event attributes), site-relative paths (W3 design §4.3).</summary>
+    public IReadOnlyList<(string RelativePath, JsCallSite Call)> JsCalls { get; init; } = [];
+
+    /// <summary>Page (site-relative) to the <c>.js</c> files its own <c>&lt;script src&gt;</c> tags load (site-relative).</summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<string>> ScriptSources { get; init; } =
+        new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Top-level names of the <c>.js</c> files only.</summary>
     public IReadOnlySet<string> JsNames => _jsNames ??= new HashSet<string>(
         Entries.Where(e => e.Source == JsIndexSource.Js).Select(e => e.Name), StringComparer.Ordinal);
@@ -79,7 +86,7 @@ public sealed record WebSiteIndexResult(IReadOnlyList<JsIndexEntry> Entries, int
 /// <summary>Top-level function and variable names of the site's own JavaScript files, cached by file hash.</summary>
 public static class WebSiteIndex
 {
-    private const int CacheVersion = 3;
+    private const int CacheVersion = 4;
 
     private sealed class CacheFile
     {
@@ -95,6 +102,21 @@ public static class WebSiteIndex
         public List<CacheEntry> Entries { get; set; } = new();
         public List<string> Includes { get; set; } = new();
         public List<CacheSpCall> SpCalls { get; set; } = new();
+        public List<CacheJsCall> Calls { get; set; } = new();
+        public List<string> ScriptSources { get; set; } = new();
+    }
+
+    internal sealed class CacheJsCall
+    {
+        public string Name { get; set; } = "";
+        public int Line { get; set; }
+        public int? Arguments { get; set; }
+        public JsCallSource Source { get; set; }
+        public string? Attribute { get; set; }
+
+        public static CacheJsCall Of(JsCallSite c) => new() { Name = c.Name, Line = c.Line, Arguments = c.Arguments, Source = c.Source, Attribute = c.AttributeName };
+
+        public JsCallSite ToCall() => new(Name, Line, Arguments, false, Source, Attribute);
     }
 
     internal sealed class CacheSpCall
@@ -130,6 +152,8 @@ public static class WebSiteIndex
         var spCalls = new List<AspSpCallEntry>();
         var entries = new List<JsIndexEntry>();
         var includes = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
+        var jsCalls = new List<(string, JsCallSite)>();
+        var scriptSources = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
         var files = 0;
         var pageFiles = 0;
         var truncated = false;
@@ -179,10 +203,14 @@ public static class WebSiteIndex
             CacheItem item;
             var reusable = !isPage || old.SpKey == spKey;
             if (reusable && old.Files.TryGetValue(rel, out var hit) && hit.Sha256 == sha) item = hit;
-            else item = isPage ? ExtractPage(rel, sha, text, extensions.Any(e => rel.EndsWith(e, StringComparison.OrdinalIgnoreCase)) ? wrappers : null) : new CacheItem { Sha256 = sha, Entries = Extract(text) };
+            else item = isPage
+                ? ExtractPage(rel, sha, text, extensions.Any(e => rel.EndsWith(e, StringComparison.OrdinalIgnoreCase)) ? wrappers : null)
+                : new CacheItem { Sha256 = sha, Entries = Extract(text), Calls = JsCallFinder.InScript(text, JsCallSource.Js).Select(CacheJsCall.Of).ToList() };
             fresh.Files[rel] = item;
             var source = isPage ? JsIndexSource.Page : JsIndexSource.Js;
             foreach (var it in item.Entries) entries.Add(new JsIndexEntry(it.Name, rel, it.Line, it.Declaration, source));
+            foreach (var c in item.Calls) jsCalls.Add((rel, c.ToCall()));
+            if (item.ScriptSources.Count > 0) scriptSources[rel] = item.ScriptSources;
             if (isPage)
             {
                 if (item.Includes.Count > 0) includes[rel] = item.Includes;
@@ -194,7 +222,10 @@ public static class WebSiteIndex
         }
 
         WriteCache(fs, cachePath, fresh);
-        return new WebSiteIndexResult(entries, files, truncated) { PageFiles = pageFiles, Includes = includes, SpCalls = spCalls };
+        return new WebSiteIndexResult(entries, files, truncated)
+        {
+            PageFiles = pageFiles, Includes = includes, SpCalls = spCalls, JsCalls = jsCalls, ScriptSources = scriptSources,
+        };
     }
 
     private static CacheItem ExtractPage(string rel, string sha, string textLf, IReadOnlyList<AspSpCallFunction>? wrappers)
@@ -210,7 +241,11 @@ public static class WebSiteIndex
                 Procedure = proc is null ? null : proc.ClassName is null ? proc.Name : proc.ClassName + "." + proc.Name,
             });
         }
+        item.Calls = JsCallFinder.InPage(page, textLf).Select(CacheJsCall.Of).ToList();
         var dir = PagePaths.Directory(rel);
+        foreach (var block in page.ClientBlocks)
+            if (block.Src is { } src && PagePaths.ResolveScriptSrc(dir, src) is { } js && !item.ScriptSources.Contains(js, StringComparer.OrdinalIgnoreCase))
+                item.ScriptSources.Add(js);
         foreach (var inc in page.Includes)
             if (PagePaths.ResolveInclude(dir, inc) is { } target && !item.Includes.Contains(target, StringComparer.OrdinalIgnoreCase))
                 item.Includes.Add(target);
@@ -338,7 +373,8 @@ public static class WebSiteIndex
     /// <summary>False when the JSON left a member null (a hand-edited or partly written cache); it is then rebuilt.</summary>
     private static bool Complete(CacheFile c) =>
         c.Files is not null && c.Files.Values.All(item => item is { Sha256: not null, Entries: not null }
-            && item.Includes is not null && item.SpCalls is not null && item.SpCalls.All(x => x?.Name is not null) && item.Entries.All(e => e is { Name: not null, Declaration: not null }));
+            && item.Includes is not null && item.SpCalls is not null && item.Calls is not null && item.ScriptSources is not null
+            && item.Calls.All(x => x?.Name is not null) && item.SpCalls.All(x => x?.Name is not null) && item.Entries.All(e => e is { Name: not null, Declaration: not null }));
 
     private static void WriteCache(IFileSystem fs, string path, CacheFile cache)
     {

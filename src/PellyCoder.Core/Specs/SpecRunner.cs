@@ -122,7 +122,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
 
             // The SP → ASP search reads only files: it runs whenever a not-done sql task may change a procedure (A2 design §4.3).
             var aspRequest = check.Spec.Tasks.Any(t => t is { Kind: TaskKind.Sql, Done: false })
-                ? new AspImpactRequest(fs, asp ?? new AspOptions(), sqlCompatLevel, listPath)
+                ? new AspImpactRequest(fs, asp ?? new AspOptions(), sqlCompatLevel, listPath, web)
                 : null;
             if (!o.DryRun && (sqlRequest is not null || aspRequest is not null)) applyId = id;
 

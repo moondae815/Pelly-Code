@@ -46,7 +46,7 @@ public sealed record SqlImpactRequest(IFileSystem Fs, ISqlImpactFinder Finder, S
 /// <summary>One SP → ASP impact search to run (A2 design §4.3): files only, no database.</summary>
 /// <param name="Asp">The <c>asp</c> options: site root, extensions, encoding and wrapper functions.</param>
 /// <param name="ListPath">Full path of the full-list JSON: the SQL search's list when that runs, else one of its own.</param>
-public sealed record AspImpactRequest(IFileSystem Fs, AspOptions Asp, int CompatLevel, string ListPath);
+public sealed record AspImpactRequest(IFileSystem Fs, AspOptions Asp, int CompatLevel, string ListPath, WebOptions? Web = null);
 
 /// <summary>Static checks of a change spec against the workspace (no model, no DB): grammar, targets, AC tests, names.</summary>
 public static partial class SpecChecker
@@ -91,7 +91,7 @@ public static partial class SpecChecker
             ? SqlRequest(fs, sql, allowDev: true, SpecCheckListPath(fs, check, specPath))
             : null;
         var aspRequest = impactAllCsTasks && !check.HasErrors
-            ? new AspImpactRequest(fs, asp ?? new AspOptions(), sqlCompatLevel, SpecCheckListPath(fs, check, specPath))
+            ? new AspImpactRequest(fs, asp ?? new AspOptions(), sqlCompatLevel, SpecCheckListPath(fs, check, specPath), web)
             : null;
         return await AddImpactAsync(check, impact, impactAllCsTasks, ct, request, aspRequest);
     }
@@ -162,7 +162,7 @@ public static partial class SpecChecker
         // The W2 site index and its cache: the same pages are not parsed twice.
         var codec = new WebCodecRouter(new WebTextCodec(o.Encoding), new AspTextCodec(o.Encoding), o.Extensions);
         var cachePath = fs.Path.Combine(root, ".pelly", "cache", "web-site-index.json");
-        var index = WebSiteIndex.Load(fs, siteRoot, new WebFileFilter(siteRoot, new WebOptions().VendorPaths), codec, cachePath,
+        var index = WebSiteIndex.Load(fs, siteRoot, new WebFileFilter(siteRoot, (request.Web ?? new WebOptions()).VendorPaths), codec, cachePath,
             aspExtensions: o.Extensions, spCallFunctions: o.SpCallFunctions);
 
         // The index's paths are site-relative: so are the asp tasks' for the comparison.

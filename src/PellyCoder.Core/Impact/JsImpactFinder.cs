@@ -36,7 +36,7 @@ public static class JsImpactFinder
             found.AddRange(References(index, seed.Function, Text));
             foreach (var (rel, call) in found.OrderBy(f => f.RelativePath, StringComparer.Ordinal).ThenBy(f => f.Call.Line))
             {
-                if (!Same(rel, seed.RelativePath) && DeclaresOwn(index, rel, seed.Function)) continue;
+                if (!Same(rel, seed.RelativePath) && DeclaresOwn(index, rel, seed.Function, seed.RelativePath)) continue;
                 var covered = tasks.Where(t => Covers(t, rel, call, Text, ranges)).Select(t => t.Id).ToList();
                 hits.Add(new JsImpactHit(seed, rel, call, covered, NotLoaded(index, rel, seed.RelativePath)));
             }
@@ -71,11 +71,15 @@ public static class JsImpactFinder
             .Concat(index.Includes.Keys).Concat(index.ScriptSources.Keys)
             .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(p => p, StringComparer.Ordinal);
 
-    /// <summary>The file — or, for a page, the page and its includes — declares a top-level function of that name itself.</summary>
-    internal static bool DeclaresOwn(WebSiteIndexResult index, string rel, string function)
+    /// <summary>
+    /// The file — or, for a page, the page and its includes — declares a top-level function of that name itself, other than in
+    /// the seed's own file: a page that includes the <c>.inc</c> declaring the seed calls the seed, not a function of its own.
+    /// </summary>
+    internal static bool DeclaresOwn(WebSiteIndexResult index, string rel, string function, string seedPath)
     {
         var scope = rel.EndsWith(".js", StringComparison.OrdinalIgnoreCase) ? [rel] : WithIncludes(index, rel);
-        return index.Entries.Any(e => e.Name == function && scope.Contains(e.RelativePath, StringComparer.OrdinalIgnoreCase));
+        return index.Entries.Any(e => e.Name == function && !Same(e.RelativePath, seedPath)
+            && scope.Contains(e.RelativePath, StringComparer.OrdinalIgnoreCase));
     }
 
     /// <summary>The page loads none of: its own, its includes' and its includers' <c>&lt;script src&gt;</c> files is the seed file.</summary>

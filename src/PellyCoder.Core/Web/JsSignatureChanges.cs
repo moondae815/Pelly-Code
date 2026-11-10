@@ -29,20 +29,38 @@ public static class JsSignatureChanges
     }
 
     /// <summary>
-    /// The changes of the functions declared in <paramref name="lines"/> (original lines): the functions before and after the
-    /// range keep their count, so the ones between are paired in order; extra ones on either side are not compared.
+    /// The changes of the functions declared in <paramref name="lines"/> (original lines). Only functions outside any other
+    /// function are compared. The ones between the unchanged functions before and after the range are paired by qualified name
+    /// first; what is left is paired as a rename only when exactly one function is left on each side, else not compared — a
+    /// helper added or removed never reads as a rename.
     /// </summary>
     public static IReadOnlyList<JsSignatureChange> InLines(string beforeTextLf, string afterTextLf, bool isPage, TextSpanInfo lines)
     {
-        var before = All(beforeTextLf, isPage);
-        var after = All(afterTextLf, isPage);
+        var before = Outermost(All(beforeTextLf, isPage));
+        var after = Outermost(All(afterTextLf, isPage));
         var inside = before.Where(f => f.DeclLine >= lines.StartLine && f.DeclLine <= lines.EndLine).ToList();
         if (inside.Count == 0) return [];
         var head = before.Count(f => f.DeclLine < lines.StartLine);
         var tail = before.Count(f => f.DeclLine > lines.EndLine);
         var middle = after.Skip(head).Take(Math.Max(0, after.Count - head - tail)).ToList();
-        return inside.Zip(middle).SelectMany(p => Changed(p.First, p.Second)).ToList();
+
+        var result = new List<JsSignatureChange>();
+        var leftBefore = new List<JsFunction>();
+        foreach (var was in inside)
+        {
+            var same = middle.FirstOrDefault(f => f.QualifiedName == was.QualifiedName);
+            if (same is null) { leftBefore.Add(was); continue; }
+            middle.Remove(same);
+            result.AddRange(Changed(was, same));
+        }
+        if (leftBefore.Count == 1 && middle.Count == 1) result.AddRange(Changed(leftBefore[0], middle[0]));
+        return result;
     }
+
+    /// <summary>The functions no other function of the list encloses.</summary>
+    private static List<JsFunction> Outermost(List<JsFunction> all) =>
+        all.Where(f => !all.Any(g => g != f && g.StartLine <= f.StartLine && g.EndLine >= f.EndLine
+            && (g.StartLine < f.StartLine || g.EndLine > f.EndLine))).ToList();
 
     private static IReadOnlyList<JsSignatureChange> Changed(JsFunction was, JsFunction now) =>
         was.QualifiedName == now.QualifiedName && was.Parameters.SequenceEqual(now.Parameters)

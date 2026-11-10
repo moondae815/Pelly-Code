@@ -342,6 +342,28 @@ public sealed class SpecRunnerWebTests : IDisposable
         Assert.Null(t3.ChangedJsFunctions);
     }
 
+    [Fact]
+    public async Task AfterApply_FollowedRenameThenParamAdded_Warned()
+    {
+        Make("web/admin/b.asp", "<input onclick=\"fnFind(this)\">\n");
+        Spec("- [ ] T1 js web/js/order.js#fnSearch 이름을 fnFind로 바꾼다\n- [ ] T2 js web/js/order.js#fnSearch page를 더한다\n");
+        _exec.Rewrite["T1"] = Renamed;
+        _exec.Rewrite["T2"] = Renamed.Replace("fnFind(f)", "fnFind(f, page)");
+        Assert.Equal(0, await Run(Opts()));
+        Assert.Contains("fnFind의 서명이 바뀌었습니다: fnFind(f) → fnFind(f, page). 고치지 않은 호출: web/admin/b.asp:1 — 기존 호출은 새 인수가 undefined로 동작함", _ui.Warnings);
+    }
+
+    [Fact]
+    public async Task Follow_OnlyFromFunctionTargets_NotFromLineRanges()
+    {
+        // An asp #L task renames goPage by line pairing; a later js #goPage task must not be redirected by it.
+        Spec("- [ ] T1 asp web/admin/list.asp#L6-10 함수 이름을 바꾼다\n- [ ] T2 js web/admin/list.asp#goPage 고친다\n");
+        _exec.Rewrite["T1"] = ListPage.Replace("function goPage(", "function goTo(");
+        var seen = new List<RunRequest>();
+        await Run(Opts(cont: true), RecordingRewrite(seen));
+        Assert.Equal("goPage", seen[1].MethodName);
+    }
+
     private sealed class FakeGroupVerifier : IGroupVerifier
     {
         public List<IReadOnlyList<string>> Calls { get; } = [];

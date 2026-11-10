@@ -203,6 +203,8 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
         private readonly Dictionary<string, IReadOnlyList<JsSignatureChange>> _jsChanges = new(StringComparer.Ordinal);
         private readonly List<string> _jsChangeOrder = []; // task IDs in the order their changes were recorded (the latest wins)
         private readonly Dictionary<string, string> _notes = new(StringComparer.Ordinal); // task ID → apply.json note
+        private readonly Dictionary<string, string> _followed = new(StringComparer.Ordinal); // task ID → the renamed target it ran on
+        private readonly HashSet<string> _byName = new(StringComparer.Ordinal); // tasks whose changes came from a #function target
         private readonly List<(string JsId, string FailedId)> _jsMismatches = [];
         private IReadOnlyList<JsCallerNotUpdated> _jsCallersNotUpdated = [];
         private WebSiteAccess? _site;
@@ -867,15 +869,26 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                 changed.AddRange(_jsChanges[id].Select(c => new ChangedJsFunction(id, path, c.Before, c.After)));
             }
             if (changed.Count == 0) return options;
+            // Only a #function target's change is followed: a line range pairs declarations and may guess a rename.
+            var followable = changed.Where(c => _byName.Contains(c.TaskId)).ToList();
 
             var result = options with { ChangedJsFunctions = changed };
             if (task is { Kind: TaskKind.Js, Lines: null, Symbol: { } name } && options.MemberOverride is null)
             {
                 var path = Site.SiteRelative(task);
-                if (changed.LastOrDefault(c => c.Before.Name == name && c.After.Name != name
-                        && string.Equals(c.RelativePath, path, StringComparison.OrdinalIgnoreCase)) is { } renamed)
+                // Chained renames (fnA → fnB, then fnB → fnC) are followed to the end.
+                var current = name;
+                ChangedJsFunction? renamed = null;
+                foreach (var c in followable)
+                    if (c.Before.Name == current && c.After.Name != current && string.Equals(c.RelativePath, path, StringComparison.OrdinalIgnoreCase))
+                    {
+                        renamed = c;
+                        current = c.After.Name;
+                    }
+                if (renamed is not null)
                 {
                     result = result with { MemberOverride = renamed.After.Name };
+                    _followed[task.Id] = renamed.After.Name;
                     var note = $"{task.Id}의 대상 {name}는 {renamed.TaskId}이 바꾼 {renamed.After.Name}로 찾음";
                     if (_notes.TryAdd(task.Id, note)) owner.Ui.Warn(note);
                 }
@@ -1267,7 +1280,11 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             IReadOnlyList<JsSignatureChange> changes;
             try
             {
-                if (task.Kind == TaskKind.Js && task.Symbol is { } name) changes = JsSignatureChanges.ForFunction(original.Text, now, isPage, name);
+                if (task.Kind == TaskKind.Js && task.Lines is null && (_followed.GetValueOrDefault(task.Id) ?? task.Symbol) is { } name)
+                {
+                    changes = JsSignatureChanges.ForFunction(original.Text, now, isPage, name);
+                    _byName.Add(task.Id);
+                }
                 else if (task.Lines is { } lines) changes = JsSignatureChanges.InLines(original.Text, now, isPage, lines);
                 else if (task.Kind == TaskKind.Asp && task.Symbol is { } proc
                          && SpecChecker.MatchingProcedures(PellyCoder.Core.Asp.AspPage.Parse(original.Text), proc).FirstOrDefault() is { } p)
@@ -1344,7 +1361,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
         private List<(string RelativePath, JsCallSite Call)> JsCallers(WebSiteIndexResult index, string seedPath, string name) =>
             index.JsCalls.Where(c => c.Call.Name == name)
                 .Concat(JsImpactFinder.References(index, name, Site.Read))
-                .Where(c => string.Equals(c.RelativePath, seedPath, StringComparison.OrdinalIgnoreCase) || !JsImpactFinder.DeclaresOwn(index, c.RelativePath, name))
+                .Where(c => string.Equals(c.RelativePath, seedPath, StringComparison.OrdinalIgnoreCase) || !JsImpactFinder.DeclaresOwn(index, c.RelativePath, name, seedPath))
                 .OrderBy(c => c.RelativePath, StringComparer.Ordinal).ThenBy(c => c.Call.Line)
                 .ToList();
 

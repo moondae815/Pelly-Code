@@ -120,4 +120,13 @@ public sealed class JsImpactFinderTests
             Task("T3", TaskKind.Asp, "admin/list.asp", null, new TextSpanInfo(2, 2)));
         Assert.Equal(["T3"], hits.Single(h => h.Call.Source == JsCallSource.Attribute).CoveredBy);
     }
+
+    [Fact]
+    public void IncSeed_IncluderCallers_Found()
+    {
+        Add("inc/common.inc", "<script>\nfunction fnShared(f) {}\n</script>\n");
+        Add("admin/user.asp", "<!--#include virtual=\"/inc/common.inc\"-->\n<input onclick=\"fnShared(1)\">\n");
+        var hit = Assert.Single(Find("inc/common.inc", "fnShared"));
+        Assert.Equal(("admin/user.asp", 2), (hit.RelativePath, hit.Call.Line));
+    }
 }

@@ -69,4 +69,21 @@ public sealed class JsSignatureChangesTests
         Assert.Equal("go(n, m)", change.After.Display);
         Assert.Single(JsSignatureChanges.InLines(page, page.Replace("go(n)", "goTo(n)"), true, new TextSpanInfo(2, 4)));
     }
+
+    [Fact]
+    public void Lines_NestedFunctionAdded_NoFalseRename()
+    {
+        const string before = "function fnA(x) {\n  return x;\n}\nfunction fnB(y) {\n  return y;\n}\n";
+        var after = before.Replace("  return x;", "  var cb = function (z) { return z; };\n  return cb(x);");
+        Assert.Empty(JsSignatureChanges.InLines(before, after, false, new TextSpanInfo(1, 6)));
+    }
+
+    [Fact]
+    public void Lines_TopLevelAdded_PairsByName()
+    {
+        const string before = "function fnA(x) {}\nfunction fnB(y) {}\n";
+        var after = "function fnNew() {}\nfunction fnA(x) {}\nfunction fnB(y, z) {}\n";
+        var change = Assert.Single(JsSignatureChanges.InLines(before, after, false, new TextSpanInfo(1, 2)));
+        Assert.Equal("fnB(y) → fnB(y, z)", change.Display);
+    }
 }

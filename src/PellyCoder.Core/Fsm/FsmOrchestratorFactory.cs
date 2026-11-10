@@ -125,7 +125,7 @@ public static class FsmOrchestratorFactory
             new AspApplyPhase(fileGuard, feedback, ui, options.Asp, codec, options.Web),
             new VerifyPhase([
                 new AspNamesStep(feedback), new RulesStep(feedback), new AspClientWarningsStep(fs, options, codec), new AspElementsStep(fs, options, codec),
-                new AspJsSignatureStep(fs, options, codec),
+                new AspJsSignatureStep(fs, options, codec), new AspFormFieldsStep(fs, options, codec),
                 new AspCompileStep(processes, feedback, fs, isWindows ?? OperatingSystem.IsWindows), new AspSpStep(sql, feedback),
             ]),
             new ReviewPhase(ui),
@@ -162,7 +162,7 @@ public static class FsmOrchestratorFactory
         };
         IVerifierStep[] steps = kind switch
         {
-            EditKind.Js => [new RulesStep(feedback), new JsNamesStep(options.Web.Globals), new JsApiStep(), new JsElementsStep(fs, codec)],
+            EditKind.Js => [new RulesStep(feedback), new JsNamesStep(options.Web.Globals), new JsApiStep(), new JsElementsStep(fs, codec), new JsFormFieldsStep()],
             EditKind.Css => [new RulesStep(feedback), new CssPropertyStep()],
             _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null),
         };

@@ -110,6 +110,9 @@ public sealed class WebRunState(
     public int ApiWarnings { get; set; }
     public int PropertyWarnings { get; set; }
 
+    /// <summary>Form field warnings of the last verify (W3 design §5.3).</summary>
+    public int FormFieldWarnings { get; set; }
+
     /// <summary>Latest result of each check by name.</summary>
     public Dictionary<string, AspCheck> Checks { get; } = new(StringComparer.Ordinal);
 

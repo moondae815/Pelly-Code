@@ -26,6 +26,7 @@ public sealed class ReviewPhase(IUserInteraction ui) : IPhase
         ("AspSp", "SP"),
         (AspApplyPhase.LogicCheck, "논리"),
         (AspJsSignatureStep.Row, "JS 서명"),
+        (AspFormFieldsStep.Row, "폼 필드"),
     ];
 
     /// <summary>Shown with every JS/CSS review, also with --yes: no check runs the code in a browser.</summary>
@@ -46,6 +47,7 @@ public sealed class ReviewPhase(IUserInteraction ui) : IPhase
         ("Names", "이름"),
         ("Api", "API"),
         (JsElementsStep.Row, "요소"),
+        (JsFormFieldsStep.Row, "폼 필드"),
         ("Properties", "속성"),
         (CssPropertyStep.OverrideCheck, "덮어쓰기"),
     ];

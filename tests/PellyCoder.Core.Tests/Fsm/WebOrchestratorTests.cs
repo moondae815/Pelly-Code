@@ -519,4 +519,20 @@ public sealed class WebOrchestratorTests
         Assert.Contains("Do not rename the target function and do not change its parameters.", _backend.Requests[0].RawPrompt);
         Assert.False(Summary().GetProperty("web").TryGetProperty("signatureChange", out _));
     }
+
+    [Fact]
+    public async Task Js_FormFieldWarning_ShownInReviewLine()
+    {
+        const string js = "function saveForm(id) {\n  $.post(\"save.asp\", { custNo: id });\n  return id;\n}\n";
+        Prepare(JsPath, js);
+        Prepare(Root + "/admin/list.asp", "<script src=\"/js/order.js\"></script>\n");
+        Prepare(Root + "/admin/save.asp", "<%\nv = Request.Form(\"custNo\")\n%>\n");
+        _backend.Enqueue(Block("  $.post(\"save.asp\", { custNo: id });", "  $.post(\"save.asp\", { custId: id });"));
+
+        Assert.Equal(0, await RunJs(yes: true));
+
+        var line = Assert.Single(_ui.Warnings, w => w.StartsWith("검사: ", StringComparison.Ordinal));
+        Assert.Contains("요소 건너뜀(페이지가 아님), 폼 필드 경고(admin/save.asp가 읽는 custNo(줄 2)를 js/order.js의 ajax(줄 2)이 보내지 않음, 보내는 비슷한 이름: custId)", line);
+        Assert.Equal("warned", Summary().GetProperty("web").GetProperty("checks").GetProperty("Fields").GetString());
+    }
 }

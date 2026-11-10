@@ -64,6 +64,9 @@ public sealed class AspRunState(
     /// <summary>The JS-level / jQuery env lines for the client blocks the edit overlaps (set once by SLICE; empty when none overlap, null before).</summary>
     public string? ClientEnv { get; set; }
 
+    /// <summary>Form field warnings of the last verify (W3 design §5.3); the apply end compares with its own recount.</summary>
+    public int FormFieldWarnings { get; set; }
+
     /// <summary>Latest result of each check by name.</summary>
     public Dictionary<string, AspCheck> Checks { get; } = new(StringComparer.Ordinal);
 

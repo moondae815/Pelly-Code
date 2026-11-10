@@ -113,14 +113,14 @@ public sealed class WebSlicePhase(FileGuard fileGuard, ITokenCounter tokens, Bud
             if (pageNow is null)
             {
                 Add("env", JsEnv(state), 4);
-                Add("callees", Callees(ctx, state, document, functions, span, function, lines, viewLines, []), 3);
+                Add("callees", WithChanged(ctx, span, viewLines, Callees(ctx, state, document, functions, span, function, lines, viewLines, [])), 3);
                 Add("file", FileDeclarations(functions, span, function), 2);
             }
             else
             {
                 var otherBlocks = WebSiteIndex.PageDeclarations(pageNow, text, state.Page!.BlockIndex);
                 Add("env", JsPageEnv(state), 5);
-                Add("callees", Callees(ctx, state, document, functions, span, function, lines, viewLines, otherBlocks), 4);
+                Add("callees", WithChanged(ctx, span, viewLines, Callees(ctx, state, document, functions, span, function, lines, viewLines, otherBlocks)), 4);
                 Add("page", PageDeclarations(ctx, state, FileDeclarations(functions, span, function), otherBlocks), 3);
                 Add("html", HtmlTags(pageNow, text, string.Join('\n', Lines(viewLines, span.StartLine, span.EndLine))), 2);
             }
@@ -294,6 +294,16 @@ public sealed class WebSlicePhase(FileGuard fileGuard, ITokenCounter tokens, Bud
             .Where(i => i != targetBlock && page.ClientBlocks[i] is { Kind: AspClientBlockKind.Style, Closed: true })
             .Select(i => CssSheet.Parse(PageBlockView.Build(page, pageText, i).Text))
             .ToList();
+
+    /// <summary>
+    /// The callees part with, in front, one line per JS function an earlier apply task re-signed whose old or new name the
+    /// target uses (W3 design §4.6).
+    /// </summary>
+    private static string WithChanged(RunContext ctx, TextSpanInfo span, string[] viewLines, string callees)
+    {
+        var changed = ChangedJsFunction.LinesFor(ctx.Request.ChangedJsFunctions, string.Join('\n', Lines(viewLines, span.StartLine, span.EndLine)));
+        return changed.Length == 0 ? callees : callees.Length == 0 ? changed : changed + "\n" + callees;
+    }
 
     /// <summary>
     /// Declaration lines (with the comments directly above) of the functions the target calls: from the same file first, else

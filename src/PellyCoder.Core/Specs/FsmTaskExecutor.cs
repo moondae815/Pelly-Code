@@ -30,12 +30,14 @@ public sealed class FsmTaskExecutor(Func<RunRequest, CancellationToken, Task<Run
         {
             request = new RunRequest(file, null, task.Symbol, null, task.Request, o.Yes, o.DryRun, o.MaxRetries,
                 Kind: EditKind.Asp, Verbose: o.Verbose, Host: host, Group: o.Group, Lines: task.Lines,
-                ChangedProcedures: o.ChangedProcedures);
+                ChangedProcedures: o.ChangedProcedures, ChangedJsFunctions: o.ChangedJsFunctions);
         }
         else if (task.Kind == TaskKind.Js)
         {
-            request = new RunRequest(file, null, task.Symbol, null, task.Request, o.Yes, o.DryRun, o.MaxRetries,
-                Kind: EditKind.Js, Verbose: o.Verbose, Host: host, Group: o.Group, Lines: task.Lines, AllowSignatureChange: true);
+            // A target an earlier task renamed is followed under its new name (W3 design §4.2).
+            request = new RunRequest(file, null, task.Lines is null ? o.MemberOverride ?? task.Symbol : null, null, task.Request, o.Yes, o.DryRun,
+                o.MaxRetries, Kind: EditKind.Js, Verbose: o.Verbose, Host: host, Group: o.Group, Lines: task.Lines, AllowSignatureChange: true,
+                ChangedJsFunctions: o.ChangedJsFunctions);
         }
         else if (task.Kind == TaskKind.Css)
         {

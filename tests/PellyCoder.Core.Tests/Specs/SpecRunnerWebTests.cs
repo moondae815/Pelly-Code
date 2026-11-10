@@ -282,6 +282,66 @@ public sealed class SpecRunnerWebTests : IDisposable
         Assert.DoesNotContain(_ui.Warnings, w => w.Contains("어긋나"));
     }
 
+    /// <summary>Records each request and rewrites the file like <see cref="FakeExecutor"/> would, through the real executor.</summary>
+    private FsmTaskExecutor RecordingRewrite(List<RunRequest> seen) => new(async (r, ct) =>
+    {
+        seen.Add(r);
+        var original = _guard.Read(r.FilePath);
+        var id = "T" + seen.Count;
+        if (!_exec.Rewrite.TryGetValue(id, out var text)) text = original.Text + "// " + id + "\n";
+        var written = await _guard.WriteAsync(original, text, CancellationToken.None);
+        return new RunResult(0, "R-" + seen.Count, r.FilePath, original, written.Snapshot, null);
+    });
+
+    [Fact]
+    public async Task Apply_LaterJsTask_GetsChangedSignature()
+    {
+        Spec("- [ ] T1 js web/js/order.js#fnSearch page를 더한다\n- [ ] T2 js web/admin/list.asp#goPage page를 넘긴다\n");
+        _exec.Rewrite["T1"] = OrderJs.Replace("fnSearch(f)", "fnSearch(f, page)");
+        var seen = new List<RunRequest>();
+        Assert.Equal(0, await Run(Opts(), RecordingRewrite(seen)));
+        Assert.Null(seen[0].ChangedJsFunctions);
+        var c = Assert.Single(seen[1].ChangedJsFunctions!);
+        Assert.Equal(("T1", "fnSearch(f)", "fnSearch(f, page)"), (c.TaskId, c.Before.Display, c.After.Display));
+    }
+
+    [Fact]
+    public async Task Apply_LaterAspTask_GetsChangedSignature()
+    {
+        Spec("- [ ] T1 js web/js/order.js#fnSearch page를 더한다\n- [ ] T2 asp web/admin/list.asp#Search 고친다\n");
+        _exec.Rewrite["T1"] = OrderJs.Replace("fnSearch(f)", "fnSearch(f, page)");
+        var seen = new List<RunRequest>();
+        Assert.Equal(0, await Run(Opts(), RecordingRewrite(seen)));
+        Assert.Single(seen[1].ChangedJsFunctions!);
+    }
+
+    [Fact]
+    public async Task Apply_RenamedTarget_Followed_NoteRecorded()
+    {
+        Spec("- [ ] T1 js web/js/order.js#fnSearch 이름을 바꾼다\n- [ ] T2 js web/js/order.js#fnSearch 본문을 고친다\n");
+        _exec.Rewrite["T1"] = Renamed;
+        var seen = new List<RunRequest>();
+        Assert.Equal(0, await Run(Opts(), RecordingRewrite(seen)));
+        Assert.Equal("fnFind", seen[1].MethodName);
+        Assert.Contains("T2의 대상 fnSearch는 T1이 바꾼 fnFind로 찾음", _ui.Warnings);
+        using var json = ApplyJson();
+        var t2 = json.RootElement.GetProperty("tasks").EnumerateArray().Single(e => e.GetProperty("taskId").GetString() == "T2");
+        Assert.Equal("T2의 대상 fnSearch는 T1이 바꾼 fnFind로 찾음", t2.GetProperty("note").GetString());
+    }
+
+    [Fact]
+    public async Task Apply_RestoredJsTask_NotPassed()
+    {
+        Spec("- [ ] T1 js web/js/order.js#fnSearch page를 더한다 [G1]\n- [ ] T2 css web/css/admin.css#.search-box 넓힌다 [G1]\n" +
+             "- [ ] T3 js web/admin/list.asp#goPage 고친다\n");
+        _exec.Rewrite["T1"] = OrderJs.Replace("fnSearch(f)", "fnSearch(f, page)");
+        _exec.Exit["T2"] = 1;
+        Assert.Equal(1, await Run(Opts(cont: true)));
+        var t3 = _exec.Options[^1];
+        Assert.Equal("T3", _exec.Calls[^1]);
+        Assert.Null(t3.ChangedJsFunctions);
+    }
+
     private sealed class FakeGroupVerifier : IGroupVerifier
     {
         public List<IReadOnlyList<string>> Calls { get; } = [];

@@ -27,6 +27,7 @@ namespace PellyCoder.Core.Fsm;
 /// names the target CSS rule. <paramref name="ChangedProcedures"/> (an asp task of <c>pelly apply</c>) are the stored procedures
 /// earlier sql tasks changed in their files but nobody deployed yet; the ASP pipeline uses them instead of the development database.
 /// <paramref name="AllowSignatureChange"/> (a spec js task, <c>pelly js --signature</c>) lets the target JS function change its name and parameters.
+/// <paramref name="ChangedJsFunctions"/> (a js or asp task of <c>pelly apply</c>) are the JS functions earlier tasks of the apply re-signed.
 /// </summary>
 public sealed record RunRequest(
     string FilePath, string? ClassName, string? MethodName, int? Line, string Request, bool Yes, bool DryRun, int? MaxRetries,
@@ -36,7 +37,7 @@ public sealed record RunRequest(
     IReadOnlyDictionary<string, TestCheck>? TestChecks = null,
     IReadOnlyDictionary<string, string>? ExpectedTestHashes = null,
     TextSpanInfo? Lines = null, string? Selector = null, IReadOnlyList<ChangedProcedure>? ChangedProcedures = null,
-    bool AllowSignatureChange = false)
+    bool AllowSignatureChange = false, IReadOnlyList<ChangedJsFunction>? ChangedJsFunctions = null)
 {
     /// <summary>A test-first run: it always runs the tests and judges RED before the first write and GREEN after it.</summary>
     public bool TestFirst => VerifyTests is { Count: > 0 };
@@ -354,4 +355,18 @@ public sealed class RunContext(string runId, RunRequest request, PellyOptions op
     }
 
     public Dictionary<RunPhase, double> PhaseSeconds { get; } = [];
+}
+
+/// <summary>A JS function an earlier task of the apply re-signed (W3 design §4.6); <c>RelativePath</c> is site-relative.</summary>
+public sealed record ChangedJsFunction(string TaskId, string RelativePath, PellyCoder.Core.Web.JsSignature Before, PellyCoder.Core.Web.JsSignature After)
+{
+    /// <summary>The model-input line: <c>T1이 바꾼 함수: fnSearch(f, page) (원래 fnSearch(f))</c>.</summary>
+    public string Line => $"{TaskId}이 바꾼 함수: {After.Display} (원래 {Before.Display})";
+
+    /// <summary>The lines of the functions whose old or new name <paramref name="text"/> uses as a name; empty when none.</summary>
+    public static string LinesFor(IReadOnlyList<ChangedJsFunction>? changed, string text) =>
+        string.Join('\n', (changed ?? []).Where(c => Uses(text, c.Before.Name) || Uses(text, c.After.Name)).Select(c => c.Line));
+
+    private static bool Uses(string text, string name) =>
+        System.Text.RegularExpressions.Regex.IsMatch(text, @"(?<![\w$.])" + System.Text.RegularExpressions.Regex.Escape(name) + @"(?![\w$])");
 }

@@ -201,6 +201,8 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
         // JS signatures the js and asp tasks of this apply changed (W3 design §4.5), by task, and the ungrouped js task whose
         // change is applied while a later ungrouped task failed (§4.1).
         private readonly Dictionary<string, IReadOnlyList<JsSignatureChange>> _jsChanges = new(StringComparer.Ordinal);
+        private readonly List<string> _jsChangeOrder = []; // task IDs in the order their changes were recorded (the latest wins)
+        private readonly Dictionary<string, string> _notes = new(StringComparer.Ordinal); // task ID → apply.json note
         private readonly List<(string JsId, string FailedId)> _jsMismatches = [];
         private IReadOnlyList<JsCallerNotUpdated> _jsCallersNotUpdated = [];
         private WebSiteAccess? _site;
@@ -297,7 +299,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                 RunResult? run;
                 try
                 {
-                    run = await ExecuteTaskAsync(tx, task, WithChangedProcedures(task, taskOptions with { Tests = tests }, null), ct);
+                    run = await ExecuteTaskAsync(tx, task, WithChangedJsFunctions(task, WithChangedProcedures(task, taskOptions with { Tests = tests }, null), null), ct);
                 }
                 catch (OperationCanceledException)
                 {
@@ -391,7 +393,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             {
                 // A group task runs alone in group mode: no build, so nothing to verify the group with.
                 var group = todo[0].Group is null ? null : new GroupRun(null);
-                var options = WithChangedProcedures(todo[0], new TaskRunOptions(o.Yes, true, o.MaxRetries, o.Verbose, group), null);
+                var options = WithChangedJsFunctions(todo[0], WithChangedProcedures(todo[0], new TaskRunOptions(o.Yes, true, o.MaxRetries, o.Verbose, group), null), null);
                 var r = await owner.Executor.ExecuteAsync(todo[0], ws, options, ct);
                 return r.ExitCode;
             }
@@ -826,12 +828,16 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             CancellationToken ct)
         {
             ct.ThrowIfCancellationRequested();
-            if (await ExecuteTaskAsync(tx, task, WithChangedProcedures(task, new TaskRunOptions(true, false, o.MaxRetries, o.Verbose, run, member), g), ct)
+            if (await ExecuteTaskAsync(tx, task, WithChangedJsFunctions(task, WithChangedProcedures(task, new TaskRunOptions(true, false, o.MaxRetries, o.Verbose, run, member), g), g), ct)
                 is not { } r)
                 return null;
 
             g.LastRun[task.Id] = r.RunId;
-            if (r.ExitCode == 0) g.Succeeded[task.Id] = (r.RunId, r.Original?.Path ?? FullPath(task), r.TargetDisplay, r.AddedHelpers ?? run.EditableHelpers ?? []);
+            if (r.ExitCode == 0)
+            {
+                g.Succeeded[task.Id] = (r.RunId, r.Original?.Path ?? FullPath(task), r.TargetDisplay, r.AddedHelpers ?? run.EditableHelpers ?? []);
+                RecordJsChanges(task); // the group's later tasks see it (W3 design §4.6)
+            }
             return r;
         }
 
@@ -842,6 +848,41 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
         /// is read from the SQL file as it is now; a file that does not parse is left out with a warning (the task then uses the
         /// development database, as for any other procedure). Other tasks, and an asp task with nothing changed, are unchanged.
         /// </summary>
+        /// <summary>
+        /// <paramref name="options"/> with the JS functions the js and asp tasks applied so far in this apply re-signed (W3 design
+        /// §4.6) — those kept by the apply and those of the running group <paramref name="g"/> — for a later js or asp task. A js
+        /// task whose <c>#이름</c> an earlier task renamed in the same file is followed under the new name, with a note.
+        /// </summary>
+        private TaskRunOptions WithChangedJsFunctions(SpecTask task, TaskRunOptions options, GroupState? g)
+        {
+            if (task.Kind is not (TaskKind.Js or TaskKind.Asp)) return options;
+            var byId = _doc.Spec.Tasks.ToDictionary(t => t.Id, StringComparer.Ordinal);
+            var changed = new List<ChangedJsFunction>();
+            foreach (var id in _jsChangeOrder)
+            {
+                if (id == task.Id || !byId.ContainsKey(id)) continue;
+                var kept = (_done.ContainsKey(id) && !_restored.Contains(id)) || g?.Succeeded.ContainsKey(id) == true;
+                if (!kept) continue;
+                var path = Site.SiteRelative(byId[id]);
+                changed.AddRange(_jsChanges[id].Select(c => new ChangedJsFunction(id, path, c.Before, c.After)));
+            }
+            if (changed.Count == 0) return options;
+
+            var result = options with { ChangedJsFunctions = changed };
+            if (task is { Kind: TaskKind.Js, Lines: null, Symbol: { } name } && options.MemberOverride is null)
+            {
+                var path = Site.SiteRelative(task);
+                if (changed.LastOrDefault(c => c.Before.Name == name && c.After.Name != name
+                        && string.Equals(c.RelativePath, path, StringComparison.OrdinalIgnoreCase)) is { } renamed)
+                {
+                    result = result with { MemberOverride = renamed.After.Name };
+                    var note = $"{task.Id}의 대상 {name}는 {renamed.TaskId}이 바꾼 {renamed.After.Name}로 찾음";
+                    if (_notes.TryAdd(task.Id, note)) owner.Ui.Warn(note);
+                }
+            }
+            return result;
+        }
+
         private TaskRunOptions WithChangedProcedures(SpecTask task, TaskRunOptions options, GroupState? g)
         {
             if (task.Kind != TaskKind.Asp) return options;
@@ -911,7 +952,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                 throw;
             }
 
-            _results.Add(ApplyTaskResult.For(task, r.RunId, r.ExitCode, r.FailureKind, Seconds(started), task.Group));
+            _results.Add(ApplyTaskResult.For(task, r.RunId, r.ExitCode, r.FailureKind, Seconds(started), task.Group) with { Note = _notes.GetValueOrDefault(task.Id) });
             _firstRuns.TryAdd(task.Id, r);
             _lastRuns[task.Id] = r;
             _ends[task.Id] = r.ExitCode;
@@ -1238,6 +1279,8 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                 changes = []; // the check is a warning; a file it cannot read never fails the apply
             }
             _jsChanges[task.Id] = changes;
+            _jsChangeOrder.Remove(task.Id);
+            _jsChangeOrder.Add(task.Id);
             return changes;
         }
 

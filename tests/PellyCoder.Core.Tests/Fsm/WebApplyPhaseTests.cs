@@ -316,4 +316,27 @@ public sealed class WebApplyPhaseTests
         Assert.Equal(PhaseOutcome.Ok, again);
         Assert.Equal(new TextSpanInfo(5, 8), ctx.Web!.CurrentSpan);
     }
+
+    [Fact]
+    public async Task WebSlice_ChangedFunctionLine_BeforeCalledDeclarations()
+    {
+        const string text = "function fmtPrice(n) {\n  return n;\n}\n\nfunction saveForm(id) {\n  var v = fmtPrice(id);\n  return true;\n}\n";
+        _fs.AddFile(JsPath, new MockFileData(Encoding.UTF8.GetBytes(text)));
+        var changed = new ChangedJsFunction("T1", "js/order.js", new JsSignature("fmtPrice", ["n"]), new JsSignature("fmtPrice", ["n", "unit"]));
+        var request = new RunRequest(JsPath, null, "saveForm", null, "do it", true, false, null, Kind: EditKind.Js, ChangedJsFunctions: [changed]);
+        var ctx = NewContext(JsPath, request);
+        var ct = TestContext.Current.CancellationToken;
+        Assert.Equal(PhaseOutcome.Ok, await new JsLocatePhase(_fs, new ScriptedUserInteraction(), _options, Codec).ExecuteAsync(ctx, ct));
+        Assert.Equal(PhaseOutcome.Ok, await new WebSlicePhase(_guard, QwenTokenCounter.Shared, new BudgetOptions()).ExecuteAsync(ctx, ct));
+        var callees = ctx.SliceResult.Slice.Included.Single(p => p.Kind == "callees").Text;
+        Assert.StartsWith("T1이 바꾼 함수: fmtPrice(n, unit) (원래 fmtPrice(n))\n", callees);
+        Assert.Contains("function fmtPrice(n) {", callees);
+    }
+
+    [Fact]
+    public async Task Standalone_NoChangedLine()
+    {
+        var ctx = await SlicedJs(OrderJs);
+        Assert.DoesNotContain(ctx.SliceResult.Slice.Included, p => p.Text.Contains("이 바꾼 함수"));
+    }
 }

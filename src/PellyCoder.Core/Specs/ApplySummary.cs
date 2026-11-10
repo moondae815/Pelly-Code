@@ -15,12 +15,14 @@ public sealed record ApplyOptions(bool Continue, bool Resume, bool ReviewAtEnd, 
 /// <param name="Lines">An asp, js or css task's line range (<c>#L120-148</c>) as <c>120-148</c>; null otherwise.</param>
 /// <param name="Function">A js task's function target; null otherwise.</param>
 /// <param name="Selector">A css task's selector target; null otherwise.</param>
+/// <param name="Note">What the apply did about the task's target: 「T5의 대상 fnSearch는 T1이 바꾼 fnFind로 찾음」 (W3 design §4.2); null otherwise.</param>
 public sealed record ApplyTaskResult(string TaskId, string? RunId, int ExitCode, string? FailureKind, double Seconds, string? Group = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Kind = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Proc = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Lines = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Function = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Selector = null)
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Selector = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Note = null)
 {
     /// <summary>A result for <paramref name="task"/>, carrying its kind and its asp, js or css target.</summary>
     public static ApplyTaskResult For(SpecTask task, string? runId, int exitCode, string? failureKind, double seconds, string? group) =>

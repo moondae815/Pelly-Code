@@ -42,6 +42,7 @@ public sealed class PromptBuilder(QwenChatTemplate template, PromptResources res
         ("procedures", "[READ-ONLY: procedures]"),
         ("variables", "[READ-ONLY: variables]"),
         ("sql", "[READ-ONLY: sql]"),
+        ("js", "[READ-ONLY: js]"),
         ("around", "[READ-ONLY: around]"),
         ("target", "[EDITABLE: target]"),
     };

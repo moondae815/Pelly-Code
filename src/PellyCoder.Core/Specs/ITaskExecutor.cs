@@ -10,7 +10,7 @@ namespace PellyCoder.Core.Specs;
 /// <paramref name="ChangedProcedures"/> are the stored procedures as earlier sql tasks left them (asp tasks only; null when none).
 /// </summary>
 public sealed record TaskRunOptions(bool Yes, bool DryRun, int? MaxRetries, bool Verbose, GroupRun? Group = null, string? MemberOverride = null,
-    TaskTests? Tests = null, IReadOnlyList<ChangedProcedure>? ChangedProcedures = null);
+    TaskTests? Tests = null, IReadOnlyList<ChangedProcedure>? ChangedProcedures = null, IReadOnlyList<ChangedJsFunction>? ChangedJsFunctions = null);
 
 /// <summary>Runs one spec task and reports the detailed outcome.</summary>
 public interface ITaskExecutor

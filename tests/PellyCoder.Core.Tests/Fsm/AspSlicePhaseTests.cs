@@ -355,4 +355,41 @@ public sealed class AspSlicePhaseTests
         await Phase().ExecuteAsync(apart, TestContext.Current.CancellationToken);
         Assert.DoesNotContain(apart.SliceResult.Slice.Included, p => p.Kind == "env");
     }
+
+    private const string ScriptPage =
+        "<%@ Language=\"VBScript\" CodePage=949 %>\n" + // 1
+        "<input onclick=\"fnSearch(this)\">\n" +         // 2
+        "<p>x</p>\n";                                     // 3
+
+    private async Task<RunContext> LocatedWithJs(string text, TextSpanInfo lines, IReadOnlyList<ChangedJsFunction> changed)
+    {
+        _fs.AddFile(PagePath, new MockFileData(Encoding.UTF8.GetBytes(text)));
+        var request = new RunRequest(PagePath, null, null, null, "do it", true, false, null, Kind: EditKind.Asp, Lines: lines,
+            ChangedJsFunctions: changed);
+        var ctx = new RunContext("r1", request, new PellyOptions { Asp = _options })
+        {
+            FilePath = PagePath,
+            Workspace = new Workspace(Root, Root + "/.pelly"),
+        };
+        ctx.Original = _guard.Read(PagePath);
+        ctx.Current = ctx.Original;
+        Assert.Equal(PhaseOutcome.Ok, await new AspLocatePhase(_fs, new ScriptedUserInteraction(), _options, Codec)
+            .ExecuteAsync(ctx, TestContext.Current.CancellationToken));
+        return ctx;
+    }
+
+    private static readonly ChangedJsFunction Changed =
+        new("T1", "js/order.js", new PellyCoder.Core.Web.JsSignature("fnSearch", ["f"]), new PellyCoder.Core.Web.JsSignature("fnSearch", ["f", "page"]));
+
+    [Fact]
+    public async Task AspSlice_ChangedFunctionLine_OnlyWhenNameInRange()
+    {
+        var ctx = await LocatedWithJs(ScriptPage, new TextSpanInfo(2, 2), [Changed]);
+        Assert.Equal(PhaseOutcome.Ok, await Phase(withSql: false).ExecuteAsync(ctx, TestContext.Current.CancellationToken));
+        Assert.Equal("T1이 바꾼 함수: fnSearch(f, page) (원래 fnSearch(f))", PartText(ctx, "js"));
+
+        var other = await LocatedWithJs(ScriptPage, new TextSpanInfo(3, 3), [Changed]);
+        Assert.Equal(PhaseOutcome.Ok, await Phase(withSql: false).ExecuteAsync(other, TestContext.Current.CancellationToken));
+        Assert.DoesNotContain(other.SliceResult.Slice.Included, p => p.Kind == "js");
+    }
 }

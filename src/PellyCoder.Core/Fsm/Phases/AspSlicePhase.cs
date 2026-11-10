@@ -76,6 +76,8 @@ public sealed class AspSlicePhase(FileGuard fileGuard, ITokenCounter tokens, Bud
         Add("procedures", Procedures(page, state, span, procedure), 4);
         Add("variables", Variables(page, state, span, procedure), 3);
         Add("sql", await SqlSignaturesAsync(ctx, page, state, span, ct), 2);
+        // JS functions earlier apply tasks re-signed, when the target names them (W3 design §4.6).
+        Add("js", ChangedJsFunction.LinesFor(ctx.Request.ChangedJsFunctions, targetText), 2);
         Add("env", ClientEnv(ctx, state), 6);
         if (state.Unit == AspTargetUnit.Lines)
             Add("around", Around(page, span, lineCount), 1);

@@ -65,7 +65,15 @@ public sealed record ApplySummary(
     bool Resumed = false,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<AcResult>? Criteria = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SqlImpactSummary? SqlImpact = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<AspCallerNotUpdated>? AspCallersNotUpdated = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<AspCallerNotUpdated>? AspCallersNotUpdated = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<JsCallerNotUpdated>? JsCallersNotUpdated = null);
+
+/// <summary>
+/// A JS call or reference left behind after an applied task changed the function's signature (W3 design §4.5): a call of the
+/// old name, or one whose argument count differs from the new parameters. <paramref name="Path"/> is site-relative with '/'.
+/// </summary>
+/// <param name="Change">The change as in the warning: <c>fnSearch(f) → fnFind(f)</c>.</param>
+public sealed record JsCallerNotUpdated(string Function, string Path, int Line, string Change);
 
 /// <summary>One ASP call of a procedure whose parameters changed that no applied asp task edited (A2 design §4.5).</summary>
 /// <param name="Object">The procedure, as its SQL file names it.</param>

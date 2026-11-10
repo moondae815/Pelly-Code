@@ -20,7 +20,8 @@ public sealed record SanitizedRun(
     string? Red = null, string? Green = null, int? TestRegressions = null);
 
 /// <summary>The spec KPI as six plain numbers: completed/total, completed/total for 3 to 8 tasks, groups passed/total.</summary>
-public sealed record ApplyCounts(int Completed, int CompletionTotal, int Completed3To8, int Completion3To8Total, int GroupPassed, int GroupTotal, int AspCallersNotUpdated = 0);
+public sealed record ApplyCounts(int Completed, int CompletionTotal, int Completed3To8, int Completion3To8Total, int GroupPassed, int GroupTotal, int AspCallersNotUpdated = 0,
+    int JsCallersNotUpdated = 0);
 
 public sealed record SanitizedAggregate(
     int RunCount, IReadOnlyDictionary<string, int> RunsByKind, int SuccessCount, double SuccessRate,
@@ -72,6 +73,7 @@ public sealed record SanitizedReport(SanitizedAggregate Aggregate, IReadOnlyList
             sb.AppendLine($"| 명세 완료율(작업 3~8개) | {Ratio(ap.Completed3To8, ap.Completion3To8Total)} ({N(ap.Completed3To8)}/{N(ap.Completion3To8Total)}건) |");
             sb.AppendLine($"| 그룹 빌드 통과율 | {Ratio(ap.GroupPassed, ap.GroupTotal)} ({N(ap.GroupPassed)}/{N(ap.GroupTotal)}그룹) |");
             if (ap.AspCallersNotUpdated > 0) sb.AppendLine($"| SP 매개변수 변경 뒤 고치지 않은 ASP 호출 | {N(ap.AspCallersNotUpdated)}곳 |");
+            if (ap.JsCallersNotUpdated > 0) sb.AppendLine($"| JS 서명 변경 뒤 고치지 않은 호출 | {N(ap.JsCallersNotUpdated)}곳 |");
             sb.AppendLine();
         }
         if (a.TestFirst is { } tf)
@@ -159,7 +161,7 @@ public static partial class ReportSanitizer
         var rows = runs.Select((r, i) => SanitizeRun(r.Summary, i + 1)).ToList();
         var counts = apply is null ? null
             : new ApplyCounts(apply.Completion.Ok, apply.Completion.Total, apply.Completion3To8.Ok, apply.Completion3To8.Total,
-                apply.GroupBuild.Ok, apply.GroupBuild.Total, apply.AspCallersNotUpdated);
+                apply.GroupBuild.Ok, apply.GroupBuild.Total, apply.AspCallersNotUpdated, apply.JsCallersNotUpdated);
         var agg = SanitizeAggregate(aggregate) with { Apply = counts };
         if (apply?.Criteria is { } ac)
             agg = agg with { TestFirst = ApplyReport.Combine(aggregate.TestFirst, ac), UnverifiedAc = ac.Unverified };

@@ -30,6 +30,15 @@ public sealed class ApplyReportTests
     }
 
     [Fact]
+    public void Report_CountsJsCallersNotUpdated()
+    {
+        var record = new ApplyRecord(new ApplySummary("apply-1", "spec", [], 0, [], false,
+            JsCallersNotUpdated: [new JsCallerNotUpdated("fnSearch", "web/a.asp", 3, "fnSearch(f) → fnFind(f)"),
+                new JsCallerNotUpdated("fnSearch", "web/b.asp", 4, "fnSearch(f) → fnFind(f)")]), DateTimeOffset.UnixEpoch);
+        Assert.Equal(2, ApplyReport.Build([record]).JsCallersNotUpdated);
+    }
+
+    [Fact]
     public void Completion_counts_fresh_applies_that_archived_with_exit_0()
     {
         var applies = new[]

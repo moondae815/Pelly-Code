@@ -158,6 +158,130 @@ public sealed class SpecRunnerWebTests : IDisposable
         Assert.DoesNotContain(_ui.Warnings, w => w.Contains("영향 대상"));
     }
 
+    private const string Renamed = "function fnFind(f) {\n  return f;\n}\n";
+
+    private System.Text.Json.JsonElement[] JsCallers()
+    {
+        using var json = ApplyJson();
+        return json.RootElement.TryGetProperty("jsCallersNotUpdated", out var list) ? list.EnumerateArray().Select(e => e.Clone()).ToArray() : [];
+    }
+
+    [Fact]
+    public async Task AfterApply_Rename_OldNameCallLeft_Warns()
+    {
+        Spec("- [ ] T1 js web/js/order.js#fnSearch 이름을 fnFind로 바꾼다\n");
+        _exec.Rewrite["T1"] = Renamed;
+        Assert.Equal(0, await Run(Opts()));
+        Assert.Contains("fnSearch의 서명이 바뀌었습니다: fnSearch(f) → fnFind(f). 고치지 않은 호출: web/admin/list.asp:8", _ui.Warnings);
+        var row = Assert.Single(JsCallers());
+        Assert.Equal("fnSearch", row.GetProperty("function").GetString());
+        Assert.Equal("web/admin/list.asp", row.GetProperty("path").GetString());
+        Assert.Equal(8, row.GetProperty("line").GetInt32());
+        Assert.Equal("fnSearch(f) → fnFind(f)", row.GetProperty("change").GetString());
+    }
+
+    [Fact]
+    public async Task AfterApply_Rename_AllCallersFixed_NoWarning()
+    {
+        Spec("- [ ] T1 js web/js/order.js#fnSearch 이름을 바꾼다\n- [ ] T2 js web/admin/list.asp#goPage 새 이름을 부른다\n");
+        _exec.Rewrite["T1"] = Renamed;
+        _exec.Rewrite["T2"] = ListPage.Replace("fnSearch(document.f, n)", "fnFind(document.f, n)");
+        Assert.Equal(0, await Run(Opts()));
+        Assert.DoesNotContain(_ui.Warnings, w => w.Contains("서명이 바뀌었습니다"));
+        Assert.Empty(JsCallers());
+    }
+
+    [Fact]
+    public async Task AfterApply_Rename_OtherDeclarationNote()
+    {
+        Make("web/js/old.js", "function fnSearch(x) {}\n");
+        Spec("- [ ] T1 js web/js/order.js#fnSearch 이름을 바꾼다\n");
+        _exec.Rewrite["T1"] = Renamed;
+        Assert.Equal(0, await Run(Opts()));
+        Assert.Contains("fnSearch의 서명이 바뀌었습니다: fnSearch(f) → fnFind(f). 고치지 않은 호출: web/admin/list.asp:8 (다른 선언이 있음: web/js/old.js:1)", _ui.Warnings);
+    }
+
+    [Fact]
+    public async Task AfterApply_ParamAdded_MismatchedCallsWarned_MatchingExcluded_AppendNote()
+    {
+        Make("web/admin/b.asp", "<input onclick=\"fnSearch(this)\">\n");
+        Spec("- [ ] T1 js web/js/order.js#fnSearch page를 더한다\n");
+        _exec.Rewrite["T1"] = OrderJs.Replace("fnSearch(f)", "fnSearch(f, page)");
+        Assert.Equal(0, await Run(Opts()));
+        Assert.Contains("fnSearch의 서명이 바뀌었습니다: fnSearch(f) → fnSearch(f, page). 고치지 않은 호출: web/admin/b.asp:1 — 기존 호출은 새 인수가 undefined로 동작함", _ui.Warnings);
+        Assert.DoesNotContain(JsCallers(), r => r.GetProperty("path").GetString() == "web/admin/list.asp");
+    }
+
+    [Fact]
+    public async Task AfterApply_ParamAdded_CoveredButUnfixedCall_StillWarned()
+    {
+        Make("web/admin/b.asp", "<input onclick=\"fnSearch(this)\">\n");
+        Spec("- [ ] T1 js web/js/order.js#fnSearch page를 더한다\n- [ ] T2 asp web/admin/b.asp#L1-1 호출을 고친다\n");
+        _exec.Rewrite["T1"] = OrderJs.Replace("fnSearch(f)", "fnSearch(f, page)");
+        Assert.Equal(0, await Run(Opts()));
+        Assert.Contains(_ui.Warnings, w => w.StartsWith("fnSearch의 서명이 바뀌었습니다") && w.Contains("web/admin/b.asp:1"));
+    }
+
+    [Fact]
+    public async Task AfterApply_Reordered_CheckNote()
+    {
+        Spec("- [ ] T1 js web/js/order.js#fnSearch 매개변수 이름을 바꾼다\n");
+        _exec.Rewrite["T1"] = OrderJs.Replace("fnSearch(f) {\n  return f;", "fnSearch(g) {\n  return g;");
+        Assert.Equal(0, await Run(Opts()));
+        Assert.Contains("fnSearch의 매개변수 순서·이름이 바뀌었습니다: fnSearch(f) → fnSearch(g). 부르는 곳 1곳을 확인하십시오: web/admin/list.asp:8", _ui.Warnings);
+    }
+
+    [Fact]
+    public async Task AfterApply_AspTaskRenamedBlockFunction_Warns()
+    {
+        Make("web/admin/c.asp", "<a href=\"javascript:goPage(1)\">x</a>\n");
+        Spec("- [ ] T1 asp web/admin/list.asp#L6-10 함수 이름을 바꾼다\n");
+        _exec.Rewrite["T1"] = ListPage.Replace("function goPage(", "function goTo(");
+        Assert.Equal(0, await Run(Opts()));
+        Assert.Contains("goPage의 서명이 바뀌었습니다: goPage(n) → goTo(n). 고치지 않은 호출: web/admin/c.asp:1", _ui.Warnings);
+    }
+
+    [Fact]
+    public async Task AfterApply_RestoredTask_NoWarning()
+    {
+        Spec("- [ ] T1 js web/js/order.js#fnSearch 이름을 바꾼다 [G1]\n- [ ] T2 css web/css/admin.css#.search-box 넓힌다 [G1]\n");
+        _exec.Rewrite["T1"] = Renamed;
+        _exec.Exit["T2"] = 1;
+        Assert.Equal(1, await Run(Opts()));
+        Assert.DoesNotContain(_ui.Warnings, w => w.Contains("서명이 바뀌었습니다"));
+        Assert.Equal(OrderJs, Read("web/js/order.js"));
+    }
+
+    [Fact]
+    public async Task AfterApply_ResumeDoneTask_NotCompared()
+    {
+        Make("web/js/order.js", Renamed);
+        Spec("- [x] T1 js web/js/order.js#fnSearch 이름을 바꾼다 <!-- run: R0 -->\n- [ ] T2 css web/css/admin.css#.search-box 넓힌다\n");
+        Assert.Equal(0, await Run(new ApplyOptions(false, true, false, true, false, null, false)));
+        Assert.DoesNotContain(_ui.Warnings, w => w.Contains("서명이 바뀌었습니다"));
+    }
+
+    [Fact]
+    public async Task Mismatch_JsAppliedLaterFailed_Warns()
+    {
+        Spec("- [ ] T1 js web/js/order.js#fnSearch 이름을 바꾼다\n- [ ] T2 asp web/admin/list.asp#Search 호출을 고친다\n");
+        _exec.Rewrite["T1"] = Renamed;
+        _exec.Exit["T2"] = 1;
+        Assert.Equal(1, await Run(Opts(cont: true)));
+        Assert.Contains("T1(js)은 적용됐고 T2는 실패했습니다. 함수와 부르는 곳이 어긋나 있을 수 있습니다. 함께 되돌리려면 [G1]로 묶으십시오", _ui.Warnings);
+        using var json = ApplyJson();
+        Assert.Contains(json.RootElement.GetProperty("warnings").EnumerateArray(), w => w.GetProperty("code").GetString() == "JsCallerMismatch");
+    }
+
+    [Fact]
+    public async Task Mismatch_JsBodyOnly_NoWarning()
+    {
+        Spec("- [ ] T1 js web/js/order.js#fnSearch 본문을 고친다\n- [ ] T2 asp web/admin/list.asp#Search 고친다\n");
+        _exec.Exit["T2"] = 1;
+        Assert.Equal(1, await Run(Opts(cont: true)));
+        Assert.DoesNotContain(_ui.Warnings, w => w.Contains("어긋나"));
+    }
+
     private sealed class FakeGroupVerifier : IGroupVerifier
     {
         public List<IReadOnlyList<string>> Calls { get; } = [];

@@ -17,6 +17,7 @@ using PellyCoder.Core.Models;
 using PellyCoder.Core.Reporting;
 using PellyCoder.Core.Sql;
 using PellyCoder.Core.Testing;
+using PellyCoder.Core.Web;
 using PellyCoder.Core.Workspaces;
 
 namespace PellyCoder.Core.Specs;
@@ -62,6 +63,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
     private IGroupTester? GroupTests => groupTests;
     private int GroupRetryMax => groupRetryMax ?? new RetryOptions().Max;
     private int SqlCompatLevel => sqlCompatLevel;
+    private WebSiteAccess Site(Workspace ws) => new(fs, asp ?? new AspOptions(), web ?? new WebOptions(), ws.Root);
 
     private FeedbackBuilder? _defaultFeedback;
     private FeedbackBuilder GroupFeedback =>
@@ -196,6 +198,14 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
         // lines are those of the pages before any asp task of this apply edited them.
         private IReadOnlyList<AspCallerNotUpdated> _callersNotUpdated = [];
 
+        // JS signatures the js and asp tasks of this apply changed (W3 design §4.5), by task, and the ungrouped js task whose
+        // change is applied while a later ungrouped task failed (§4.1).
+        private readonly Dictionary<string, IReadOnlyList<JsSignatureChange>> _jsChanges = new(StringComparer.Ordinal);
+        private readonly List<(string JsId, string FailedId)> _jsMismatches = [];
+        private IReadOnlyList<JsCallerNotUpdated> _jsCallersNotUpdated = [];
+        private WebSiteAccess? _site;
+        private WebSiteAccess Site => _site ??= owner.Site(ws);
+
         // Group test-first (design §7.3): RED of the criteria whose first linked task is in a group, from the group's baseline,
         // and the expected breaks of the criteria whose last linked task is in a group, from the group's last verdict.
         private readonly Dictionary<string, RedState> _groupRed = new(StringComparer.Ordinal);
@@ -245,6 +255,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             int? stopCode = null;
             bool anyFailed = false;
             string? appliedSql = null; // the latest ungrouped sql task applied in this run
+            string? appliedSignature = null; // the latest ungrouped js or asp task applied in this run that changed a JS signature
 
             for (int i = 0; i < todo.Count; i++)
             {
@@ -307,11 +318,13 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                         appliedSql = task.Id;
                         _appliedSql.Add(task.Id);
                     }
+                    if (RecordJsChanges(task).Count > 0) appliedSignature = task.Id;
                     continue;
                 }
 
                 anyFailed = true;
                 if (task.Kind == TaskKind.Asp && appliedSql is not null) _mismatches.Add((appliedSql, task.Id));
+                if (appliedSignature is not null) _jsMismatches.Add((appliedSignature, task.Id));
                 if (o.Continue && r.ExitCode == 4) { stopCode = 4; break; } // environment errors fail every later task too
 
                 string kind = r.FailureKind ?? $"exit-{r.ExitCode}";
@@ -620,6 +633,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                 _marked.Add(task.Id);
                 _done[task.Id] = (g.Succeeded[task.Id].RunId, g.Succeeded[task.Id].Path);
                 if (task.Kind == TaskKind.Sql) _appliedSql.Add(task.Id);
+                RecordJsChanges(task);
             }
             return new GroupEnd(0, false);
         }
@@ -1140,8 +1154,16 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
         /// </summary>
         private void WarnMismatches()
         {
-            if (_mismatches.Count == 0 || _rolledBack) return;
+            if (_rolledBack) return;
             string group = NextFreeGroup();
+            foreach (var (js, failed) in _jsMismatches)
+            {
+                if (_restored.Contains(js)) continue;
+                var message = $"{js}(js)은 적용됐고 {failed}는 실패했습니다. 함수와 부르는 곳이 어긋나 있을 수 있습니다. 함께 되돌리려면 [{group}]로 묶으십시오";
+                owner.Ui.Warn(message);
+                _mismatchIssues.Add(new SpecIssue(_doc?.Spec.Tasks.FirstOrDefault(t => t.Id == failed)?.Line ?? 0, SpecIssueSeverity.Warning,
+                    "JsCallerMismatch", message));
+            }
             foreach (var (sql, asp) in _mismatches)
             {
                 if (_restored.Contains(sql)) continue;
@@ -1189,6 +1211,99 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             }
             _callersNotUpdated = recorded;
         }
+
+        /// <summary>
+        /// The JS signatures a just-applied js or asp task changed, from its first run's original to the file now (W3 design §4.5):
+        /// a js function target by name, a js or asp line range (an asp procedure target: its lines) by declaration order.
+        /// Recorded for the after-apply check and the later tasks; empty for other kinds and unchanged signatures.
+        /// </summary>
+        private IReadOnlyList<JsSignatureChange> RecordJsChanges(SpecTask task)
+        {
+            if (task.Kind is not (TaskKind.Js or TaskKind.Asp) || _firstRuns.GetValueOrDefault(task.Id)?.Original is not { } original) return [];
+            var rel = Site.SiteRelative(task);
+            if ((Site.Read(rel) ?? _lastRuns.GetValueOrDefault(task.Id)?.Final?.Text) is not { } now) return [];
+            var isPage = WebPages.IsPage(task.Path, Site.AspExtensions);
+            IReadOnlyList<JsSignatureChange> changes;
+            try
+            {
+                if (task.Kind == TaskKind.Js && task.Symbol is { } name) changes = JsSignatureChanges.ForFunction(original.Text, now, isPage, name);
+                else if (task.Lines is { } lines) changes = JsSignatureChanges.InLines(original.Text, now, isPage, lines);
+                else if (task.Kind == TaskKind.Asp && task.Symbol is { } proc
+                         && SpecChecker.MatchingProcedures(PellyCoder.Core.Asp.AspPage.Parse(original.Text), proc).FirstOrDefault() is { } p)
+                    changes = JsSignatureChanges.InLines(original.Text, now, isPage, new TextSpanInfo(p.DeclLine, p.EndLine));
+                else changes = [];
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                changes = []; // the check is a warning; a file it cannot read never fails the apply
+            }
+            _jsChanges[task.Id] = changes;
+            return changes;
+        }
+
+        /// <summary>
+        /// W3 design §4.5: after the apply, the calls the changed JS signatures left behind, from the site index as the files are
+        /// now — the old name's calls and references after a rename, else the calls whose argument count differs, else (same
+        /// count, other names or order) every call to check. Warns and records them for <c>apply.json</c>; never changes the exit code.
+        /// </summary>
+        private void WarnJsSignatureChanges()
+        {
+            if (_rolledBack) return;
+            var applied = _jsChanges.Where(kv => kv.Value.Count > 0 && _done.ContainsKey(kv.Key) && !_restored.Contains(kv.Key) && !_doneAtStart.Contains(kv.Key))
+                .ToList();
+            if (applied.Count == 0) return;
+            WebSiteIndexResult index;
+            try { index = Site.Index(); }
+            catch (Exception ex) when (ex is not OperationCanceledException) { return; }
+
+            var byId = _doc.Spec.Tasks.ToDictionary(t => t.Id, StringComparer.Ordinal);
+            var recorded = new List<JsCallerNotUpdated>();
+            var truncated = index.Truncated ? " — 사이트 파일이 많아 일부 호출을 보지 못했을 수 있습니다" : "";
+            foreach (var (id, changes) in applied)
+            {
+                var seedPath = Site.SiteRelative(byId[id]);
+                foreach (var change in changes)
+                {
+                    var name = change.Renamed ? change.Before.Name : change.After.Name;
+                    var calls = JsCallers(index, seedPath, name);
+                    List<(string RelativePath, JsCallSite Call)> left;
+                    string message;
+                    if (change.Renamed)
+                        left = calls;
+                    else if (change.CountChanged)
+                        left = calls.Where(c => !c.Call.Reference && c.Call.Arguments is { } n && n != change.After.Parameters.Count).ToList();
+                    else
+                        left = calls.Where(c => !c.Call.Reference).ToList();
+                    if (left.Count == 0) continue;
+
+                    var first = $"{left[0].RelativePath}:{left[0].Call.Line}";
+                    var more = left.Count > 1 ? $" 외 {left.Count - 1}곳" : "";
+                    if (change.Renamed || change.CountChanged)
+                    {
+                        var other = change.Renamed && index.Entries.FirstOrDefault(e => e.Name == change.Before.Name) is { } decl
+                            ? $" (다른 선언이 있음: {decl.RelativePath}:{decl.Line})" : "";
+                        var note = !change.Renamed && change.OnlyAppended ? " — 기존 호출은 새 인수가 undefined로 동작함" : "";
+                        message = $"{change.Before.Name}의 서명이 바뀌었습니다: {change.Display}. 고치지 않은 호출: {first}{more}{other}{note}{truncated}";
+                    }
+                    else
+                    {
+                        message = $"{change.Before.Name}의 매개변수 순서·이름이 바뀌었습니다: {change.Display}. 부르는 곳 {left.Count}곳을 확인하십시오: {first}{more}{truncated}";
+                        left = left.Take(SqlImpactFinder.MaxWarningsPerTable).ToList();
+                    }
+                    owner.Ui.Warn(message);
+                    recorded.AddRange(left.Select(c => new JsCallerNotUpdated(change.Before.Name, c.RelativePath, c.Call.Line, change.Display)));
+                }
+            }
+            _jsCallersNotUpdated = recorded;
+        }
+
+        /// <summary>Calls and references of <paramref name="name"/>, without those of files (and pages with their includes) that declare that name themselves.</summary>
+        private List<(string RelativePath, JsCallSite Call)> JsCallers(WebSiteIndexResult index, string seedPath, string name) =>
+            index.JsCalls.Where(c => c.Call.Name == name)
+                .Concat(JsImpactFinder.References(index, name, Site.Read))
+                .Where(c => string.Equals(c.RelativePath, seedPath, StringComparison.OrdinalIgnoreCase) || !JsImpactFinder.DeclaresOwn(index, c.RelativePath, name))
+                .OrderBy(c => c.RelativePath, StringComparer.Ordinal).ThenBy(c => c.Call.Line)
+                .ToList();
 
         /// <summary>The smallest <c>G&lt;n&gt;</c> no task of the spec uses.</summary>
         private string NextFreeGroup()
@@ -1244,6 +1359,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
         {
             WarnMismatches();
             WarnParameterChanges();
+            WarnJsSignatureChanges();
             try
             {
                 var dir = owner.Fs.Path.Combine(ws.PellyDir, "runs", ApplyId!);
@@ -1251,7 +1367,8 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                 var summary = new ApplySummary(ApplyId!, SpecId, _results, exitCode, [.. warnings, .. _mismatchIssues], _archived,
                     impact is null ? null : impact.Mode == ImpactMode.Semantic ? "semantic" : "name", impact?.Fallback?.Kind.ToString(),
                     _doc?.Spec.Tasks.Count ?? 0, o.Resume, _links.Count > 0 ? _links.Select(CriterionResult).ToList() : null, sqlImpact,
-                    _callersNotUpdated.Count > 0 ? _callersNotUpdated : null);
+                    _callersNotUpdated.Count > 0 ? _callersNotUpdated : null,
+                    _jsCallersNotUpdated.Count > 0 ? _jsCallersNotUpdated : null);
                 owner.Fs.File.WriteAllText(owner.Fs.Path.Combine(dir, "apply.json"), JsonSerializer.Serialize(summary, SummaryJson));
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

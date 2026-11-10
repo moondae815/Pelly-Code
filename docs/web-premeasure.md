@@ -184,3 +184,19 @@
 1. 첫 1회 실행에서 w3-002가 실행기 판정으로 실패했다. 경고는 나왔지만 콘솔이 80칸에서 「고치지 / 않은 호출」 사이를 줄바꿈해 문자열 비교가 어긋났다. 실행기를 공백·줄바꿈을 빼고 비교하도록 고쳤다(제품 동작은 그대로).
 2. 사례가 작다(함수 하나, 부르는 곳 셋). 이름 바꾸기, 같은 이름의 다른 함수, include로 들어온 `<script src>`는 가짜 모델 테스트로만 확인했다.
 
+
+## W3b. 폼 필드 이름 짝 검사 (2026-11-10)
+
+코퍼스에 `admin/order/memo.asp`(action 없는 `<form name="frm" method="post">`, `orderNo`·`memoText`, 블록 안 `frm.action = "memo_save.asp"`)와 `admin/order/memo_save.asp`(`Request.Form("orderNo")`·`Request.Form("memoText")`)를 더했다. 사례는 `eval/benchmark/web-w3/`에 둘을 더했다.
+
+| 사례 | 내용 | 기대 |
+|---|---|---|
+| w3-004 | `asp` 작업 하나: `memo.asp#L11-11`의 `memoText` 입력란 이름을 `memo`로 | 종료 0, 출력에 「memo_save.asp가 읽는 memoText」 |
+| w3-005 | `asp` 작업 하나: `memo_save.asp#L4-6`에서 `Request.Form("writer")`도 읽음 | 종료 0, 출력에 「memo_save.asp가 읽는 writer」 |
+
+결과(모델 실행, 2026-11-10, Mac, `qwen3.6:35b-a3b-q4_K_M`): `web-w3/run.sh --repeat 3` **15/15 통과**(w3-001~003 9/9, w3-004 3/3, w3-005 3/3). 시간은 사례마다 1~10초.
+
+틀린 경고 확인: `eval/benchmark/web/run.sh --repeat 1`(20건)과 `eval/benchmark/asp/run.sh --repeat 1`(12건)을 다시 돌렸다. 모두 종료 0이고, 「폼 필드」 행은 web 9건·asp 7건 모두 「통과」, **경고 0건**이다.
+
+1. 코퍼스가 작다(폼 한 쌍, 저장 페이지 몇 개). 같은 저장 페이지를 여러 폼이 쓰는 경우, include의 폼, `.js`의 ajax, 키가 변수인 `Request(name)`는 가짜 모델 테스트로만 확인했다.
+2. 현장에서 얼마나 「열림」이 되어 건너뛰는지는 `deploy/field-results.md` W13에서 확인한다.

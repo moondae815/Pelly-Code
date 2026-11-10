@@ -50,6 +50,8 @@ for line in open(sys.argv[1], encoding="utf-8"):
 }
 # Prints the file as UTF-8 text (UTF-8 files as they are, anything else read as CP949), newlines joined to spaces.
 text() { { iconv -f UTF-8 -t UTF-8 "$1" 2>/dev/null || iconv -f CP949 -t UTF-8 "$1"; } | tr '\r\n' '  '; }
+# Console text and expected strings are compared with all whitespace removed: the console wraps long lines at its width.
+squeeze() { tr -d ' \t\r\n'; }
 results="$out/results.tsv"
 printf 'id\trun\tcheck\tapply\texit\tseconds\tdetail\n' > "$results"
 failures=0
@@ -67,23 +69,23 @@ for yaml in "$here"/w3-*.yaml; do
     detail=""; check="ok"; apply="-"; code="-"; secs=0
     # (1) spec check with the impact search (no model, no DB needed for the ASP warnings)
     ( cd "$work" && dotnet "$pelly" spec check "changes/$id.md" --impact > "$dest/check.log" 2>&1 ); ccode=$?
-    ctext="$(tr '\r\n' '  ' < "$dest/check.log")"
+    ctext="$(squeeze < "$dest/check.log")"
     [ "$ccode" -eq 0 ] || { check="FAIL"; detail="$detail spec-check-exit=$ccode"; }
-    while IFS= read -r s; do [ -z "$s" ] && continue; printf '%s' "$ctext" | grep -qF -- "$s" || { check="FAIL"; detail="$detail check-missing:$s"; }; done < <(field "$yaml" checkMustContain)
-    while IFS= read -r s; do [ -z "$s" ] && continue; printf '%s' "$ctext" | grep -qF -- "$s" && { check="FAIL"; detail="$detail check-present:$s"; }; done < <(field "$yaml" checkMustNotContain)
+    while IFS= read -r s; do [ -z "$s" ] && continue; printf '%s' "$ctext" | grep -qF -- "$(printf '%s' "$s" | squeeze)" || { check="FAIL"; detail="$detail check-missing:$s"; }; done < <(field "$yaml" checkMustContain)
+    while IFS= read -r s; do [ -z "$s" ] && continue; printf '%s' "$ctext" | grep -qF -- "$(printf '%s' "$s" | squeeze)" && { check="FAIL"; detail="$detail check-present:$s"; }; done < <(field "$yaml" checkMustNotContain)
     # (2) apply
     start=$(date +%s)
     ( cd "$work" && dotnet "$pelly" apply "changes/$id.md" --yes --model "$model" --endpoint "$endpoint" > "$dest/console.log" 2>&1 ); code=$?
     secs=$(( $(date +%s) - start ))
     apply="ok"
     [ "$code" -eq "$want_exit" ] || { apply="FAIL"; detail="$detail exit=$code(want $want_exit)"; }
-    otext="$(tr '\r\n' '  ' < "$dest/console.log")"
+    otext="$(squeeze < "$dest/console.log")"
     while IFS= read -r s; do [ -z "$s" ] && continue
       f="${s%%::*}"; t="${s#*::}"
       text "$work/$f" | grep -qF -- "$t" || { apply="FAIL"; detail="$detail file-missing:$f::$t"; }
     done < <(field "$yaml" fileMustContain)
-    while IFS= read -r s; do [ -z "$s" ] && continue; printf '%s' "$otext" | grep -qF -- "$s" || { apply="FAIL"; detail="$detail output-missing:$s"; }; done < <(field "$yaml" outputMustContain)
-    while IFS= read -r s; do [ -z "$s" ] && continue; printf '%s' "$otext" | grep -qF -- "$s" && { apply="FAIL"; detail="$detail output-present:$s"; }; done < <(field "$yaml" outputMustNotContain)
+    while IFS= read -r s; do [ -z "$s" ] && continue; printf '%s' "$otext" | grep -qF -- "$(printf '%s' "$s" | squeeze)" || { apply="FAIL"; detail="$detail output-missing:$s"; }; done < <(field "$yaml" outputMustContain)
+    while IFS= read -r s; do [ -z "$s" ] && continue; printf '%s' "$otext" | grep -qF -- "$(printf '%s' "$s" | squeeze)" && { apply="FAIL"; detail="$detail output-present:$s"; }; done < <(field "$yaml" outputMustNotContain)
     run="$(ls -d "$work"/.pelly/runs/apply-*/ 2>/dev/null | sort | tail -1)"
     [ -n "$run" ] && cp -R "$run" "$dest/run"
     if [ -n "$min_callers" ]; then

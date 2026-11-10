@@ -1,6 +1,7 @@
 using System.IO.Abstractions;
 using PellyCoder.Core.Files;
 using PellyCoder.Core.Specs;
+using PellyCoder.Core.Web;
 using PellyCoder.Core.Sql;
 using PellyCoder.Core.Workspaces;
 
@@ -210,6 +211,38 @@ public static class ImpactCheck
                     $"작업 {first.TaskIds}의 영향 대상이 명세에 없습니다: {SqlImpactFinder.Display(first.Object)} 호출 외 {missing.Count - SqlImpactFinder.MaxWarningsPerTable}곳 — 전체 목록: {listPath ?? "(저장 실패)"}"));
         }
         return issues;
+    }
+
+    /// <summary>
+    /// Warnings for the JS function → callers impact (W3 design §4.4): one <c>JsImpactNotInSpec</c> per uncovered call or
+    /// reference on the seed task's line, at most <see cref="SqlImpactFinder.MaxWarningsPerTable"/> per function and then one
+    /// 「외 n곳」 line naming the full list (<paramref name="listPath"/>, null when it could not be saved).
+    /// </summary>
+    public static IReadOnlyList<SpecIssue> JsIssues(IReadOnlyList<JsImpactSeed> seeds, IReadOnlyList<JsImpactHit> hits, string? listPath)
+    {
+        var issues = new List<SpecIssue>();
+        foreach (var seed in seeds)
+        {
+            var missing = hits.Where(h => h.Seed == seed && !h.Covered).ToList();
+            foreach (var hit in missing.Take(SqlImpactFinder.MaxWarningsPerTable))
+                issues.Add(Warning(seed.Line, "JsImpactNotInSpec",
+                    $"작업 {seed.TaskId}의 영향 대상이 명세에 없습니다: {Normalize(hit.RelativePath)}:{hit.Call.Line} ({Describe(seed.Function, hit.Call)})"
+                    + (hit.PageDoesNotLoadSeedFile ? $" (이 페이지는 {Normalize(seed.RelativePath)}를 부르지 않음)" : "")));
+            if (missing.Count > SqlImpactFinder.MaxWarningsPerTable)
+                issues.Add(Warning(seed.Line, "JsImpactNotInSpec",
+                    $"작업 {seed.TaskId}의 영향 대상이 명세에 없습니다: {seed.Function} 호출 외 {missing.Count - SqlImpactFinder.MaxWarningsPerTable}곳 — 전체 목록: {listPath ?? "(저장 실패)"}"));
+        }
+        return issues;
+    }
+
+    /// <summary><c>fnSearch 호출, 인수 1개, onclick</c> · <c>fnSearch 참조, script</c>.</summary>
+    internal static string Describe(string function, JsCallSite call)
+    {
+        var parts = new List<string> { call.Reference ? $"{function} 참조" : $"{function} 호출" };
+        if (!call.Reference) parts.Add(call.Arguments is { } n ? $"인수 {n}개" : "인수 모름");
+        if (call.Source == JsCallSource.PageScript) parts.Add("script");
+        else if (call.Source == JsCallSource.Attribute && call.AttributeName is { } attr) parts.Add(attr);
+        return string.Join(", ", parts);
     }
 
     /// <summary>The task's <c>#객체</c>, else its file's only definition; null when neither tells one object.</summary>

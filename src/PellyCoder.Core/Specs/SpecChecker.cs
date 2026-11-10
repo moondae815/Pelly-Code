@@ -143,8 +143,86 @@ public static partial class SpecChecker
         }
 
         if (sql is not null) check = await AddSqlImpactAsync(check, sql, ct, found?.Hits);
-        if (aspFailed is not null) return check with { Issues = [.. check.Issues, aspFailed] };
-        return found is { } f ? AddAspIssues(check, asp!, f.Seeds, f.Hits) : check;
+        if (aspFailed is not null) check = check with { Issues = [.. check.Issues, aspFailed] };
+        else if (found is { } f) check = AddAspIssues(check, asp!, f.Seeds, f.Hits);
+        return asp is not null && impactAllCsTasks ? AddJsImpact(check, asp) : check;
+    }
+
+    /// <summary><c>.pelly/impact/&lt;spec id&gt;-js.json</c>: the full list of the JS search, next to the SQL one.</summary>
+    private static string JsListPath(AspImpactRequest request) =>
+        request.ListPath.EndsWith("-sql.json", StringComparison.Ordinal) ? request.ListPath[..^"-sql.json".Length] + "-js.json" : request.ListPath + ".js.json";
+
+    /// <summary>
+    /// The JS function → callers warnings (W3 design §4.4) of <c>spec check --impact</c>: never part of apply's pre-check.
+    /// A search that throws becomes the warning <c>ImpactFailed</c>.
+    /// </summary>
+    private static SpecCheckResult AddJsImpact(SpecCheckResult check, AspImpactRequest request)
+    {
+        var fs = request.Fs;
+        var o = request.Asp;
+        var root = check.Workspace.Root;
+        var siteRoot = AspSiteRoot.Resolve(fs, o.SiteRoot, root);
+        string SiteRelative(SpecTask t) => fs.Path.GetRelativePath(siteRoot, SpecTaskPaths.FullPath(fs.Path, root, t.Path)).Replace('\\', '/');
+        var codec = new WebCodecRouter(new WebTextCodec(o.Encoding), new AspTextCodec(o.Encoding), o.Extensions);
+        string? Read(string rel)
+        {
+            try
+            {
+                var full = fs.Path.Combine(siteRoot, rel);
+                return codec.Decode(full, fs.File.ReadAllBytes(full)).Text;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or ArgumentException or NotSupportedException)
+            {
+                return null;
+            }
+        }
+
+        var jsTasks = check.Spec.Tasks.Where(t => t is { Kind: TaskKind.Js, Done: false }).ToList();
+        if (jsTasks.Count == 0 || !fs.Directory.Exists(siteRoot)) return check;
+        var issues = new List<SpecIssue>();
+        foreach (var t in jsTasks.Where(t => t.Lines is not null))
+        {
+            var text = Read(SiteRelative(t));
+            var isPage = WebPages.IsPage(t.Path, o.Extensions);
+            var lines = t.Lines!;
+            if (text is not null && WebTargetLookup.JsPieces(text, isPage).SelectMany(WebTargetLookup.Functions)
+                    .Any(f => f.DeclLine >= lines.StartLine && f.DeclLine <= lines.EndLine))
+                issues.Add(new SpecIssue(t.Line, SpecIssueSeverity.Warning, "JsImpactLinesTarget", $"작업 {t.Id}은 줄 범위 대상이라 부르는 곳을 찾지 않았습니다"));
+        }
+
+        var seeds = jsTasks.Where(t => t.Symbol is not null).Select(t => new JsImpactSeed(t.Id, SiteRelative(t), t.Symbol!, t.Line)).ToList();
+        if (seeds.Count > 0)
+        {
+            try
+            {
+                var cachePath = fs.Path.Combine(root, ".pelly", "cache", "web-site-index.json");
+                var index = WebSiteIndex.Load(fs, siteRoot, new WebFileFilter(siteRoot, (request.Web ?? new WebOptions()).VendorPaths), codec, cachePath,
+                    aspExtensions: o.Extensions, spCallFunctions: o.SpCallFunctions);
+                var tasks = check.Spec.Tasks.Select(t => t with { Path = SiteRelative(t) }).ToList();
+                var hits = JsImpactFinder.Find(seeds, tasks, index, Read);
+                string? shown = null;
+                if (hits.Count > 0 || fs.File.Exists(JsListPath(request)))
+                {
+                    try
+                    {
+                        JsImpactList.Write(fs, JsListPath(request), check.Spec.Id, seeds, hits);
+                        shown = fs.Path.GetRelativePath(root, JsListPath(request)).Replace('\\', '/');
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
+                    {
+                        // The warnings still say what was found; the list just says it was not saved.
+                    }
+                }
+                issues.AddRange(ImpactCheck.JsIssues(seeds, hits, shown));
+                if (index.Truncated)
+                    issues.Add(new SpecIssue(seeds[0].Line, SpecIssueSeverity.Warning, "JsImpactTruncated", "사이트 파일이 많아 일부 호출을 보지 못했을 수 있습니다"));
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                issues.Add(new SpecIssue(0, SpecIssueSeverity.Warning, "ImpactFailed", $"영향 탐색(JS)을 할 수 없습니다: {ex.Message}"));
+            }
+        }
+        return issues.Count == 0 ? check : check with { Issues = [.. check.Issues, .. issues] };
     }
 
     /// <summary>The ASP calls of the stored procedures the not-done sql tasks change; null when there is no such task.</summary>

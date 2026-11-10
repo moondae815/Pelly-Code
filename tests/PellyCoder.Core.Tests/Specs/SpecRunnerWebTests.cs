@@ -148,6 +148,16 @@ public sealed class SpecRunnerWebTests : IDisposable
         Assert.Null(seen[1].Lines);
     }
 
+    [Fact]
+    public async Task Apply_PreImpact_HasNoJsWarnings()
+    {
+        Make("web/admin/other.asp", "<input onclick=\"fnSearch(1)\">\n");
+        Spec("- [ ] T1 js web/js/order.js#fnSearch 바꾼다\n");
+        Assert.Equal(0, await Run(Opts()));
+        Assert.Empty(_ui.ConfirmMessages);
+        Assert.DoesNotContain(_ui.Warnings, w => w.Contains("영향 대상"));
+    }
+
     private sealed class FakeGroupVerifier : IGroupVerifier
     {
         public List<IReadOnlyList<string>> Calls { get; } = [];

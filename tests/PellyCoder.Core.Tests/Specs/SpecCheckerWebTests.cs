@@ -138,4 +138,73 @@ public sealed class SpecCheckerWebTests
     [Fact]
     public void FirstTaskLines_Allowed() =>
         Assert.Empty(Check(Fs("- [ ] T1 js web/admin/list.asp#L10-12 바꾼다\n- [ ] T2 asp web/admin/list.asp#Search 바꾼다\n")).Issues);
+
+    private static Task<SpecCheckResult> Impact(MockFileSystem fs, bool impact = true, WebOptions? web = null) =>
+        SpecChecker.CheckAsync(fs, "/ws/changes/x.md", 160, null, impact, TestContext.Current.CancellationToken, null, Asp, web);
+
+    private static void Callers(MockFileSystem fs, int count)
+    {
+        for (var i = 1; i <= count; i++)
+            fs.AddFile($"/ws/web/admin/p{i:00}.asp", "<script src=\"../js/order.js\"></script>\n<input onclick=\"fnSearch(this)\">\n");
+    }
+
+    [Fact]
+    public async Task Impact_WarnsUncovered_Cap10_ListFile()
+    {
+        var fs = Fs("- [ ] T1 js web/js/order.js#fnSearch 매개변수를 더한다\n");
+        Callers(fs, 11);
+        var r = await Impact(fs);
+        var warnings = r.Issues.Where(i => i.Code == "JsImpactNotInSpec").ToList();
+        Assert.Equal(11, warnings.Count);
+        Assert.Contains(warnings, w => w.Message == "작업 T1의 영향 대상이 명세에 없습니다: admin/p01.asp:2 (fnSearch 호출, 인수 1개, onclick)");
+        Assert.Contains(warnings, w => w.Message == "작업 T1의 영향 대상이 명세에 없습니다: admin/list.asp:11 (fnSearch 호출, 인수 2개, script) (이 페이지는 js/order.js를 부르지 않음)");
+        Assert.Equal("작업 T1의 영향 대상이 명세에 없습니다: fnSearch 호출 외 2곳 — 전체 목록: .pelly/impact/x-js.json", warnings[^1].Message);
+        Assert.All(warnings, w => Assert.Equal(SpecIssueSeverity.Warning, w.Severity));
+        using var list = System.Text.Json.JsonDocument.Parse(fs.File.ReadAllText("/ws/.pelly/impact/x-js.json"));
+        Assert.Equal(12, list.RootElement.GetProperty("calls").GetArrayLength());
+    }
+
+    [Fact]
+    public async Task Impact_PageNotLoadingSeedFile_Noted()
+    {
+        var fs = Fs("- [ ] T1 js web/js/order.js#fnSearch 바꾼다\n");
+        fs.AddFile("/ws/web/admin/bare.asp", "<input onclick=\"fnSearch(1)\">\n");
+        var r = await Impact(fs);
+        Assert.Contains(r.Issues, i => i.Message.EndsWith("admin/bare.asp:1 (fnSearch 호출, 인수 1개, onclick) (이 페이지는 js/order.js를 부르지 않음)"));
+    }
+
+    [Fact]
+    public async Task Impact_LinesTarget_Note()
+    {
+        var fs = Fs("- [ ] T1 js web/js/order.js#L1-1 바꾼다\n");
+        var r = await Impact(fs);
+        var note = Assert.Single(r.Issues);
+        Assert.Equal("JsImpactLinesTarget", note.Code);
+        Assert.Equal("작업 T1은 줄 범위 대상이라 부르는 곳을 찾지 않았습니다", note.Message);
+    }
+
+    [Fact]
+    public async Task Impact_NotRunWithoutFlag()
+    {
+        var fs = Fs("- [ ] T1 js web/js/order.js#fnSearch 바꾼다\n");
+        Callers(fs, 2);
+        Assert.Empty((await Impact(fs, impact: false)).Issues);
+    }
+
+    [Fact]
+    public async Task Impact_CoveredCallerNotWarned()
+    {
+        var fs = Fs("- [ ] T1 js web/js/order.js#fnSearch 바꾼다\n- [ ] T2 js web/admin/list.asp#goPage 넘긴다\n");
+        var r = await Impact(fs);
+        Assert.DoesNotContain(r.Issues, i => i.Code == "JsImpactNotInSpec");
+    }
+
+    [Fact]
+    public async Task VendorFile_NotIndexed_WithConfiguredVendorPaths()
+    {
+        var fs = Fs("- [ ] T1 js web/js/order.js#fnSearch 바꾼다\n");
+        fs.AddFile("/ws/web/legacy/old.js", "fnSearch(1);\n");
+        Assert.Contains((await Impact(fs)).Issues, i => i.Message.Contains("legacy/old.js:1"));
+        Assert.DoesNotContain((await Impact(fs, web: new WebOptions { VendorPaths = ["**/legacy/**"] })).Issues, i => i.Message.Contains("legacy/old.js"));
+    }
 }

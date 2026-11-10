@@ -1,0 +1,7 @@
+id: w3-005
+checkMustContain: []
+checkMustNotContain: []
+exit: 0
+fileMustContain: ["admin/order/memo_save.asp::Request.Form(\"writer\")"]
+outputMustContain: ["memo_save.asp가 읽는 writer"]
+outputMustNotContain: []

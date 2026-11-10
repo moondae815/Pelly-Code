@@ -204,7 +204,7 @@ public sealed class AspIntegrationTests(ITestOutputHelper output) : IDisposable
     {
         var processes = new SystemProcessRunner(TimeProvider.System);
         var files = AspCorpusCopy.SourceFiles();
-        Assert.Equal(16, files.Count); // W3a added admin/order/history.asp
+        Assert.Equal(18, files.Count); // W3a added admin/order/history.asp, W3b memo.asp and memo_save.asp
         var failures = new List<string>();
         foreach (var path in files)
         {

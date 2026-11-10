@@ -1,0 +1,7 @@
+id: w3-004
+checkMustContain: []
+checkMustNotContain: []
+exit: 0
+fileMustContain: ["admin/order/memo.asp::name=\"memo\""]
+outputMustContain: ["memo_save.asp가 읽는 memoText"]
+outputMustNotContain: []

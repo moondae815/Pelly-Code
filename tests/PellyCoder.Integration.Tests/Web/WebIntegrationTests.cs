@@ -258,6 +258,8 @@ public sealed class WebIntegrationTests(ITestOutputHelper output) : IDisposable
     [InlineData("w3-001", null)]
     [InlineData("w3-002", "작업 T1의 영향 대상이 명세에 없습니다: admin/order/history.asp:12 (fnHistory 호출, 인수 1개, onclick)")]
     [InlineData("w3-003", null)]
+    [InlineData("w3-004", null)]
+    [InlineData("w3-005", null)]
     public async Task Benchmark_W3Specs_CheckAsDesigned(string id, string? warning)
     {
         var bench = Path.Combine(CorpusPaths.Root, "..", "benchmark", "web-w3", id + ".md");
@@ -303,6 +305,7 @@ public sealed class WebIntegrationTests(ITestOutputHelper output) : IDisposable
             ["admin/legacy/old.asp"] = (1, 0),
             ["help/guide.htm"] = (1, 0),
             ["admin/order/history.asp"] = (2, 1), // W3 corpus: a function called from a .js, a block and an onclick
+            ["admin/order/memo.asp"] = (1, 0), // W3b corpus: a form whose action JS sets, posting to memo_save.asp
         };
         var pages = Directory.GetFiles(CorpusPaths.Get("Asp"), "*.*", SearchOption.AllDirectories)
             .Where(f => new[] { ".asp", ".inc", ".htm", ".html" }.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase))

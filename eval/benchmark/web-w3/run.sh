@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Runs the W3a spec cases (eval/benchmark/web-w3/w3-*.md with w3-*.yaml expectations) with `pelly apply` against fresh
+# Runs the W3 spec cases (eval/benchmark/web-w3/w3-*.md with w3-*.yaml expectations) with `pelly apply` against fresh
 # copies of eval/corpus/Asp (the site root), like eval/benchmark/asp-a2/run.sh: js and css spec tasks, JS signature changes
-# and the callers they leave behind (W3 design §4).
+# and the callers they leave behind (W3 design §4), and form field pairs an edit breaks (§5, w3-004 and w3-005).
 # Per case: (1) `pelly spec check --impact` must exit 0 and print every checkMustContain string and no checkMustNotContain
 # string; (2) `pelly apply --yes` must exit with the expected code, the named files must contain the strings
 # ("path::text", read as UTF-8 or CP949), the console output must (not) contain the strings, and apply.json must list at

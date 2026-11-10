@@ -71,7 +71,7 @@ public class WebSiteIndexTests
         Assert.Equal(new[] { "gone", "one" }, Load(fs).Names.OrderBy(n => n, StringComparer.Ordinal));
         Assert.True(fs.File.Exists(Cache));
         var json = fs.File.ReadAllText(Cache);
-        Assert.Contains("\"version\":4", json);
+        Assert.Contains("\"version\":5", json);
         Assert.Contains("\"a.js\"", json);
         Assert.DoesNotContain(fs.AllFiles, f => f.EndsWith(".tmp"));
 
@@ -87,18 +87,18 @@ public class WebSiteIndexTests
     {
         var fs = Fs(("/site/a.js", "function one() {}\n"), (Cache, "{ not json"));
         Assert.Equal(new[] { "one" }, Load(fs).Names);
-        Assert.Contains("\"version\":4", fs.File.ReadAllText(Cache));
+        Assert.Contains("\"version\":5", fs.File.ReadAllText(Cache));
 
         fs.File.WriteAllText(Cache, "{\"version\":99,\"files\":{}}");
         Assert.Equal(new[] { "one" }, Load(fs).Names);
     }
 
     [Theory]
-    [InlineData("{\"version\":4,\"files\":null}")]
-    [InlineData("{\"version\":4,\"files\":{\"a.js\":null}}")]
-    [InlineData("{\"version\":4,\"files\":{\"a.js\":{\"sha256\":\"SHA\",\"entries\":null}}}")]
-    [InlineData("{\"version\":4,\"files\":{\"a.js\":{\"sha256\":\"SHA\",\"entries\":[null]}}}")]
-    [InlineData("{\"version\":4,\"files\":{\"a.js\":{\"sha256\":\"SHA\",\"entries\":[{\"name\":null,\"line\":1,\"declaration\":\"x\"}]}}}")]
+    [InlineData("{\"version\":5,\"files\":null}")]
+    [InlineData("{\"version\":5,\"files\":{\"a.js\":null}}")]
+    [InlineData("{\"version\":5,\"files\":{\"a.js\":{\"sha256\":\"SHA\",\"entries\":null}}}")]
+    [InlineData("{\"version\":5,\"files\":{\"a.js\":{\"sha256\":\"SHA\",\"entries\":[null]}}}")]
+    [InlineData("{\"version\":5,\"files\":{\"a.js\":{\"sha256\":\"SHA\",\"entries\":[{\"name\":null,\"line\":1,\"declaration\":\"x\"}]}}}")]
     public void Index_NullMembersCache_Rebuilt(string cache)
     {
         const string text = "function one() {}\n";
@@ -154,7 +154,7 @@ public class WebSiteIndexTests
             "\",\"entries\":[],\"includes\":[],\"spCalls\":[]}}}"));
         var r = Load(fs);
         Assert.Contains(r.JsCalls, c => c.Call.Name == "go");
-        Assert.Contains("\"version\":4", fs.File.ReadAllText(Cache));
+        Assert.Contains("\"version\":5", fs.File.ReadAllText(Cache));
     }
 
     [Fact]
@@ -164,5 +164,54 @@ public class WebSiteIndexTests
         Load(fs);
         var again = Load(fs);
         Assert.Contains(again.JsCalls, c => c.Call.Name == "go" && c.Call.Arguments == 1);
+    }
+
+    [Fact]
+    public void Index_HasFormFacts_PageAndJs()
+    {
+        var fs = Fs(
+            ("/site/js/memo.js", "$.post(\"memo_save.asp\", { memoText: t });\n"),
+            ("/site/admin/save.asp", "<%\nv = Request.Form(\"memoText\")\n%>\n"),
+            ("/site/admin/plain.asp", "<p>x</p>\n"));
+        var r = Load(fs);
+        Assert.Equal(["memoText"], Assert.Single(r.FormFacts["js/memo.js"].Senders).Fields);
+        Assert.Equal(new FormRead("memoText", FormReadSource.Form, 2), Assert.Single(r.FormFacts["admin/save.asp"].Reads));
+        Assert.False(r.FormFacts.ContainsKey("admin/plain.asp"));
+    }
+
+    [Fact]
+    public void Cache_Version4_IsRebuilt()
+    {
+        var text = "<%\nv = Request(\"k\")\n%>\n";
+        var fs = Fs(("/site/a.asp", text));
+        var sha = PellyCoder.Core.Files.TextFileCodec.HashHex(Encoding.UTF8.GetBytes(text));
+        fs.AddFile(Cache, new MockFileData("{\"version\":4,\"spKey\":\"\",\"files\":{\"a.asp\":{\"sha256\":\"" + sha +
+            "\",\"entries\":[],\"includes\":[],\"spCalls\":[],\"calls\":[],\"scriptSources\":[]}}}"));
+        var r = Load(fs);
+        Assert.Equal("k", Assert.Single(r.FormFacts["a.asp"].Reads).Key);
+        Assert.Contains("\"version\":5", fs.File.ReadAllText(Cache));
+    }
+
+    [Fact]
+    public void Cache_Reused_KeepsFormFacts()
+    {
+        var fs = Fs(("/site/a.asp", "<form action=\"s.asp\" method=\"post\"><input name=\"k\"></form>\n"));
+        Load(fs);
+        var again = Load(fs);
+        var s = Assert.Single(again.FormFacts["a.asp"].Senders);
+        Assert.Equal("s.asp", s.Url);
+        Assert.True(s.Post);
+        Assert.Equal(["k"], s.Fields);
+    }
+
+    [Fact]
+    public void Cache_NullFormFacts_Rebuilt()
+    {
+        var text = "<%\nv = Request(\"k\")\n%>\n";
+        var fs = Fs(("/site/a.asp", text));
+        var sha = PellyCoder.Core.Files.TextFileCodec.HashHex(Encoding.UTF8.GetBytes(text));
+        fs.AddFile(Cache, new MockFileData("{\"version\":5,\"spKey\":\"\",\"files\":{\"a.asp\":{\"sha256\":\"" + sha +
+            "\",\"entries\":[],\"includes\":[],\"spCalls\":[],\"calls\":[],\"scriptSources\":[],\"forms\":{\"reads\":null}}}}"));
+        Assert.Equal("k", Assert.Single(Load(fs).FormFacts["a.asp"].Reads).Key);
     }
 }

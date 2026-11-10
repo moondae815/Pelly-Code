@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using PellyCoder.Core.Asp;
 
@@ -32,6 +33,7 @@ public sealed record FileFormFacts(
 {
     public static FileFormFacts Empty { get; } = new([], false, [], []);
 
+    [JsonIgnore]
     public bool IsEmpty => Reads.Count == 0 && !AllRead && Senders.Count == 0 && Actions.Count == 0;
 }
 

@@ -40,6 +40,10 @@ public sealed record WebSiteIndexResult(IReadOnlyList<JsIndexEntry> Entries, int
     public IReadOnlyDictionary<string, IReadOnlyList<string>> ScriptSources { get; init; } =
         new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Form facts per site-relative file (W3 design §5.4); files without any are left out.</summary>
+    public IReadOnlyDictionary<string, FileFormFacts> FormFacts { get; init; } =
+        new Dictionary<string, FileFormFacts>(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Top-level names of the <c>.js</c> files only.</summary>
     public IReadOnlySet<string> JsNames => _jsNames ??= new HashSet<string>(
         Entries.Where(e => e.Source == JsIndexSource.Js).Select(e => e.Name), StringComparer.Ordinal);
@@ -86,7 +90,7 @@ public sealed record WebSiteIndexResult(IReadOnlyList<JsIndexEntry> Entries, int
 /// <summary>Top-level function and variable names of the site's own JavaScript files, cached by file hash.</summary>
 public static class WebSiteIndex
 {
-    private const int CacheVersion = 4;
+    private const int CacheVersion = 5;
 
     private sealed class CacheFile
     {
@@ -104,6 +108,7 @@ public static class WebSiteIndex
         public List<CacheSpCall> SpCalls { get; set; } = new();
         public List<CacheJsCall> Calls { get; set; } = new();
         public List<string> ScriptSources { get; set; } = new();
+        public FileFormFacts Forms { get; set; } = FileFormFacts.Empty;
     }
 
     internal sealed class CacheJsCall
@@ -154,6 +159,7 @@ public static class WebSiteIndex
         var includes = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
         var jsCalls = new List<(string, JsCallSite)>();
         var scriptSources = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
+        var formFacts = new Dictionary<string, FileFormFacts>(StringComparer.OrdinalIgnoreCase);
         var files = 0;
         var pageFiles = 0;
         var truncated = false;
@@ -205,12 +211,17 @@ public static class WebSiteIndex
             if (reusable && old.Files.TryGetValue(rel, out var hit) && hit.Sha256 == sha) item = hit;
             else item = isPage
                 ? ExtractPage(rel, sha, text, extensions.Any(e => rel.EndsWith(e, StringComparison.OrdinalIgnoreCase)) ? wrappers : null)
-                : new CacheItem { Sha256 = sha, Entries = Extract(text), Calls = JsCallFinder.InScript(text, JsCallSource.Js).Select(CacheJsCall.Of).ToList() };
+                : new CacheItem
+                {
+                    Sha256 = sha, Entries = Extract(text), Calls = JsCallFinder.InScript(text, JsCallSource.Js).Select(CacheJsCall.Of).ToList(),
+                    Forms = FormFacts.OfScript(text),
+                };
             fresh.Files[rel] = item;
             var source = isPage ? JsIndexSource.Page : JsIndexSource.Js;
             foreach (var it in item.Entries) entries.Add(new JsIndexEntry(it.Name, rel, it.Line, it.Declaration, source));
             foreach (var c in item.Calls) jsCalls.Add((rel, c.ToCall()));
             if (item.ScriptSources.Count > 0) scriptSources[rel] = item.ScriptSources;
+            if (!item.Forms.IsEmpty) formFacts[rel] = item.Forms;
             if (isPage)
             {
                 if (item.Includes.Count > 0) includes[rel] = item.Includes;
@@ -225,6 +236,7 @@ public static class WebSiteIndex
         return new WebSiteIndexResult(entries, files, truncated)
         {
             PageFiles = pageFiles, Includes = includes, SpCalls = spCalls, JsCalls = jsCalls, ScriptSources = scriptSources,
+            FormFacts = formFacts,
         };
     }
 
@@ -242,6 +254,7 @@ public static class WebSiteIndex
             });
         }
         item.Calls = JsCallFinder.InPage(page, textLf).Select(CacheJsCall.Of).ToList();
+        item.Forms = FormFacts.OfPage(page, textLf);
         var dir = PagePaths.Directory(rel);
         foreach (var block in page.ClientBlocks)
             if (block.Src is { } src && PagePaths.ResolveScriptSrc(dir, src) is { } js && !item.ScriptSources.Contains(js, StringComparer.OrdinalIgnoreCase))
@@ -374,6 +387,9 @@ public static class WebSiteIndex
     private static bool Complete(CacheFile c) =>
         c.Files is not null && c.Files.Values.All(item => item is { Sha256: not null, Entries: not null }
             && item.Includes is not null && item.SpCalls is not null && item.Calls is not null && item.ScriptSources is not null
+            && item.Forms is { Reads: not null, Senders: not null, Actions: not null }
+            && item.Forms.Reads.All(x => x?.Key is not null) && item.Forms.Actions.All(x => x?.FormRef is not null)
+            && item.Forms.Senders.All(x => x is not null)
             && item.Calls.All(x => x?.Name is not null) && item.SpCalls.All(x => x?.Name is not null) && item.Entries.All(e => e is { Name: not null, Declaration: not null }));
 
     private static void WriteCache(IFileSystem fs, string path, CacheFile cache)

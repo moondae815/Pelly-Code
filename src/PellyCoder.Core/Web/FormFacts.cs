@@ -27,14 +27,19 @@ public sealed record FormSender(
 /// <summary>A JS assignment of a form's action. <paramref name="Url"/> null: the address is not known.</summary>
 public sealed record FormAction(string FormRef, string? Url, int Line);
 
-/// <summary>The form facts of one file (W3 design §5.1, §5.4).</summary>
+/// <summary>
+/// The form facts of one file (W3 design §5.1, §5.4). <paramref name="WritesAction"/>: the file sets some form's action in a way
+/// (an alias, an event attribute, a selector) <paramref name="Actions"/> may not tie to a form, so a form without action on a page
+/// that sees this file is not taken to post to itself.
+/// </summary>
 public sealed record FileFormFacts(
-    IReadOnlyList<FormRead> Reads, bool AllRead, IReadOnlyList<FormSender> Senders, IReadOnlyList<FormAction> Actions)
+    IReadOnlyList<FormRead> Reads, bool AllRead, IReadOnlyList<FormSender> Senders, IReadOnlyList<FormAction> Actions,
+    bool WritesAction = false)
 {
     public static FileFormFacts Empty { get; } = new([], false, [], []);
 
     [JsonIgnore]
-    public bool IsEmpty => Reads.Count == 0 && !AllRead && Senders.Count == 0 && Actions.Count == 0;
+    public bool IsEmpty => Reads.Count == 0 && !AllRead && Senders.Count == 0 && Actions.Count == 0 && !WritesAction;
 }
 
 /// <summary>Reads form facts from one ASP/HTML page or one <c>.js</c> file. Only what is certain is kept (design §5.1).</summary>
@@ -71,6 +76,13 @@ public static class FormFacts
     private static readonly Regex Identifier = new(@"^[A-Za-z_$][\w$]*$", RegexOptions.Compiled);
     private static readonly Regex Callback = new(@"^(?:function\b|\(?[\w$\s,]*\)?\s*=>)", RegexOptions.Compiled);
     private static readonly Regex QueryKey = new(@"^[\w.\-\[\]]+$", RegexOptions.Compiled);
+    private static readonly Regex AnyActionWrite = new(
+        @"\.\s*action\s*=(?!=)|[""']action[""']\s*[,\]]|setAttribute\s*\(\s*[""']action[""']", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    // Request("k") also searches the server variables; these names are not form fields.
+    private static readonly Regex ServerVariable = new(
+        @"^(?:HTTP_\w+|REMOTE_\w+|SERVER_\w+|LOCAL_ADDR|URL|PATH_INFO|PATH_TRANSLATED|QUERY_STRING|SCRIPT_NAME|REQUEST_METHOD|HTTPS(?:_\w+)?|AUTH_\w+|LOGON_USER|UNMAPPED_REMOTE_USER|CONTENT_\w+|ALL_HTTP|ALL_RAW|APPL_\w+|INSTANCE_\w+|GATEWAY_INTERFACE|CERT_\w+)$",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     public static FileFormFacts OfPage(AspPage page, string textLf)
     {
@@ -87,15 +99,18 @@ public static class FormFacts
             senders.AddRange(Ajax(script));
             actions.AddRange(Actions(script));
         }
-        return Facts(reads, allRead, senders.OrderBy(s => s.Line).ToList(), actions.OrderBy(a => a.Line).ToList());
+        return Facts(reads, allRead, senders.OrderBy(s => s.Line).ToList(), actions.OrderBy(a => a.Line).ToList(),
+            AnyActionWrite.IsMatch(textLf));
     }
 
-    public static FileFormFacts OfScript(string textLf) => Facts([], false, Ajax(textLf), Actions(textLf));
+    public static FileFormFacts OfScript(string textLf) =>
+        Facts([], false, Ajax(textLf), Actions(textLf), AnyActionWrite.IsMatch(textLf));
 
     private static FileFormFacts Facts(
-        IReadOnlyList<FormRead> reads, bool allRead, IReadOnlyList<FormSender> senders, IReadOnlyList<FormAction> actions)
+        IReadOnlyList<FormRead> reads, bool allRead, IReadOnlyList<FormSender> senders, IReadOnlyList<FormAction> actions,
+        bool writesAction)
     {
-        var facts = new FileFormFacts(reads, allRead, senders, actions);
+        var facts = new FileFormFacts(reads, allRead, senders, actions, writesAction);
         return facts.IsEmpty ? FileFormFacts.Empty : facts;
     }
 
@@ -130,7 +145,8 @@ public static class FormFacts
                 if (j + 2 < t.Count && t[j + 1].Kind == VbTokenKind.String && t[j + 2].Kind == VbTokenKind.CloseParen)
                 {
                     var key = t[j + 1].Text[1..^1].Replace("\"\"", "\"", StringComparison.Ordinal);
-                    if (key.Length > 0) reads.Add(new FormRead(key, source, t[j + 1].Line));
+                    if (key.Length > 0 && !(source == FormReadSource.Any && ServerVariable.IsMatch(key)))
+                        reads.Add(new FormRead(key, source, t[j + 1].Line));
                 }
                 else if (source != FormReadSource.QueryString)
                     allRead = true;
@@ -148,6 +164,7 @@ public static class FormFacts
     {
         var starts = LineStarts(text);
         var procedures = page.Procedures.Select(p => p.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var declared = page.Declarations.Select(d => d.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (Match open in FormOpen.Matches(text))
         {
             var tagEnd = TagEnd(text, open.Index);
@@ -173,7 +190,7 @@ public static class FormFacts
             var id = attributes.GetValueOrDefault("id");
 
             var fields = Fields(text, tagEnd + 1, bodyEnd);
-            if (fields is not null && Opened(page, text, tagEnd + 1, bodyEnd, firstLine, lastLine, procedures, scripts, name, id))
+            if (fields is not null && Opened(page, text, tagEnd + 1, bodyEnd, firstLine, lastLine, procedures, declared, scripts, name, id))
                 fields = null;
             if (fields is not null && url is not null) fields = [.. fields, .. QueryKeys(url).Where(k => !fields.Contains(k))];
 
@@ -215,7 +232,7 @@ public static class FormFacts
 
     /// <summary>Whether something in the form, or page JS, may add fields the text does not show.</summary>
     private static bool Opened(AspPage page, string text, int from, int to, int firstLine, int lastLine,
-        HashSet<string> procedures, IReadOnlyList<string> scripts, string? name, string? id)
+        HashSet<string> procedures, HashSet<string> declared, IReadOnlyList<string> scripts, string? name, string? id)
     {
         if (Include.Match(text, from) is { Success: true } inc && inc.Index < to) return true;
 
@@ -224,8 +241,16 @@ public static class FormFacts
             var t = statement.Tokens;
             if (t.Count > 0 && IsWord(t[0], "Call")) return true;
             for (var i = 0; i < t.Count; i++)
-                if (t[i].Kind == VbTokenKind.Identifier && procedures.Contains(t[i].Text) && (i == 0 || t[i - 1].Kind != VbTokenKind.Dot))
-                    return true;
+            {
+                if (t[i].Kind != VbTokenKind.Identifier || (i > 0 && t[i - 1].Kind == VbTokenKind.Dot)) continue;
+                if (procedures.Contains(t[i].Text)) return true;
+                // A call of a function that is neither built in nor a variable (a helper from an include) may write fields.
+                if (AspBuiltins.Default.IsKnown(t[i].Text, true) || declared.Contains(t[i].Text)) continue;
+                var called = i + 1 < t.Count && t[i + 1].Kind == VbTokenKind.OpenParen;
+                var statementCall = i == 0 && !InOutput(page, t[i])
+                    && (t.Count == 1 || t[1].Kind is not (VbTokenKind.Operator or VbTokenKind.Dot or VbTokenKind.OpenParen));
+                if (called || statementCall) return true;
+            }
         }
 
         var refs = new[] { name, id }.Where(r => !string.IsNullOrWhiteSpace(r) && Identifier.IsMatch(r!.Trim())).ToList();
@@ -239,6 +264,11 @@ public static class FormFacts
         }
         return false;
     }
+
+    private static bool InOutput(AspPage page, VbToken token) =>
+        page.Segments.Any(s => s.Kind == AspSegmentKind.Output
+            && (token.Line > s.StartLine || (token.Line == s.StartLine && token.Column >= s.StartColumn))
+            && (token.Line < s.EndLine || (token.Line == s.EndLine && token.Column <= s.EndColumn)));
 
     /// <summary>The index of the <c>&gt;</c> closing the tag opened at <paramref name="start"/>, skipping <c>&lt;% %&gt;</c>.</summary>
     private static int TagEnd(string text, int start)

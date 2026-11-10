@@ -11,11 +11,13 @@ public sealed class FormSiteTests
     private const string Cache = "/ws/.pelly/cache/web-site-index.json";
 
     /// <summary>The site after the edit (on disk).</summary>
-    private static WebSiteIndexResult Site(params (string Path, string Text)[] files)
+    private static WebSiteIndexResult Site(params (string Path, string Text)[] files) => Site(2000, files);
+
+    private static WebSiteIndexResult Site(int maxFiles, params (string Path, string Text)[] files)
     {
         var fs = new MockFileSystem();
         foreach (var (p, t) in files) fs.AddFile(Root + "/" + p, new MockFileData(Encoding.UTF8.GetBytes(t)));
-        return WebSiteIndex.Load(fs, Root, new WebFileFilter(Root, []), new WebTextCodec("cp949"), Cache);
+        return WebSiteIndex.Load(fs, Root, new WebFileFilter(Root, []), new WebTextCodec("cp949"), Cache, maxFiles);
     }
 
     private static FileFormFacts Facts(string rel, string text) =>
@@ -264,5 +266,85 @@ public sealed class FormSiteTests
         Assert.True(g.AnyPost);
         Assert.False(g.AnyGet);
         Assert.Equal(1, g.Line);
+    }
+
+    // ---- review fixes ----
+
+    [Fact]
+    public void NewAjax_KeysNeverSent_NotWarned()
+    {
+        // A delete button added to the list page feeds a save page that handles several modes.
+        var edited = "<script>\n$.post(\"save.asp\", { mode: \"del\", idx: i });\n</script>\n";
+        var index = Site((List, edited), (Save, Reader("mode", "idx", "title", "content")),
+            ("admin/order/write.asp", Form("save.asp", "mode", "idx", "title", "content")));
+        Assert.Empty(Check(index, List, "<p>x</p>\n"));
+    }
+
+    [Fact]
+    public void ChangedTarget_KeysNeverSentThere_NotWarned()
+    {
+        var index = Site((List, Form("save2.asp", "a")), (Save, Reader("a")), ("admin/order/save2.asp", Reader("a", "b")),
+            ("admin/order/w.asp", Form("save2.asp", "a", "b")));
+        Assert.Empty(Check(index, List, Form("save.asp", "a")));
+    }
+
+    [Fact]
+    public void OpenBecomesClosed_NotWarned()
+    {
+        var original = "<form action=\"save.asp\" method=\"post\">\n<input name=\"a\">\n<% Call WriteMore() %>\n</form>\n";
+        var index = Site((List, Form("save.asp", "a")), (Save, Reader("a", "b")));
+        Assert.Empty(Check(index, List, original));
+    }
+
+    [Fact]
+    public void ReaderAndSenderBothEdited_KeyNeverSentBySender_NotWarned()
+    {
+        // The apply end: save.asp now reads memo (write.asp sends it); list.asp's delete form never sent memo.
+        const string write = "admin/order/write.asp";
+        var index = Site((List, Form("save.asp", "idx", "mode")), (Save, Reader("idx", "mode", "memo")),
+            (write, Form("save.asp", "idx", "mode", "memo")));
+        var before = FormSite.Build(index, new Dictionary<string, FileFormFacts>
+        {
+            [List] = Facts(List, Form("save.asp", "idx")),
+            [Save] = Facts(Save, Reader("idx", "mode")),
+        });
+        Assert.Empty(FormSite.NewMismatches(before, FormSite.Build(index), [List, Save]));
+    }
+
+    [Fact]
+    public void AliasActionAssignment_NotSelfPost()
+    {
+        const string page = "admin/board/write.asp";
+        string Text(string key) => "<%\nv = Request.Form(\"" + key + "\")\n%>\n<form name=\"frm\" method=\"post\">\n<input name=\"no\">\n</form>\n" +
+            "<script>\nfunction go() { var f = document.frm; f.action = \"write_ok.asp\"; f.submit(); }\n</script>\n";
+        var index = Site((page, Text("seq")));
+        Assert.Empty(Check(index, page, Text("no")));
+    }
+
+    [Fact]
+    public void InlineOnclickAction_NotSelfPost()
+    {
+        const string page = "admin/board/write.asp";
+        string Text(string key) => "<%\nv = Request.Form(\"" + key + "\")\n%>\n<form name=\"frm\" method=\"post\">\n<input name=\"no\">\n" +
+            "<input type=\"button\" onclick=\"frm.action='write_ok.asp'; frm.submit();\">\n</form>\n";
+        var index = Site((page, Text("seq")));
+        Assert.Empty(Check(index, page, Text("no")));
+    }
+
+    [Fact]
+    public void AnyRead_NoNobodySends()
+    {
+        // Request("k") can come from a link or a redirect, which are not modelled.
+        var index = Site((List, Form("save.asp", "custNo")), (Save, "<%\nv = Request.Form(\"custNo\")\nw = Request(\"page\")\n%>\n"));
+        Assert.Empty(Check(index, Save, Reader("custNo")));
+    }
+
+    [Fact]
+    public void TruncatedIndex_NoNobodySends()
+    {
+        // With maxFiles 1 only one page is indexed: a sender outside the index may send the key.
+        var index = Site(2, (List, Form("save.asp", "custNo")), (Save, Reader("custNo", "writer")), ("z/other.asp", "<p>x</p>\n"));
+        Assert.True(index.Truncated);
+        Assert.Empty(Check(index, Save, Reader("custNo")));
     }
 }

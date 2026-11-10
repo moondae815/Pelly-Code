@@ -208,6 +208,33 @@ public sealed class FormFactsTests
     }
 
     [Fact]
+    public void Form_Open_IncludeHelperCall()
+    {
+        // MakeSelect lives in an include: the form cannot know the field it writes.
+        Assert.Null(OnlySender("<form action=\"s.asp\" method=\"post\">\n<%= MakeSelect(\"status\") %>\n</form>\n").Fields);
+        Assert.Null(OnlySender("<form action=\"s.asp\" method=\"post\">\n<% WriteStatus \"a\" %>\n</form>\n").Fields);
+        // Built-ins and declared arrays do not open it.
+        Assert.Equal(["a"], OnlySender(
+            "<% Dim names(2) %>\n<form action=\"s.asp\" method=\"post\">\n<input name=\"a\" value=\"<%= Server.HTMLEncode(Trim(names(0))) %>\">\n</form>\n").Fields);
+    }
+
+    [Fact]
+    public void Reads_ServerVariablesIgnored()
+    {
+        var facts = Page("<%\nip = Request(\"REMOTE_ADDR\")\nr = Request(\"HTTP_REFERER\")\nu = Request(\"URL\")\nk = Request(\"key\")\n%>\n");
+        Assert.Equal(["key"], facts.Reads.Select(r => r.Key));
+    }
+
+    [Fact]
+    public void WritesAction_AliasOrAttribute()
+    {
+        Assert.True(Page(Script("var f = document.frm; f.action = \"x.asp\";")).WritesAction);
+        Assert.True(Page("<input type=\"button\" onclick=\"frm.action='x.asp'; frm.submit();\">\n").WritesAction);
+        Assert.True(FormFacts.OfScript("$(\"form[name=frm]\").attr(\"action\", u);\n").WritesAction);
+        Assert.False(Page("<form method=\"post\"><input name=\"a\"></form>\n").WritesAction);
+    }
+
+    [Fact]
     public void Empty_WhenNothing()
     {
         var facts = Page("<p>hello</p>\n");

@@ -197,13 +197,22 @@ public sealed class FormSite
         var actions = refs.Count == 0 ? [] : ActionsFor(page).Where(a => refs.Contains(a.FormRef)).ToList();
         if (actions.Count == 0)
         {
-            // No action and no JS assignment: the form posts to the page itself (HTML rule).
+            // No action and no JS assignment: the form posts to the page itself (HTML rule), unless the page's JS sets some
+            // action in a way not tied to this form (an alias, an event attribute) — then the address is not known.
+            if (WritesActionSomewhere(page)) yield break;
             if (!IsInclude(page) && _known.ContainsKey(page)) yield return Canonical(page);
             yield break;
         }
         if (actions.Any(a => a.Url is null)) yield break;
         foreach (var a in actions)
             if (Resolve(dir, a.Url!) is { } t) yield return t;
+    }
+
+    private bool WritesActionSomewhere(string page)
+    {
+        var files = WithIncludes(page);
+        var scripts = files.SelectMany(f => _index.ScriptSources.TryGetValue(f, out var js) ? js : []);
+        return files.Concat(scripts).Any(f => FactsOf(f).WritesAction);
     }
 
     /// <summary>A site page the address names, or null (external, server-built, an include, not in the index).</summary>
@@ -256,13 +265,29 @@ public sealed class FormSite
                     result.Add(new FormMismatch(FormMismatchKind.NotSent, target, read.Key, read.File, read.Line, g.File, g.Line, g.Kind,
                         Similar(g, readKeys), groups.Count));
                 }
-                if (groups.All(g => g.Fields is not null) && !groups.Any(Answered))
+                // Only Request.Form reads: Request("k") can also come from links and redirects, which are not modelled. A cut index
+                // may miss senders.
+                if (!_index.Truncated && sources.Contains(FormReadSource.Form)
+                    && groups.All(g => g.Fields is not null) && !groups.Any(Answered))
                     result.Add(new FormMismatch(FormMismatchKind.NobodySends, target, read.Key, read.File, read.Line, null, 0,
                         FormSenderKind.Form, null, groups.Count));
             }
         }
         return result;
     }
+
+    /// <summary>
+    /// Design §5.2: a key the sender never sent is not counted (it may belong to another mode). True when the file had a closed
+    /// sender group to the target that sent the key.
+    /// </summary>
+    private bool SentBefore(string file, string target, string key) =>
+        SendersTo(target).FirstOrDefault(g => string.Equals(g.File, file, StringComparison.OrdinalIgnoreCase)) is { Fields: { } fields }
+        && fields.Any(f =>
+        {
+            var name = f.StartsWith('?') ? f[1..] : f;
+            return name.EndsWith('*') ? key.StartsWith(name[..^1], StringComparison.OrdinalIgnoreCase)
+                : string.Equals(name, key, StringComparison.OrdinalIgnoreCase);
+        });
 
     /// <summary>The one name the sender sends that the page does not read, if there is exactly one.</summary>
     private static string? Similar(FormSenderGroup g, HashSet<string> readKeys)
@@ -284,7 +309,7 @@ public sealed class FormSite
         var fresh = after.Mismatches()
             .Where(m => !old.Contains((m.Kind, m.Target.ToLowerInvariant(), m.Key.ToLowerInvariant(), m.SenderFile?.ToLowerInvariant())))
             .Where(m => m.Kind == FormMismatchKind.NotSent
-                ? e.Contains(m.SenderFile!)
+                ? e.Contains(m.SenderFile!) && before.SentBefore(m.SenderFile!, m.Target, m.Key)
                 : after.WithIncludes(m.Target).Any(e.Contains))
             .ToList();
         var notSent = fresh.Where(m => m.Kind == FormMismatchKind.NotSent)

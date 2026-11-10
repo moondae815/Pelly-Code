@@ -102,14 +102,24 @@ public sealed class JsFormFieldsStepTests
         "</script>\n";
 
     [Fact]
-    public void Page_ActionAssignmentChanged_Warned()
+    public void Page_AjaxKeyRenamed_Warned()
     {
+        static string Text(string key) => "<p>x</p>\n<script>\nfunction go(t) { $.post(\"b.asp\", { " + key + ": t }); }\n</script>\n";
+        var (fs, index) = Site(("memo.asp", Text("memo")), ("b.asp", Saver));
+        var (_, row) = Run(fs, Ctx(PagePath.Replace("page.asp", "memo.asp"), Text("memoText"), Text("memo"), PageState(Text("memoText"), index)));
+        Assert.Equal(AspCheckStatus.Warned, row!.Status);
+        Assert.Equal("b.asp가 읽는 memoText(줄 2)를 memo.asp의 ajax(줄 3)이 보내지 않음, 보내는 비슷한 이름: memo", row.Detail);
+    }
+
+    [Fact]
+    public void Page_ActionAssignmentChanged_KeysNeverSentThere_Passed()
+    {
+        // Design §5.2: the form never sent writer to b.asp, so moving it there is not a broken pair.
         var original = ActionPage("a.asp");
         var current = ActionPage("b.asp");
         var (fs, index) = Site(("memo.asp", current), ("a.asp", Saver), ("b.asp", "<%\nv = Request.Form(\"memoText\")\nw = Request.Form(\"writer\")\n%>\n"));
         var (_, row) = Run(fs, Ctx(PagePath.Replace("page.asp", "memo.asp"), original, current, PageState(original, index)));
-        Assert.Equal(AspCheckStatus.Warned, row!.Status);
-        Assert.Equal("b.asp가 읽는 writer(줄 3)를 memo.asp의 폼(줄 1)이 보내지 않음", row.Detail);
+        Assert.Equal(AspCheckStatus.Passed, row!.Status);
     }
 
     [Fact]

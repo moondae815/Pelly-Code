@@ -1,0 +1,7 @@
+id: w3-002
+checkMustContain: ["admin/order/history.asp:12 (fnHistory 호출, 인수 1개, onclick)"]
+checkMustNotContain: ["js/order/history.js:14", "admin/order/history.asp:17"]
+exit: 0
+fileMustContain: ["js/order/history.js::page"]
+outputMustContain: ["고치지 않은 호출: admin/order/history.asp:12"]
+jsCallersNotUpdatedMin: 1

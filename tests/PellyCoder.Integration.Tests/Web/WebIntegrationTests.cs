@@ -254,6 +254,23 @@ public sealed class WebIntegrationTests(ITestOutputHelper output) : IDisposable
 
     // ---- the corpus itself ----
 
+    [Theory]
+    [InlineData("w3-001", null)]
+    [InlineData("w3-002", "작업 T1의 영향 대상이 명세에 없습니다: admin/order/history.asp:12 (fnHistory 호출, 인수 1개, onclick)")]
+    [InlineData("w3-003", null)]
+    public async Task Benchmark_W3Specs_CheckAsDesigned(string id, string? warning)
+    {
+        var bench = Path.Combine(CorpusPaths.Root, "..", "benchmark", "web-w3", id + ".md");
+        Directory.CreateDirectory(_copy.File("changes"));
+        File.Copy(bench, _copy.File("changes/" + id + ".md"));
+        var r = await PellyCoder.Core.Specs.SpecChecker.CheckAsync(new System.IO.Abstractions.FileSystem(), _copy.File("changes/" + id + ".md"), 160,
+            null, true, TestContext.Current.CancellationToken, null, new PellyCoder.Core.Config.AspOptions { SiteRoot = "." });
+        Assert.False(r.HasErrors, string.Join("; ", r.Issues.Select(i => i.Message)));
+        var js = r.Issues.Where(i => i.Code == "JsImpactNotInSpec").Select(i => i.Message).ToList();
+        if (warning is null) Assert.Empty(js);
+        else Assert.Equal([warning], js);
+    }
+
     [Fact]
     public void Corpus_WebFiles_AsDesigned()
     {
@@ -285,6 +302,7 @@ public sealed class WebIntegrationTests(ITestOutputHelper output) : IDisposable
             ["admin/member/style.asp"] = (1, 0),
             ["admin/legacy/old.asp"] = (1, 0),
             ["help/guide.htm"] = (1, 0),
+            ["admin/order/history.asp"] = (2, 1), // W3 corpus: a function called from a .js, a block and an onclick
         };
         var pages = Directory.GetFiles(CorpusPaths.Get("Asp"), "*.*", SearchOption.AllDirectories)
             .Where(f => new[] { ".asp", ".inc", ".htm", ".html" }.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase))

@@ -1,0 +1,6 @@
+id: w3-003
+checkMustContain: []
+checkMustNotContain: []
+exit: 0
+fileMustContain: ["css/admin.css::margin-bottom: 8px"]
+outputMustNotContain: []

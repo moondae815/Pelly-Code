@@ -158,3 +158,20 @@
 1. **관찰 1(page-004)이 이제 검토 화면에 보인다.** 모델은 세 번 모두 `$("#custId").focus()`를 썼다. 막지는 않으므로 실행은 여전히 성공(종료 0)이지만, 검토 줄의 「요소 경고」와 name 힌트로 사람이 diff를 보기 전에 알 수 있다.
 2. **다른 사례에서 틀린 경고는 없었다.** page-003(`<% If %>`가 섞인 블록)과 page-006·008(`<%= %>` 자리)도 경고가 없었다.
 3. **한계:** 사례가 작고, 모델이 요소를 새로 찾는 수정은 page-004 하나뿐이다. include·includer에만 있는 입력 칸, 서버 코드로 만든 id는 가짜 모델 테스트로만 확인했다.
+
+## W3a. 명세 js·css 작업과 JS 서명 변경 (2026-11-10)
+
+사례는 `eval/benchmark/web-w3/`의 명세 3건이다. 코퍼스(`eval/corpus/Asp`)에 W3용 `js/order/history.js`(`fnHistory`와 그것을 부르는 `fnReload`)와 `admin/order/history.asp`(`<script src>`, `onclick="fnHistory(1)"`, 블록 안 `goHistory`)를 더했다.
+
+| 사례 | 내용 | 기대 |
+|---|---|---|
+| w3-001 | `fnHistory`에 `page` 매개변수 + 부르는 곳 셋(`.js` 함수, `onclick` asp `#L`, 블록 함수)을 한 그룹으로 | `spec check --impact` 경고 없음, apply 종료 0, 남은 호출 경고 없음 |
+| w3-002 | 같은 변경에서 `onclick` 작업을 뺌 | `spec check --impact`가 `admin/order/history.asp:12 (fnHistory 호출, 인수 1개, onclick)` 경고, apply 뒤 「고치지 않은 호출: admin/order/history.asp:12」, `jsCallersNotUpdated` 1건 이상 |
+| w3-003 | `css` 작업 하나(`#.clearfix`) | 종료 0, `margin-bottom: 8px` |
+
+실행: `eval/benchmark/web-w3/run.sh --repeat 3` (Ollama 필요, DB 불필요).
+
+모델 없는 `spec check --impact` 확인(2026-11-10, Mac): w3-001 경고 0건, w3-002 경고 1건(위 줄), w3-003 경고 0건 — 기대와 같음.
+
+결과(모델 실행): 측정 대기.
+

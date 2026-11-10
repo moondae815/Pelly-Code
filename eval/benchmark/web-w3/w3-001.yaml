@@ -1,0 +1,6 @@
+id: w3-001
+checkMustContain: []
+checkMustNotContain: ["영향 대상이 명세에 없습니다"]
+exit: 0
+fileMustContain: ["js/order/history.js::page", "js/order/history.js::fnHistory(gNo, 1)", "admin/order/history.asp::fnHistory(1, 1)", "admin/order/history.asp::fnHistory(n, 1)"]
+outputMustNotContain: ["서명이 바뀌었습니다", "어긋나 있을 수 있습니다"]

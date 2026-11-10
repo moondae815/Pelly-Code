@@ -68,7 +68,14 @@ public sealed record ApplySummary(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<AcResult>? Criteria = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SqlImpactSummary? SqlImpact = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<AspCallerNotUpdated>? AspCallersNotUpdated = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<JsCallerNotUpdated>? JsCallersNotUpdated = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<JsCallerNotUpdated>? JsCallersNotUpdated = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<FormFieldMismatchRecord>? FormFieldMismatches = null);
+
+/// <summary>
+/// A form field mismatch left after the apply (W3 design §5.3). <paramref name="Kind"/> is <c>notSent</c> (an edited sender no
+/// longer sends a key the page reads) or <c>nobodySends</c> (an edited page reads a key no sender sends); paths are site-relative.
+/// </summary>
+public sealed record FormFieldMismatchRecord(string Kind, string Target, string Key, string? Sender, string Message);
 
 /// <summary>
 /// A JS call or reference left behind after an applied task changed the function's signature (W3 design §4.5): a call of the

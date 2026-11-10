@@ -17,6 +17,7 @@ using PellyCoder.Core.Models;
 using PellyCoder.Core.Reporting;
 using PellyCoder.Core.Sql;
 using PellyCoder.Core.Testing;
+using PellyCoder.Core.Verification;
 using PellyCoder.Core.Web;
 using PellyCoder.Core.Workspaces;
 
@@ -207,6 +208,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
         private readonly HashSet<string> _byName = new(StringComparer.Ordinal); // tasks whose changes came from a #function target
         private readonly List<(string JsId, string FailedId)> _jsMismatches = [];
         private IReadOnlyList<JsCallerNotUpdated> _jsCallersNotUpdated = [];
+        private IReadOnlyList<FormFieldMismatchRecord> _formFieldMismatches = [];
         private WebSiteAccess? _site;
         private WebSiteAccess Site => _site ??= owner.Site(ws);
 
@@ -1357,6 +1359,44 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             _jsCallersNotUpdated = recorded;
         }
 
+        /// <summary>
+        /// W3 design §5.3: after the apply, the form field pairs of every file an asp or js task of this apply changed and kept,
+        /// from each file's first original (before) to the site as it is now (after). Warns of the mismatches left, records them for
+        /// <c>apply.json</c>, and says how many warnings shown during the tasks a later task resolved. Never changes the exit code.
+        /// </summary>
+        private void WarnFormFields()
+        {
+            if (_rolledBack || _doc is null) return;
+            var byId = _doc.Spec.Tasks.ToDictionary(t => t.Id, StringComparer.Ordinal);
+            var applied = _results.Select(r => r.TaskId).Distinct(StringComparer.Ordinal)
+                .Where(id => _done.ContainsKey(id) && !_restored.Contains(id) && !_doneAtStart.Contains(id)
+                    && byId.TryGetValue(id, out var t) && t.Kind is TaskKind.Asp or TaskKind.Js)
+                .ToList();
+            if (applied.Count == 0) return;
+            WebSiteIndexResult index;
+            try { index = Site.Index(); }
+            catch (Exception ex) when (ex is not OperationCanceledException) { return; }
+
+            // The earliest applied task's original is the file before this apply.
+            var originals = new Dictionary<string, FileFormFacts>(StringComparer.OrdinalIgnoreCase);
+            foreach (var id in applied)
+            {
+                if (_firstRuns.GetValueOrDefault(id)?.Original is not { } original) continue;
+                var rel = Site.SiteRelative(byId[id]);
+                if (!originals.ContainsKey(rel)) originals[rel] = FormFieldsCheck.Facts(rel, original.Text);
+            }
+            if (originals.Count == 0) return;
+
+            var left = FormSite.NewMismatches(FormSite.Build(index, originals), FormSite.Build(index), originals.Keys.ToList());
+            foreach (var m in left) owner.Ui.Warn(m.Message);
+            _formFieldMismatches = left.Select(m => new FormFieldMismatchRecord(
+                m.Kind == FormMismatchKind.NotSent ? "notSent" : "nobodySends", m.Target, m.Key, m.SenderFile, m.Message)).ToList();
+
+            var during = applied.Sum(id => _lastRuns.GetValueOrDefault(id)?.FormFieldWarnings ?? 0);
+            if (during > left.Count)
+                owner.Ui.Warn($"작업 중 폼 필드 경고 {during}건 중 {during - left.Count}건은 뒤 작업이 해결함");
+        }
+
         /// <summary>Calls and references of <paramref name="name"/>, without those of files (and pages with their includes) that declare that name themselves.</summary>
         private List<(string RelativePath, JsCallSite Call)> JsCallers(WebSiteIndexResult index, string seedPath, string name) =>
             index.JsCalls.Where(c => c.Call.Name == name)
@@ -1420,6 +1460,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             WarnMismatches();
             WarnParameterChanges();
             WarnJsSignatureChanges();
+            WarnFormFields();
             try
             {
                 var dir = owner.Fs.Path.Combine(ws.PellyDir, "runs", ApplyId!);
@@ -1428,7 +1469,8 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                     impact is null ? null : impact.Mode == ImpactMode.Semantic ? "semantic" : "name", impact?.Fallback?.Kind.ToString(),
                     _doc?.Spec.Tasks.Count ?? 0, o.Resume, _links.Count > 0 ? _links.Select(CriterionResult).ToList() : null, sqlImpact,
                     _callersNotUpdated.Count > 0 ? _callersNotUpdated : null,
-                    _jsCallersNotUpdated.Count > 0 ? _jsCallersNotUpdated : null);
+                    _jsCallersNotUpdated.Count > 0 ? _jsCallersNotUpdated : null,
+                    _formFieldMismatches.Count > 0 ? _formFieldMismatches : null);
                 owner.Fs.File.WriteAllText(owner.Fs.Path.Combine(dir, "apply.json"), JsonSerializer.Serialize(summary, SummaryJson));
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

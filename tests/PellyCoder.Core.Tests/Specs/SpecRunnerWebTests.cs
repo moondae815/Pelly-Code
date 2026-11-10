@@ -364,6 +364,86 @@ public sealed class SpecRunnerWebTests : IDisposable
         Assert.Equal("goPage", seen[1].MethodName);
     }
 
+    // ---- form fields after the apply (W3 design §5.3) ----
+
+    private const string MemoPage =
+        "<form name=\"frm\" action=\"memo_save.asp\" method=\"post\">\n" + // 1
+        "<input name=\"memoText\">\n" +                                    // 2
+        "</form>\n";                                                        // 3
+
+    private const string MemoSave =
+        "<%\n" +                                // 1
+        "v = Request.Form(\"memoText\")\n" +    // 2
+        "%>\n";                                 // 3
+
+    private const string MemoNotSent =
+        "web/admin/memo_save.asp가 읽는 memoText(줄 2)를 web/admin/memo.asp의 폼(줄 1)이 보내지 않음, 보내는 비슷한 이름: memo";
+
+    private void MemoSite()
+    {
+        Make("web/admin/memo.asp", MemoPage);
+        Make("web/admin/memo_save.asp", MemoSave);
+    }
+
+    private System.Text.Json.JsonElement[] FormMismatches()
+    {
+        using var json = ApplyJson();
+        return json.RootElement.TryGetProperty("formFieldMismatches", out var list) ? list.EnumerateArray().Select(e => e.Clone()).ToArray() : [];
+    }
+
+    [Fact]
+    public async Task AfterApply_FormRenamed_ReaderNotUpdated_Warns()
+    {
+        MemoSite();
+        Spec("- [ ] T1 asp web/admin/memo.asp#L2-2 이름을 memo로 바꾼다\n");
+        _exec.Rewrite["T1"] = MemoPage.Replace("\"memoText\"", "\"memo\"");
+        Assert.Equal(0, await Run(Opts()));
+        Assert.Contains(MemoNotSent, _ui.Warnings);
+        Assert.Single(FormMismatches());
+    }
+
+    [Fact]
+    public async Task ApplyJson_FormFieldMismatches()
+    {
+        MemoSite();
+        Spec("- [ ] T1 asp web/admin/memo.asp#L2-2 이름을 memo로 바꾼다\n");
+        _exec.Rewrite["T1"] = MemoPage.Replace("\"memoText\"", "\"memo\"");
+        Assert.Equal(0, await Run(Opts()));
+        var row = Assert.Single(FormMismatches());
+        Assert.Equal("notSent", row.GetProperty("kind").GetString());
+        Assert.Equal("web/admin/memo_save.asp", row.GetProperty("target").GetString());
+        Assert.Equal("memoText", row.GetProperty("key").GetString());
+        Assert.Equal("web/admin/memo.asp", row.GetProperty("sender").GetString());
+        Assert.Equal(MemoNotSent, row.GetProperty("message").GetString());
+    }
+
+    [Fact]
+    public async Task AfterApply_FormAndReaderBothUpdated_NoWarning_ResolvedNote()
+    {
+        MemoSite();
+        Spec("- [ ] T1 asp web/admin/memo_save.asp#L2-2 memo를 읽는다\n- [ ] T2 asp web/admin/memo.asp#L2-2 이름을 memo로 바꾼다\n");
+        _exec.Rewrite["T1"] = MemoSave.Replace("\"memoText\"", "\"memo\"");
+        _exec.FormWarnings["T1"] = 1;
+        _exec.Rewrite["T2"] = MemoPage.Replace("\"memoText\"", "\"memo\"");
+        Assert.Equal(0, await Run(Opts()));
+        Assert.DoesNotContain(_ui.Warnings, w => w.Contains("보내지 않음") || w.Contains("보내는 폼·ajax가 없음"));
+        Assert.Contains("작업 중 폼 필드 경고 1건 중 1건은 뒤 작업이 해결함", _ui.Warnings);
+        Assert.Empty(FormMismatches());
+    }
+
+    [Fact]
+    public async Task AfterApply_RestoredTask_NotCounted()
+    {
+        MemoSite();
+        Spec("- [ ] T1 asp web/admin/memo.asp#L2-2 이름을 바꾼다 [G1]\n- [ ] T2 css web/css/admin.css#.search-box 넓힌다 [G1]\n");
+        _exec.Rewrite["T1"] = MemoPage.Replace("\"memoText\"", "\"memo\"");
+        _exec.FormWarnings["T1"] = 1;
+        _exec.Exit["T2"] = 1;
+        Assert.Equal(1, await Run(Opts()));
+        Assert.DoesNotContain(_ui.Warnings, w => w.Contains("보내지 않음") || w.Contains("폼 필드 경고"));
+        Assert.Empty(FormMismatches());
+    }
+
     private sealed class FakeGroupVerifier : IGroupVerifier
     {
         public List<IReadOnlyList<string>> Calls { get; } = [];
@@ -388,6 +468,9 @@ public sealed class SpecRunnerWebTests : IDisposable
         /// <summary>Task ID → the whole text its file gets instead of the appended comment.</summary>
         public Dictionary<string, string> Rewrite { get; } = [];
 
+        /// <summary>Task ID → the form field warnings its run reports.</summary>
+        public Dictionary<string, int> FormWarnings { get; } = [];
+
         public async Task<RunResult> ExecuteAsync(SpecTask task, Workspace ws, TaskRunOptions o, CancellationToken ct)
         {
             Calls.Add(task.Id);
@@ -402,7 +485,7 @@ public sealed class SpecRunnerWebTests : IDisposable
             var comment = task.Kind switch { TaskKind.Sql => "-- ", TaskKind.Asp => "' ", TaskKind.Css => "/* ", _ => "// " };
             var newText = Rewrite.TryGetValue(task.Id, out var whole) ? whole : original.Text + comment + task.Id + "\n";
             var written = await guard.WriteAsync(original, newText, CancellationToken.None);
-            return new RunResult(0, runId, path, original, written.Snapshot, null);
+            return new RunResult(0, runId, path, original, written.Snapshot, null, FormFieldWarnings: FormWarnings.GetValueOrDefault(task.Id));
         }
     }
 }

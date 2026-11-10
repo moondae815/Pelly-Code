@@ -39,6 +39,17 @@ public sealed class ApplyReportTests
     }
 
     [Fact]
+    public void Report_CountsFormFieldMismatches()
+    {
+        var record = new ApplyRecord(new ApplySummary("apply-1", "spec", [], 0, [], false,
+            FormFieldMismatches: [new FormFieldMismatchRecord("notSent", "web/save.asp", "custNo", "web/list.asp", "m1"),
+                new FormFieldMismatchRecord("nobodySends", "web/save.asp", "writer", null, "m2")]), DateTimeOffset.UnixEpoch);
+        Assert.Equal(2, ApplyReport.Build([record]).FormFieldMismatches);
+        var counts = ReportSanitizer.Sanitize([], RunReport.Build([]), ApplyReport.Build([record])).Aggregate.Apply!;
+        Assert.Equal(2, counts.FormFieldMismatches);
+    }
+
+    [Fact]
     public void Completion_counts_fresh_applies_that_archived_with_exit_0()
     {
         var applies = new[]

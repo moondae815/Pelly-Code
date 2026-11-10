@@ -89,7 +89,8 @@ public sealed record ApplyHost(Workspace Workspace);
 /// did not report them. <paramref name="TestFirst"/> is set in a test-first run that reached LOCATE's test-first state.
 /// </summary>
 public sealed record RunResult(int ExitCode, string RunId, string? FilePath, FileSnapshot? Original, FileSnapshot? Final, string? FailureKind,
-    string? TargetDisplay = null, IReadOnlyList<string>? AddedHelpers = null, TestFirstOutcome? TestFirst = null);
+    string? TargetDisplay = null, IReadOnlyList<string>? AddedHelpers = null, TestFirstOutcome? TestFirst = null,
+    int FormFieldWarnings = 0);
 
 /// <summary>
 /// Test-first outcome handed back to the caller: <paramref name="Red"/> maps each named test with the RED role that RED judged

@@ -15,8 +15,9 @@ public sealed record Ratio(int Ok, int Total)
 /// <param name="Resumed"><c>--resume</c> applies (left out of the completion rates).</param>
 /// <param name="AspCallersNotUpdated">ASP calls left behind after a sql task changed a procedure's parameters, over all applies (A2 design §4.5).</param>
 /// <param name="JsCallersNotUpdated">JS calls left behind after a task changed a function's signature, over all applies (W3 design §4.5).</param>
+/// <param name="FormFieldMismatches">Form field mismatches left after the applies (W3 design §5.3).</param>
 public sealed record ApplyReportData(Ratio Completion, Ratio Completion3To8, Ratio GroupBuild, int GroupsUnverifiable, int Resumed, AcCounts? Criteria = null,
-    int AspCallersNotUpdated = 0, int JsCallersNotUpdated = 0);
+    int AspCallersNotUpdated = 0, int JsCallersNotUpdated = 0, int FormFieldMismatches = 0);
 
 /// <summary>Acceptance-criterion counts from apply.json: Met of Judged, RedWarned of RedChecked, plus unverified criteria and <c>breaks:</c> tests left out of regression.</summary>
 public sealed record AcCounts(int Met, int Judged, int RedWarned, int RedChecked, int Unverified, int BreaksExcluded);
@@ -54,7 +55,8 @@ public static class ApplyReport
             applies.Count - fresh.Count,
             CountCriteria(applies),
             applies.Sum(a => a.Summary.AspCallersNotUpdated?.Count ?? 0),
-            applies.Sum(a => a.Summary.JsCallersNotUpdated?.Count ?? 0));
+            applies.Sum(a => a.Summary.JsCallersNotUpdated?.Count ?? 0),
+            applies.Sum(a => a.Summary.FormFieldMismatches?.Count ?? 0));
     }
 
     private static AcCounts? CountCriteria(IReadOnlyList<ApplyRecord> applies)

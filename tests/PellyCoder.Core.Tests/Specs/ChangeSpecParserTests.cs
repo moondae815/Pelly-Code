@@ -362,4 +362,84 @@ public sealed class ChangeSpecParserTests
         Assert.Equal("A.New", spec.Criteria[0].Test);
         Assert.Empty(spec.Criteria[0].BreakNames);
     }
+
+    [Fact]
+    public void Js_FunctionTarget()
+    {
+        var spec = ChangeSpecParser.Parse(Spec("- [ ] T1 js js/order.js#fnSearch 페이지 번호를 더한다\n"));
+        var t = Assert.Single(spec.Tasks);
+        Assert.Equal(TaskKind.Js, t.Kind);
+        Assert.Equal("js/order.js", t.Path);
+        Assert.Equal("fnSearch", t.Symbol);
+        Assert.Null(t.Lines);
+        Assert.Empty(spec.Issues);
+    }
+
+    [Fact]
+    public void Js_QualifiedTarget() =>
+        Assert.Equal("Common.fnX", Assert.Single(ChangeSpecParser.Parse(Spec("- [ ] T1 js js/common.js#Common.fnX 요청\n")).Tasks).Symbol);
+
+    [Fact]
+    public void Js_LinesTarget_OnPage()
+    {
+        var spec = ChangeSpecParser.Parse(Spec("- [ ] T2 js admin/list.asp#L10-20 요청\n"));
+        var t = Assert.Single(spec.Tasks);
+        Assert.Equal(TaskKind.Js, t.Kind);
+        Assert.Null(t.Symbol);
+        Assert.Equal(new PellyCoder.Core.Models.TextSpanInfo(10, 20), t.Lines);
+        Assert.Empty(spec.Issues);
+    }
+
+    [Fact]
+    public void Css_SelectorTargets()
+    {
+        var cls = Assert.Single(ChangeSpecParser.Parse(Spec("- [ ] T4 css css/admin.css#.search-box 넓힌다\n")).Tasks);
+        Assert.Equal(TaskKind.Css, cls.Kind);
+        Assert.Equal(".search-box", cls.Symbol);
+        Assert.Equal("css/admin.css", cls.Path);
+        var id = Assert.Single(ChangeSpecParser.Parse(Spec("- [ ] T4 css css/admin.css##main 넓힌다\n")).Tasks);
+        Assert.Equal("#main", id.Symbol);
+    }
+
+    [Fact]
+    public void Css_IsNotCs()
+    {
+        Assert.Equal(TaskKind.Css, Assert.Single(ChangeSpecParser.Parse(Spec("- [ ] T4 css css/a.css#.x 요청\n")).Tasks).Kind);
+        Assert.Equal(TaskKind.CSharp, Assert.Single(ChangeSpecParser.Parse(Spec("- [ ] T4 cs src/A.cs#M 요청\n")).Tasks).Kind);
+    }
+
+    [Fact]
+    public void Lines_StillRejectedForCsAndSql()
+    {
+        var issue = Assert.Single(ChangeSpecParser.Parse(Spec("- [ ] T1 sql db/a.sql#L1-2 요청\n")).Issues, i => i.Code == "LinesNotSupported");
+        Assert.Equal("작업 T1: #L 줄 범위는 asp·js·css 작업에만 쓸 수 있습니다.", issue.Message);
+        AssertCode("LinesNotSupported", Spec("- [ ] T1 cs a.cs#L1-2 요청\n"));
+    }
+
+    [Fact]
+    public void Lines_AcceptedForCss() =>
+        Assert.Empty(ChangeSpecParser.Parse(Spec("- [ ] T5 css admin/list.asp#L12-30 요청\n")).Issues);
+
+    [Fact]
+    public void GroupAndDoneMarks_WithJs()
+    {
+        var t = Assert.Single(ChangeSpecParser.Parse(Spec("- [x] T1 js a.js#f 요청 [G1] <!-- run: r1 -->\n")).Tasks);
+        Assert.True(t.Done);
+        Assert.Equal("G1", t.Group);
+        Assert.Equal("r1", t.RunId);
+    }
+
+    [Fact]
+    public void SyntaxError_MentionsNewKinds()
+    {
+        var issue = Assert.Single(ChangeSpecParser.Parse(Spec("- [ ] T1 js\n")).Issues, i => i.Code == "InvalidTaskLine");
+        Assert.Contains("<cs|sql|asp|js|css>", issue.Message);
+    }
+
+    [Fact]
+    public void KindKeyword_JsCss()
+    {
+        Assert.Equal("js", ChangeSpecParser.KindKeyword(TaskKind.Js));
+        Assert.Equal("css", ChangeSpecParser.KindKeyword(TaskKind.Css));
+    }
 }

@@ -4,7 +4,7 @@ namespace PellyCoder.Core.Specs;
 
 public enum SpecStatus { Draft, InProgress, Done }
 
-public enum TaskKind { CSharp, Sql, Asp }
+public enum TaskKind { CSharp, Sql, Asp, Js, Css }
 
 public enum SpecIssueSeverity { Error, Warning }
 

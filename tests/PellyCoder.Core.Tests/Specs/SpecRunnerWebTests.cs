@@ -274,6 +274,16 @@ public sealed class SpecRunnerWebTests : IDisposable
     }
 
     [Fact]
+    public async Task Mismatch_AspTaskChangedSignature_LabeledAsp()
+    {
+        Spec("- [ ] T1 asp web/admin/list.asp#L6-10 함수 이름을 바꾼다\n- [ ] T2 js web/js/order.js#fnSearch 고친다\n");
+        _exec.Rewrite["T1"] = ListPage.Replace("function goPage(", "function goTo(");
+        _exec.Exit["T2"] = 1;
+        Assert.Equal(1, await Run(Opts(cont: true)));
+        Assert.Contains("T1(asp)은 적용됐고 T2는 실패했습니다. 함수와 부르는 곳이 어긋나 있을 수 있습니다. 함께 되돌리려면 [G1]로 묶으십시오", _ui.Warnings);
+    }
+
+    [Fact]
     public async Task Mismatch_JsBodyOnly_NoWarning()
     {
         Spec("- [ ] T1 js web/js/order.js#fnSearch 본문을 고친다\n- [ ] T2 asp web/admin/list.asp#Search 고친다\n");

@@ -1215,7 +1215,8 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             foreach (var (js, failed) in _jsMismatches)
             {
                 if (_restored.Contains(js)) continue;
-                var message = $"{js}(js)은 적용됐고 {failed}는 실패했습니다. 함수와 부르는 곳이 어긋나 있을 수 있습니다. 함께 되돌리려면 [{group}]로 묶으십시오";
+                var kind = _doc?.Spec.Tasks.FirstOrDefault(t => t.Id == js)?.Kind == TaskKind.Asp ? "asp" : "js";
+                var message = $"{js}({kind})은 적용됐고 {failed}는 실패했습니다. 함수와 부르는 곳이 어긋나 있을 수 있습니다. 함께 되돌리려면 [{group}]로 묶으십시오";
                 owner.Ui.Warn(message);
                 _mismatchIssues.Add(new SpecIssue(_doc?.Spec.Tasks.FirstOrDefault(t => t.Id == failed)?.Line ?? 0, SpecIssueSeverity.Warning,
                     "JsCallerMismatch", message));

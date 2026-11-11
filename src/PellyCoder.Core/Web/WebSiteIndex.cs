@@ -40,6 +40,9 @@ public sealed record WebSiteIndexResult(IReadOnlyList<JsIndexEntry> Entries, int
     public IReadOnlyDictionary<string, IReadOnlyList<string>> ScriptSources { get; init; } =
         new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Every file the index read (pages and <c>.js</c>), site-relative, including those with nothing else to record.</summary>
+    public IReadOnlyList<string> AllFiles { get; init; } = [];
+
     /// <summary>Form facts per site-relative file (W3 design §5.4); files without any are left out.</summary>
     public IReadOnlyDictionary<string, FileFormFacts> FormFacts { get; init; } =
         new Dictionary<string, FileFormFacts>(StringComparer.OrdinalIgnoreCase);
@@ -236,7 +239,7 @@ public static class WebSiteIndex
         return new WebSiteIndexResult(entries, files, truncated)
         {
             PageFiles = pageFiles, Includes = includes, SpCalls = spCalls, JsCalls = jsCalls, ScriptSources = scriptSources,
-            FormFacts = formFacts,
+            FormFacts = formFacts, AllFiles = fresh.Files.Keys.ToList(),
         };
     }
 

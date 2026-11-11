@@ -24,6 +24,13 @@ public sealed class WebSiteAccess(IFileSystem fs, AspOptions asp, WebOptions web
     public string SiteRelative(SpecTask task) =>
         fs.Path.GetRelativePath(SiteRoot, SpecTaskPaths.FullPath(fs.Path, workspaceRoot, task.Path)).Replace('\\', '/');
 
+    /// <summary><see cref="Read"/> that reads each file once (for checks that look at many names over the same files).</summary>
+    public Func<string, string?> CachedReader()
+    {
+        var cache = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        return rel => cache.TryGetValue(rel, out var text) ? text : cache[rel] = Read(rel);
+    }
+
     /// <summary>A site-relative file's text (LF); null when it cannot be read or decoded.</summary>
     public string? Read(string relativePath)
     {

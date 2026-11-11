@@ -54,6 +54,14 @@ public sealed class JsImpactFinderTests
     }
 
     [Fact]
+    public void Reference_InFileWithNoCallsOrDeclarations_Found()
+    {
+        Add("admin/load.asp", "<script>\nwindow.onload = fnSearch;\n</script>\n");
+        var hits = Find("js/order.js", "fnSearch");
+        Assert.Contains(hits, h => h.RelativePath == "admin/load.asp" && h.Call.Line == 2 && h.Call.Reference);
+    }
+
+    [Fact]
     public void Seed_FindsJsPageAndAttributeCalls()
     {
         var hits = Find("js/order.js", "fnSearch");

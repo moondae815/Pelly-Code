@@ -1324,13 +1324,14 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             var byId = _doc.Spec.Tasks.ToDictionary(t => t.Id, StringComparer.Ordinal);
             var recorded = new List<JsCallerNotUpdated>();
             var truncated = index.Truncated ? " — 사이트 파일이 많아 일부 호출을 보지 못했을 수 있습니다" : "";
+            var read = Site.CachedReader(); // each change scans the same files
             foreach (var (id, changes) in applied)
             {
                 var seedPath = Site.SiteRelative(byId[id]);
                 foreach (var change in changes)
                 {
                     var name = change.Renamed ? change.Before.Name : change.After.Name;
-                    var calls = JsCallers(index, seedPath, name);
+                    var calls = JsCallers(index, seedPath, name, read);
                     List<(string RelativePath, JsCallSite Call)> left;
                     string message;
                     if (change.Renamed)
@@ -1401,9 +1402,10 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
         }
 
         /// <summary>Calls and references of <paramref name="name"/>, without those of files (and pages with their includes) that declare that name themselves.</summary>
-        private List<(string RelativePath, JsCallSite Call)> JsCallers(WebSiteIndexResult index, string seedPath, string name) =>
+        private static List<(string RelativePath, JsCallSite Call)> JsCallers(WebSiteIndexResult index, string seedPath, string name,
+            Func<string, string?> read) =>
             index.JsCalls.Where(c => c.Call.Name == name)
-                .Concat(JsImpactFinder.References(index, name, Site.Read))
+                .Concat(JsImpactFinder.References(index, name, read))
                 .Where(c => string.Equals(c.RelativePath, seedPath, StringComparison.OrdinalIgnoreCase) || !JsImpactFinder.DeclaresOwn(index, c.RelativePath, name, seedPath))
                 .OrderBy(c => c.RelativePath, StringComparer.Ordinal).ThenBy(c => c.Call.Line)
                 .ToList();

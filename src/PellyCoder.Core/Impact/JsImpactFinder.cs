@@ -66,7 +66,7 @@ public static class JsImpactFinder
 
     /// <summary>Every file the index saw: <c>.js</c> files and pages, site-relative.</summary>
     internal static IEnumerable<string> Files(WebSiteIndexResult index) =>
-        index.Entries.Select(e => e.RelativePath)
+        index.AllFiles.Concat(index.Entries.Select(e => e.RelativePath))
             .Concat(index.JsCalls.Select(c => c.RelativePath))
             .Concat(index.Includes.Keys).Concat(index.ScriptSources.Keys)
             .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(p => p, StringComparer.Ordinal);

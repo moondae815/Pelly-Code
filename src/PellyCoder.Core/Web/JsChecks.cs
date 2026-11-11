@@ -75,9 +75,11 @@ public static class JsChecks
         // and the one at the target's position among them (as WebSlicePhase re-finds it) keeps its parameters.
         var originals = (state.Fallback ? null : state.OriginalJs?.Functions) ?? JsTokenScan.FunctionDeclarations(state.OriginalText);
         if (JsTargetMatch.Find(originals, functions, target, state.AllowSignatureChange) is not { } now)
-            return state.AllowSignatureChange
-                ? $"함수 {name}를 찾을 수 없습니다(새 이름의 함수가 여럿이라 어느 것이 대상인지 알 수 없습니다)"
-                : $"함수 {name}를 찾을 수 없습니다(이름을 바꾸지 마십시오)" + SignatureHint;
+            return !state.AllowSignatureChange
+                ? $"함수 {name}를 찾을 수 없습니다(이름을 바꾸지 마십시오)" + SignatureHint
+                : FreshCount(originals, functions, target) > 1
+                    ? $"함수 {name}를 찾을 수 없습니다(새 이름의 함수가 여럿이라 어느 것이 대상인지 알 수 없습니다)"
+                    : $"함수 {name}를 찾을 수 없습니다(대상 함수를 지우지 마십시오)";
         if (!now.Parameters.SequenceEqual(target.Parameters) && !state.AllowSignatureChange)
             return $"함수 {name}의 매개변수를 바꿀 수 없습니다: ({string.Join(", ", target.Parameters)}) → ({string.Join(", ", now.Parameters)})" + SignatureHint;
 
@@ -91,6 +93,13 @@ public static class JsChecks
         if (now.QualifiedName != name || !now.Parameters.SequenceEqual(target.Parameters))
             state.SignatureChange = (JsSignature.Of(target), JsSignature.Of(now));
         return null;
+    }
+
+    /// <summary>Patched functions with a qualified name no original has and the target's owner (rename candidates).</summary>
+    private static int FreshCount(IReadOnlyList<JsFunction> originals, IReadOnlyList<JsFunction> patched, JsFunction target)
+    {
+        var names = originals.Select(o => o.QualifiedName).ToHashSet(StringComparer.Ordinal);
+        return patched.Count(f => !names.Contains(f.QualifiedName) && f.Owner == target.Owner);
     }
 
     /// <summary>

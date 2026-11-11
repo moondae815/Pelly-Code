@@ -235,6 +235,15 @@ public class JsChecksTests
     }
 
     [Fact]
+    public void Shape_RenameAllowed_TargetDeleted_SaysDeleted()
+    {
+        var state = WebTestState.Js(Plain, "fnSearch", allowSignature: true);
+        const string patched = "// fnSearch removed\n";
+        var doc = JsDocument.Parse(patched, EcmaVersion.ES5, false);
+        Assert.Equal("함수 fnSearch를 찾을 수 없습니다(대상 함수를 지우지 마십시오)", JsChecks.ShapeViolation(state, doc, patched));
+    }
+
+    [Fact]
     public void Shape_RenameAllowed_NewOtherTopLevel_StillRefused()
     {
         var state = WebTestState.Js(Plain, "fnSearch", allowSignature: true);

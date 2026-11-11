@@ -392,7 +392,7 @@ public static class WebSiteIndex
             && item.Includes is not null && item.SpCalls is not null && item.Calls is not null && item.ScriptSources is not null
             && item.Forms is { Reads: not null, Senders: not null, Actions: not null }
             && item.Forms.Reads.All(x => x?.Key is not null) && item.Forms.Actions.All(x => x?.FormRef is not null)
-            && item.Forms.Senders.All(x => x is not null)
+            && item.Forms.Senders.All(x => x is not null && (x.Fields is null || x.Fields.All(f => f is not null)))
             && item.Calls.All(x => x?.Name is not null) && item.SpCalls.All(x => x?.Name is not null) && item.Entries.All(e => e is { Name: not null, Declaration: not null }));
 
     private static void WriteCache(IFileSystem fs, string path, CacheFile cache)

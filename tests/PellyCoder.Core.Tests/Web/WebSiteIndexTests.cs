@@ -205,6 +205,18 @@ public class WebSiteIndexTests
     }
 
     [Fact]
+    public void Cache_NullFieldName_Rebuilt()
+    {
+        var text = "<form action=\"s.asp\" method=\"post\"><input name=\"k\"></form>\n";
+        var fs = Fs(("/site/a.asp", text));
+        var sha = PellyCoder.Core.Files.TextFileCodec.HashHex(Encoding.UTF8.GetBytes(text));
+        fs.AddFile(Cache, new MockFileData("{\"version\":5,\"spKey\":\"\",\"files\":{\"a.asp\":{\"sha256\":\"" + sha +
+            "\",\"entries\":[],\"includes\":[],\"spCalls\":[],\"calls\":[],\"scriptSources\":[],\"forms\":{\"reads\":[],\"allRead\":false," +
+            "\"senders\":[{\"kind\":0,\"url\":\"s.asp\",\"urlUnknown\":false,\"post\":true,\"fields\":[null],\"line\":1}],\"actions\":[]}}}}"));
+        Assert.Equal(["k"], Assert.Single(Load(fs).FormFacts["a.asp"].Senders).Fields);
+    }
+
+    [Fact]
     public void Cache_NullFormFacts_Rebuilt()
     {
         var text = "<%\nv = Request(\"k\")\n%>\n";

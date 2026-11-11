@@ -340,6 +340,18 @@ public sealed class SpecRunnerWebTests : IDisposable
     }
 
     [Fact]
+    public async Task Apply_BareNameResolvedToQualified_RenameFollowed()
+    {
+        const string common = "var Common = {\n  fnSearch: function (f) {\n    return f;\n  }\n};\n";
+        Make("web/js/common.js", common);
+        Spec("- [ ] T1 js web/js/common.js#fnSearch 이름을 바꾼다\n- [ ] T2 js web/js/common.js#fnSearch 본문을 고친다\n");
+        _exec.Rewrite["T1"] = common.Replace("fnSearch:", "fnFind:");
+        var seen = new List<RunRequest>();
+        Assert.Equal(0, await Run(Opts(), RecordingRewrite(seen)));
+        Assert.EndsWith("fnFind", seen[1].MethodName);
+    }
+
+    [Fact]
     public async Task Apply_RestoredJsTask_NotPassed()
     {
         Spec("- [ ] T1 js web/js/order.js#fnSearch page를 더한다 [G1]\n- [ ] T2 css web/css/admin.css#.search-box 넓힌다 [G1]\n" +

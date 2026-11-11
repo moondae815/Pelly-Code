@@ -882,7 +882,9 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                 var current = name;
                 ChangedJsFunction? renamed = null;
                 foreach (var c in followable)
-                    if (c.Before.Name == current && c.After.Name != current && string.Equals(c.RelativePath, path, StringComparison.OrdinalIgnoreCase))
+                    // A bare #fnSearch may have resolved to Common.fnSearch (the change carries the qualified name).
+                    if ((c.Before.Name == current || c.Before.Name.EndsWith("." + current, StringComparison.Ordinal)) && c.After.Name != c.Before.Name
+                        && string.Equals(c.RelativePath, path, StringComparison.OrdinalIgnoreCase))
                     {
                         renamed = c;
                         current = c.After.Name;

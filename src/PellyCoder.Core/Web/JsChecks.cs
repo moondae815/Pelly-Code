@@ -77,6 +77,8 @@ public static class JsChecks
         if (JsTargetMatch.Find(originals, functions, target, state.AllowSignatureChange) is not { } now)
             return !state.AllowSignatureChange
                 ? $"함수 {name}를 찾을 수 없습니다(이름을 바꾸지 마십시오)" + SignatureHint
+                : functions.Count(f => f.QualifiedName == name) > originals.Count(f => f.QualifiedName == name)
+                    ? $"함수 {name}가 늘었습니다(같은 이름의 함수를 더하지 마십시오)"
                 : FreshCount(originals, functions, target) > 1
                     ? $"함수 {name}를 찾을 수 없습니다(새 이름의 함수가 여럿이라 어느 것이 대상인지 알 수 없습니다)"
                     : $"함수 {name}를 찾을 수 없습니다(대상 함수를 지우지 마십시오)";

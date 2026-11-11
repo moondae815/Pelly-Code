@@ -190,16 +190,16 @@ public sealed class FormSiteTests
     }
 
     [Fact]
-    public void AspUsedAsInclude_ResolvedFromIncluderFolder_NoSelfPost()
+    public void AspUsedAsInclude_ResolvedFromIncluderFolder()
     {
         var list = "<!--#include virtual=\"/inc/top.asp\"-->\n";
         var index = Site((List, list), ("inc/top.asp", Form("save.asp", "custId")), (Save, Reader("custNo")));
         var m = Assert.Single(Check(index, "inc/top.asp", Form("save.asp", "custNo")));
         Assert.Equal(Save, m.Target);
 
-        // A form without action in it posts to the including page, not to inc/top.asp.
+        // A form without action in it posts to the including page (and to inc/top.asp when that is opened directly).
         var site = FormSite.Build(Site((List, list), ("inc/top.asp", "<form method=\"post\"><input name=\"a\"></form>\n" + Reader("a"))));
-        Assert.Empty(site.SendersTo("inc/top.asp"));
+        Assert.Single(site.SendersTo("inc/top.asp"));
         Assert.Single(site.SendersTo(List));
     }
 
@@ -295,6 +295,38 @@ public sealed class FormSiteTests
             var index = Site((List, Page(assignment, "")), (Save, anyRead));
             Assert.Empty(Check(index, List, Page("frm.action = \"save.asp\";", hidden)));
         }
+    }
+
+    [Fact]
+    public void JsActions_SameTarget_FieldsMerged_ConcatenatedQueryOpen()
+    {
+        string Page(string hidden) => "<form name=\"frm\" method=\"post\">\n<input name=\"a\">\n" + hidden + "</form>\n<script>\n" +
+            "function fnSave() { frm.action = \"save.asp\"; frm.submit(); }\n" +
+            "function fnDel(i) { frm.action = \"save.asp?mode=del&idx=\" + i; frm.submit(); }\n</script>\n";
+        var anyRead = "<%\nv = Request.Form(\"a\")\nm = Request(\"mode\")\nx = Request(\"idx\")\n%>\n";
+        var index = Site((List, Page("")), (Save, anyRead));
+        Assert.Empty(Check(index, List, Page("<input type=\"hidden\" name=\"mode\">\n<input type=\"hidden\" name=\"idx\">\n")));
+
+        // A tail built by + may carry any key.
+        string Tail(string hidden) => "<form name=\"frm\" method=\"post\">\n<input name=\"a\">\n" + hidden + "</form>\n<script>\n" +
+            "function go(m, i) { frm.action = \"save.asp?mode=\" + m + \"&idx=\" + i; frm.submit(); }\n</script>\n";
+        index = Site((List, Tail("")), (Save, anyRead));
+        Assert.Empty(Check(index, List, Tail("<input type=\"hidden\" name=\"idx\">\n")));
+    }
+
+    [Fact]
+    public void IncludedAsp_AlsoRequestedDirectly_KeepsOwnFolderAndSelfPost()
+    {
+        const string board = "admin/board/view.asp";
+        const string boardSave = "admin/board/save.asp";
+        var m = "<!--#include virtual=\"/admin/board/view.asp\"-->\n";
+        var index = Site(("m/view.asp", m), (board, Form("save.asp", "idx2")), (boardSave, Reader("idx")));
+        var found = Assert.Single(Check(index, board, Form("save.asp", "idx")));
+        Assert.Equal(boardSave, found.Target);
+
+        var site = FormSite.Build(Site(("m/view.asp", m), (board, "<form method=\"post\"><input name=\"a\"></form>\n")));
+        Assert.Single(site.SendersTo(board));
+        Assert.Single(site.SendersTo("m/view.asp"));
     }
 
     // ---- review fixes ----

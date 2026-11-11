@@ -883,6 +883,7 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
                 ChangedJsFunction? renamed = null;
                 foreach (var c in followable)
                     // A bare #fnSearch may have resolved to Common.fnSearch (the change carries the qualified name).
+                    // (spec check refuses a bare name that matches several functions, so the suffix names one function)
                     if ((c.Before.Name == current || c.Before.Name.EndsWith("." + current, StringComparison.Ordinal)) && c.After.Name != c.Before.Name
                         && string.Equals(c.RelativePath, path, StringComparison.OrdinalIgnoreCase))
                     {

@@ -140,15 +140,17 @@ public sealed class FormSite
             var pages = new List<string>();
             foreach (var (page, js) in _index.ScriptSources)
                 if (js.Contains(rel, StringComparer.OrdinalIgnoreCase))
-                    pages.AddRange(Included(page) ? Includers(page) : [page]);
+                    pages.AddRange(IsInclude(page) ? Includers(page) : Included(page) ? [page, .. Includers(page)] : [page]);
             return pages.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         }
-        return Included(rel) ? Includers(rel) : [rel];
+        // An included .asp may also be requested directly, so it is shown in itself as well (an .inc never is).
+        if (IsInclude(rel)) return Includers(rel);
+        return Included(rel) ? [rel, .. Includers(rel).Where(p => !string.Equals(p, rel, StringComparison.OrdinalIgnoreCase))] : [rel];
     }
 
     private List<string> Includers(string inc)
     {
-        var pages = _index.IncludersOf(inc).Where(p => !Included(p)).ToList();
+        var pages = _index.IncludersOf(inc).Where(p => !IsInclude(p)).ToList();
         return pages.Count > 0 ? pages : [inc];
     }
 
@@ -174,7 +176,7 @@ public sealed class FormSite
                 var targets = new Dictionary<string, FormSender>(StringComparer.OrdinalIgnoreCase);
                 foreach (var page in pages)
                     foreach (var (t, s) in Targets(sender, page))
-                        targets.TryAdd(t, s);
+                        targets[t] = targets.TryGetValue(t, out var had) ? Merge(had, s) : s;
                 foreach (var (t, s) in targets)
                 {
                     var key = (file, t);
@@ -214,19 +216,27 @@ public sealed class FormSite
             // No action and no JS assignment: the form posts to the page itself (HTML rule), unless the page's JS sets some
             // action in a way not tied to this form (an alias, an event attribute) — then the address is not known.
             if (WritesActionSomewhere(page)) yield break;
-            if (!Included(page) && _known.ContainsKey(page)) yield return (Canonical(page), sender);
+            if (!IsInclude(page) && _known.ContainsKey(page)) yield return (Canonical(page), sender);
             yield break;
         }
         if (actions.Any(a => a.Url is null)) yield break;
+        var merged = new Dictionary<string, FormSender>(StringComparer.OrdinalIgnoreCase);
         foreach (var a in actions)
             if (Resolve(dir, a.Url!) is { } t)
             {
                 // The action's query keys are sent too (a hidden mode input moved into frm.action = "save.asp?mode=del").
                 var query = FormFacts.QueryKeys(a.Url!).ToList();
-                yield return (t, sender.Fields is null || query.Count == 0 ? sender
-                    : sender with { Fields = [.. sender.Fields, .. query.Where(q => !sender.Fields.Contains(q))] });
+                var s = sender.Fields is null || query.Count == 0 ? sender
+                    : sender with { Fields = [.. sender.Fields, .. query.Where(q => !sender.Fields.Contains(q))] };
+                merged[t] = merged.TryGetValue(t, out var had) ? Merge(had, s) : s;
             }
+        foreach (var (t, s) in merged) yield return (t, s);
     }
+
+    /// <summary>One sender with the fields of both (several action assignments to the same target).</summary>
+    private static FormSender Merge(FormSender a, FormSender b) =>
+        a.Fields is null || b.Fields is null ? a with { Fields = null }
+            : a with { Fields = [.. a.Fields, .. b.Fields.Where(f => !a.Fields.Contains(f))] };
 
     private bool WritesActionSomewhere(string page)
     {

@@ -165,7 +165,7 @@ public static class FormFacts
         var starts = LineStarts(text);
         var procedures = page.Procedures.Select(p => p.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var declared = page.Declarations.Select(d => d.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var comments = HtmlComments(text);
+        var comments = HtmlComments(page, text, starts);
         foreach (Match open in FormOpen.Matches(text))
         {
             if (Hidden(page, text, starts, comments, open.Index)) continue;
@@ -201,10 +201,35 @@ public static class FormFacts
         }
     }
 
-    private static readonly Regex HtmlComment = new(@"<!--(?!\s*#)[\s\S]*?-->", RegexOptions.Compiled);
+    /// <summary>HTML comments outside script blocks and server code (a script's <c>&lt;!--</c> is not an HTML comment).</summary>
+    private static List<(int Start, int End)> HtmlComments(AspPage page, string text, List<int> starts)
+    {
+        var result = new List<(int, int)>();
+        var at = 0;
+        while ((at = text.IndexOf("<!--", at, StringComparison.Ordinal)) >= 0)
+        {
+            if (Regex.IsMatch(text.AsSpan(at + 4, Math.Min(8, text.Length - at - 4)).ToString(), @"^\s*#")
+                || page.ClientBlocks.Any(b => at >= b.ContentStart && at < b.ContentEnd) || InServerCode(page, starts, at))
+            {
+                at += 4;
+                continue;
+            }
+            var end = text.IndexOf("-->", at + 4, StringComparison.Ordinal);
+            end = end < 0 ? text.Length : end + 3;
+            result.Add((at, end));
+            at = end;
+        }
+        return result;
+    }
 
-    private static List<(int Start, int End)> HtmlComments(string text) =>
-        HtmlComment.Matches(text).Select(m => (m.Index, m.Index + m.Length)).ToList();
+    private static bool InServerCode(AspPage page, List<int> starts, int at)
+    {
+        var line = LineAt(starts, at);
+        var column = at - starts[line - 1] + 1;
+        return page.Segments.Any(seg => seg.Kind is AspSegmentKind.Code or AspSegmentKind.Output or AspSegmentKind.ServerScript
+            && (line > seg.StartLine || (line == seg.StartLine && column >= seg.StartColumn))
+            && (line < seg.EndLine || (line == seg.EndLine && column <= seg.EndColumn)));
+    }
 
     /// <summary>
     /// A <c>&lt;form</c> that never reaches the browser as a form: inside an HTML comment, inside a client script block (a JS
@@ -327,6 +352,7 @@ public static class FormFacts
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var raw in query.Split('&'))
         {
+            if (raw == "*") { if (seen.Add("*")) yield return "?*"; continue; }
             var part = raw.StartsWith("amp;", StringComparison.OrdinalIgnoreCase) ? raw[4..] : raw;
             var eq = part.IndexOf('=');
             var key = (eq >= 0 ? part[..eq] : part).Trim();
@@ -513,8 +539,9 @@ public static class FormFacts
         if (literal.Contains("<%", StringComparison.Ordinal) || Regex.IsMatch(literal, "__asp[0-9]+__")) return (null, true);
         var rest = text[(closeQuote + 1)..e].Trim();
         if (rest.Length == 0) return literal.Trim().Length == 0 ? (null, true) : (literal.Trim(), false);
+        // The literal query's keys count, and the tail built by + may carry any key (&* reads as the key prefix "").
         if (rest.StartsWith('+') && literal.Contains('?'))
-            return (literal.Trim(), false); // the query part's keys count; the address is cut at '?' when resolved
+            return (literal.Trim() + "&*", false);
         return (null, true);
     }
 

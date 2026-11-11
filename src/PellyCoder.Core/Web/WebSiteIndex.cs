@@ -93,7 +93,7 @@ public sealed record WebSiteIndexResult(IReadOnlyList<JsIndexEntry> Entries, int
 /// <summary>Top-level function and variable names of the site's own JavaScript files, cached by file hash.</summary>
 public static class WebSiteIndex
 {
-    private const int CacheVersion = 5;
+    private const int CacheVersion = 6;
 
     private sealed class CacheFile
     {

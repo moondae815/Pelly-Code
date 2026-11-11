@@ -187,7 +187,7 @@ public sealed class FormFactsTests
             "$(\"#frm\").attr(\"action\", \"b.asp\");\n" + // 5
             "document.getElementById(\"frm\").action = url;")); // 6
         Assert.Equal(
-            [new FormAction("frm", "save.asp", 3), new FormAction("frm", "a.asp?m=", 4), new FormAction("frm", "b.asp", 5),
+            [new FormAction("frm", "save.asp", 3), new FormAction("frm", "a.asp?m=&*", 4), new FormAction("frm", "b.asp", 5),
              new FormAction("frm", null, 6)],
             facts.Actions);
     }
@@ -242,6 +242,13 @@ public sealed class FormFactsTests
         Assert.Empty(Page("<script>\nvar f = $('<form action=\"x.asp\" method=\"post\"><input name=\"a\"></form>');\n</script>\n").Senders);
         // A VBScript string still counts, and so does a form after an include line.
         Assert.Single(Page("<!--#include file=\"a.inc\"-->\n<% Response.Write \"<form action=\"\"s.asp\"\">\" %>\n</form>\n").Senders);
+    }
+
+    [Fact]
+    public void Form_AfterUnclosedCommentInScript_Found()
+    {
+        var text = "<script>\n<!--\nfunction a() {}\n</script>\n<form action=\"s.asp\" method=\"post\"><input name=\"k\"></form>\n<!-- footer -->\n";
+        Assert.Single(Page(text).Senders);
     }
 
     [Fact]

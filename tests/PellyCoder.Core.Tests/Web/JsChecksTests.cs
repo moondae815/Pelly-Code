@@ -244,6 +244,15 @@ public class JsChecksTests
     }
 
     [Fact]
+    public void Shape_RenameAllowed_TargetDuplicated_SaysDuplicated()
+    {
+        var state = WebTestState.Js(Plain, "fnSearch", allowSignature: true);
+        var patched = Plain + Plain;
+        var doc = JsDocument.Parse(patched, EcmaVersion.ES5, false);
+        Assert.Equal("함수 fnSearch가 늘었습니다(같은 이름의 함수를 더하지 마십시오)", JsChecks.ShapeViolation(state, doc, patched));
+    }
+
+    [Fact]
     public void Shape_RenameAllowed_NewOtherTopLevel_StillRefused()
     {
         var state = WebTestState.Js(Plain, "fnSearch", allowSignature: true);

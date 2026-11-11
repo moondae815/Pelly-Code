@@ -19,6 +19,7 @@ public sealed class JsFormFieldsStep : IVerifierStep
         var state = ctx.Web ?? throw new InvalidOperationException("JS verification needs the web run state.");
         state.Checks.Remove(Row);
         state.FormFieldWarnings = 0;
+        state.FormFieldMismatches = [];
 
         var rel = FormFieldsCheck.Relative(state.SiteRoot, ctx.FilePath);
         var original = FormFieldsCheck.Facts(rel, ctx.Original.Text);
@@ -32,8 +33,10 @@ public sealed class JsFormFieldsStep : IVerifierStep
             state.Record(Row, AspCheckStatus.Skipped, AspElementsStep.IndexUnreadable);
             return Task.FromResult(StepResult.Pass);
         }
-        var warnings = FormFieldsCheck.Warnings(index, rel, original, current);
+        var mismatches = FormFieldsCheck.Mismatches(index, rel, original, current);
+        var warnings = mismatches.Select(m => m.Message).ToList();
         state.FormFieldWarnings = warnings.Count;
+        state.FormFieldMismatches = mismatches;
         if (warnings.Count == 0) state.Record(Row, AspCheckStatus.Passed);
         else state.Record(Row, AspCheckStatus.Warned, string.Join("; ", warnings));
         return Task.FromResult(StepResult.Pass);

@@ -67,6 +67,9 @@ public sealed class AspRunState(
     /// <summary>Form field warnings of the last verify (W3 design §5.3); the apply end compares with its own recount.</summary>
     public int FormFieldWarnings { get; set; }
 
+    /// <summary>The form field mismatches of the last verify (the apply end compares them with what is left).</summary>
+    public IReadOnlyList<PellyCoder.Core.Web.FormMismatch> FormFieldMismatches { get; set; } = [];
+
     /// <summary>Latest result of each check by name.</summary>
     public Dictionary<string, AspCheck> Checks { get; } = new(StringComparer.Ordinal);
 

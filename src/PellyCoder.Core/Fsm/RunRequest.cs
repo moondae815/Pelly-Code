@@ -90,7 +90,7 @@ public sealed record ApplyHost(Workspace Workspace);
 /// </summary>
 public sealed record RunResult(int ExitCode, string RunId, string? FilePath, FileSnapshot? Original, FileSnapshot? Final, string? FailureKind,
     string? TargetDisplay = null, IReadOnlyList<string>? AddedHelpers = null, TestFirstOutcome? TestFirst = null,
-    int FormFieldWarnings = 0);
+    int FormFieldWarnings = 0, IReadOnlyList<PellyCoder.Core.Web.FormMismatch>? FormFieldMismatches = null);
 
 /// <summary>
 /// Test-first outcome handed back to the caller: <paramref name="Red"/> maps each named test with the RED role that RED judged

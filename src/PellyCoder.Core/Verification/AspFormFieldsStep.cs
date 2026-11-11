@@ -24,6 +24,7 @@ public sealed class AspFormFieldsStep(IFileSystem fs, PellyOptions options, ITex
         var state = ctx.Asp ?? throw new InvalidOperationException("ASP verification needs the ASP run state.");
         state.Checks.Remove(Row);
         state.FormFieldWarnings = 0;
+        state.FormFieldMismatches = [];
 
         var rel = FormFieldsCheck.Relative(state.SiteRoot, ctx.FilePath);
         var original = FormFieldsCheck.Facts(rel, ctx.Original.Text);
@@ -38,8 +39,10 @@ public sealed class AspFormFieldsStep(IFileSystem fs, PellyOptions options, ITex
             state.Record(Row, AspCheckStatus.Skipped, AspElementsStep.IndexUnreadable);
             return Task.FromResult(StepResult.Pass);
         }
-        var warnings = FormFieldsCheck.Warnings(index, rel, original, current);
+        var mismatches = FormFieldsCheck.Mismatches(index, rel, original, current);
+        var warnings = mismatches.Select(m => m.Message).ToList();
         state.FormFieldWarnings = warnings.Count;
+        state.FormFieldMismatches = mismatches;
         if (warnings.Count == 0) state.Record(Row, AspCheckStatus.Passed);
         else state.Record(Row, AspCheckStatus.Warned, string.Join("; ", warnings));
         return Task.FromResult(StepResult.Pass);
@@ -59,10 +62,10 @@ internal static class FormFieldsCheck
     /// The mismatches the edit made. Both worlds take the file's facts from the texts, not from the index: the index may have
     /// read the file before or after the write.
     /// </summary>
-    public static IReadOnlyList<string> Warnings(WebSiteIndexResult index, string rel, FileFormFacts original, FileFormFacts current)
+    public static IReadOnlyList<FormMismatch> Mismatches(WebSiteIndexResult index, string rel, FileFormFacts original, FileFormFacts current)
     {
         var before = FormSite.Build(index, new Dictionary<string, FileFormFacts> { [rel] = original });
         var after = FormSite.Build(index, new Dictionary<string, FileFormFacts> { [rel] = current });
-        return FormSite.NewMismatches(before, after, [rel]).Select(m => m.Message).ToList();
+        return FormSite.NewMismatches(before, after, [rel]);
     }
 }

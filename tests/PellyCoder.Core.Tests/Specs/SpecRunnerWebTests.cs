@@ -445,12 +445,31 @@ public sealed class SpecRunnerWebTests : IDisposable
         MemoSite();
         Spec("- [ ] T1 asp web/admin/memo_save.asp#L2-2 memo를 읽는다\n- [ ] T2 asp web/admin/memo.asp#L2-2 이름을 memo로 바꾼다\n");
         _exec.Rewrite["T1"] = MemoSave.Replace("\"memoText\"", "\"memo\"");
-        _exec.FormWarnings["T1"] = 1;
+        _exec.FormMismatches["T1"] = [new(PellyCoder.Core.Web.FormMismatchKind.NobodySends, "web/admin/memo_save.asp", "memo",
+            "web/admin/memo_save.asp", 2, null, 0, PellyCoder.Core.Web.FormSenderKind.Form, null, 1)];
         _exec.Rewrite["T2"] = MemoPage.Replace("\"memoText\"", "\"memo\"");
         Assert.Equal(0, await Run(Opts()));
         Assert.DoesNotContain(_ui.Warnings, w => w.Contains("보내지 않음") || w.Contains("보내는 폼·ajax가 없음"));
         Assert.Contains("작업 중 폼 필드 경고 1건 중 1건은 뒤 작업이 해결함", _ui.Warnings);
         Assert.Empty(FormMismatches());
+    }
+
+    private static PellyCoder.Core.Web.FormMismatch NotSent(string key) =>
+        new(PellyCoder.Core.Web.FormMismatchKind.NotSent, "web/admin/memo_save.asp", key, "web/admin/memo_save.asp", 2, "web/admin/memo.asp", 1,
+            PellyCoder.Core.Web.FormSenderKind.Form, null, 1);
+
+    [Fact]
+    public async Task AfterApply_ResolvedCount_ComparesMismatchesNotCounts()
+    {
+        Make("web/admin/memo.asp", MemoPage.Replace("<input name=\"memoText\">", "<input name=\"memoText\">\n<input name=\"orderNo\">"));
+        Make("web/admin/memo_save.asp", "<%\nv = Request.Form(\"memoText\")\nw = Request.Form(\"orderNo\")\n%>\n");
+        Spec("- [ ] T1 asp web/admin/memo.asp#L2-3 이름을 바꾼다\n");
+        _exec.Rewrite["T1"] = MemoPage.Replace("\"memoText\"", "\"memo\"").Replace("</form>", "<input name=\"no\">\n</form>");
+        // During the task: memoText (still left at the end) and a key a later look no longer finds.
+        _exec.FormMismatches["T1"] = [NotSent("memoText"), NotSent("ghost")];
+        Assert.Equal(0, await Run(Opts()));
+        Assert.Equal(2, FormMismatches().Length); // memoText and orderNo
+        Assert.Contains("작업 중 폼 필드 경고 2건 중 1건은 뒤 작업이 해결함", _ui.Warnings);
     }
 
     [Fact]
@@ -493,6 +512,9 @@ public sealed class SpecRunnerWebTests : IDisposable
         /// <summary>Task ID → the form field warnings its run reports.</summary>
         public Dictionary<string, int> FormWarnings { get; } = [];
 
+        /// <summary>Task ID → the form field mismatches its run reports.</summary>
+        public Dictionary<string, IReadOnlyList<PellyCoder.Core.Web.FormMismatch>> FormMismatches { get; } = [];
+
         public async Task<RunResult> ExecuteAsync(SpecTask task, Workspace ws, TaskRunOptions o, CancellationToken ct)
         {
             Calls.Add(task.Id);
@@ -507,7 +529,8 @@ public sealed class SpecRunnerWebTests : IDisposable
             var comment = task.Kind switch { TaskKind.Sql => "-- ", TaskKind.Asp => "' ", TaskKind.Css => "/* ", _ => "// " };
             var newText = Rewrite.TryGetValue(task.Id, out var whole) ? whole : original.Text + comment + task.Id + "\n";
             var written = await guard.WriteAsync(original, newText, CancellationToken.None);
-            return new RunResult(0, runId, path, original, written.Snapshot, null, FormFieldWarnings: FormWarnings.GetValueOrDefault(task.Id));
+            return new RunResult(0, runId, path, original, written.Snapshot, null, FormFieldWarnings: FormMismatches.TryGetValue(task.Id, out var ms) ? ms.Count : FormWarnings.GetValueOrDefault(task.Id),
+                FormFieldMismatches: FormMismatches.GetValueOrDefault(task.Id));
         }
     }
 }

@@ -112,7 +112,8 @@ public sealed class FsmOrchestrator(
         }
         return new RunResult(ctx.ExitCode, ctx.RunId, ctx.FilePath.Length == 0 ? null : ctx.FilePath,
             ctx.Original, final, ctx.FailureKind, TargetDisplayIn(ctx, final), HelpersIn(ctx, final), OutcomeOf(ctx),
-            ctx.Asp?.FormFieldWarnings ?? ctx.Web?.FormFieldWarnings ?? 0);
+            ctx.Asp?.FormFieldWarnings ?? ctx.Web?.FormFieldWarnings ?? 0,
+            ctx.Asp?.FormFieldMismatches ?? ctx.Web?.FormFieldMismatches);
     }
 
     /// <summary>The test-first outcome: the RED-role names RED judged, with their states; null outside a test-first run.</summary>

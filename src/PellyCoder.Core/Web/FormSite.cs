@@ -15,6 +15,10 @@ public sealed record FormMismatch(
     FormMismatchKind Kind, string Target, string Key, string ReadFile, int ReadLine, string? SenderFile, int SenderLine,
     FormSenderKind SenderKind, string? Similar, int Senders)
 {
+    /// <summary>The same mismatch in another world or run: kind, target, key and sender, ignoring case and lines.</summary>
+    public (FormMismatchKind, string, string, string?) Identity =>
+        (Kind, Target.ToLowerInvariant(), Key.ToLowerInvariant(), SenderFile?.ToLowerInvariant());
+
     public string Message
     {
         get

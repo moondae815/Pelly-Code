@@ -1396,9 +1396,12 @@ public sealed class SpecRunner(IFileSystem fs, FileGuard guard, ITaskExecutor ex
             _formFieldMismatches = left.Select(m => new FormFieldMismatchRecord(
                 m.Kind == FormMismatchKind.NotSent ? "notSent" : "nobodySends", m.Target, m.Key, m.SenderFile, m.Message)).ToList();
 
-            var during = applied.Sum(id => _lastRuns.GetValueOrDefault(id)?.FormFieldWarnings ?? 0);
-            if (during > left.Count)
-                owner.Ui.Warn($"작업 중 폼 필드 경고 {during}건 중 {during - left.Count}건은 뒤 작업이 해결함");
+            // The warnings shown during the tasks (last run of each), compared one by one with what is left.
+            var during = applied.SelectMany(id => _lastRuns.GetValueOrDefault(id)?.FormFieldMismatches ?? []).Select(m => m.Identity)
+                .ToHashSet();
+            var resolved = during.Count(d => !left.Any(m => m.Identity == d));
+            if (resolved > 0)
+                owner.Ui.Warn($"작업 중 폼 필드 경고 {during.Count}건 중 {resolved}건은 뒤 작업이 해결함");
         }
 
         /// <summary>Calls and references of <paramref name="name"/>, without those of files (and pages with their includes) that declare that name themselves.</summary>

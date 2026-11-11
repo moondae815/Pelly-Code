@@ -235,6 +235,16 @@ public sealed class FormFactsTests
     }
 
     [Fact]
+    public void Form_InCommentsOrJsStrings_NotSenders()
+    {
+        Assert.Empty(Page("<!-- <form action=\"old.asp\" method=\"post\"><input name=\"a\"></form> -->\n").Senders);
+        Assert.Empty(Page("<%\n' Response.Write \"<form action=\"\"old.asp\"\">\"\n%>\n").Senders);
+        Assert.Empty(Page("<script>\nvar f = $('<form action=\"x.asp\" method=\"post\"><input name=\"a\"></form>');\n</script>\n").Senders);
+        // A VBScript string still counts, and so does a form after an include line.
+        Assert.Single(Page("<!--#include file=\"a.inc\"-->\n<% Response.Write \"<form action=\"\"s.asp\"\">\" %>\n</form>\n").Senders);
+    }
+
+    [Fact]
     public void Empty_WhenNothing()
     {
         var facts = Page("<p>hello</p>\n");

@@ -165,8 +165,10 @@ public static class FormFacts
         var starts = LineStarts(text);
         var procedures = page.Procedures.Select(p => p.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var declared = page.Declarations.Select(d => d.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var comments = HtmlComments(text);
         foreach (Match open in FormOpen.Matches(text))
         {
+            if (Hidden(page, text, starts, comments, open.Index)) continue;
             var tagEnd = TagEnd(text, open.Index);
             var tag = text[open.Index..Math.Min(text.Length, tagEnd + 1)];
             var attributes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -197,6 +199,31 @@ public static class FormFacts
             yield return new FormSender(FormSenderKind.Form, url, unknown, post, fields, firstLine,
                 NullIfEmpty(name), NullIfEmpty(id));
         }
+    }
+
+    private static readonly Regex HtmlComment = new(@"<!--(?!\s*#)[\s\S]*?-->", RegexOptions.Compiled);
+
+    private static List<(int Start, int End)> HtmlComments(string text) =>
+        HtmlComment.Matches(text).Select(m => (m.Index, m.Index + m.Length)).ToList();
+
+    /// <summary>
+    /// A <c>&lt;form</c> that never reaches the browser as a form: inside an HTML comment, inside a client script block (a JS
+    /// string), or inside server code but not in a VBScript string (a comment).
+    /// </summary>
+    private static bool Hidden(AspPage page, string text, List<int> starts, List<(int Start, int End)> comments, int at)
+    {
+        if (comments.Any(c => at >= c.Start && at < c.End)) return true;
+        if (page.ClientBlocks.Any(b => at >= b.ContentStart && at < b.ContentEnd)) return true;
+        var line = LineAt(starts, at);
+        var column = at - starts[line - 1] + 1;
+        bool Inside(AspSegment seg) =>
+            (line > seg.StartLine || (line == seg.StartLine && column >= seg.StartColumn))
+            && (line < seg.EndLine || (line == seg.EndLine && column <= seg.EndColumn));
+        if (!page.Segments.Any(seg => seg.Kind is AspSegmentKind.Code or AspSegmentKind.Output or AspSegmentKind.ServerScript && Inside(seg)))
+            return false;
+        // Server code: only a VBScript string literal can write the tag.
+        return !page.Statements.SelectMany(st => st.Tokens).Any(t => t.Kind == VbTokenKind.String && t.Line == line
+            && column > t.Column && column < t.Column + t.Text.Length);
     }
 
     private static string? NullIfEmpty(string? s) => string.IsNullOrWhiteSpace(s) || s.Contains("<%", StringComparison.Ordinal) ? null : s.Trim();

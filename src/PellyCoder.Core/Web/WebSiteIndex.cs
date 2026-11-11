@@ -40,6 +40,12 @@ public sealed record WebSiteIndexResult(IReadOnlyList<JsIndexEntry> Entries, int
     public IReadOnlyDictionary<string, IReadOnlyList<string>> ScriptSources { get; init; } =
         new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Files left out because they are larger than the size limit (1MB by default).</summary>
+    public int TooLarge { get; init; }
+
+    /// <summary>The total size in bytes of the files indexed.</summary>
+    public long Bytes { get; init; }
+
     /// <summary>Every file the index read (pages and <c>.js</c>), site-relative, including those with nothing else to record.</summary>
     public IReadOnlyList<string> AllFiles { get; init; } = [];
 
@@ -166,6 +172,8 @@ public static class WebSiteIndex
         var files = 0;
         var pageFiles = 0;
         var truncated = false;
+        var tooLarge = 0;
+        long totalBytes = 0;
         var extensions = aspExtensions ?? [".asp", ".inc"];
 
         var root = siteRoot.Replace('\\', '/').TrimEnd('/');
@@ -198,7 +206,7 @@ public static class WebSiteIndex
             string text;
             try
             {
-                if (fs.FileInfo.New(full).Length > maxBytes) continue;
+                if (fs.FileInfo.New(full).Length > maxBytes) { tooLarge++; continue; }
                 bytes = fs.File.ReadAllBytes(full);
                 text = codec.Decode(full, bytes).Text;
             }
@@ -207,6 +215,7 @@ public static class WebSiteIndex
                 continue;
             }
             if (!isPage && filter.Classify(full, text).Verdict != WebFileVerdict.Ok) continue;
+            totalBytes += bytes.Length;
 
             var sha = TextFileCodec.HashHex(bytes);
             CacheItem item;
@@ -239,7 +248,7 @@ public static class WebSiteIndex
         return new WebSiteIndexResult(entries, files, truncated)
         {
             PageFiles = pageFiles, Includes = includes, SpCalls = spCalls, JsCalls = jsCalls, ScriptSources = scriptSources,
-            FormFacts = formFacts, AllFiles = fresh.Files.Keys.ToList(),
+            FormFacts = formFacts, AllFiles = fresh.Files.Keys.ToList(), TooLarge = tooLarge, Bytes = totalBytes,
         };
     }
 

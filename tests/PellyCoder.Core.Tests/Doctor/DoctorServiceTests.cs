@@ -447,6 +447,46 @@ public sealed class DoctorServiceTests
     }
 
     [Fact]
+    public async Task Doctor_SiteIndexRow_CountsPagesScriptsAndSize()
+    {
+        _options.Asp.Configured = true;
+        _options.Asp.SiteRoot = "/site";
+        _fs.AddFile("/site/a.asp", new MockFileData(new string('a', 1500)));
+        _fs.AddFile("/site/inc/b.inc", new MockFileData("<% x = 1 %>\n"));
+        _fs.AddFile("/site/js/x.js", new MockFileData("function f() {}\n"));
+        _fs.AddFile("/site/js/jquery-1.8.3.js", new MockFileData("x")); // a library file is not indexed
+        _fs.AddFile("/site/big.asp", new MockFileData(new byte[1_048_577]));
+        EnqueueProbes();
+
+        var c = Get(await Create().RunAsync(CancellationToken.None), "사이트 색인");
+
+        Assert.Equal(DoctorStatus.Ok, c.Status);
+        Assert.Equal("페이지 2개, .js 1개, 합계 2KB, 1MB가 넘어 뺀 파일 1개", c.Detail);
+    }
+
+    [Fact]
+    public async Task Doctor_SiteIndexRow_Truncated_Warn()
+    {
+        _options.Web.Configured = true;
+        _options.Asp.SiteRoot = "/site";
+        for (var i = 0; i < 2001; i++) _fs.AddFile($"/site/p{i:0000}.asp", new MockFileData("x"));
+        EnqueueProbes();
+
+        var c = Get(await Create().RunAsync(CancellationToken.None), "사이트 색인");
+
+        Assert.Equal(DoctorStatus.Warn, c.Status);
+        Assert.Equal("페이지 2000개, .js 0개, 합계 2KB, 한도(종류마다 2000개)에 걸려 일부만 색인함", c.Detail);
+        Assert.Equal("asp.siteRoot가 사이트 폴더만 가리키는지 확인하세요 — 색인이 잘리면 영향 탐색과 경고가 일부 파일을 보지 못합니다", c.Action);
+    }
+
+    [Fact]
+    public async Task Doctor_SiteIndexRow_NotShownWithoutWebOrAsp()
+    {
+        EnqueueProbes();
+        Assert.DoesNotContain(await Create().RunAsync(CancellationToken.None), c => c.Name == "사이트 색인");
+    }
+
+    [Fact]
     public async Task Doctor_WebRow_NoJquery_Warn()
     {
         _options.Web.Configured = true;

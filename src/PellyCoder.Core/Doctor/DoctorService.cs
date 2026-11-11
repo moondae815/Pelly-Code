@@ -117,7 +117,10 @@ public sealed class DoctorService(
             checks.Add(CheckAspSanitizers());
         }
         if (options.Web.Configured || options.Asp.Configured)
+        {
             checks.Add(CheckWeb());
+            checks.Add(CheckSiteIndex());
+        }
         return checks;
     }
 
@@ -282,6 +285,26 @@ public sealed class DoctorService(
         var versions = string.Join(", ", found.Select(f => f.Version).Distinct().Order().Select(v => v.ToString()));
         var baseline = JqueryVersions.Baseline(found, options.Web.JqueryVersion);
         return new(DoctorFacts.Web, DoctorStatus.Ok, $"jQuery {versions}(기준 {baseline}); jsTarget {options.Web.JsTarget}", null);
+    }
+
+    /// <summary>The size of the W2 site index (field check W14): pages, <c>.js</c> files, bytes, files left out.</summary>
+    private DoctorCheck CheckSiteIndex()
+    {
+        var workspaceRoot = context is not null && fs.Path.GetDirectoryName(fs.Path.GetFullPath(context.WorkspaceConfigPath)) is { } dir
+            ? dir
+            : fs.Directory.GetCurrentDirectory();
+        WebSiteIndexResult index;
+        try { index = new WebSiteAccess(fs, options.Asp, options.Web, workspaceRoot).Index(); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return new(DoctorFacts.SiteIndex, DoctorStatus.Warn, "사이트 색인을 읽지 못함", "asp.siteRoot 설정을 확인하세요");
+        }
+        var size = index.Bytes < 1_048_576 ? $"{Math.Ceiling(index.Bytes / 1024.0):0}KB" : $"{index.Bytes / 1_048_576.0:0.0}MB";
+        var detail = $"페이지 {index.PageFiles}개, .js {index.Files}개, 합계 {size}";
+        if (index.TooLarge > 0) detail += $", 1MB가 넘어 뺀 파일 {index.TooLarge}개";
+        if (!index.Truncated) return new(DoctorFacts.SiteIndex, DoctorStatus.Ok, detail, null);
+        return new(DoctorFacts.SiteIndex, DoctorStatus.Warn, detail + ", 한도(종류마다 2000개)에 걸려 일부만 색인함",
+            "asp.siteRoot가 사이트 폴더만 가리키는지 확인하세요 — 색인이 잘리면 영향 탐색과 경고가 일부 파일을 보지 못합니다");
     }
 
     private DoctorCheck CheckAspSanitizers() =>

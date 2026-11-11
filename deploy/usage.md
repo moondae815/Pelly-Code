@@ -376,7 +376,7 @@ pelly doctor [--project <csproj>]
 
 * 서버, 모델, .NET SDK, SQL 연결, 운영 연결(「SQL 운영(읽기 전용)」 행: 연결이 없으면 Ok `운영 연결 없음(선택)`, `VIEW DEFINITION`이 없으면 Fail)과 함께 **의미 분석** 행을 보여 줍니다. pelly.exe 옆에 `BuildHost-net472`, `BuildHost-netcore` 폴더가 없으면 Fail(종료 코드 4)이니 반입 zip을 다시 풀어 두십시오.
 * 설정에 `asp` 절이 있으면 「ASP 구문 검사(cscript)」, 「ASP 사이트 루트」, 「ASP SQL 처리 함수」 행이 더해집니다. Windows가 아니거나 `cscript`가 안 되면 Warn이고 `pelly asp`의 컴파일 검사는 건너뜁니다.
-* 설정에 `web` 또는 `asp` 절이 있으면 「JS·CSS」 행이 더해집니다. 사이트 루트에서 찾은 jQuery 버전과 기준 버전, `web.jsTarget`을 보이고, jQuery를 못 찾으면 Warn입니다(`pelly js`의 jQuery API 경고만 건너뜀).
+* 설정에 `web` 또는 `asp` 절이 있으면 「JS·CSS」 행이 더해집니다. 사이트 루트에서 찾은 jQuery 버전과 기준 버전, `web.jsTarget`을 보이고, jQuery를 못 찾으면 Warn입니다(`pelly js`의 jQuery API 경고만 건너뜀). 같은 조건으로 「사이트 색인」 행도 더해집니다: 색인한 페이지·`.js` 수와 크기 합계, 1MB가 넘어 뺀 파일 수(예: 「페이지 412개, .js 87개, 합계 23.4MB」). 종류마다 2000개 한도에 걸려 색인이 잘리면 Warn입니다(영향 탐색과 JS 서명·폼 필드 경고가 일부 파일을 보지 못함). 이 행은 작업 공간의 `.pelly/cache/web-site-index.json`을 만들거나 갱신합니다.
 * `--project`를 주면 그 프로젝트를 불러와 봅니다. 불러오지 못하면 Warn이고 종료 코드는 그대로이며, 영향 탐색은 이름 기준으로 대신합니다.
 
 ## 반출 자료 만들기: `pelly report --sanitize`

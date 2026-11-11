@@ -187,7 +187,7 @@ public sealed class FormFactsTests
             "$(\"#frm\").attr(\"action\", \"b.asp\");\n" + // 5
             "document.getElementById(\"frm\").action = url;")); // 6
         Assert.Equal(
-            [new FormAction("frm", "save.asp", 3), new FormAction("frm", "a.asp", 4), new FormAction("frm", "b.asp", 5),
+            [new FormAction("frm", "save.asp", 3), new FormAction("frm", "a.asp?m=", 4), new FormAction("frm", "b.asp", 5),
              new FormAction("frm", null, 6)],
             facts.Actions);
     }

@@ -366,14 +366,14 @@ public static class FormFacts
             var unknown = urlArg is null;
             var post = defaultPost;
             IReadOnlyList<string>? fields = [];
-            if (urlArg is { } u) (url, unknown) = Address(text, mask, u.S, u.E, stripQueryOnConcat: false);
+            if (urlArg is { } u) (url, unknown) = Address(text, mask, u.S, u.E);
             if (settings is { } st)
             {
                 var props = Properties(text, mask, st);
                 if (props is null) { fields = null; }
                 else
                 {
-                    if (props.TryGetValue("url", out var pu)) (url, unknown) = Address(text, mask, pu.S, pu.E, stripQueryOnConcat: false);
+                    if (props.TryGetValue("url", out var pu)) (url, unknown) = Address(text, mask, pu.S, pu.E);
                     else if (urlArg is null) unknown = true;
                     var methodProp = props.TryGetValue("type", out var pt) ? pt : props.TryGetValue("method", out var pm) ? pm : ((int, int)?)null;
                     if (methodProp is { } mp)
@@ -461,7 +461,7 @@ public static class FormFacts
         void Add(string formRef, int at, int valueStart)
         {
             var end = ExpressionEnd(mask, valueStart);
-            var (url, unknown) = Address(text, mask, valueStart, end, stripQueryOnConcat: true);
+            var (url, unknown) = Address(text, mask, valueStart, end);
             result.Add(new FormAction(formRef, unknown ? null : url, LineAt(starts, at)));
         }
 
@@ -503,7 +503,7 @@ public static class FormFacts
     /// The address in [from, to): a string literal, or a literal holding <c>?</c> followed by <c>+ …</c> (query concatenation).
     /// Anything else is unknown.
     /// </summary>
-    private static (string? Url, bool Unknown) Address(string text, string mask, int from, int to, bool stripQueryOnConcat)
+    private static (string? Url, bool Unknown) Address(string text, string mask, int from, int to)
     {
         var (s, e) = Trim(mask, from, to);
         if (s >= e || (mask[s] != '"' && mask[s] != '\'')) return (null, true);
@@ -514,7 +514,7 @@ public static class FormFacts
         var rest = text[(closeQuote + 1)..e].Trim();
         if (rest.Length == 0) return literal.Trim().Length == 0 ? (null, true) : (literal.Trim(), false);
         if (rest.StartsWith('+') && literal.Contains('?'))
-            return (stripQueryOnConcat ? literal[..literal.IndexOf('?')].Trim() : literal.Trim(), false);
+            return (literal.Trim(), false); // the query part's keys count; the address is cut at '?' when resolved
         return (null, true);
     }
 

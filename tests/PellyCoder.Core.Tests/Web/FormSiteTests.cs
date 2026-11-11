@@ -268,6 +268,21 @@ public sealed class FormSiteTests
         Assert.Equal(1, g.Line);
     }
 
+    [Fact]
+    public void QueryKeysOfJsAction_CountAsSent()
+    {
+        // The hidden mode input moved into the JS action's query (literal, and literal + value).
+        string Page(string assignment, string hidden) => "<form name=\"frm\" method=\"post\">\n<input name=\"a\">\n" + hidden + "</form>\n" +
+            "<script>\nfunction go(m) { " + assignment + " frm.submit(); }\n</script>\n";
+        const string hidden = "<input type=\"hidden\" name=\"mode\">\n";
+        var anyRead = "<%\nv = Request.Form(\"a\")\nm = Request(\"mode\")\n%>\n";
+        foreach (var assignment in new[] { "frm.action = \"save.asp?mode=del\";", "frm.action = \"save.asp?mode=\" + m;" })
+        {
+            var index = Site((List, Page(assignment, "")), (Save, anyRead));
+            Assert.Empty(Check(index, List, Page("frm.action = \"save.asp\";", hidden)));
+        }
+    }
+
     // ---- review fixes ----
 
     [Fact]

@@ -157,15 +157,15 @@ public sealed class FormSite
             foreach (var sender in facts.Senders)
             {
                 if (sender.UrlUnknown) continue;
-                var targets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var targets = new Dictionary<string, FormSender>(StringComparer.OrdinalIgnoreCase);
                 foreach (var page in pages)
-                    foreach (var t in Targets(sender, page))
-                        targets.Add(t);
-                foreach (var t in targets)
+                    foreach (var (t, s) in Targets(sender, page))
+                        targets.TryAdd(t, s);
+                foreach (var (t, s) in targets)
                 {
                     var key = (file, t);
                     if (!groups.TryGetValue(key, out var list)) { groups[key] = list = []; order.Add(key); }
-                    list.Add(sender);
+                    list.Add(s);
                 }
             }
         }
@@ -183,12 +183,12 @@ public sealed class FormSite
     }
 
     /// <summary>Where the sender posts when it is shown in <paramref name="page"/>.</summary>
-    private IEnumerable<string> Targets(FormSender sender, string page)
+    private IEnumerable<(string Target, FormSender Sender)> Targets(FormSender sender, string page)
     {
         var dir = PagePaths.Directory(page);
         if (sender.Url is not null)
         {
-            if (Resolve(dir, sender.Url) is { } t) yield return t;
+            if (Resolve(dir, sender.Url) is { } t) yield return (t, sender);
             yield break;
         }
         if (sender.Kind != FormSenderKind.Form) yield break;
@@ -200,12 +200,18 @@ public sealed class FormSite
             // No action and no JS assignment: the form posts to the page itself (HTML rule), unless the page's JS sets some
             // action in a way not tied to this form (an alias, an event attribute) — then the address is not known.
             if (WritesActionSomewhere(page)) yield break;
-            if (!IsInclude(page) && _known.ContainsKey(page)) yield return Canonical(page);
+            if (!IsInclude(page) && _known.ContainsKey(page)) yield return (Canonical(page), sender);
             yield break;
         }
         if (actions.Any(a => a.Url is null)) yield break;
         foreach (var a in actions)
-            if (Resolve(dir, a.Url!) is { } t) yield return t;
+            if (Resolve(dir, a.Url!) is { } t)
+            {
+                // The action's query keys are sent too (a hidden mode input moved into frm.action = "save.asp?mode=del").
+                var query = FormFacts.QueryKeys(a.Url!).ToList();
+                yield return (t, sender.Fields is null || query.Count == 0 ? sender
+                    : sender with { Fields = [.. sender.Fields, .. query.Where(q => !sender.Fields.Contains(q))] });
+            }
     }
 
     private bool WritesActionSomewhere(string page)

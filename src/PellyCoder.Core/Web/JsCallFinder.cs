@@ -25,7 +25,7 @@ public static class JsCallFinder
     private static readonly Regex JavascriptHref = new(
         @"(?<![\w-])href\s*=\s*(?<q>""""|""|')\s*javascript:(?<v>.*?)\k<q>", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-    private static readonly Regex FunctionKeyword = new(@"\bfunction\s*$", RegexOptions.Compiled);
+    private static readonly Regex FunctionKeyword = new(@"\bfunction\s*\*?\s*$", RegexOptions.Compiled);
 
     private static readonly HashSet<string> Keywords = new(StringComparer.Ordinal)
     {
@@ -46,6 +46,8 @@ public static class JsCallFinder
             var from = Math.Max(0, m.Index - 20);
             if (FunctionKeyword.IsMatch(mask.Substring(from, m.Index - from))) continue;
             var open = m.Index + m.Length - 1;
+            // name(…) { is a method shorthand or class method definition (a call is never followed by a block).
+            if (IsDefinition(mask, open)) continue;
             result.Add(new JsCallSite(name, LineAt(starts, m.Index), CountArguments(mask, open), false, source));
         }
         return result;
@@ -101,6 +103,22 @@ public static class JsCallFinder
                     yield return (value, c with { Line = line + c.Line - 1, AttributeName = attr });
             }
         }
+    }
+
+    private static bool IsDefinition(string mask, int open)
+    {
+        var depth = 0;
+        for (var i = open; i < mask.Length; i++)
+        {
+            if (mask[i] == '(') depth++;
+            else if (mask[i] == ')' && --depth == 0)
+            {
+                var k = i + 1;
+                while (k < mask.Length && char.IsWhiteSpace(mask[k])) k++;
+                return k < mask.Length && mask[k] == '{';
+            }
+        }
+        return false;
     }
 
     /// <summary>Top-level commas between the parenthesis at <paramref name="open"/> and its match, plus one; 0 for empty; null when unbalanced.</summary>

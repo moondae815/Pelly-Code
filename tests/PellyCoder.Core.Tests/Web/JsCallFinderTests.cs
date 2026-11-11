@@ -33,6 +33,15 @@ public sealed class JsCallFinderTests
     }
 
     [Fact]
+    public void Calls_GeneratorAndMethodShorthandDeclarations_NotCalls()
+    {
+        var calls = Script("function* gen(a) { yield a; }\nvar o = { fnA(a) { return a; }, get v() { return 1; } };\n" +
+            "class C { fnB(x, y) {\n  fnC(x);\n} }\n");
+        Assert.DoesNotContain(calls, c => c.Name is "gen" or "fnA" or "v" or "fnB");
+        Assert.Contains(calls, c => c.Name == "fnC" && c.Arguments == 1);
+    }
+
+    [Fact]
     public void Calls_New_Counted() =>
         Assert.Contains(Script("var x = new Grid(a);\n"), c => c.Name == "Grid" && c.Arguments == 1);
 

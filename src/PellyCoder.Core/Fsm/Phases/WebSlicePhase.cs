@@ -173,6 +173,9 @@ public sealed class WebSlicePhase(FileGuard fileGuard, ITokenCounter tokens, Bud
     {
         var original = state.Function!;
         var originals = state.OriginalJs?.Functions ?? JsTokenScan.FunctionDeclarations(state.OriginalText);
+        // With renames allowed, a same-named sibling must not stand in for a renamed target.
+        if (state.AllowSignatureChange && JsTargetMatch.Find(originals, functions, original, allowRename: true) is { } found)
+            return found;
         return Refind(originals, functions, f => f.QualifiedName == original.QualifiedName, f => f.DeclLine == original.DeclLine)
             ?? (state.AllowSignatureChange ? JsTargetMatch.Renamed(originals, functions, original) : null);
     }

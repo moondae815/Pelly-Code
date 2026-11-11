@@ -230,6 +230,24 @@ public sealed class WebSlicePhaseTests
     }
 
     [Fact]
+    public async Task Js_SecondOfTwoSameNamed_Renamed_RefoundNotTheFirst()
+    {
+        const string text = "function fnA(a) {\n  return 1;\n}\nfunction fnA(a) {\n  return 2;\n}\n";
+        _fs.AddFile(JsPath, new MockFileData(Encoding.UTF8.GetBytes(text)));
+        var request = new RunRequest(JsPath, null, null, 5, "do it", true, false, null, Kind: EditKind.Js, AllowSignatureChange: true);
+        var ctx = NewContext(JsPath, request);
+        Assert.Equal(PhaseOutcome.Ok, await new JsLocatePhase(_fs, new ScriptedUserInteraction(), _options, Codec)
+            .ExecuteAsync(ctx, TestContext.Current.CancellationToken));
+        Assert.Equal(4, ctx.Web!.Function!.DeclLine);
+        // An earlier attempt renamed the second fnA.
+        _fs.File.WriteAllBytes(JsPath, Encoding.UTF8.GetBytes(text.Replace("function fnA(a) {\n  return 2;", "function fnB(a) {\n  return 2;")));
+        ctx.Current = _guard.Read(JsPath);
+
+        Assert.Equal(PhaseOutcome.Ok, await Phase().ExecuteAsync(ctx, TestContext.Current.CancellationToken));
+        Assert.Equal(new TextSpanInfo(4, 6), ctx.Web!.CurrentSpan);
+    }
+
+    [Fact]
     public async Task Js_FunctionRemoved_TargetNotFound()
     {
         var ctx = await LocatedJs(OrderJs, function: "saveForm");

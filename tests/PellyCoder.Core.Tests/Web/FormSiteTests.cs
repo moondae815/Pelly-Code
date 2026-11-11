@@ -190,6 +190,20 @@ public sealed class FormSiteTests
     }
 
     [Fact]
+    public void AspUsedAsInclude_ResolvedFromIncluderFolder_NoSelfPost()
+    {
+        var list = "<!--#include virtual=\"/inc/top.asp\"-->\n";
+        var index = Site((List, list), ("inc/top.asp", Form("save.asp", "custId")), (Save, Reader("custNo")));
+        var m = Assert.Single(Check(index, "inc/top.asp", Form("save.asp", "custNo")));
+        Assert.Equal(Save, m.Target);
+
+        // A form without action in it posts to the including page, not to inc/top.asp.
+        var site = FormSite.Build(Site((List, list), ("inc/top.asp", "<form method=\"post\"><input name=\"a\"></form>\n" + Reader("a"))));
+        Assert.Empty(site.SendersTo("inc/top.asp"));
+        Assert.Single(site.SendersTo(List));
+    }
+
+    [Fact]
     public void JsAjax_ResolvedFromLoadingPageFolder()
     {
         const string js = "js/memo.js";

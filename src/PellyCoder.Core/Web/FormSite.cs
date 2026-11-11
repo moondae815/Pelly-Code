@@ -120,6 +120,16 @@ public sealed class FormSite
 
     private static bool IsInclude(string rel) => rel.EndsWith(".inc", StringComparison.OrdinalIgnoreCase);
 
+    private readonly Dictionary<string, bool> _included = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>A file other pages include: any <c>.inc</c>, and a page such as <c>top.asp</c> that some page includes.</summary>
+    private bool Included(string rel)
+    {
+        if (IsInclude(rel)) return true;
+        if (!_included.TryGetValue(rel, out var yes)) _included[rel] = yes = _index.IncludersOf(rel).Count > 0;
+        return yes;
+    }
+
     private static bool IsScript(string rel) => rel.EndsWith(".js", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>The pages a browser shows <paramref name="rel"/>'s senders in: the page, an include's includers, a script's loaders.</summary>
@@ -130,15 +140,15 @@ public sealed class FormSite
             var pages = new List<string>();
             foreach (var (page, js) in _index.ScriptSources)
                 if (js.Contains(rel, StringComparer.OrdinalIgnoreCase))
-                    pages.AddRange(IsInclude(page) ? Includers(page) : [page]);
+                    pages.AddRange(Included(page) ? Includers(page) : [page]);
             return pages.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         }
-        return IsInclude(rel) ? Includers(rel) : [rel];
+        return Included(rel) ? Includers(rel) : [rel];
     }
 
     private List<string> Includers(string inc)
     {
-        var pages = _index.IncludersOf(inc).Where(p => !IsInclude(p)).ToList();
+        var pages = _index.IncludersOf(inc).Where(p => !Included(p)).ToList();
         return pages.Count > 0 ? pages : [inc];
     }
 
@@ -204,7 +214,7 @@ public sealed class FormSite
             // No action and no JS assignment: the form posts to the page itself (HTML rule), unless the page's JS sets some
             // action in a way not tied to this form (an alias, an event attribute) — then the address is not known.
             if (WritesActionSomewhere(page)) yield break;
-            if (!IsInclude(page) && _known.ContainsKey(page)) yield return (Canonical(page), sender);
+            if (!Included(page) && _known.ContainsKey(page)) yield return (Canonical(page), sender);
             yield break;
         }
         if (actions.Any(a => a.Url is null)) yield break;

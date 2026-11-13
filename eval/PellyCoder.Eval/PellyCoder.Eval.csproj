@@ -9,9 +9,9 @@
   </PropertyGroup>
 
   <!-- Field-kit build (M4 Task 9): `dotnet publish -r win-x64` alone yields the single-file pelly-eval.exe, the same way as
-       pelly.exe (src/PellyCoder.Cli/PellyCoder.Cli.csproj). No trimming (Roslyn/ScriptDom/SqlClient use reflection). -->
+       pelly.exe (src/PellyCoder.Cli/PellyCoder.Cli.csproj), framework-dependent like it. No trimming (Roslyn/ScriptDom/SqlClient use reflection). -->
   <PropertyGroup Condition="'$(RuntimeIdentifier)'=='win-x64'">
-    <SelfContained>true</SelfContained>
+    <SelfContained>false</SelfContained>
     <PublishSingleFile>true</PublishSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <PublishTrimmed>false</PublishTrimmed>

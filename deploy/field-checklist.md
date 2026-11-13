@@ -25,6 +25,7 @@
 
 ## 0. 공통 준비
 
+1. `dotnet --list-runtimes`에 `Microsoft.NETCore.App 10.0.x`가 있는지 봅니다. `pelly.exe`는 PC의 .NET 10 런타임으로 실행됩니다(.NET 10 SDK에 함께 들어 있음). 없으면 `pelly.exe`가 .NET 설치 안내를 내고 시작하지 않습니다. 그 안내 문구를 15절 메모에 적습니다.
 1. `pelly.exe`와 같은 폴더에 `BuildHost-net472`, `BuildHost-netcore` 폴더와 `av_libglesv2.dll`, `libHarfBuzzSharp.dll`, `libSkiaSharp.dll`이 있는지 봅니다(반입 zip을 그대로 푼 상태).
 2. 작업 공간 루트에 `pelly.json`을 둡니다(`pelly.json.template`을 복사). `llm.endpoint`·`llm.model`을 채우고, 1·2를 할 것이므로 `asp`·`web` 절도 넣습니다:
 

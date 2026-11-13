@@ -7,8 +7,9 @@
 .DESCRIPTION
   1. dotnet tool restore, then CycloneDX writes sbom.cdx.json for the package's project (src/PellyCoder.Cli or
      eval/PellyCoder.Eval; transitive packages,
-     win-x64 runtime). The self-contained .NET runtime packs are added as components (they are not NuGet
-     package references, so CycloneDX does not list them).
+     win-x64 runtime). The .NET app host pack the single-file exe starts from is added as a component (it is not a
+     NuGet package reference, so CycloneDX does not list it). The .NET runtime is not carried (framework-dependent:
+     the site PC has the .NET 10 runtime).
   2. THIRD-PARTY-NOTICES.md is generated from the SBOM. A license that is not MIT, Apache-2.0, BSD-2-Clause or
      BSD-3-Clause fails the script (R7). A component without a license id is resolved from its nuspec in the
      local NuGet cache; anything still unresolved fails. deploy/license-exceptions.json may allow a package by
@@ -61,7 +62,8 @@ $Project = Join-Path $Repo $Kind.Project
 $ListFile = $Kind.List
 $Rid = 'win-x64'
 $AllowedLicenses = @('MIT', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause')
-$RuntimePacks = @("Microsoft.NETCore.App.Runtime.$Rid", "Microsoft.NETCore.App.Host.$Rid")
+# The app host only: the exes are framework-dependent, so the runtime pack (Microsoft.NETCore.App.Runtime.*) is not shipped.
+$RuntimePacks = @("Microsoft.NETCore.App.Host.$Rid")
 $Utf8 = [System.Text.UTF8Encoding]::new($false)
 
 function Invoke-Native([string]$File, [string[]]$Arguments) {
@@ -119,7 +121,7 @@ $sbom = Get-Content -Raw $sbomPath | ConvertFrom-Json -AsHashtable
 $components = [System.Collections.Generic.List[object]]::new()
 foreach ($c in $sbom['components']) { $components.Add($c) }
 
-# Runtime packs carried by the self-contained single file. They are not package references: restore lists them
+# The app host pack carried by the single file. They are not package references: restore lists them
 # under downloadDependencies (NuGet cache), or the SDK already has them in <dotnet root>/packs (the apphost pack of
 # the machine's own RID, e.g. win-x64 on the Windows CI runner). The packs folder has no nuspec, and the LICENSE.txt
 # of a Windows .NET installation is the Microsoft Software License Terms of the installer, not the pack's license.
@@ -137,7 +139,7 @@ foreach ($d in $downloads) {
     if ($d['version'] -match '\A\[([0-9][^,\]]*), *\1\]\z') { $downloadVersions[$d['name']] = $Matches[1] }
 }
 foreach ($pack in $RuntimePacks) {
-    $origin = 'self-contained .NET runtime pack (NuGet download, added by build-package.ps1)'
+    $origin = '.NET app host pack (NuGet download, added by build-package.ps1)'
     if ($downloadVersions.Contains($pack)) {
         $ver = $downloadVersions[$pack]
     }
@@ -145,7 +147,11 @@ foreach ($pack in $RuntimePacks) {
         $packDir = Join-Path $dotnetRoot 'packs' $pack
         $dirs = @(if (Test-Path $packDir) { Get-ChildItem -Directory $packDir | ForEach-Object Name })
         $known = @($dirs | Where-Object { $downloadVersions.Values -contains $_ })
-        $ver = if ($known.Count -eq 1) { $known[0] } elseif ($dirs.Count -eq 1) { $dirs[0] } else { $null }
+        # The app host the SDK in use publishes with is its bundled .NET version (several SDKs may share one packs folder).
+        $sdkVersion = (& dotnet --version | Out-String).Trim()
+        $bundledProps = Join-Path $dotnetRoot 'sdk' $sdkVersion 'Microsoft.NETCoreSdk.BundledVersions.props'
+        $bundled = if (Test-Path $bundledProps) { ([xml](Get-Content -Raw $bundledProps)).Project.PropertyGroup.BundledNETCoreAppPackageVersion | Where-Object { $_ } | Select-Object -First 1 } else { $null }
+        $ver = if ($known.Count -eq 1) { $known[0] } elseif ($bundled -and $dirs -contains $bundled) { $bundled } elseif ($dirs.Count -eq 1) { $dirs[0] } else { $null }
         if (-not $ver) { throw "runtime pack $pack not in downloadDependencies and no single version under $packDir (found: $($dirs -join ', '))" }
         if (-not (Find-Nuspec $pack $ver)) {
             $probeDir = Join-Path $OutDir 'runtime-pack-nuspec'
@@ -158,7 +164,7 @@ foreach ($pack in $RuntimePacks) {
                 '</Project>')
             Invoke-Native 'dotnet' @('restore', $probe)
         }
-        $origin = 'self-contained .NET runtime pack (SDK packs folder; license from the same id and version in the NuGet cache; added by build-package.ps1)'
+        $origin = '.NET app host pack (SDK packs folder; license from the same id and version in the NuGet cache; added by build-package.ps1)'
     }
     $component = [ordered]@{
         'type'       = 'framework'
@@ -280,9 +286,9 @@ $notices = @(
     '',
     '* 범위 `required`는 실행 파일에 들어 있는 것, `excluded`는 빌드에만 쓰고 넣지 않은 것입니다.',
     '* 근거 `SBOM`은 CycloneDX가 적은 값, `nuspec …`은 NuGet 캐시의 패키지 정보에서 읽은 값입니다.',
-    "* .NET 런타임($($RuntimePacks -join ', '))은 단일 실행 파일 안에 들어 있습니다(self-contained). NuGet 참조가 아니어서 build-package.ps1이 SBOM에 ``framework``로 더했습니다.",
+    "* .NET 실행 호스트($($RuntimePacks -join ', '))는 실행 파일 안에 들어 있습니다. NuGet 참조가 아니어서 build-package.ps1이 SBOM에 ``framework``로 더했습니다. .NET 런타임은 넣지 않았습니다(대상 PC의 .NET 10 런타임을 씀).",
     '',
-    '## NuGet 패키지와 .NET 런타임',
+    '## NuGet 패키지와 .NET 실행 호스트',
     '',
     '| 패키지 | 버전 | 라이선스 | 범위 | 근거 |',
     '| :--- | :--- | :--- | :--- | :--- |'

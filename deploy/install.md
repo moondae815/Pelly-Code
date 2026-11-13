@@ -1,7 +1,7 @@
 # 설치 가이드
 
-폐쇄망 PC에 pelly를 설치하는 방법입니다. 관리자 권한과 .NET 런타임 설치는 필요 없습니다.
-(실행 파일에 .NET 런타임이 들어 있습니다. 단, 아래 「사전 조건」의 빌드 도구는 별도입니다.)
+폐쇄망 PC에 pelly를 설치하는 방법입니다. 관리자 권한은 필요 없습니다.
+실행 파일에 .NET 런타임은 들어 있지 않습니다. PC에 설치된 **.NET 10 런타임**(.NET 10 SDK에 함께 들어 있음)으로 실행합니다(아래 「사전 조건」).
 
 ## 반입 zip 구성
 
@@ -25,6 +25,7 @@
 ## 사전 조건
 
 * 접속할 수 있는 Ollama 서버. 서버 관리자에게 [server-checklist.md](server-checklist.md)를 전달하십시오.
+* **.NET 10 런타임:** `pelly.exe`와 `pelly-eval.exe`가 이것으로 실행됩니다. 아래 .NET 10 SDK를 설치했으면 함께 들어 있습니다. `dotnet --list-runtimes`에 `Microsoft.NETCore.App 10.0.x`가 보이면 됩니다(10.0의 어느 패치든 됨). 없으면 `pelly.exe`가 시작하지 못하고 「You must install or update .NET to run this application.」 같은 .NET 안내를 냅니다. .NET을 기본 위치(`C:\Program Files\dotnet`)가 아닌 폴더에 풀어 두었다면 환경 변수 `DOTNET_ROOT`에 그 폴더를 지정하십시오(실행 파일은 PATH로 런타임을 찾지 않습니다).
 * `dotnet` SDK(.NET 10, 개발 때 쓴 버전은 10.0.302)가 PATH에 있어야 합니다. C# 빌드 검증에 필요합니다. **SQL만 쓰는 PC도 `dotnet`을 실행할 수 없으면 `pelly doctor`가 Fail(종료 코드 4)로 끝납니다.** 이 행의 안내는 「.NET 10 SDK를 설치하고 PATH를 확인하세요」입니다.
 * 레거시 .NET Framework 프로젝트는 Visual Studio(또는 Build Tools)의 MSBuild가 필요합니다.
 * SQL 수정을 쓰려면 SQL Server 접속 정보와 `VIEW DEFINITION` 권한이 필요합니다.

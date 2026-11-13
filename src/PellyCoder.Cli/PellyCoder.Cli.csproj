@@ -12,9 +12,10 @@
 
   <!-- Air-gapped carry-in build (PRD §11.1, spike S6): `dotnet publish -r win-x64` alone yields the single-file pelly.exe.
        No trimming (Roslyn/ScriptDom/SqlClient use reflection). Compression stays off: the zip already compresses and
-       in-exe compression costs startup on every run (docs/spikes/S6-single-file.md). -->
+       in-exe compression costs startup on every run (docs/spikes/S6-single-file.md). Framework-dependent (2026-11-13): the
+       site PC has the .NET 10 runtime (questionnaire 3-2), so the runtime is not carried (exe about 65 MB instead of 138 MB). -->
   <PropertyGroup Condition="'$(RuntimeIdentifier)'=='win-x64'">
-    <SelfContained>true</SelfContained>
+    <SelfContained>false</SelfContained>
     <PublishSingleFile>true</PublishSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <PublishTrimmed>false</PublishTrimmed>

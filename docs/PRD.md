@@ -35,6 +35,7 @@
 | v1.24 | 2026-11-05 | V2-7 `pelly js`·`pelly css` 구현(1단계 W1): 따로 있는 클라이언트 JavaScript(`.js`)·CSS(`.css`) 파일 하나에서 함수·규칙 하나 또는 줄 범위를 모델이 고치고, 코드가 브라우저 실행·외부 도구 없이 패치·인코딩·문법(JS는 `Acornima` 해석기, CSS는 손 토큰 해석기)·**문법 수준**(기본 원본 수준, `web.jsTarget`)·대상 모양·안전으로 막고, 이름·API(ES 판·jQuery 버전)·CSS 속성·덮어쓰기는 경고만 한 뒤 **사람이 승인해야** 씀. 모든 검사는 원본 기준선 대비 새로 생긴 것만 셈. 편집 영역 밖은 원본 바이트 그대로이고 사이트 루트·순수 ASCII 인코딩은 `asp.siteRoot`·`asp.encoding`을 그대로 읽음(사람 결정 2026-11-04). 「브라우저 실행 검증 없음」을 검토와 기록에 고정 문구로 남김. §1.4 범위 표에 JS·CSS 줄, §11.1 반입 구성에 `Acornima` 1.9.0 버전(BSD-3-Clause)과 `pelly.exe` 크기 변화, §12.2 로드맵에 V2-7 행, 새 §12.11. 설계 `docs/superpowers/specs/2026-11-04-pelly-js-css-design.md`, 예비 측정 `docs/web-premeasure.md`(Mac). Windows 실행과 현장 확인(`deploy/field-results.md` 17절)은 미확인 |
 | v1.25 | 2026-11-06 | V2-7 `pelly js`·`pelly css` 2단계(W2): 페이지(`asp.extensions` + `.htm`·`.html`) 안 클라이언트 `<script>`·`<style>` 블록 하나에서 함수·규칙·줄 범위를 W1과 같은 판정(패치·인코딩·문법·문법 수준·대상 모양·안전은 막고 이름·API·속성은 경고)으로 고침. 블록마다 원본 기준선을 따로 두어 새로 생긴 것만 세고, `<%= %>`는 자리 표시로 해석하며 `<% 문장 %>`이 섞인 블록은 괄호 짝 비교로 낮추고, 블록 경계·블록 안 서버 코드·블록 밖 바이트가 바뀌면 거절(`WebBlockChanged`·`WebServerCodeChanged`·`WebOutsideBlock`)하며 서버 값이 필요하면 `pelly asp --lines`를 안내. `pelly asp`는 범위가 걸친 블록에 `JsSyntax`·`JsLevel`·`JsSafety`·`CssSyntax`·`CssSafety`(막음)·`JsNames`·`JsApi`(경고) 행을 더하고(`asp-v2`, 규칙 검사는 여전히 페이지 안 JS를 보지 않음), `pelly edit`은 대상 위치로 js·css·asp를 고름. 이름 검사는 같은 페이지 다른 블록·include·`<script src>`의 선언을 알고 jQuery 기준은 설정 → 페이지 → 사이트 순. 프롬프트 `js-page-v1`·`css-page-v1`, `summary.json` `web`에 `container`·`block`·`jquerySource`, `pelly report`에 「페이지 안 K건」, §12.11 W2 단락. 설계 `docs/superpowers/specs/2026-11-06-pelly-web-w2-design.md`. Windows 실행과 현장 확인(`deploy/field-results.md` 17절)은 미확인 |
 | v1.26 | 2026-11-09 | V2-6 `pelly asp` 2단계(A2): 명세(`pelly spec`·`apply`)에 `asp` 작업(`<파일>#Proc`·`#Class.Proc`·`#L<시작>-<끝>`, 줄 범위는 asp만)을 더해 「SP 변경 + 그 SP를 부르는 ASP 수정」을 한 명세로 순서대로 실행. `spec check`는 `AspTargetRequired`·`LinesOutOfFile`·`LinesNotSupported`·`AspLinesAfterEdit`(같은 파일을 먼저 고치는 작업 뒤의 줄 범위)를 오류로 더하고 `KindMismatch`는 `asp.extensions`를 씀. 그룹(`[G1]`)에 cs·sql·asp를 섞을 수 있고(V2-1의 「그룹은 cs만」이 바뀜, `SqlInGroup` 없어짐) 하나라도 실패하면 그룹 전체를 되돌리며 C# 빌드·테스트 검증은 그룹의 cs 작업에만 하고 cs가 없는 그룹은 검증을 건너뜀. 그룹 없는 sql 적용 뒤 asp가 실패하면 다음 빈 그룹 번호를 안내하는 경고. SP → ASP 영향: 사이트의 SP 호출 색인(`asp.siteRoot`·`asp.extensions`·`asp.spCallFunctions`)으로 명세에 없는 호출을 `ImpactMissing`(SP당 최대 10개, include 표시)으로 경고하며, `spec check`는 `--impact`일 때, `apply`는 미완료 sql 작업이 있으면 `sql.production`과 상관없이 돌고 「계속할까요?」 확인에 합쳐짐(목록 `.pelly/impact/<id>-sql.json`·`impact-sql.json`의 `asp` 배열). asp 작업은 이번 apply에서 적용했거나 이미 완료한 sql 작업 SP의 **파일 기준 서명**을 모델 입력과 SP 검사에 쓰고(개발 DB 없이도, 해석 실패는 경고 후 DB 값), 적용 뒤 매개변수가 바뀐 SP의 고치지 않은 호출을 경고하고 `apply.json`의 `aspCallersNotUpdated`와 `pelly report`에 셈. `spec draft`는 asp 작업을 제안하지 않으며 경고만 보이고, 예비 측정에서 `SqlInGroup`으로 실행되지 않던 초안(`docs/spec-draft-premeasure.md`)이 이제 실행될 수 있음. 한계: 동적 SP 이름, `rs.Open "EXEC x @a=1"`, 결과 열 변경은 찾지 못함. §12.10 A2 단락, 설계 `docs/superpowers/specs/2026-11-09-pelly-asp-a2-design.md`. Windows 실행과 현장 확인(`deploy/field-results.md` 16절)은 미확인 |
+| v1.33 | 2026-11-13 | 반입 실행 파일에서 .NET 런타임을 뺌(framework-dependent): 현장 개발 PC에 .NET 10 SDK가 있으므로(질문지 3-2) `pelly.exe`·`pelly-eval.exe`가 PC의 .NET 10 런타임으로 실행됨. `pelly.exe` 약 138MB → 65MB, 반입 zip 64MB → 약 29MB, 현장 키트 52MB → 약 18MB. SBOM에서 런타임 팩을 빼고 실행 호스트 팩만 남김. CI가 실행 파일이 100MB를 넘으면 실패(런타임이 다시 들어간 경우). 설치 조건은 `deploy/install.md` |
 | v1.32 | 2026-11-13 | 현장 확인 안내 `deploy/field-checklist.md`: 흩어진 현장 확인(ASP·JS·CSS·`pelly test`·`ui`·자동완성·spec draft·운영 DB 계정·질문지·기준선 측정·반출)을 할 순서대로 모으고 항목마다 명령과 결과 칸 번호를 붙임. 결과는 그대로 `field-results.md`에 적음. 반입 zip과 현장 키트 zip에 둘 다 넣고(반입 zip에는 `field-results.md`도), 문서 안 `pelly` 명령의 옵션이 실제 명령에 있는지 테스트로 확인 |
 | v1.31 | 2026-11-11 | `pelly doctor`에 「사이트 색인」 행(색인한 페이지·`.js` 수, 크기 합계, 1MB가 넘어 뺀 파일 수, 한도에 걸려 잘리면 Warn). 현장 확인표 W14(사이트 규모) |
 | v1.30 | 2026-11-11 | W3 정리: JS 호출 색인이 `function*`·메서드 단축 정의를 호출로 세지 않음, 같은 이름 함수 중 이름을 바꾼 대상을 재시도에서 다시 찾음, 대상을 지웠을 때 「대상 함수를 지우지 마십시오」, 어긋남 경고가 `asp` 작업을 「(asp)」로 표시, 맨 이름 `#fnSearch`가 `Common.fnSearch`로 풀린 경우의 이름 바꾸기 따라가기, 참조만 있는 파일도 영향 탐색, 적용 뒤 확인이 파일을 한 번만 읽음. 폼 필드 검사: 주석·JS 문자열 안 `<form>`은 보내는 쪽이 아님, JS로 정한 action 주소의 쿼리 키를 보냄으로 셈, 「작업 중 경고 N건 중 M건 해결」을 경고끼리 비교해 셈, include로 쓰는 `.asp`를 `.inc`처럼 주소를 풂, 깨진 캐시 다시 만들기, 같은 페이지로 가는 JS action 여럿의 필드 합침, include로도 쓰고 직접도 여는 `.asp`는 두 곳 기준 모두로 주소를 풂(사이트 색인 캐시 판 6) |
@@ -50,7 +51,7 @@
 * **프로젝트 명칭:** **Pelly-Coder CLI** (Small-Active MoE 특화 결정론적 코딩 에이전트)
 * **실행 명령어:** `pelly`
 * **배포 형태:**
-  * **폐쇄망 (운영):** `win-x64` self-contained 단일 실행 파일 zip 패키지. 대상 PC에 .NET 10 런타임이 없어도 동작합니다(§11).
+  * **폐쇄망 (운영):** `win-x64` 단일 실행 파일 zip 패키지. .NET 런타임은 넣지 않고 대상 PC의 .NET 10 런타임(.NET 10 SDK에 포함, 현장 개발 PC에 설치됨 — 질문지 3-2)으로 실행합니다(framework-dependent, v1.33부터. 그 전에는 self-contained)(§11).
   * **외부 개발 환경:** .NET Global Tool (패키지 ID: `PellyCoder.Cli`)
 * **대상 모델:** `Qwen3.6-35B-A3B` (GGUF `Q4_K_M`, 폐쇄망 원격 Ollama 서버로 서빙)
 * **실행 방식:** 일반 JIT 실행. Roslyn·`Spectre.Console.Cli`의 리플렉션 의존성 때문에 **Native AOT와 트리밍은 v1 범위에서 제외**합니다.
@@ -558,7 +559,7 @@ pelly가 요청마다 지정하는 값: `options.num_ctx = 8192`, `keep_alive = 
 ### 11.1 반입 패키지 구성
 | 항목 | 내용 |
 | :--- | :--- |
-| 실행 파일 | `dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true` 결과 `pelly.exe` (트리밍 사용 안 함). V2-0부터 그래픽 네이티브 DLL 셋(`av_libglesv2.dll`, `libHarfBuzzSharp.dll`, `libSkiaSharp.dll`)은 단일 파일에 묶지 않고 `pelly.exe` 옆에 둡니다. 단일 파일 모드에서 Roslyn·ScriptDom·토크나이저 리소스·SqlClient가 정상 동작함을 M3b에서 확인했다(S6 통과, M3b T7, CI `publish-check` 녹색) |
+| 실행 파일 | `dotnet publish -c Release -r win-x64 --no-self-contained -p:PublishSingleFile=true` 결과 `pelly.exe` (트리밍 사용 안 함, .NET 런타임 미포함 — 대상 PC에 .NET 10 런타임 필요). V2-0부터 그래픽 네이티브 DLL 셋(`av_libglesv2.dll`, `libHarfBuzzSharp.dll`, `libSkiaSharp.dll`)은 단일 파일에 묶지 않고 `pelly.exe` 옆에 둡니다. 단일 파일 모드에서 Roslyn·ScriptDom·토크나이저 리소스·SqlClient가 정상 동작함을 M3b에서 확인했다(S6 통과, M3b T7, CI `publish-check` 녹색) |
 | 기본 설정 | `pelly.json` 템플릿 (Ollama 주소·모델명·SQL 화이트리스트 자리 표시) |
 | 문서 | 설치 가이드, 사용 가이드, `server-checklist.md`(서버 관리자용) |
 | 무결성 | 모든 파일의 SHA-256 체크섬 목록 |
@@ -586,7 +587,7 @@ pelly가 요청마다 지정하는 값: `options.num_ctx = 8192`, `keep_alive = 
 * 개발자 PC의 설정 파일·경로·연결 문자열은 zip에 들어가면 안 되며 패키지 테스트가 검사합니다.
 
 ### 11.2 설치
-* zip을 원하는 폴더에 풀고 `PATH`에 추가합니다. 관리자 권한이나 .NET 런타임 설치가 필요 없습니다.
+* zip을 원하는 폴더에 풀고 `PATH`에 추가합니다. 관리자 권한은 필요 없습니다. .NET 10 런타임이 있어야 합니다(C# 빌드 검증에 필요한 .NET 10 SDK에 함께 들어 있음).
 * `pelly doctor`로 Ollama 서버, 빌드 도구, SQL 접속을 확인합니다.
 * 대상 PC에 .NET 10 SDK가 있으면 대안으로 로컬 폴더 피드에서 `dotnet tool install -g PellyCoder.Cli --add-source <폴더>`로 설치할 수도 있습니다.
 

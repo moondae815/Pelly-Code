@@ -24,7 +24,7 @@
 ## Global Constraints
 
 - **보존:** `--verify-test`가 없는 `pelly cs`·`pelly sql`·`pelly apply`는 프롬프트·동작·종료 코드·기존 테스트가 그대로다. v1 `--test` 회귀 판정도 그대로다.
-- **게이트:** 워크트리 `/Users/payletter/git-root/Pelly-Code-v2-2`에서 `dotnet build -warnaserror` 종료 0, `dotnet test` 실패 0. 건너뜀은 SQL 서버·로컬 모델·Windows 전용만 허용한다. 메인 체크아웃에서 빌드·테스트하지 않는다.
+- **게이트:** 워크트리 `~/git-root/Pelly-Code-v2-2`에서 `dotnet build -warnaserror` 종료 0, `dotnet test` 실패 0. 건너뜀은 SQL 서버·로컬 모델·Windows 전용만 허용한다. 메인 체크아웃에서 빌드·테스트하지 않는다.
 - **테스트별 결과 필수(§5.1):** 테스트 우선 실행에서 `TestRun.PerTestResults == false`인 프로젝트는 종료 4다. 문구: `테스트별 결과가 없어 지정한 테스트를 판정할 수 없습니다 (레거시는 test.command에 {trx}를 넣으세요)`.
 - **판정 불가 = 종료 4:** 테스트 우선 실행에서는 v1의 「알림 뒤 빌드로 판정」으로 내려가지 않는다.
 - **이름 규칙(§5.2):**

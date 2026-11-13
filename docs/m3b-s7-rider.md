@@ -11,22 +11,22 @@
 
 ## 1. 준비물
 
-준비물은 저장소 밖 `/Users/payletter/pelly-s7/`에 있습니다. 커밋하지 않습니다.
+준비물은 저장소 밖 `~/pelly-s7/`에 있습니다. 커밋하지 않습니다. `~`는 홈 폴더입니다. Rider의 Program·Working directory 칸은 `~`를 풀지 않으니 전체 경로로 적습니다.
 
 | 항목 | 경로 |
 | :--- | :--- |
-| Mac용 `pelly` (osx-arm64 단일 파일, 0.9.0) | `/Users/payletter/pelly-s7/bin/pelly` |
-| 코퍼스 복사본 (git 저장소로 초기화됨) | `/Users/payletter/pelly-s7/Modern/` |
-| Rider에서 열 솔루션 | `/Users/payletter/pelly-s7/Modern/Modern.sln` |
-| 작업 공간 설정 | `/Users/payletter/pelly-s7/Modern/pelly.json` |
-| C# 대상 파일 | `/Users/payletter/pelly-s7/Modern/Shop.Api/Services/OrderService.cs` |
-| SQL 대상 파일 | `/Users/payletter/pelly-s7/Modern/sql/usp_CancelOrder.sql` |
+| Mac용 `pelly` (osx-arm64 단일 파일, 0.9.0) | `~/pelly-s7/bin/pelly` |
+| 코퍼스 복사본 (git 저장소로 초기화됨) | `~/pelly-s7/Modern/` |
+| Rider에서 열 솔루션 | `~/pelly-s7/Modern/Modern.sln` |
+| 작업 공간 설정 | `~/pelly-s7/Modern/pelly.json` |
+| C# 대상 파일 | `~/pelly-s7/Modern/Shop.Api/Services/OrderService.cs` |
+| SQL 대상 파일 | `~/pelly-s7/Modern/sql/usp_CancelOrder.sql` |
 
 * `pelly.json`은 로컬 Ollama(`http://localhost:11434`)와 모델 `qwen3.6:35b-a3b-coding-nvfp4`를 가리킵니다.
 * SQL 허용 목록은 호스트 `localhost`, 데이터베이스 `PellyCorpus`입니다. 비밀번호는 어디에도 없습니다.
 * 시작 전에 Ollama가 떠 있어야 합니다. 첫 요청은 모델 로딩 때문에 느릴 수 있습니다.
-* 복사본은 git 저장소입니다. 시험 사이에 `git -C /Users/payletter/pelly-s7/Modern restore .`으로 원래대로 되돌립니다.
-* 작업 공간 루트는 `Modern.sln`이 있는 `/Users/payletter/pelly-s7/Modern` 입니다.
+* 복사본은 git 저장소입니다. 시험 사이에 `git -C ~/pelly-s7/Modern restore .`으로 원래대로 되돌립니다.
+* 작업 공간 루트는 `Modern.sln`이 있는 `~/pelly-s7/Modern` 입니다.
 
 시작: Rider에서 `Modern.sln`을 엽니다. `OrderService.cs`를 엽니다.
 
@@ -39,7 +39,7 @@
 | 필드 | 값 |
 | :--- | :--- |
 | Name | `Pelly C#` |
-| Program | `/Users/payletter/pelly-s7/bin/pelly` |
+| Program | `~/pelly-s7/bin/pelly` |
 | Arguments | `cs "$FilePath$" --line $LineNumber$ --pause-on-exit` |
 | Working directory | `$ProjectFileDir$` |
 | Synchronize files after execution | 켬 |
@@ -54,7 +54,7 @@
 | 필드 | 값 |
 | :--- | :--- |
 | Name | `Pelly C# dry` |
-| Program | `/Users/payletter/pelly-s7/bin/pelly` |
+| Program | `~/pelly-s7/bin/pelly` |
 | Arguments | `cs "$FilePath$" "취소 사유를 최대 길이로 자르지 말고 그대로 사용해 줘" --line $LineNumber$ --dry-run` |
 | Working directory | `$ProjectFileDir$` |
 | Synchronize files after execution | 켬 |
@@ -67,7 +67,7 @@
 | 필드 | 값 |
 | :--- | :--- |
 | Name | `Pelly SQL` |
-| Program | `/Users/payletter/pelly-s7/bin/pelly` |
+| Program | `~/pelly-s7/bin/pelly` |
 | Arguments | `sql "$FilePath$" --line $LineNumber$ --pause-on-exit` |
 | Working directory | `$ProjectFileDir$` |
 | 나머지 | 항목 A와 같음 |
@@ -85,7 +85,7 @@ Rider의 External Tools 대화상자에 환경 변수 칸이 있는지는 이 Ma
 
 ## 3. 확인 항목
 
-각 항목 앞에서 복사본을 원래대로 되돌립니다: `git -C /Users/payletter/pelly-s7/Modern restore .`
+각 항목 앞에서 복사본을 원래대로 되돌립니다: `git -C ~/pelly-s7/Modern restore .`
 `Tools → External Tools → Pelly C#`로 실행합니다. 실행 전에 `Ctrl+S`(또는 `Cmd+S`)로 저장합니다.
 
 ### 0. 「Open console for tool output」 콘솔이 키 입력을 받는가
@@ -122,7 +122,7 @@ Rider의 External Tools 대화상자에 환경 변수 칸이 있는지는 이 Ma
 
 * 동작: `Pelly C#`을 실행하고 모델이 응답하는 동안(`수정 생성` 단계) 콘솔에서 `Ctrl+C`를 누릅니다. 다음에 같은 실행을 한 번 더 하고 이번에는 도구 창의 정지(빨간 네모) 버튼을 눌러 봅니다.
 * 기대:
-  * `Ctrl+C`: 파일은 원래대로이고(`git -C /Users/payletter/pelly-s7/Modern status --short`가 비어 있음), 종료 코드를 보여 주고 키를 기다립니다(창이 남음). 대기 중 `Ctrl+C`를 한 번 더 누르면 바로 끝납니다.
+  * `Ctrl+C`: 파일은 원래대로이고(`git -C ~/pelly-s7/Modern status --short`가 비어 있음), 종료 코드를 보여 주고 키를 기다립니다(창이 남음). 대기 중 `Ctrl+C`를 한 번 더 누르면 바로 끝납니다.
   * 정지 버튼: 종료 신호로 취급되어 기다리지 않을 수 있습니다. 이것은 설계입니다. 실제 동작과 파일 복원 여부만 메모합니다.
   * Rider 콘솔이 `Ctrl+C`를 신호로 전달하지 않으면 그 사실을 적습니다.
 * 결과: ___ / 메모: ___
@@ -130,7 +130,7 @@ Rider의 External Tools 대화상자에 환경 변수 칸이 있는지는 이 Ma
 ### 6. 승인 후 Rider가 파일을 다시 읽는다
 
 * 동작: 복사본을 되돌리고 `OrderService.cs`를 연 채로 1번 실행을 합니다. 승인 질문(y/n)에서 `y`를 입력합니다. 에디터 창을 눈여겨봅니다.
-* 기대: 「Synchronize files after execution」 덕분에 에디터가 바뀐 파일을 자동으로 다시 읽습니다. 에디터에서 `MaxReasonLength` 블록이 사라진 것이 보입니다. 외부 변경 대화 상자는 뜨지 않거나, 뜨면 그 문구를 메모합니다. 에디터가 안 바뀌면 `File → Reload All from Disk` 후에 바뀌는지 메모합니다. 확인은 `git -C /Users/payletter/pelly-s7/Modern diff --stat`로도 합니다(파일은 실제로 바뀌어 있어야 함).
+* 기대: 「Synchronize files after execution」 덕분에 에디터가 바뀐 파일을 자동으로 다시 읽습니다. 에디터에서 `MaxReasonLength` 블록이 사라진 것이 보입니다. 외부 변경 대화 상자는 뜨지 않거나, 뜨면 그 문구를 메모합니다. 에디터가 안 바뀌면 `File → Reload All from Disk` 후에 바뀌는지 메모합니다. 확인은 `git -C ~/pelly-s7/Modern diff --stat`로도 합니다(파일은 실제로 바뀌어 있어야 함).
 * 보너스: 승인 질문이 떠 있는 동안에도 파일은 이미 바뀐 상태입니다. 이때 `n`을 입력하면 파일이 원래대로 돌아오고 에디터도 따라 돌아오는지 봅니다.
 * 결과: ___ / 메모: ___
 

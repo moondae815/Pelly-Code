@@ -22,7 +22,7 @@
 - 색인을 읽지 못하면 「사이트 색인을 읽지 못함」으로 건너뛴다(`AspElementsStep.IndexUnreadable`과 같은 문구).
 - 사이트 색인 Lazy는 `AspRunState.SiteIndex`·`WebRunState.SiteIndex`를 함께 쓴다(새로 읽지 않음).
 - 게이트: `dotnet build -warnaserror` 종료 0, `dotnet test` 실패 0(`-nologo` 없이). 건너뜀은 SQL 서버·Ollama·Windows뿐이다.
-- 빌드·테스트는 워크트리 `/Users/payletter/git-root/Pelly-Code-w3b`에서만 돌린다.
+- 빌드·테스트는 워크트리 `~/git-root/Pelly-Code-w3b`에서만 돌린다.
 - 새 코퍼스 파일은 CRLF로 쓴다. 코퍼스 목록 테스트 두 곳(`WebIntegrationTests.Corpus_pages_have_expected_client_blocks`, `AspIntegrationTests.Corpus_AllFiles_CompileUnderCscript`의 페이지 수 16)을 함께 고친다. W3a에서 Windows CI가 이것으로 실패했다.
 - 커밋 끝: `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`. 비밀번호·내부 주소·로컬 임시 경로는 커밋하지 않는다.
 

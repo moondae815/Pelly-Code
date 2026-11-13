@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- 작업 위치는 워크트리 `/Users/payletter/git-root/Pelly-Code-web`(브랜치 `web`, main `4703c5f` 이후에서 만든다). 셸 명령은 `cd /Users/payletter/git-root/Pelly-Code-web && …`. 메인 체크아웃에서 빌드·테스트하지 않는다.
+- 작업 위치는 워크트리 `~/git-root/Pelly-Code-web`(브랜치 `web`, main `4703c5f` 이후에서 만든다). 셸 명령은 `cd ~/git-root/Pelly-Code-web && …`. 메인 체크아웃에서 빌드·테스트하지 않는다.
 - 게이트: `dotnet build -warnaserror` 종료 0, `dotnet test` 실패 0(건너뜀은 SQL 서버·로컬 모델·Windows 전용만). 테스트 필터 형식: `dotnet test tests/PellyCoder.Core.Tests -- --filter-class "*<클래스>"`.
 - **`cs`·`sql`·`asp`의 동작은 바꾸지 않는다.** 공용으로 꺼내는 코드(Task 1)는 기존 `AspTextCodecTests`·`FileGuardTests`가 고치지 않고 그대로 통과해야 한다.
 - 사이트 루트 = `AspSiteRoot.Resolve(fs, options.Asp.SiteRoot, workspaceRoot)`. 순수 ASCII 파일 인코딩 = `options.Asp.Encoding`(기본 `cp949`). `web.encoding`·`web.siteRoot` 설정은 만들지 않는다(사람 결정 2026-11-04).

@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- 작업 위치는 워크트리 `/Users/payletter/git-root/Pelly-Code-completion`(브랜치 `completion`). 모든 셸 명령은 `cd /Users/payletter/git-root/Pelly-Code-completion && …`. 메인 체크아웃에서 빌드·테스트하지 않는다.
+- 작업 위치는 워크트리 `~/git-root/Pelly-Code-completion`(브랜치 `completion`). 모든 셸 명령은 `cd ~/git-root/Pelly-Code-completion && …`. 메인 체크아웃에서 빌드·테스트하지 않는다.
 - 게이트: `dotnet build -warnaserror` 종료 0, `dotnet test` 실패 0(건너뜀은 SQL 서버·로컬 모델·Windows 전용만).
 - 기존 명령의 동작·출력·종료 코드는 바뀌지 않는다. 종료 코드는 0–5만.
 - 생성된 스크립트는 ASCII만, PowerShell 5.1 문법만(`?.`, `??`, 삼항 연산자, `&&`/`||` 파이프라인 연산자 금지). 실행 중 외부 프로세스·네트워크 없음.
@@ -117,7 +117,7 @@ Results are `[System.Management.Automation.CompletionResult]::new($text, $text, 
 [Fact] ThinkValues_MatchThinkModeEnum()                    // OptionValues["think"] == ["off","retry","always"]
 ```
 
-- [ ] **Step 2: Verify RED** — `cd /Users/payletter/git-root/Pelly-Code-completion && dotnet test tests/PellyCoder.Cli.Tests -- --filter-class "*CompletionTreeTests" --filter-class "*PowerShellCompletionTests"` → compile errors.
+- [ ] **Step 2: Verify RED** — `cd ~/git-root/Pelly-Code-completion && dotnet test tests/PellyCoder.Cli.Tests -- --filter-class "*CompletionTreeTests" --filter-class "*PowerShellCompletionTests"` → compile errors.
 - [ ] **Step 3: Implement** the interfaces above. `GuiOptionErrors` keeps its messages; add a test in the same commit (`UiCommandTests` or the new file) that `GuiRejectedOptions` names exactly the options `GuiOptionErrors` rejects (set each bool, check one error each).
 - [ ] **Step 4: Verify GREEN** — `dotnet build -warnaserror && dotnet test` → 0 failures.
 - [ ] **Step 5: Commit** — `feat(cli): command tree and PowerShell completion script generator`

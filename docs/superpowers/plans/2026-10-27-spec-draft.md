@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- 작업 위치는 워크트리 `/Users/payletter/git-root/Pelly-Code-spec-draft`(브랜치 `spec-draft`). 셸 명령은 `cd /Users/payletter/git-root/Pelly-Code-spec-draft && …`. 메인 체크아웃에서 빌드·테스트하지 않는다.
+- 작업 위치는 워크트리 `~/git-root/Pelly-Code-spec-draft`(브랜치 `spec-draft`). 셸 명령은 `cd ~/git-root/Pelly-Code-spec-draft && …`. 메인 체크아웃에서 빌드·테스트하지 않는다.
 - 게이트: `dotnet build -warnaserror` 종료 0, `dotnet test` 실패 0(건너뜀은 SQL 서버·로컬 모델·Windows 전용만).
 - S6 조건 고정: 시스템 프롬프트는 `spikes/S6-planning/S6Planning/PlanPrompt.cs`의 `System` **문구 그대로**, 사용자 메시지 `"Index:\n" + 색인 + "\nRequest:\n" + 요청`, 생각 단계 sampling (0.6, 0.95, 20, 1.0, 0.0) `num_predict` 2048 stop `</think>`, 답 단계 (0.1, 0.9, 20, 1.05, 0.0) `num_predict` 1024 stop 턴 끝 토큰, `num_ctx` 8192, `keep_alive` "10m", 잘린 생각도 원문 그대로 이어 붙임.
 - 첫 입력(시스템+색인+요청) ≤ 4096 토큰, 넘으면 모델을 부르지 않고 종료 4. 색인을 자르지 않는다.
@@ -72,7 +72,7 @@ public static class DraftIndexBuilder
 
 Rules: a folder scope takes `.cs` and `.sql` under it, skipping the folders the existing `BoundedWalker` skips; a `.csproj` scope takes its folder; files ordered by relative path (ordinal), each file once. C# members and signatures exactly as S6 `CorpusIndexBuilder` (constructors excluded, same signature text). SQL as S6 but parsed with the parser for `sqlCompatLevel`; a file with parse errors goes to `Skipped` instead of throwing.
 
-- [ ] **Step 1: Generate the golden files once from the spike** — `cd /Users/payletter/git-root/Pelly-Code-spec-draft && dotnet run --project spikes/S6-planning/S6Planning -- index b1-block-cancel-shipped > tests/fixtures/spec-draft/index-b1.txt` and the same for `d1-modern-cancel-shipped` → `index-d1.txt`. Record in the test file comment which scope each case used (read `spikes/S6-planning/cases/<id>/gold.md` for its scope) and the command. If the spike's `index` output includes anything besides `Render()`, keep only the `Render()` part.
+- [ ] **Step 1: Generate the golden files once from the spike** — `cd ~/git-root/Pelly-Code-spec-draft && dotnet run --project spikes/S6-planning/S6Planning -- index b1-block-cancel-shipped > tests/fixtures/spec-draft/index-b1.txt` and the same for `d1-modern-cancel-shipped` → `index-d1.txt`. Record in the test file comment which scope each case used (read `spikes/S6-planning/cases/<id>/gold.md` for its scope) and the command. If the spike's `index` output includes anything besides `Render()`, keep only the `Render()` part.
 - [ ] **Step 2: Write failing tests**
 
 ```csharp

@@ -1,5 +1,5 @@
-/Users/payletter/git-root/Pelly-Code/spikes/S2-prefill-cache/prefill.cs(38,23): warning CS8602: null 가능 참조에 대한 역참조입니다.
-/Users/payletter/git-root/Pelly-Code/spikes/S2-prefill-cache/prefill.cs(41,17): warning CS8602: null 가능 참조에 대한 역참조입니다.
+spikes/S2-prefill-cache/prefill.cs(38,23): warning CS8602: null 가능 참조에 대한 역참조입니다.
+spikes/S2-prefill-cache/prefill.cs(41,17): warning CS8602: null 가능 참조에 대한 역참조입니다.
 variant,run,stage,ttft_ms,prompt_eval_count,prompt_eval_cached_count,prompt_eval_ms,eval_count,chunks,done_reason,think_tokens_kept
 A-server-num_predict,1,think,2051,4304,1,2013,512,512,length,
 A-server-num_predict,1,code,296,4820,4300,259,256,256,length,1925c

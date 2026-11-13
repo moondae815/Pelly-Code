@@ -25,7 +25,7 @@
 - **보존:**
   - 수용 기준에 `test:`가 없거나 연결 작업이 없는 명세의 `pelly apply`·`spec check`는 동작·프롬프트·종료 코드·기존 테스트가 그대로다. 단, 아래 「spec check 변경」의 경고 문구는 바뀐다.
   - `pelly cs --verify-test`(V2-2a) 동작도 그대로다.
-- **게이트:** 워크트리 `/Users/payletter/git-root/Pelly-Code-v2-2b`에서 `dotnet build -warnaserror` 종료 0, `dotnet test` 실패 0. 건너뜀은 SQL 서버·로컬 모델·Windows 전용만 허용한다. 메인 체크아웃 `/Users/payletter/git-root/Pelly-Code`에서는 빌드·테스트하지 않는다.
+- **게이트:** 워크트리 `~/git-root/Pelly-Code-v2-2b`에서 `dotnet build -warnaserror` 종료 0, `dotnet test` 실패 0. 건너뜀은 SQL 서버·로컬 모델·Windows 전용만 허용한다. 메인 체크아웃 `~/git-root/Pelly-Code`에서는 빌드·테스트하지 않는다.
 - **연결 작업(§7.1):**
   - AC의 연결 작업은 `(AC…)`로 그 AC를 참조하는 `cs` 작업이다. 명세 순서를 따르고 완료(`[x]`) 작업도 넣는다.
   - SQL 작업은 연결 작업이 아니다.

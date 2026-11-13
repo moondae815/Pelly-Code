@@ -23,7 +23,7 @@
 - **사용자 문구는 한국어**이며 설계 §5·§6·§7.5의 문구를 그대로 쓴다. 객체 이름 표시는 `SqlObjectName.Display`에 스키마가 없으면 `dbo.`를 붙인 꼴(`dbo.usp_X`)이다.
 - **종료 코드:** v1 그대로(0 성공, 1 검증 실패, 2 취소·거부, 3 대상 특정 실패, 4 환경·입력 오류, 5 안전장치 거부). 새 실패 종류 `SqlProdChanged`(종료 4).
 - **게이트:** `dotnet build -warnaserror` 경고 0, `dotnet test` 실패 0(건너뜀은 SQL 서버·로컬 모델·Windows 전용만).
-- **작업 위치:** 워크트리 `/Users/payletter/git-root/Pelly-Code-v21d`(브랜치 `feat/v2-1d-sql-impact`). 메인 체크아웃에서 빌드·테스트하지 않는다. push·병합은 사람이 고른 뒤에만.
+- **작업 위치:** 워크트리 `~/git-root/Pelly-Code-v21d`(브랜치 `feat/v2-1d-sql-impact`). 메인 체크아웃에서 빌드·테스트하지 않는다. push·병합은 사람이 고른 뒤에만.
 - **SQL 통합 테스트:** `[SqlServerFact]`(트레이트 `Env=SqlServer`), 연결은 `PELLY_TEST_SQL`. 운영 역할 DB는 같은 서버의 `PellyCorpusProd`(Task 3에서 CI 배포에 추가). 로컬에서 돌리려면 `eval/corpus/Sql/deploy.sh <컨테이너> <sa 비밀번호> PellyCorpusProd`를 먼저 실행한다.
 
 ## Review Focus

@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- 작업 위치는 워크트리 `/Users/payletter/git-root/Pelly-Code-char-test`(브랜치 `char-test`). 셸 명령은 `cd /Users/payletter/git-root/Pelly-Code-char-test && …`. 메인 체크아웃에서 빌드·테스트하지 않는다.
+- 작업 위치는 워크트리 `~/git-root/Pelly-Code-char-test`(브랜치 `char-test`). 셸 명령은 `cd ~/git-root/Pelly-Code-char-test && …`. 메인 체크아웃에서 빌드·테스트하지 않는다.
 - 게이트: `dotnet build -warnaserror` 종료 0, `dotnet test` 실패 0(건너뜀은 SQL 서버·로컬 모델·Windows 전용만).
 - 운영 코드(대상 파일)는 실행 시작과 끝에 바이트가 같아야 한다. 변이 뒤 복원은 `finally`에서, 취소 토큰을 무시하고 한다.
 - 거부·실패·취소 뒤 테스트 파일·csproj는 원래대로(새로 만든 파일은 삭제). 미완료 표시는 모든 파일을 남기거나 되돌린 뒤에만 지운다.

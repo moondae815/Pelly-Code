@@ -33,8 +33,8 @@
   - 기대 해시가 없는 실행(V2-2a `pelly cs --verify-test`, `--resume`으로 첫 연결 작업이 끝난 apply)은 동작이 그대로다.
   - 테스트 링크가 없는 그룹은 그대로다.
 - **게이트:**
-  - 워크트리 `/Users/payletter/git-root/Pelly-Code-v2-2c`에서 `dotnet build -warnaserror` 종료 0, `dotnet test` 실패 0이다. 건너뜀은 SQL 서버·로컬 모델·Windows 전용만 허용한다.
-  - 메인 체크아웃 `/Users/payletter/git-root/Pelly-Code`에서는 빌드·테스트하지 않는다.
+  - 워크트리 `~/git-root/Pelly-Code-v2-2c`에서 `dotnet build -warnaserror` 종료 0, `dotnet test` 실패 0이다. 건너뜀은 SQL 서버·로컬 모델·Windows 전용만 허용한다.
+  - 메인 체크아웃 `~/git-root/Pelly-Code`에서는 빌드·테스트하지 않는다.
 - **새 실패 유형:** `GroupTestFileChanged`(종료 4). `FailureKinds.All`과 `GroupFailureKinds`(`IsGroupKind`)에 등록한다.
 - **문구:**
   - 사용자 문구는 한국어, 코드 주석은 영어다.

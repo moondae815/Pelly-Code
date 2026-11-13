@@ -1,4 +1,4 @@
-/Users/payletter/git-root/Pelly-Code/spikes/S3-sampling/nothink.cs(118,13): warning CS8321: 로컬 함수 'HasRepetition'이(가) 선언되었지만 사용되지 않았습니다.
+spikes/S3-sampling/nothink.cs(118,13): warning CS8321: 로컬 함수 'HasRepetition'이(가) 선언되었지만 사용되지 않았습니다.
 task,mode,parsed,exact_match,request_applied,think_tokens,code_tokens,think_sec,code_sec,total_sec
 cs-legacy-001,think512,True,True,True,512,107,6.5,1.7,8.2
 cs-legacy-001,nothink,True,True,True,0,107,0.0,1.5,1.5

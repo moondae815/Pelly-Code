@@ -19,8 +19,8 @@
 - 사용자에게 보이는 문구는 한국어이고, 설계 문서의 문구를 그대로 쓴다(아래 각 작업에 옮겨 둠).
 - 게이트: `dotnet build -warnaserror` 종료 0, `dotnet test` 실패 0. 건너뜀은 SQL 서버·Ollama·Windows 전용 테스트뿐이다.
 - `dotnet test`는 `-nologo` 없이 돌린다(`-nologo`이면 테스트 0개).
-- 모든 빌드·테스트는 워크트리 `/Users/payletter/git-root/Pelly-Code-w3`에서 돌린다. 메인 체크아웃에서는 돌리지 않는다.
-- 비밀번호·내부 주소·사용자 이름·로컬 임시 경로(`/private/tmp/claude-501/…`)를 커밋하지 않는다.
+- 모든 빌드·테스트는 워크트리 `~/git-root/Pelly-Code-w3`에서 돌린다. 메인 체크아웃에서는 돌리지 않는다.
+- 비밀번호·내부 주소·사용자 이름·로컬 임시 경로(`/private/tmp/claude-<uid>/…`)를 커밋하지 않는다.
 - 커밋 메시지 끝: `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 - 단독 `pelly js`·`pelly css`·`pelly asp`의 기존 결과는 바뀌지 않는다. 새 행·새 옵션을 줄 때만 달라진다(설계 §8 「단독 실행」).
 - 경고는 종료 코드를 바꾸지 않는다(설계 §4.5).

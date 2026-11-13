@@ -20,7 +20,7 @@
 | `licenses/Avalonia.Angle.Windows.Natives.LICENSE.txt` | 예외 승인한 그래픽 네이티브(`av_libglesv2.dll`, ANGLE, BSD-3-Clause)의 라이선스 전문 |
 | `version-record.json` | pelly 버전, Ollama 버전, 측정에 쓴 모델(`qwen3.6:35b-a3b-q4_K_M`, GGUF `Q4_K_M`)의 태그·digest·형식·양자화·GGUF SHA-256 |
 | `benchmark-summary.md` | 벤치마크 결과 요약 |
-| `docs/` | 이 문서들 (`install.md`, `usage.md`, `ide-external-tools.md`, `server-checklist.md`, `no-network.md`) |
+| `docs/` | 이 문서들 (`install.md`, `usage.md`, `ide-external-tools.md`, `server-checklist.md`, `no-network.md`), 현장 확인 안내 `field-checklist.md`와 결과 양식 `field-results.md` |
 
 ## 사전 조건
 

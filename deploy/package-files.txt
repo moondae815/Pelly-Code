@@ -18,6 +18,8 @@ docs/usage.md <- deploy/usage.md
 docs/ide-external-tools.md <- deploy/ide-external-tools.md
 docs/server-checklist.md <- deploy/server-checklist.md
 docs/no-network.md <- deploy/no-network.md
+docs/field-checklist.md <- deploy/field-checklist.md
+docs/field-results.md <- deploy/field-results.md
 sbom.cdx.json <- generated
 THIRD-PARTY-NOTICES.md <- generated
 licenses/Microsoft.Data.SqlClient.SNI.runtime.LICENSE.txt <- generated

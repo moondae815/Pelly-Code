@@ -414,3 +414,4 @@ pelly doctor --sanitize --out C:\export
 * IDE 연동(콘솔·GUI 항목): [ide-external-tools.md](ide-external-tools.md)
 * 서버 관리자용 확인 사항: [server-checklist.md](server-checklist.md)
 * 실행 중 외부 통신 없음: [no-network.md](no-network.md)
+* 현장 확인 순서와 명령: [field-checklist.md](field-checklist.md) (결과는 [field-results.md](field-results.md)에 적음)

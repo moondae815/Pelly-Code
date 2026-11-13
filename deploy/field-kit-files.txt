@@ -11,6 +11,7 @@ LICENSE <- LICENSE
 docs/field-guide.md <- deploy/field-guide.md
 docs/field-benchmark.md <- deploy/field-benchmark.md
 docs/field-results.md <- deploy/field-results.md
+docs/field-checklist.md <- deploy/field-checklist.md
 templates/suite.json <- deploy/field-kit/templates/suite.json
 templates/tasks/cs-modern-001.yaml <- deploy/field-kit/templates/tasks/cs-modern-001.yaml
 templates/tasks/cs-legacy-001.yaml <- deploy/field-kit/templates/tasks/cs-legacy-001.yaml

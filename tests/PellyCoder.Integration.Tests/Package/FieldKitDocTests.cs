@@ -18,6 +18,7 @@ public sealed class FieldKitDocTests
         "deploy/field-guide.md",
         "deploy/field-benchmark.md",
         "deploy/field-results.md",
+        "deploy/field-checklist.md",
         "deploy/field-kit/templates/suite.json",
         "deploy/field-kit/templates/tasks/cs-modern-001.yaml",
         "deploy/field-kit/templates/tasks/cs-legacy-001.yaml",

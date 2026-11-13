@@ -294,4 +294,44 @@ public class ExitCodeMappingTests
 
         Assert.True(result.ExitCode != 4, $"exit 4: {result.Output}");
     }
+
+    /// <summary>
+    /// deploy/field-checklist.md copies command lines from usage.md for people in the field: each names a real command,
+    /// and each option it uses is one that command's --help lists, so the copy cannot drift from the CLI unnoticed.
+    /// </summary>
+    [Fact]
+    public void FieldChecklist_CommandLines_UseRealCommandsAndOptions()
+    {
+        var text = System.IO.File.ReadAllText(RepoFile("deploy/field-checklist.md"));
+        var lines = new List<string>();
+        foreach (System.Text.RegularExpressions.Match block in System.Text.RegularExpressions.Regex.Matches(
+                     text, @"```[a-z]*\r?\n(.*?)```", System.Text.RegularExpressions.RegexOptions.Singleline))
+            foreach (var raw in block.Groups[1].Value.Split('\n'))
+                if (raw.Trim().StartsWith("pelly ", StringComparison.Ordinal)) lines.Add(raw.Trim());
+
+        Assert.True(lines.Count >= 15, $"only {lines.Count} pelly lines");
+        var commands = new HashSet<string>();
+        foreach (var line in lines)
+        {
+            var tokens = System.Text.RegularExpressions.Regex.Matches(line, "\"[^\"]*\"|\\S+").Select(m => m.Value).ToArray();
+            var two = tokens.Length > 2 ? $"{tokens[1]} {tokens[2]}" : "";
+            var key = CliApp.CommandSettings.ContainsKey(two) ? two : tokens[1];
+            Assert.True(CliApp.CommandSettings.ContainsKey(key), $"'{line}': no command '{key}'");
+            commands.Add(key);
+
+            var help = Build(CancellationToken.None).Run([.. key.Split(' '), "--help"]).Output;
+            foreach (var option in tokens.Where(t => t.StartsWith("--", StringComparison.Ordinal)))
+                Assert.True(help.Contains(option, StringComparison.Ordinal), $"'{line}': {key} has no {option}");
+        }
+        foreach (var expected in new[] { "doctor", "asp", "js", "css", "spec new", "spec check", "apply", "test", "ui cs", "spec draft", "report" })
+            Assert.Contains(expected, commands);
+    }
+
+    private static string RepoFile(string relative)
+    {
+        for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
+            if (System.IO.File.Exists(Path.Combine(dir.FullName, "PellyCoder.sln")))
+                return Path.Combine(dir.FullName, relative.Replace('/', Path.DirectorySeparatorChar));
+        throw new DirectoryNotFoundException("PellyCoder.sln not found above the test binaries.");
+    }
 }

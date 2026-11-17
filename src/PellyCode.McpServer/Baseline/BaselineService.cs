@@ -79,6 +79,26 @@ public sealed class BaselineService(IFileSystem fs, string root, string mirrorDi
     }
 
     /// <summary>
+    /// For <c>--check</c>, which never starts the service: <see cref="Last"/> when there is one, else the baseline cached on disk for
+    /// the current HEAD. Builds nothing. Failures are not cached, so after a restart a failed baseline reads as none (null).
+    /// </summary>
+    public async Task<Baseline?> LastOrCachedAsync(CancellationToken ct)
+    {
+        if (Last is { } live) return live;
+        string? head;
+        try
+        {
+            head = await git.HeadAsync(ct);
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            return null;
+        }
+        if (head is null || LoadCache(head) is not { } cached) return null;
+        return Snapshot(cached, null, null);
+    }
+
+    /// <summary>
     /// A baseline of exactly <paramref name="projectsRelative"/> (root-relative .csproj paths) at the current HEAD: Ready when all of
     /// them are built (a project HEAD does not have counts as an empty baseline), Failed only when one of them (or one of its test
     /// projects) could not be built or run after its one retry. Waits for work in flight up to <paramref name="wait"/>, then returns

@@ -47,7 +47,7 @@ public static class PellyOptionsLoader
         {
             config = builder.Build();
         }
-        catch (Exception ex) when (ex is FormatException or InvalidDataException or IOException)
+        catch (Exception ex) when (ex is FormatException or InvalidDataException or System.Text.Json.JsonException or IOException)
         {
             errors.Add($"config: {ex.Message}");
             return new OptionsLoadResult(null, errors);
@@ -86,7 +86,7 @@ public static class PellyOptionsLoader
             _ = probe.AsEnumerable().ToList();
             builder.AddJsonStream(new MemoryStream(bytes));
         }
-        catch (Exception ex) when (ex is FormatException or InvalidDataException or IOException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is FormatException or InvalidDataException or System.Text.Json.JsonException or IOException or UnauthorizedAccessException)
         {
             errors.Add($"config file {path}: {ex.Message}");
         }

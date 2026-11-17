@@ -20,6 +20,7 @@ using PellyCode.McpServer.Verify;
 var root = ArgValue(args, "--root") ?? Directory.GetCurrentDirectory();
 var logFile = ArgValue(args, "--log-file");
 
+var check = args.Contains("--check");
 var builder = Host.CreateApplicationBuilder(args);
 
 // stdout is for MCP messages only: console logs go to stderr, default providers are removed.
@@ -28,6 +29,16 @@ builder.Logging.AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace);
 if (logFile is not null) builder.Logging.AddProvider(new FileLoggerProvider(logFile));
 
 var context = ServerContext.TryCreate(new FileSystem(), root, out var error);
+// A startup failure also goes to the log file (and stderr), so a client that only shows "server failed" leaves a trace.
+if (context is null)
+{
+    using var startupLog = LoggerFactory.Create(b =>
+    {
+        b.AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace);
+        if (logFile is not null) b.AddProvider(new FileLoggerProvider(logFile));
+    });
+    startupLog.CreateLogger("PellyCodeMcpServer").LogError("시작하지 못했습니다: {Error}", error);
+}
 builder.Services.AddSingleton(new ServerState(context, error));
 // One loader for the server's life: it keeps each project bundle's Roslyn solution between pelly_impact calls.
 var fs = new FileSystem();
@@ -35,16 +46,34 @@ builder.Services.AddSingleton<IFileSystem>(fs);
 builder.Services.AddSingleton<ISemanticLoader>(new CachingSemanticLoader(new MsBuildSemanticLoader(fs), fs));
 
 // The HEAD baseline (design §11): prebuilt in the background in the mirror outside the workspace, outside the tool lock.
-if (context is not null)
+var processes = new SystemProcessRunner(TimeProvider.System);
+BaselineService? MakeBaseline(ILogger<BaselineService> log)
 {
-    var processes = new SystemProcessRunner(TimeProvider.System);
+    if (context is null) return null;
     var options = context.Options;
     var tools = new BuildToolResolver(fs, processes, options.Build);
     var verifier = new GroupVerifier(fs, new BuildVerifier(processes, options.Build), tools, OperatingSystem.IsWindows);
     var tests = new BaselineTestRunner(fs, new TestRunner(processes, options.Build, options.Test), tools, OperatingSystem.IsWindows);
-    builder.Services.AddSingleton(sp => new BaselineService(fs, context.Root, MirrorPaths.For(context.Root),
-        new GitRepo(processes, context.Root), verifier, tests, options.Test, TimeProvider.System,
-        sp.GetRequiredService<ILogger<BaselineService>>(), new DotnetRestorer(fs, processes, options.Build)));
+    return new BaselineService(fs, context.Root, MirrorPaths.For(context.Root), new GitRepo(processes, context.Root),
+        verifier, tests, options.Test, TimeProvider.System, log, new DotnetRestorer(fs, processes, options.Build));
+}
+
+// --check: a self-test on stdout; no MCP, no baseline build (only the cache on disk is read).
+if (check)
+{
+    using var factory = LoggerFactory.Create(_ => { });
+    return await HealthCheck.RunAsync(context, error, MakeBaseline(factory.CreateLogger<BaselineService>()), ["pelly_impact", "pelly_verify"],
+        Console.Out, CancellationToken.None);
+}
+
+// The HEAD baseline (design §11): prebuilt in the background in the mirror outside the workspace, outside the tool lock.
+if (context is not null)
+{
+    var options = context.Options;
+    var tools = new BuildToolResolver(fs, processes, options.Build);
+    var verifier = new GroupVerifier(fs, new BuildVerifier(processes, options.Build), tools, OperatingSystem.IsWindows);
+    var tests = new BaselineTestRunner(fs, new TestRunner(processes, options.Build, options.Test), tools, OperatingSystem.IsWindows);
+    builder.Services.AddSingleton(sp => MakeBaseline(sp.GetRequiredService<ILogger<BaselineService>>())!);
     builder.Services.AddHostedService(sp => sp.GetRequiredService<BaselineService>());
     // The live tree is built and tested with the same verifier and test runner, so both sides report paths the same way.
     builder.Services.AddSingleton(sp => new VerifyService(fs, context, new GitRepo(processes, context.Root),

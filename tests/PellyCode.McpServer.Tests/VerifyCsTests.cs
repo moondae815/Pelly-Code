@@ -21,7 +21,7 @@ public sealed class VerifyCsTests : IDisposable
     private const string TestCsproj = "<Project Sdk=\"Microsoft.NET.Sdk\"><ItemGroup><ProjectReference Include=\"..\\App\\App.csproj\" /></ItemGroup></Project>";
 
     private readonly string _dir = TempRepo.Create();
-    private readonly string _mirror = Path.Combine(Path.GetTempPath(), "pelly-verify-mirror-" + Guid.NewGuid().ToString("N")[..8], "0123456789abcdef");
+    private string _mirror = Path.Combine(Path.GetTempPath(), "pelly-verify-mirror-" + Guid.NewGuid().ToString("N")[..8], "0123456789abcdef");
     private readonly FakeVerifier _verifier = new();
     private readonly FakeTests _tests = new();
     private readonly List<BaselineService> _services = [];
@@ -108,6 +108,25 @@ public sealed class VerifyCsTests : IDisposable
 
         Assert.Equal("결과: 새 오류 1건, 새 경고 0건", lines[0]);
         Assert.Contains("[빌드] App — 새 오류 1건", lines);
+        Assert.Contains("- App/A.cs:7 CS1503 Argument 1: cannot convert from 'string' to 'int'", lines);
+        Assert.DoesNotContain(lines, l => l.Contains("CS0103", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task MirrorUnderRoot_HeadErrorsStillMatch()
+    {
+        AppRepo(withTests: false);
+        // A root such as the home folder can hold the mirror (an excluded folder keeps it out of the mirror's own copy).
+        _mirror = Path.Combine(_dir, ".pelly", "mirror");
+        _verifier.Handler = (root, _, _) => Task.FromResult(root == _mirror
+            ? Built(Error(_mirror, "App/A.cs", 3, "CS0103", "The name 'x' does not exist in the current context"))
+            : Built(Error(_dir, "App/A.cs", 4, "CS0103", "The name 'x' does not exist in the current context"),
+                Error(_dir, "App/A.cs", 7, "CS1503", "Argument 1: cannot convert from 'string' to 'int'")));
+        Write("App/A.cs", "class A { void M() {} }");
+
+        var lines = Lines(await NewService().VerifyAsync(null, Ct));
+
+        Assert.Equal("결과: 새 오류 1건, 새 경고 0건", lines[0]);
         Assert.Contains("- App/A.cs:7 CS1503 Argument 1: cannot convert from 'string' to 'int'", lines);
         Assert.DoesNotContain(lines, l => l.Contains("CS0103", StringComparison.Ordinal));
     }

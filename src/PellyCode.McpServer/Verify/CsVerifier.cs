@@ -200,11 +200,12 @@ public sealed class CsVerifier(IFileSystem fs, ServerContext ctx, string mirrorD
     private static string FirstLine(string? text) =>
         (text ?? "").Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "";
 
-    /// <summary>The diagnostic with its file relative to the live root or the mirror ('/'), so both sides compare.</summary>
+    /// <summary>The diagnostic with its file relative to the mirror or the live root ('/'), whichever holds it most closely, so both sides compare.</summary>
     private Diagnostic WithRelativePath(Diagnostic d)
     {
         if (d.File.Length == 0 || !fs.Path.IsPathRooted(d.File)) return d;
-        foreach (var dir in new[] { ctx.Root, mirrorDir }.SelectMany(Spellings))
+        // Longest folder first: the mirror can sit under the root (e.g. a root that is the home folder).
+        foreach (var dir in new[] { ctx.Root, mirrorDir }.SelectMany(Spellings).OrderByDescending(d => d.TrimEnd('/', '\\').Length))
         {
             var rel = fs.Path.GetRelativePath(dir, d.File);
             if (!fs.Path.IsPathRooted(rel) && rel != ".." && !rel.StartsWith(".." + fs.Path.DirectorySeparatorChar, StringComparison.Ordinal)

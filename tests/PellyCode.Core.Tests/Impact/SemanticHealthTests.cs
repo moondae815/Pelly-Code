@@ -173,6 +173,42 @@ public class SemanticHealthTests
         Assert.Equal(SemanticFailureKind.LoadFailed, failure?.Kind);
     }
 
+    private const string Wrapper = "Msbuild failed when processing the file '/x/App.csproj' with message: ";
+
+    [Fact]
+    public async Task Judge_nuget_warning_with_code_is_healthy() =>
+        Assert.Null(await Judge(Build(Healthy), [new WorkspaceDiagnostic(WorkspaceDiagnosticKind.Failure,
+            Wrapper + "/x/App.csproj : warning NU1903: Package 'System.Security.Cryptography.Pkcs' 9.0.18 has a known high severity vulnerability")]));
+
+    [Fact]
+    public async Task Judge_nuget_warning_from_assets_logs_is_healthy()
+    {
+        // The real NU1903 case: the build host replays the assets file's log message (in the restore's language)
+        // without its code, as a Failure diagnostic.
+        const string message = "'System.Security.Cryptography.Pkcs' 9.0.18 패키지에 알려진 높음 심각도 취약성인 https://github.com/advisories/GHSA-846f-f764-76mx이(가) 있습니다.";
+        var fs = RestoredSdkFs();
+        fs.AddFile(Assets, new MockFileData($$"""{"logs":[{"code":"NU1903","level":"Warning","message":"{{message}}"}]}"""));
+        Assert.Null(await Judge(Build(Healthy), [new WorkspaceDiagnostic(WorkspaceDiagnosticKind.Failure, Wrapper + message)], fs: fs));
+    }
+
+    [Fact]
+    public async Task Judge_nuget_error_is_load_failed()
+    {
+        const string message = "Unable to find package Missing.Package.";
+        var fs = RestoredSdkFs();
+        fs.AddFile(Assets, new MockFileData($$"""{"logs":[{"code":"NU1101","level":"Error","message":"{{message}}"}]}"""));
+        Assert.Equal(SemanticFailureKind.LoadFailed, (await Judge(Build(Healthy),
+            [new WorkspaceDiagnostic(WorkspaceDiagnosticKind.Failure, Wrapper + "/x/App.csproj : error NU1101: " + message)], fs: fs))?.Kind);
+        Assert.Equal(SemanticFailureKind.LoadFailed, (await Judge(Build(Healthy),
+            [new WorkspaceDiagnostic(WorkspaceDiagnosticKind.Failure, Wrapper + message)], fs: fs))?.Kind);
+    }
+
+    [Fact]
+    public async Task Judge_unrelated_failure_next_to_a_nuget_warning_is_load_failed() =>
+        Assert.Equal(SemanticFailureKind.LoadFailed, (await Judge(Build(Healthy),
+            [new WorkspaceDiagnostic(WorkspaceDiagnosticKind.Failure, Wrapper + "/x/App.csproj : warning NU1701: Package restored using a fallback framework"),
+             new WorkspaceDiagnostic(WorkspaceDiagnosticKind.Failure, Wrapper + "The project file could not be loaded.")]))?.Kind);
+
     [Fact]
     public async Task Judge_warning_diagnostic_alone_is_healthy() =>
         Assert.Null(await Judge(Build(Healthy), [new WorkspaceDiagnostic(WorkspaceDiagnosticKind.Warning, "Something else")]));

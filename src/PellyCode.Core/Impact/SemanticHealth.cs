@@ -1,4 +1,6 @@
 using System.IO.Abstractions;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Xml;
 using System.Xml.Linq;
 using Microsoft.CodeAnalysis;
@@ -13,7 +15,7 @@ namespace PellyCode.Core.Impact;
 /// call resolution rate at least <see cref="MinCallRate"/> and no compile errors. A half-failed load opens
 /// without exceptions but leaves calls unbound, so the rate is the main signal.
 /// </summary>
-public static class SemanticHealth
+public static partial class SemanticHealth
 {
     public const double MinCallRate = 0.99;
 
@@ -66,8 +68,11 @@ public static class SemanticHealth
         var csharp = s.Projects.Where(p => p.Language == LanguageNames.CSharp).ToList();
         var opened = csharp.Where(p => p.FilePath is not null)
             .Select(p => fs.Path.GetFullPath(p.FilePath!)).ToHashSet(PathComparers.ForOs);
+        // A NuGet warning (e.g. an audit NU1900-NU1905 a closed network always gets) arrives as a Failure but loads fine.
+        HashSet<string>? assetWarnings = null;
         if (!requested.All(p => opened.Contains(fs.Path.GetFullPath(p)))
-            || diagnostics.Any(d => d.Kind == WorkspaceDiagnosticKind.Failure))
+            || diagnostics.Any(d => d.Kind == WorkspaceDiagnosticKind.Failure
+                && !IsNuGetWarning(d.Message, assetWarnings ??= NuGetWarningMessages(fs, requested))))
             return new SemanticFailure(SemanticFailureKind.LoadFailed);
 
         var rate = await CallResolutionRateAsync(csharp, ct);
@@ -82,6 +87,53 @@ public static class SemanticHealth
         }
 
         return errors > 0 ? new SemanticFailure(SemanticFailureKind.CompileErrors, Count: errors) : null;
+    }
+
+    /// <summary>
+    /// True when a Failure diagnostic is only a NuGet warning (audit NU1900–NU1905, NU1701…), which leaves the project
+    /// loaded. MSBuildWorkspace reports them as failures in two forms: with the code (<c>warning NU1903: …</c>), or as
+    /// the bare message the restore wrote to project.assets.json (in the restore's language, without its code), which
+    /// <paramref name="assetWarnings"/> holds. NuGet errors (<c>error NU1101</c>, Error-level logs) are not warnings.
+    /// </summary>
+    internal static bool IsNuGetWarning(string message, IReadOnlySet<string> assetWarnings)
+    {
+        if (NuGetWarningCode().IsMatch(message)) return true;
+        var wrapped = message.IndexOf(WrapperMarker, StringComparison.OrdinalIgnoreCase);
+        var inner = (wrapped >= 0 ? message[(wrapped + WrapperMarker.Length)..] : message).Trim();
+        return assetWarnings.Contains(inner);
+    }
+
+    [GeneratedRegex(@"\bwarning NU\d{4}\b", RegexOptions.IgnoreCase)]
+    private static partial Regex NuGetWarningCode();
+
+    /// <summary>The Warning-level log messages in the requested projects' project.assets.json files.</summary>
+    private static HashSet<string> NuGetWarningMessages(IFileSystem fs, IReadOnlyCollection<string> requested)
+    {
+        var messages = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var project in requested)
+        {
+            if (!fs.File.Exists(project)) continue;
+            var full = fs.Path.GetFullPath(project);
+            XDocument doc;
+            try { doc = XDocument.Parse(fs.File.ReadAllText(full)); }
+            catch (XmlException) { continue; }
+            foreach (var obj in ObjFolders(fs, full, fs.Path.GetDirectoryName(full)!, doc))
+            {
+                var assets = fs.Path.Combine(obj, "project.assets.json");
+                if (!fs.File.Exists(assets)) continue;
+                try
+                {
+                    using var json = JsonDocument.Parse(fs.File.ReadAllText(assets));
+                    if (!json.RootElement.TryGetProperty("logs", out var logs) || logs.ValueKind != JsonValueKind.Array) continue;
+                    foreach (var log in logs.EnumerateArray())
+                        if (log.TryGetProperty("level", out var level) && string.Equals(level.GetString(), "Warning", StringComparison.OrdinalIgnoreCase)
+                            && log.TryGetProperty("message", out var text) && text.GetString() is { } m)
+                            messages.Add(m.Trim());
+                }
+                catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException) { }
+            }
+        }
+        return messages;
     }
 
     /// <summary>An SDK-style project (Sdk attribute on the root) with no project.assets.json in its obj folder.</summary>

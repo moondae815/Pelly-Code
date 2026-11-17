@@ -29,10 +29,6 @@ internal static class TempRepo
     {
         var dir = Create();
         Copy(new DirectoryInfo(ModernSource()), new DirectoryInfo(Path.Combine(dir, "Modern")));
-        // The corpus pins packages with known advisories; MSBuildWorkspace reports NuGet audit warnings as load
-        // failures, which would turn every Roslyn search here into the name-based fallback.
-        File.WriteAllText(Path.Combine(dir, "Directory.Build.props"),
-            "<Project><PropertyGroup><NuGetAudit>false</NuGetAudit></PropertyGroup></Project>\n");
         Commit(dir);
         if (restore)
             Run(dir, "dotnet", "restore", Path.Combine(dir, "Modern", "Shop.Api.Tests", "Shop.Api.Tests.csproj"), "--nologo");

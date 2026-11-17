@@ -17,10 +17,10 @@ using PellyCode.McpServer.Tools;
 using PellyCode.McpServer.Verify;
 
 // --root <folder> (default: current folder) and --log-file <path> are ours; the rest goes to the host.
-var root = ArgValue(args, "--root") ?? Directory.GetCurrentDirectory();
-var logFile = ArgValue(args, "--log-file");
+var root = CommandLine.Value(args, CommandLine.Root) ?? Directory.GetCurrentDirectory();
+var logFile = CommandLine.Value(args, CommandLine.LogFile);
 
-var check = args.Contains("--check");
+var check = args.Contains(CommandLine.Check);
 var builder = Host.CreateApplicationBuilder(args);
 
 // stdout is for MCP messages only: console logs go to stderr, default providers are removed.
@@ -64,6 +64,8 @@ if (context is not null)
 // --check: a self-test on stdout; no MCP, no baseline build (only the cache on disk is read).
 if (check)
 {
+    // Same as pelly.exe: the Korean rows reach a redirected or Windows console as UTF-8 (MCP mode leaves the console alone).
+    try { Console.OutputEncoding = System.Text.Encoding.UTF8; } catch (Exception ex) when (ex is IOException or PlatformNotSupportedException) { }
     using var factory = LoggerFactory.Create(_ => { });
     return await HealthCheck.RunAsync(context, error, MakeBaseline(factory.CreateLogger<BaselineService>()), ["pelly_impact", "pelly_verify"],
         Console.Out, CancellationToken.None);
@@ -89,9 +91,3 @@ builder.Services
 
 await builder.Build().RunAsync();
 return 0;
-
-static string? ArgValue(string[] args, string name)
-{
-    var i = Array.IndexOf(args, name);
-    return i >= 0 && i + 1 < args.Length ? args[i + 1] : null;
-}

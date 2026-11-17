@@ -10,8 +10,9 @@
 | 파일 | 용도 |
 | :--- | :--- |
 | `pelly.exe` | 실행 파일 (단일 파일) |
+| `PellyCodeMcpServer.exe` | OpenCode용 MCP 서버(`pelly_impact`, `pelly_verify`, 단일 파일). 아래 BuildHost 폴더를 `pelly.exe`와 함께 쓰므로 **같은 폴더에 두십시오.** 등록 방법은 `docs/mcp-server.md` |
 | `av_libglesv2.dll`, `libHarfBuzzSharp.dll`, `libSkiaSharp.dll` | `pelly ui`(승인 창)가 쓰는 그래픽 네이티브 DLL 셋. **`pelly.exe`와 같은 폴더에 그대로 두십시오.** 없으면 `pelly ui`만 종료 코드 4로 끝나고 다른 명령은 그대로 동작합니다 |
-| `BuildHost-net472/`, `BuildHost-netcore/` | 영향 탐색의 의미 분석이 띄우는 보조 프로세스(Roslyn 빌드 호스트). **`pelly.exe`와 같은 폴더에 그대로 두십시오.** 없으면 `pelly doctor --offline-selftest`의 「의미 분석 보조 프로세스」 행이 Fail입니다 |
+| `BuildHost-net472/`, `BuildHost-netcore/` | 영향 탐색의 의미 분석이 띄우는 보조 프로세스(Roslyn 빌드 호스트). `pelly.exe`와 `PellyCodeMcpServer.exe`가 함께 씁니다. **두 실행 파일과 같은 폴더에 그대로 두십시오.** 없으면 `pelly doctor --offline-selftest`의 「의미 분석 보조 프로세스」 행이 Fail입니다 |
 | `pelly.json.template` | 설정 템플릿 |
 | `SHA256SUMS.txt` | 파일별 SHA-256 체크섬 |
 | `sbom.cdx.json` | SBOM (CycloneDX), 보안 심사용 |
@@ -20,12 +21,12 @@
 | `licenses/Avalonia.Angle.Windows.Natives.LICENSE.txt` | 예외 승인한 그래픽 네이티브(`av_libglesv2.dll`, ANGLE, BSD-3-Clause)의 라이선스 전문 |
 | `version-record.json` | pelly 버전, Ollama 버전, 측정에 쓴 모델(`qwen3.6:35b-a3b-q4_K_M`, GGUF `Q4_K_M`)의 태그·digest·형식·양자화·GGUF SHA-256 |
 | `benchmark-summary.md` | 벤치마크 결과 요약 |
-| `docs/` | 이 문서들 (`install.md`, `usage.md`, `ide-external-tools.md`, `server-checklist.md`, `no-network.md`), 현장 확인 안내 `field-checklist.md`와 결과 양식 `field-results.md` |
+| `docs/` | 이 문서들 (`install.md`, `usage.md`, `ide-external-tools.md`, `server-checklist.md`, `no-network.md`), MCP 서버 안내 `mcp-server.md`, 현장 확인 안내 `field-checklist.md`와 결과 양식 `field-results.md` |
 
 ## 사전 조건
 
 * 접속할 수 있는 Ollama 서버. 서버 관리자에게 [server-checklist.md](server-checklist.md)를 전달하십시오.
-* **.NET 10 런타임:** `pelly.exe`와 `pelly-eval.exe`가 이것으로 실행됩니다. 아래 .NET 10 SDK를 설치했으면 함께 들어 있습니다. `dotnet --list-runtimes`에 `Microsoft.NETCore.App 10.0.x`가 보이면 됩니다(10.0의 어느 패치든 됨). 없으면 `pelly.exe`가 시작하지 못하고 「You must install or update .NET to run this application.」 같은 .NET 안내를 냅니다. .NET을 기본 위치(`C:\Program Files\dotnet`)가 아닌 폴더에 풀어 두었다면 환경 변수 `DOTNET_ROOT`에 그 폴더를 지정하십시오(실행 파일은 PATH로 런타임을 찾지 않습니다).
+* **.NET 10 런타임:** `pelly.exe`, `PellyCodeMcpServer.exe`와 `pelly-eval.exe`가 이것으로 실행됩니다. 아래 .NET 10 SDK를 설치했으면 함께 들어 있습니다. `dotnet --list-runtimes`에 `Microsoft.NETCore.App 10.0.x`가 보이면 됩니다(10.0의 어느 패치든 됨). 없으면 `pelly.exe`가 시작하지 못하고 「You must install or update .NET to run this application.」 같은 .NET 안내를 냅니다. .NET을 기본 위치(`C:\Program Files\dotnet`)가 아닌 폴더에 풀어 두었다면 환경 변수 `DOTNET_ROOT`에 그 폴더를 지정하십시오(실행 파일은 PATH로 런타임을 찾지 않습니다).
 * `dotnet` SDK(.NET 10, 개발 때 쓴 버전은 10.0.302)가 PATH에 있어야 합니다. C# 빌드 검증에 필요합니다. **SQL만 쓰는 PC도 `dotnet`을 실행할 수 없으면 `pelly doctor`가 Fail(종료 코드 4)로 끝납니다.** 이 행의 안내는 「.NET 10 SDK를 설치하고 PATH를 확인하세요」입니다.
 * 레거시 .NET Framework 프로젝트는 Visual Studio(또는 Build Tools)의 MSBuild가 필요합니다.
 * SQL 수정을 쓰려면 SQL Server 접속 정보와 `VIEW DEFINITION` 권한이 필요합니다.
@@ -162,8 +163,12 @@ AppLocker나 WDAC가 `%TEMP%`에서 DLL을 불러오는 것을 막으면 SQL 기
 
 ## 업데이트
 
-새 zip을 같은 방법으로 반입하고 `pelly.exe`, 옆의 DLL 셋(`av_libglesv2.dll`, `libHarfBuzzSharp.dll`, `libSkiaSharp.dll`), `BuildHost-net472`, `BuildHost-netcore` 폴더를 함께 바꿉니다. DLL을 예전 것으로 남겨 두면 `pelly ui`가 뜨지 않을 수 있습니다. 설정 파일은 그대로 둡니다.
+새 zip을 같은 방법으로 반입하고 `pelly.exe`, `PellyCodeMcpServer.exe`(실행 중인 OpenCode를 먼저 끝냄), 옆의 DLL 셋(`av_libglesv2.dll`, `libHarfBuzzSharp.dll`, `libSkiaSharp.dll`), `BuildHost-net472`, `BuildHost-netcore` 폴더를 함께 바꿉니다. DLL을 예전 것으로 남겨 두면 `pelly ui`가 뜨지 않을 수 있습니다. 설정 파일은 그대로 둡니다.
 `version-record.json`으로 버전을 확인하십시오. 샘플링·예산 같은 값은 설정 파일로 바꿀 수 있어서 재반입이 필요 없습니다.
+
+## OpenCode MCP 서버
+
+OpenCode를 쓰면 `PellyCodeMcpServer.exe`를 등록해 「부르는 곳 찾기」(`pelly_impact`)와 「고친 뒤 확인」(`pelly_verify`)을 도구로 쓸 수 있습니다. 먼저 `PellyCodeMcpServer.exe --check --root <작업 공간>`으로 점검하고, 등록 예(`"timeout": 660000` 포함)와 주의는 [mcp-server.md](mcp-server.md)를 보십시오. (Windows 미확인)
 
 ## 현장 키트
 
@@ -176,3 +181,4 @@ AppLocker나 WDAC가 `%TEMP%`에서 DLL을 불러오는 것을 막으면 SQL 기
 * 사용법: [usage.md](usage.md)
 * IDE 연동: [ide-external-tools.md](ide-external-tools.md)
 * 실행 중 외부 통신: [no-network.md](no-network.md)
+* OpenCode MCP 서버: [mcp-server.md](mcp-server.md)

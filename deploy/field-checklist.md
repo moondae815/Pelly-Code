@@ -20,13 +20,14 @@
 | 7 | 서버·보안 질문지 남은 칸 (서버 관리자 등) | 질문지 「답」 칸 | — |
 | 8 | 기준선 측정 (`pelly-eval`, 현장 키트) | 1–8절 | 하루 |
 | 9 | 반출 | 14절 | 30분 |
+| 10 | MCP 서버 (`PellyCodeMcpServer.exe`, OpenCode) | 18절 M1–M5 | 2시간 |
 
 1·2를 먼저 권합니다. 현장 백오피스(Classic ASP + SP + JS)에 바로 쓰는 기능이고, 다음 개발을 고를 근거가 여기서 나옵니다.
 
 ## 0. 공통 준비
 
 1. `dotnet --list-runtimes`에 `Microsoft.NETCore.App 10.0.x`가 있는지 봅니다. `pelly.exe`는 PC의 .NET 10 런타임으로 실행됩니다(.NET 10 SDK에 함께 들어 있음). 없으면 `pelly.exe`가 .NET 설치 안내를 내고 시작하지 않습니다. 그 안내 문구를 15절 메모에 적습니다.
-1. `pelly.exe`와 같은 폴더에 `BuildHost-net472`, `BuildHost-netcore` 폴더와 `av_libglesv2.dll`, `libHarfBuzzSharp.dll`, `libSkiaSharp.dll`이 있는지 봅니다(반입 zip을 그대로 푼 상태).
+1. `pelly.exe`와 같은 폴더에 `PellyCodeMcpServer.exe`, `BuildHost-net472`, `BuildHost-netcore` 폴더와 `av_libglesv2.dll`, `libHarfBuzzSharp.dll`, `libSkiaSharp.dll`이 있는지 봅니다(반입 zip을 그대로 푼 상태).
 2. 작업 공간 루트에 `pelly.json`을 둡니다(`pelly.json.template`을 복사). `llm.endpoint`·`llm.model`을 채우고, 1·2를 할 것이므로 `asp`·`web` 절도 넣습니다:
 
    ```json
@@ -214,3 +215,36 @@ pelly doctor --sanitize --out C:\export
 ```
 
 반출 전에 파일을 직접 열어 사내 이름이 없는지 보고, 14절에 파일 목록과 승인한 사람·날짜를 적습니다. 채운 `field-results.md`도 함께 반출합니다.
+
+## 10. MCP 서버 (OpenCode) → 18절 M1–M5
+
+OpenCode를 쓰는 개발자 PC에서 확인합니다. 등록 방법과 결과 읽는 법은 `mcp-server.md`에 있습니다. 작업 공간은 git 저장소여야 합니다.
+
+**M1 자기 점검.** 터미널에서:
+
+```
+PellyCodeMcpServer.exe --check --root <작업 공간>
+```
+
+종료 코드(0이면 통과, 1이면 실패 행 있음)와 「[실패]」·「[주의]」 행의 이름을 적습니다. 「의미 분석」 행이 실패면 `BuildHost-*` 폴더가 옆에 있는지 봅니다.
+
+**M2 OpenCode 등록.** `mcp-server.md` 3절대로 `opencode.json`에 넣고(`"timeout": 660000` 포함) OpenCode를 다시 시작한 뒤:
+
+```
+opencode --version
+opencode mcp list
+```
+
+OpenCode 버전, 통한 키 배치(`"mcp": { "pelly": … }` 또는 `"mcp": { "servers": … }`), `pelly`가 연결됨인지, 도구가 2개 보이는지(적으면 `"codemode": false`를 넣고 다시)를 적습니다. 시작에 실패하면 `--log-file`을 더해 로그의 첫 오류 줄을 15절 메모에 옮깁니다.
+
+```
+PellyCodeMcpServer.exe --root <작업 공간> --log-file <로그 파일>
+```
+
+**M3 OpenCode에서 `pelly_verify` 부르기.** 바뀐 파일이 없는 상태에서 OpenCode에 「pelly_verify를 불러 줘」라고 요청해 「HEAD 이후 바뀐 파일이 없습니다」가 나오는지 봅니다. 그다음 `.cs` 파일 하나에 일부러 컴파일 오류를 넣고 다시 부르게 해 첫 줄이 「결과: 새 오류 1건, …」이고 그 오류가 보이는지 봅니다. 끝나면 그 파일을 되돌립니다. 서버를 켜고 처음 부른 호출이 끝날 때까지 걸린 시간, 「Request timed out」으로 끊겼는지, 「기준 빌드가 아직 진행 중입니다」가 나왔는지를 적습니다.
+
+**M4 OpenCode에서 `pelly_impact` 부르기.** 여러 곳에서 부르는 C# 메서드 하나, SP 하나(`asp` 절이 있으면), 공용 JS 함수 하나로 「<파일>의 <이름>을 부르는 곳을 pelly_impact로 찾아 줘」라고 요청합니다. 찾은 곳 수, 아는 호출과 맞았는지, 첫 줄에 「이름 기준」 같은 대신함 표시가 있었는지를 적습니다.
+
+**M5 기준 사본.** `--check`의 「HEAD 기준」 행(상태·이유)과 `%LocalAppData%\PellyCode\mcp-base` 폴더의 크기를 적습니다. 기준을 못 만들었다면(「HEAD 기준을 만들지 못해 모든 오류를 보입니다」) 그 이유를 적습니다.
+
+자세히: `mcp-server.md`.

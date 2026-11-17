@@ -21,10 +21,14 @@ public sealed record PackageKind(string Name, string ZipVariable, string ListFil
     /// <summary>Avalonia natives kept out of the single file and shipped beside pelly.exe (V2-0 Task 6); only <c>pelly ui</c> loads them.</summary>
     public static readonly string[] UiNatives = ["av_libglesv2.dll", "libHarfBuzzSharp.dll", "libSkiaSharp.dll"];
 
+    /// <summary>The MCP server for OpenCode, published into the same folder as pelly.exe so both share the BuildHost folders.</summary>
+    public const string McpServerExe = "PellyCodeMcpServer.exe";
+
     // The brief's allow-list (Task 9). deploy/package-files.txt must say the same; the zip must contain exactly this.
     public static readonly PackageKind Pelly = new("pelly", "PELLY_TEST_PACKAGE", "deploy/package-files.txt", "pelly.exe", "artifacts/publish/win-x64",
     [
         "pelly.exe",
+        "PellyCodeMcpServer.exe",
         "av_libglesv2.dll",
         "libHarfBuzzSharp.dll",
         "libSkiaSharp.dll",
@@ -39,6 +43,7 @@ public sealed record PackageKind(string Name, string ZipVariable, string ListFil
         "docs/no-network.md",
         "docs/field-checklist.md",
         "docs/field-results.md",
+        "docs/mcp-server.md",
         "sbom.cdx.json",
         "THIRD-PARTY-NOTICES.md",
         "licenses/Microsoft.Data.SqlClient.SNI.runtime.LICENSE.txt",
@@ -181,7 +186,7 @@ public sealed class PackageTests
         var root = Extracted[package].Value;
         var problems = new List<string>();
         // Our own text files only: the build-host folders and the GUI natives are NuGet packages' binaries and runtime configs.
-        foreach (var file in kind.ExpectedFiles.Where(f => f != kind.Exe && !PackageKind.UiNatives.Contains(f) && !PackageFileList.IsFolder(f, out _)))
+        foreach (var file in kind.ExpectedFiles.Where(f => f != kind.Exe && f != PackageKind.McpServerExe && !PackageKind.UiNatives.Contains(f) && !PackageFileList.IsFolder(f, out _)))
         {
             var text = File.ReadAllText(Path.Combine(root, file));
             // localhost is not checked here: the docs name it as the built-in default (no-network.md).
@@ -225,6 +230,27 @@ public sealed class PackageTests
 
         Assert.True(result.ExitCode == 0, $"exit {result.ExitCode}\n{result.StdOut}\n{result.StdErr}");
         Assert.Contains("ui selftest: ok", result.StdOut, StringComparison.Ordinal);
+    }
+
+    [WindowsFact]
+    public async Task Packaged_McpServerCheck_Exit0InAGitRepository()
+    {
+        // The server's self-test from the unzipped folder: the BuildHost row finds the folders it shares with pelly.exe, and the
+        // root row needs a git repository (a fresh empty one; --check builds no baseline). MSBuild missing would only be a warning.
+        var repo = Directory.CreateTempSubdirectory("pelly-mcp-check-").FullName;
+        var runner = new SystemProcessRunner(TimeProvider.System);
+        var init = await runner.RunAsync(new ProcessSpec("git", ["init", "-q"], repo, TimeSpan.FromMinutes(1)), TestContext.Current.CancellationToken);
+        Assert.True(init.ExitCode == 0, $"git init: {init.StdErr}");
+
+        var root = Extracted["pelly"].Value;
+        var result = await runner.RunAsync(
+            new ProcessSpec(Path.Combine(root, PackageKind.McpServerExe), ["--check", "--root", repo], root, TimeSpan.FromMinutes(2)),
+            TestContext.Current.CancellationToken);
+
+        Assert.True(result.ExitCode == 0, $"exit {result.ExitCode}\n{result.StdOut}\n{result.StdErr}");
+        Assert.Contains("PellyCodeMcpServer 점검", result.StdOut, StringComparison.Ordinal);
+        Assert.Contains("pelly_impact, pelly_verify", result.StdOut, StringComparison.Ordinal);
+        Assert.DoesNotContain("[실패]", result.StdOut, StringComparison.Ordinal);
     }
 
     [WindowsFact]
@@ -295,6 +321,28 @@ public sealed class PackageSourceTests
 
     [Fact]
     public void FileList_MatchesBriefAndSourcesExist() => AssertListMatchesAndSourcesExist(PackageKind.Pelly);
+
+    /// <summary>
+    /// pelly.exe and PellyCodeMcpServer.exe are published into one folder and share its BuildHost folders (MCP server design §8), so
+    /// both must take them from the same Roslyn package version through the same targets. CI also hashes the folders before and after
+    /// the second publish into that folder.
+    /// </summary>
+    [Fact]
+    public void BuildHost_SameForBothExecutables()
+    {
+        string[] projects = ["src/PellyCode.Cli/PellyCode.Cli.csproj", "src/PellyCode.McpServer/PellyCode.McpServer.csproj"];
+        var versions = new List<string>();
+        foreach (var project in projects)
+        {
+            Assert.Contains("build/BuildHostOutside.targets", File.ReadAllText(PackageFileList.RepoFile(project)), StringComparison.Ordinal);
+            var assets = PackageFileList.RepoFile(Path.Combine(Path.GetDirectoryName(project)!, "obj", "project.assets.json"));
+            using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(assets));
+            var lib = doc.RootElement.GetProperty("libraries").EnumerateObject()
+                .Select(p => p.Name).Single(n => n.StartsWith("Microsoft.CodeAnalysis.Workspaces.MSBuild/", StringComparison.Ordinal));
+            versions.Add(lib);
+        }
+        Assert.Single(versions.Distinct(StringComparer.Ordinal));
+    }
 
     [Fact]
     public void FieldKitFileList_SourcesExist() => AssertListMatchesAndSourcesExist(PackageKind.FieldKit);

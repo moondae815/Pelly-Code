@@ -1,5 +1,18 @@
 # Third-Party Notices
 
+NuGet packages are not listed here: `deploy/build-package.ps1` lists them in the zip's `THIRD-PARTY-NOTICES.md` from the SBOM of
+the shipped projects, and only the sections below (components outside NuGet) are copied into it.
+
+* `PellyCodeMcpServer.exe` (MCP server for OpenCode, in the air-gap zip beside `pelly.exe`) adds these NuGet packages to the ones
+  `pelly.exe` uses, as of `ModelContextProtocol` 2.4.0 and `Microsoft.Extensions.Hosting` 10.0.14:
+  * `ModelContextProtocol`, `ModelContextProtocol.Core` 2.4.0: Apache-2.0.
+  * `Microsoft.Extensions.Hosting` 10.0.14 and what it brings (`Microsoft.Extensions.Hosting.Abstractions`, `Configuration.CommandLine`,
+    `Configuration.EnvironmentVariables`, `Configuration.UserSecrets`, `Diagnostics`, `Diagnostics.Abstractions`, `Logging`,
+    `Logging.Abstractions`, `Logging.Configuration`, `Logging.Console`, `Logging.Debug`, `Logging.EventLog`, `Logging.EventSource`,
+    `Options`, `Options.ConfigurationExtensions`, `Caching.Abstractions`, all `Microsoft.Extensions.*` 10.0.14; `System.Diagnostics.EventLog`
+    10.0.14) and `Microsoft.Extensions.AI.Abstractions` 10.11.0 (from the MCP SDK): MIT.
+  * All are within the license gate's allowed list (MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause); no new license exception.
+
 ## Qwen tokenizer files
 
 * Files: `src/PellyCode.Core/Llm/Resources/vocab.json`, `merges.txt`, and `tokenizer-meta.json` (special tokens and pre-tokenizer regex extracted from `tokenizer.json`).

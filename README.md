@@ -8,7 +8,8 @@
 - 현장 모델 파일 기준선(M4): [`qwen3.6:35b-a3b-q4_K_M` 50건 × 3회](docs/m4-field-model-baseline.md) (이전: [`qwen3.6:35b`](docs/m4-gguf-baseline.md))
 - 프로젝트 규칙(V2-3) 외부 사전 측정: [규칙 있음/없음 50건 × 3회](docs/v2-3-rules-premeasure.md)
 - 벤치마크·튜닝 기록(M3b): [기준선 50건 × 3회](docs/m3b-baseline.md) · [튜닝(채택 없음)](docs/m3b-tuning.md) · [S6 단일 파일](docs/spikes/S6-single-file.md) · [S7 Rider 확인표](docs/m3b-s7-rider.md)
-- 반입·운영 가이드: [설치](deploy/install.md) · [사용](deploy/usage.md) · [IDE External Tools](deploy/ide-external-tools.md) · [서버 확인 사항](deploy/server-checklist.md) · [외부 통신 없음](deploy/no-network.md) · [현장 확인 안내](deploy/field-checklist.md)
+- 반입·운영 가이드: [설치](deploy/install.md) · [사용](deploy/usage.md) · [IDE External Tools](deploy/ide-external-tools.md) · [서버 확인 사항](deploy/server-checklist.md) · [외부 통신 없음](deploy/no-network.md) · [현장 확인 안내](deploy/field-checklist.md) · [OpenCode MCP 서버](deploy/mcp-server.md)
+- OpenCode MCP 서버 설계: [PellyCodeMcpServer](docs/superpowers/specs/2026-11-17-pelly-mcp-server-design.md)
 - [구현 계획](docs/superpowers/plans/)
 
 ## 빌드·테스트
@@ -496,6 +497,14 @@ Add-Content $PROFILE '. "$HOME\pelly-completion.ps1"'
 
 PowerShell 5.1·7에서 Tab으로 명령·옵션 이름과 정해진 값(`--think`)을 완성합니다. 파일 자리는 기본 경로 완성 그대로입니다. 명령 목록(`CliApp.CommandSettings`)과 설정 클래스의 옵션 속성에서 스크립트를 만들므로 명령을 더하면 완성도 따라옵니다. 스크립트는 ASCII만 쓰고 Tab마다 `pelly.exe`를 실행하지 않습니다. `pelly`를 바꾸면 다시 만드십시오. 실제 Tab 결과는 Windows CI의 `PowerShellCompletionTests`가 `TabExpansion2`로 확인합니다. 설계는 `docs/superpowers/specs/2026-10-27-powershell-completion-design.md`입니다.
 
+### `PellyCodeMcpServer.exe` — OpenCode용 MCP 서버
+```bash
+PellyCodeMcpServer.exe [--root <폴더>] [--log-file <경로>] [--check]
+```
+OpenCode가 부를 수 있는 도구 두 개를 내놓습니다(`src/PellyCode.McpServer`, Core만 참조, LLM을 부르지 않음). `pelly_impact`는 C# 멤버·SP·JS 함수를 코드에서 부르는 곳을, `pelly_verify`는 인자 없이 git의 마지막 커밋(HEAD) 이후 바뀐 파일을 보고 HEAD 대비 **새로 생긴** 빌드 오류·실패 테스트·SQL 컴파일 오류·ASP·JS·CSS 경고만 돌려줍니다. 「수정 전」 빌드·테스트는 작업 공간 밖 사본(`%LocalAppData%\PellyCode\mcp-base\<해시>\`)에서 서버가 미리 만들어 둡니다. 사용자의 git 상태는 바꾸지 않습니다.
+* `--root`: 작업 공간(git 저장소, 하위 폴더면 맨 위 폴더). `--log-file`: 로그를 파일에도 씀(표준 출력은 MCP 메시지만). `--check`: MCP 없이 자기 점검 표를 쓰고 실패 행이 있으면 종료 1(기준 빌드는 하지 않음).
+* OpenCode 1.18.25 측정으로 등록에 `"timeout": 660000`을 넣습니다(진행 알림 10초마다, `pelly_verify` 대기 상한 600초). 등록 예, `codemode` 주의, AGENTS.md 권장 줄, mssql-mcp-server와 함께 쓰는 예는 [deploy/mcp-server.md](deploy/mcp-server.md)입니다. 반입 zip에 `pelly.exe`와 같은 폴더로 들어가 BuildHost 폴더를 함께 씁니다. Windows 실행과 현장 OpenCode 확인은 **Windows 미확인**입니다(`deploy/field-checklist.md` 10절).
+
 ### `pelly doctor` — 환경 점검
 ```bash
 pelly doctor [--project <csproj>] [--sanitize [--out <폴더>]] [--config <경로>] [--model <태그>] [--endpoint <URL>]
@@ -540,7 +549,7 @@ pelly report [--since 2026-10-01] [--sanitize [--out <폴더>]]
 실제 모델 실행 기록은 [docs/m1-e2e.md](docs/m1-e2e.md)(C# 최소 경로), [docs/m2a-e2e.md](docs/m2a-e2e.md)(빌드 검증·교정 루프), [docs/m2b-e2e.md](docs/m2b-e2e.md)(SQL 경로), [docs/m3a-e2e.md](docs/m3a-e2e.md)(DTO 슬라이스·`--test`·리포트)에 있습니다.
 
 ## 반입 패키지 만들기
-폐쇄망에 들고 갈 zip은 둘이고 CI의 `package` 잡이 만듭니다(Windows, PowerShell 7). `pelly-0.9.1-win-x64.zip`은 `pelly.exe`와 그 옆 BuildHost 폴더 둘(`BuildHost-net472/`, `BuildHost-netcore/`, 의미 분석 보조 프로세스)·GUI 네이티브 DLL 셋(`av_libglesv2.dll`, `libHarfBuzzSharp.dll`, `libSkiaSharp.dll`, `pelly ui`용)·설치 문서, `pelly-field-kit-0.9.1-win-x64.zip`(현장 키트)은 `pelly-eval.exe`와 같은 BuildHost 폴더 둘·현장 절차 문서·스위트 템플릿입니다. 로컬(Windows)에서 반입 zip을 만들려면 단일 파일 publish 뒤 스크립트를 실행합니다.
+폐쇄망에 들고 갈 zip은 둘이고 CI의 `package` 잡이 만듭니다(Windows, PowerShell 7). `pelly-0.9.1-win-x64.zip`은 `pelly.exe`·`PellyCodeMcpServer.exe`(OpenCode용 MCP 서버, 같은 폴더에 publish)와 그 옆 BuildHost 폴더 둘(`BuildHost-net472/`, `BuildHost-netcore/`, 의미 분석 보조 프로세스)·GUI 네이티브 DLL 셋(`av_libglesv2.dll`, `libHarfBuzzSharp.dll`, `libSkiaSharp.dll`, `pelly ui`용)·설치 문서, `pelly-field-kit-0.9.1-win-x64.zip`(현장 키트)은 `pelly-eval.exe`와 같은 BuildHost 폴더 둘·현장 절차 문서·스위트 템플릿입니다. 로컬(Windows)에서 반입 zip을 만들려면 `src/PellyCode.Cli`와 `src/PellyCode.McpServer`를 같은 폴더(`-o artifacts/publish/win-x64`)에 단일 파일로 publish한 뒤 스크립트를 실행합니다. 스크립트는 두 프로젝트의 SBOM을 하나로 합칩니다.
 
 ```powershell
 dotnet publish src/PellyCode.Cli -c Release -r win-x64 --no-self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:PublishTrimmed=false -p:DebugType=none -o artifacts/publish/win-x64

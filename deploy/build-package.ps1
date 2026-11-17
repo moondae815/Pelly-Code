@@ -5,9 +5,9 @@
   pelly-field-kit-<Version>-win-x64.zip (pelly-eval.exe, field guides, suite templates; M4 Task 9).
 
 .DESCRIPTION
-  1. dotnet tool restore, then CycloneDX writes sbom.cdx.json for the package's project (src/PellyCode.Cli or
-     eval/PellyCode.Eval; transitive packages,
-     win-x64 runtime). The .NET app host pack the single-file exe starts from is added as a component (it is not a
+  1. dotnet tool restore, then CycloneDX writes an SBOM for each of the package's projects (pelly: src/PellyCode.Cli and
+     src/PellyCode.McpServer, whose exes share one publish folder; field kit: eval/PellyCode.Eval; transitive packages,
+     win-x64 runtime). Several SBOMs are merged into one sbom.cdx.json (components and dependencies by bom-ref). The .NET app host pack the single-file exe starts from is added as a component (it is not a
      NuGet package reference, so CycloneDX does not list it). The .NET runtime is not carried (framework-dependent:
      the site PC has the .NET 10 runtime).
   2. THIRD-PARTY-NOTICES.md is generated from the SBOM. A license that is not MIT, Apache-2.0, BSD-2-Clause or
@@ -21,11 +21,12 @@
   5. The zip.
 
 .PARAMETER Package
-  pelly (default): the air-gap zip from src/PellyCode.Cli. field-kit: the field kit from eval/PellyCode.Eval.
+  pelly (default): the air-gap zip from src/PellyCode.Cli and src/PellyCode.McpServer (pelly.exe and PellyCodeMcpServer.exe). field-kit: the field kit from eval/PellyCode.Eval.
   The license gate, the exception file and the provisional-approval refusal at 1.0 apply to both alike.
 
 .PARAMETER PublishDir
-  Output folder of the win-x64 single-file publish (the publish-check command) of the package's project.
+  Output folder of the win-x64 single-file publish (the publish-check command) of the package's project. For pelly both
+  projects are published into this one folder: the two exes share its BuildHost folders.
 
 .PARAMETER OutDir
   Folder for the staging folder, the zip and intermediate files. Recreated.
@@ -53,12 +54,13 @@ Set-StrictMode -Version Latest
 
 $Repo = Split-Path -Parent $PSScriptRoot
 $Kind = switch ($Package) {
-    'pelly' { @{ Project = 'src/PellyCode.Cli/PellyCode.Cli.csproj'; List = 'package-files.txt'; Prefix = 'pelly'; SbomName = 'pelly'
-            Title = 'pelly {0} ({1}) 반입본'; VersionRecord = $true } }
-    'field-kit' { @{ Project = 'eval/PellyCode.Eval/PellyCode.Eval.csproj'; List = 'field-kit-files.txt'; Prefix = 'pelly-field-kit'; SbomName = 'pelly-eval'
+    'pelly' { @{ Projects = @('src/PellyCode.Cli/PellyCode.Cli.csproj', 'src/PellyCode.McpServer/PellyCode.McpServer.csproj')
+            List = 'package-files.txt'; Prefix = 'pelly'; SbomName = 'pelly'
+            Title = 'pelly {0} ({1}) 반입본 (pelly.exe, PellyCodeMcpServer.exe)'; VersionRecord = $true } }
+    'field-kit' { @{ Projects = @('eval/PellyCode.Eval/PellyCode.Eval.csproj'); List = 'field-kit-files.txt'; Prefix = 'pelly-field-kit'; SbomName = 'pelly-eval'
             Title = 'pelly 현장 키트 {0} ({1}, pelly-eval.exe)'; VersionRecord = $false } }
 }
-$Project = Join-Path $Repo $Kind.Project
+$Projects = @($Kind.Projects | ForEach-Object { Join-Path $Repo $_ })
 $ListFile = $Kind.List
 $Rid = 'win-x64'
 $AllowedLicenses = @('MIT', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause')
@@ -93,19 +95,25 @@ $ZipPath = Join-Path $OutDir "$Name.zip"
 $null = New-Item -ItemType Directory $Generated, $Staging
 
 # --- 1. SBOM -----------------------------------------------------------------------------------------------
+$sbomParts = @()
 Push-Location $Repo
 try {
     Invoke-Native 'dotnet' @('tool', 'restore')
-    # Same RID as the publish so the assets file has the win-x64 target and the runtime pack versions.
-    Invoke-Native 'dotnet' @('restore', $Project, '-r', $Rid)
-    Invoke-Native 'dotnet' @('CycloneDX', $Project, '--runtime', $Rid, '--disable-package-restore',
-        '--output-format', 'Json', '--output', $Generated, '--filename', 'sbom.cdx.json',
-        '--set-name', $Kind.SbomName, '--set-version', $Version)
+    for ($i = 0; $i -lt $Projects.Count; $i++) {
+        # Same RID as the publish so the assets file has the win-x64 target and the runtime pack versions.
+        Invoke-Native 'dotnet' @('restore', $Projects[$i], '-r', $Rid)
+        $part = "sbom-part-$i.cdx.json"
+        Invoke-Native 'dotnet' @('CycloneDX', $Projects[$i], '--runtime', $Rid, '--disable-package-restore',
+            '--output-format', 'Json', '--output', $Generated, '--filename', $part,
+            '--set-name', $Kind.SbomName, '--set-version', $Version)
+        $sbomParts += Join-Path $Generated $part
+    }
 }
 finally { Pop-Location }
 
-$assets = Get-Content -Raw (Join-Path (Split-Path -Parent $Project) 'obj/project.assets.json') | ConvertFrom-Json -AsHashtable
-$PackageRoots = @($assets['packageFolders'].Keys)
+$allAssets = @($Projects | ForEach-Object {
+        Get-Content -Raw (Join-Path (Split-Path -Parent $_) 'obj/project.assets.json') | ConvertFrom-Json -AsHashtable })
+$PackageRoots = @($allAssets | ForEach-Object { $_['packageFolders'].Keys } | Select-Object -Unique)
 
 function Find-Nuspec([string]$Id, [string]$Ver) {
     foreach ($root in $PackageRoots) {
@@ -116,10 +124,43 @@ function Find-Nuspec([string]$Id, [string]$Ver) {
     return $null
 }
 
+# One SBOM for the zip: the first project's document, plus the components and dependencies of the others by bom-ref. A package
+# both executables use is listed once; it counts as required when either SBOM says so.
 $sbomPath = Join-Path $Generated 'sbom.cdx.json'
-$sbom = Get-Content -Raw $sbomPath | ConvertFrom-Json -AsHashtable
+$sbom = Get-Content -Raw $sbomParts[0] | ConvertFrom-Json -AsHashtable
 $components = [System.Collections.Generic.List[object]]::new()
-foreach ($c in $sbom['components']) { $components.Add($c) }
+$byRef = @{}
+$dependencies = [System.Collections.Generic.List[object]]::new()
+$depByRef = @{}
+foreach ($partPath in $sbomParts) {
+    $part = if ($partPath -eq $sbomParts[0]) { $sbom } else { Get-Content -Raw $partPath | ConvertFrom-Json -AsHashtable }
+    foreach ($c in @($part['components'])) {
+        if (-not $c) { continue }
+        $key = if ($c.Contains('bom-ref')) { $c['bom-ref'] } else { "$($c['name'])@$($c['version'])" }
+        if ($byRef.Contains($key)) {
+            $kept = $byRef[$key]
+            if ($c.Contains('scope') -and $c['scope'] -eq 'required') { $kept['scope'] = 'required' }
+            continue
+        }
+        $byRef[$key] = $c
+        $components.Add($c)
+    }
+    if ($part.Contains('dependencies')) {
+        foreach ($d in @($part['dependencies'])) {
+            if (-not $d) { continue }
+            if ($depByRef.Contains($d['ref'])) {
+                $kept = $depByRef[$d['ref']]
+                $on = @(@($kept['dependsOn']) + @($d['dependsOn']) | Where-Object { $_ } | Select-Object -Unique)
+                $kept['dependsOn'] = $on
+                continue
+            }
+            $depByRef[$d['ref']] = $d
+            $dependencies.Add($d)
+        }
+    }
+}
+if ($dependencies.Count -gt 0) { $sbom['dependencies'] = $dependencies.ToArray() }
+$sbomParts | ForEach-Object { Remove-Item $_ }
 
 # The app host pack carried by the single file. They are not package references: restore lists them
 # under downloadDependencies (NuGet cache), or the SDK already has them in <dotnet root>/packs (the apphost pack of
@@ -133,7 +174,7 @@ if (-not $dotnetRoot -or -not (Test-Path (Join-Path $dotnetRoot 'packs'))) {
     $target = (Get-Item $cmd).ResolvedTarget
     $dotnetRoot = Split-Path -Parent $(if ($target) { $target } else { $cmd })
 }
-$downloads = @($assets['project']['frameworks'].Values | ForEach-Object { $_['downloadDependencies'] } | Where-Object { $_ })
+$downloads = @($allAssets | ForEach-Object { $_['project']['frameworks'].Values } | ForEach-Object { $_['downloadDependencies'] } | Where-Object { $_ })
 $downloadVersions = @{}
 foreach ($d in $downloads) {
     if ($d['version'] -match '\A\[([0-9][^,\]]*), *\1\]\z') { $downloadVersions[$d['name']] = $Matches[1] }
@@ -309,8 +350,12 @@ if ($approved.Count -gt 0) {
             '')
     }
 }
-# Components that are not NuGet packages (embedded tokenizer files) are kept by hand in the repository notices.
-$repoNotices = Get-Content (Join-Path $Repo 'THIRD-PARTY-NOTICES.md') | Select-Object -Skip 1
+# Components that are not NuGet packages (embedded tokenizer files) are kept by hand in the repository notices, from its first
+# "## " section on (the text above it is for readers of the repository: the NuGet packages are already listed above from the SBOM).
+$repoLines = @(Get-Content (Join-Path $Repo 'THIRD-PARTY-NOTICES.md'))
+$firstSection = @(for ($i = 0; $i -lt $repoLines.Count; $i++) { if ($repoLines[$i].StartsWith('## ')) { $i } })
+if ($firstSection.Count -eq 0) { throw 'THIRD-PARTY-NOTICES.md has no "## " section' }
+$repoNotices = $repoLines[$firstSection[0]..($repoLines.Count - 1)]
 $notices += @('', '## NuGet 밖의 구성 요소') + ($repoNotices | ForEach-Object { $_ -replace '\A## ', '### ' })
 Write-Utf8Lf (Join-Path $Generated 'THIRD-PARTY-NOTICES.md') $notices
 

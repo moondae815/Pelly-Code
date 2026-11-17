@@ -11,10 +11,16 @@ pelly는 실행 중에 설정된 서버 둘에만 접속합니다. 그 밖의 �
 | SQL Server 하나 | TDS (SQL Server 기본 프로토콜) | 설정 `sql.connectionString` 또는 환경 변수 `PELLY_SQL_CONNECTION` | `pelly sql`, `pelly doctor`(연결 문자열이 있을 때만) |
 | Ollama 서버 하나 (`pelly-eval.exe`) | HTTP | 같은 설정 `llm.endpoint` (`--config`로 준 `pelly.json`) | `pelly-eval` 실행(벤치마크), `pelly-eval record` |
 | SQL Server 하나 (`pelly-eval.exe`) | TDS | 같은 설정 `sql.connectionString` 또는 `PELLY_SQL_CONNECTION` | `pelly-eval` 실행에 SQL 작업이 있을 때(판정 쿼리) |
+| SQL Server 하나 (`PellyCodeMcpServer.exe`) | TDS | 같은 설정 `sql.connectionString` 또는 `PELLY_SQL_CONNECTION`과 허용 목록. 운영 연결(`sql.production`)은 쓰지 않음 | `pelly_verify`에 바뀐 `.sql`이 있을 때(`NOEXEC` 컴파일), `--check`(연결 문자열이 있을 때만) |
 
 * `pelly-eval.exe`는 현장 키트 zip(`pelly-field-kit-<버전>-win-x64.zip`)에 든 벤치마크 실행 파일입니다. pelly와 같은 설정 규칙으로 위 두 서버에만 접속합니다.
   * `pelly-eval validate`(`--deep` 포함), `compare`, `export`, `--help`는 서버에 접속하지 않습니다.
   * 띄우는 프로세스는 `dotnet`(복원·빌드·판정 시험)과 MSBuild입니다. 3절 끝의 프로세스 설명이 같게 적용됩니다.
+
+* `PellyCodeMcpServer.exe`는 반입 zip에 `pelly.exe`와 함께 든 OpenCode용 MCP 서버입니다([mcp-server.md](mcp-server.md)).
+  * Ollama에 접속하지 않습니다(LLM을 부르지 않음). 위 SQL Server 하나 말고는 접속하지 않습니다.
+  * OpenCode와는 표준 입출력(stdio)으로만 주고받습니다. 네트워크 포트를 열지 않습니다.
+  * 띄우는 프로세스는 `git`(읽기만: `status`, `show`, `rev-parse`, `ls-files`), `dotnet`(복원·빌드·테스트), MSBuild, `test.command`, Windows의 `cscript`(ASP 구문 검사)입니다. 3절 끝의 프로세스 설명이 같게 적용됩니다. HEAD 기준 사본의 복원은 PC의 NuGet 설정을 따르므로 폐쇄망에서는 사내 미러나 로컬 캐시를 씁니다.
 
 * 두 주소 모두 사용자가 정합니다. 설정이 없을 때 `llm.endpoint` 기본값은 `http://localhost:11434`(같은 PC)입니다. SQL 기본 주소는 없습니다.
 * 업데이트 확인, 텔레메트리, 오류 보고, 라이선스 확인은 없습니다.
@@ -47,7 +53,7 @@ pelly는 프록시를 직접 설정하지 않습니다. `HttpClient`는 .NET 기
 
 ## 3. 이 정책 테스트가 막는 것
 
-`tests/PellyCode.Core.Tests/Policy/NetworkPolicyTests.cs`가 `src/`와 `eval/PellyCode.Eval/` 아래 모든 `*.cs`를 훑습니다.
+`tests/PellyCode.Core.Tests/Policy/NetworkPolicyTests.cs`가 `src/`(MCP 서버 `src/PellyCode.McpServer/` 포함)와 `eval/PellyCode.Eval/` 아래 모든 `*.cs`를 훑습니다.
 `eval/PellyCode.Eval/`은 현장 키트의 `pelly-eval.exe`로 반입되므로 훑습니다. 나머지 `eval/`(시험 코퍼스, 판정 프로젝트)은 시험 재료라 훑지 않습니다. `bin/`, `obj/`도 제외합니다.
 주석과 문자열 안의 언급은 지우고 검사합니다. 위반하면 파일과 줄 번호를 출력하며 실패합니다.
 
@@ -94,6 +100,18 @@ pelly는 프록시를 직접 설정하지 않습니다. `HttpClient`는 .NET 기
 | `%TEMP%\.net\pelly-eval\<해시>\` (또는 `DOTNET_BUNDLE_EXTRACT_BASE_DIR` 아래) | `pelly-eval.exe` 첫 실행 | .NET 단일 파일 호스트가 네이티브 SNI DLL을 풉니다(pelly.exe와 같음). Windows 미확인 |
 
 * 원본 루트(스위트 `roots`)는 읽기만 합니다. 수정은 작업 복사본에서만 일어납니다.
+
+#### `PellyCodeMcpServer.exe` (MCP 서버)
+
+| 위치 | 언제 | 내용 |
+| :--- | :--- | :--- |
+| `%LocalAppData%\PellyCode\mcp-base\<해시>\` (macOS·Linux는 .NET의 `LocalApplicationData` 폴더) | 서버 시작, HEAD가 바뀐 뒤, `pelly_verify` | HEAD 기준 사본: 작업 공간 파일의 사본(`bin`·`obj`·`.git`·`.pelly`·`.vs`·`node_modules` 등 제외)에 바뀐 파일만 HEAD 내용으로 되돌린 것. 그 안의 복원·빌드·테스트 산출물(`bin/`·`obj/`, 시험 결과). 지워도 다시 만듭니다 |
+| `%LocalAppData%\PellyCode\mcp-base\<해시>.baseline.json` | 기준 작업이 실패 없이 끝났을 때 | HEAD 커밋별 기준 빌드 오류·실패 테스트 기록(임시 파일에 쓴 뒤 이름 바꿈) |
+| `<작업 공간>/.pelly/`, `.pelly/.gitignore` | 서버 시작 | pelly와 같은 폴더와 추적 제외(`*`). 작업 공간의 소스 파일은 쓰지 않습니다 |
+| `--log-file`로 준 파일 | 옵션을 줬을 때 | 서버 로그(시작 실패 포함) |
+| `%TEMP%\.net\PellyCodeMcpServer\<해시>\` (또는 `DOTNET_BUNDLE_EXTRACT_BASE_DIR` 아래) | 첫 실행 | .NET 단일 파일 호스트가 네이티브 SNI DLL을 풉니다(pelly.exe와 같음). Windows 미확인 |
+
+* 읽는 것은 pelly와 같은 설정 파일·환경 변수, 작업 공간의 소스와 git 정보(`git status`·`git show HEAD:<경로>`)입니다.
 
 * `src/`의 코드는 시스템 임시 폴더(`GetTempPath`)를 쓰지 않습니다. 다만 위 마지막 행처럼 .NET 호스트가 `%TEMP%` 아래에 씁니다. AppLocker·WDAC가 `%TEMP%`의 DLL 실행을 막는 PC라면 [install.md](install.md)의 「압축 해제 폴더」를 보십시오.
 * 두 `--sanitize` 출력은 허용 목록 방식의 비식별 결과입니다(`--help` 설명 기준).

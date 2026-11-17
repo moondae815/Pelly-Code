@@ -1,4 +1,4 @@
-# Pelly-Coder CLI
+# Pelly-Code CLI
 
 폐쇄망 로컬 LLM(`Qwen3.6-35B-A3B`, Ollama)으로 C# 메서드와 SQL 저장 프로시저를 수정하고, 컴파일러·DB 엔진으로 검증하는 코딩 CLI입니다. Classic ASP(VBScript) 페이지도 실행 없이 할 수 있는 판정(구조·안전·이름·`cscript` 컴파일·SP 존재)으로 고칩니다(`pelly asp`). 클라이언트 JavaScript(jQuery)·CSS는 따로 있는 파일뿐 아니라 ASP·HTML 페이지 안 `<script>`·`<style>` 블록도 브라우저 실행 없이 문법·문법 수준·안전 판정으로 고칩니다(`pelly js`·`pelly css`).
 

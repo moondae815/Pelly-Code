@@ -84,8 +84,10 @@ catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
 }
 Console.WriteLine($"스위트 {suite.Name} ({suite.Dir}) · 작업 {tasks.Count}건{(parsed.Repeat > 1 ? $" × {parsed.Repeat}회" : "")} → {outDir}");
 
+var agentScript = Environment.GetEnvironmentVariable("PELLY_EVAL_AGENT");
 var runner = new BenchmarkRunner(new RunnerSetup(fs, new SystemProcessRunner(TimeProvider.System), backend, options, TimeProvider.System,
-    suite, sql, sqlSkip, Console.WriteLine, KeepWork: parsed.KeepWork, RemoveRules: parsed.NoRules, TestFirst: parsed.TestFirst));
+    suite, sql, sqlSkip, Console.WriteLine, KeepWork: parsed.KeepWork, RemoveRules: parsed.NoRules, TestFirst: parsed.TestFirst,
+    Orchestrate: string.IsNullOrEmpty(agentScript) ? null : ExternalAgent.Create(agentScript, new SystemProcessRunner(TimeProvider.System))));
 var json = ResultsJson.Options;
 var prompts = PromptResources.LoadDefault();
 var conditions = new RunConditions(options.Llm.Model, prompts.Version, prompts.SqlVersion, options.Llm.ThinkMode.ToString(),

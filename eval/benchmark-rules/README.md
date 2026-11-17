@@ -20,9 +20,9 @@ PRD §12.6 "규칙 도입 효과"를 재는 스위트입니다. 작업 형식과
 같은 스위트를 규칙 없이(`--no-rules`, 작업 복사본의 `AGENTS.md`를 모두 지움) 한 번, 규칙과 함께 한 번 돌려 비교합니다.
 
 ```bash
-dotnet run --project eval/PellyCoder.Eval -- --suite eval/benchmark-rules --config <pelly.json> --repeat 3 --no-rules --out <규칙 없음 폴더>
-dotnet run --project eval/PellyCoder.Eval -- --suite eval/benchmark-rules --config <pelly.json> --repeat 3 --out <규칙 있음 폴더>
-dotnet run --project eval/PellyCoder.Eval -- compare <규칙 없음>/summary.json <규칙 있음>/summary.json
+dotnet run --project eval/PellyCode.Eval -- --suite eval/benchmark-rules --config <pelly.json> --repeat 3 --no-rules --out <규칙 없음 폴더>
+dotnet run --project eval/PellyCode.Eval -- --suite eval/benchmark-rules --config <pelly.json> --repeat 3 --out <규칙 있음 폴더>
+dotnet run --project eval/PellyCode.Eval -- compare <규칙 없음>/summary.json <규칙 있음>/summary.json
 ```
 
 결과 기록: `docs/v2-3-rules-premeasure.md`.

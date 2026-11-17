@@ -1,7 +1,7 @@
 # 벤치마크 작업 정의
 
-`tasks/*.yaml` 한 파일이 작업 한 건입니다. 실행기 `eval/PellyCoder.Eval`이 이 정의를 읽어 실행하고 판정합니다(`dotnet run --project eval/PellyCoder.Eval -- --help`).
-정의 형식은 `tests/PellyCoder.Integration.Tests/Benchmark/BenchmarkDefinitionTests.cs`가 검증합니다.
+`tasks/*.yaml` 한 파일이 작업 한 건입니다. 실행기 `eval/PellyCode.Eval`이 이 정의를 읽어 실행하고 판정합니다(`dotnet run --project eval/PellyCode.Eval -- --help`).
+정의 형식은 `tests/PellyCode.Integration.Tests/Benchmark/BenchmarkDefinitionTests.cs`가 검증합니다.
 
 ## 스위트 (`suite.json`)
 이 폴더(`eval/benchmark`)가 내장 스위트입니다. 현장 코드베이스로 벤치마크할 때는 같은 모양의 폴더(`suite.json` + `tasks/*.yaml`, 선택 `judges/<루트 이름>/`)를 만들고 `--suite <폴더>`로 지정합니다. `--suite`가 없으면 현재 폴더, 그다음 실행 파일 폴더에서 위로 올라가며 `eval/benchmark/suite.json`을 찾습니다.
@@ -93,9 +93,9 @@
 ## 실행
 ```bash
 export PELLY_SQL_CONNECTION="Server=localhost,14333;Database=PellyCorpus;User Id=sa;Password=<sa 비밀번호>;TrustServerCertificate=True"
-dotnet run --project eval/PellyCoder.Eval -- --config <pelly.json>            # 50건 전체
-dotnet run --project eval/PellyCoder.Eval -- --tasks sql --config <pelly.json> # 일부 (id 접두사·글롭, --kind cs|sql)
-dotnet run --project eval/PellyCoder.Eval -- --suite <스위트 폴더> --config <pelly.json> --keep-work failed   # 현장 스위트
+dotnet run --project eval/PellyCode.Eval -- --config <pelly.json>            # 50건 전체
+dotnet run --project eval/PellyCode.Eval -- --tasks sql --config <pelly.json> # 일부 (id 접두사·글롭, --kind cs|sql)
+dotnet run --project eval/PellyCode.Eval -- --suite <스위트 폴더> --config <pelly.json> --keep-work failed   # 현장 스위트
 ```
 * `--no-rules`: 작업 복사본에서 `AGENTS.md`(대소문자 무시, 모든 깊이)를 지우고 실행합니다. 같은 스위트를 프로젝트 규칙 없이 재는 대조 실행이며, 요약의 실행 조건에 `rulesRemoved: true`로 남습니다.
 * `--keep-work <all|failed|none>`: 작업 복사본(`work/<id>/`) 보존 범위. 기본 `all`, 현장 실제 코드는 `failed`를 권장합니다. `results.json` 행은 그대로입니다.
@@ -121,9 +121,9 @@ dotnet run --project eval/PellyCoder.Eval -- --suite <스위트 폴더> --config
 ## apply 벤치마크 (`pelly-eval apply`, V2-1c)
 여러 작업 명세를 `pelly apply`로 끝까지 돌려 **명세 완료율**(PRD §12.6)을 잽니다. 사례는 `apply/<id>.md` 12건(승인된 S6 정답, 출처·변환 규칙은 `apply/README.md`)과, 수용 기준 테스트(`test:`·`breaks:`)를 단 테스트 우선 사례 `apply-test-first/t1`~`t8`(V2-2c, 형식·구성·승인은 `apply-test-first/README.md`)입니다.
 ```bash
-dotnet run --project eval/PellyCoder.Eval -- apply --config <pelly.json>                       # 12건 전체
-dotnet run --project eval/PellyCoder.Eval -- apply --cases a1,d* --repeat 3 --out <폴더> --config <pelly.json>
-dotnet run --project eval/PellyCoder.Eval -- apply --set test-first --config <pelly.json>      # 테스트 우선 8건
+dotnet run --project eval/PellyCode.Eval -- apply --config <pelly.json>                       # 12건 전체
+dotnet run --project eval/PellyCode.Eval -- apply --cases a1,d* --repeat 3 --out <폴더> --config <pelly.json>
+dotnet run --project eval/PellyCode.Eval -- apply --set test-first --config <pelly.json>      # 테스트 우선 8건
 ```
 * 옵션: `--set <default|test-first|all>`(기본 `default` = 12건만, `test-first` = 테스트 우선 8건, `all` = 20건), `--cases <패턴>`(사례 id 접두사·글롭, 쉼표로 여러 개, `--set`이 고른 폴더 안에서), `--repeat <N>`(사례마다 N회), `--out <폴더>`(기본 `eval/results/apply-<yyyyMMdd-HHmmss>/`, 비어 있지 않으면 거절), `--config <pelly.json>`.
 * 테스트 우선 사례는 폴더(`spec.md`, `files/`, `expected.json`, 선택 `pelly.json`)입니다. 작업 복사본을 만든 뒤 `files/`를 `corpus/` 위에 덮어 넣고, 사례의 `pelly.json` 조각(`test.command`만)은 그 사례 실행의 설정에만 합칩니다(t8의 레거시 `{trx}` 명령). 승인 파일 `apply-test-first/APPROVED.json`(`{ "approvedBy", "approvedAt", "cases": [id…] }`)은 사람이 만들고, 실행 집합에 승인되지 않은 사례가 있으면 요약 제목에 「예비(사람 승인 전)」가 붙습니다.

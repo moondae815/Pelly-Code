@@ -19,7 +19,7 @@
 * `Shop.Api.JudgeTests` 가짜: `JudgeFakes.cs`(`FakeOrderRepository`, `FakeOrderService`, `FakeLogger<T>`, 주문 견본 `JudgeOrders`).
 * `Shop.Data.JudgeTests` 가짜: `FakeSql.cs`(`FakeDatabase`, Dapper 확장 메서드, `DynamicParameters`), `FakeOrderBy.cs`.
   * 한계: 수정본이 가짜에 없는 Dapper API를 쓰면 판정 프로젝트 빌드가 실패합니다(판정 실패). SQL 안에서 값을 바꾸는 수정(예: 수수료율 검사를 `CASE`로 SQL에 넣음)은 가짜 DB가 계산하지 않아 실패로 봅니다. 해석하지 못하는 `ORDER BY` 식도 실패입니다.
-* 솔루션(`PellyCoder.sln`, 코퍼스 `Modern.sln`)에 넣지 않습니다. 원본에서 실패하는 테스트라 CI를 깨뜨립니다.
+* 솔루션(`PellyCode.sln`, 코퍼스 `Modern.sln`)에 넣지 않습니다. 원본에서 실패하는 테스트라 CI를 깨뜨립니다.
 
 ## 빌드
 * 저장소 빌드 설정(중앙 패키지 관리 등)을 받지 않도록 프로젝트 폴더마다 `Directory.Build.props`·`Directory.Packages.props`를 둡니다. 코퍼스와 같은 방식입니다.

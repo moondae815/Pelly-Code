@@ -5,8 +5,8 @@
   pelly-field-kit-<Version>-win-x64.zip (pelly-eval.exe, field guides, suite templates; M4 Task 9).
 
 .DESCRIPTION
-  1. dotnet tool restore, then CycloneDX writes sbom.cdx.json for the package's project (src/PellyCoder.Cli or
-     eval/PellyCoder.Eval; transitive packages,
+  1. dotnet tool restore, then CycloneDX writes sbom.cdx.json for the package's project (src/PellyCode.Cli or
+     eval/PellyCode.Eval; transitive packages,
      win-x64 runtime). The .NET app host pack the single-file exe starts from is added as a component (it is not a
      NuGet package reference, so CycloneDX does not list it). The .NET runtime is not carried (framework-dependent:
      the site PC has the .NET 10 runtime).
@@ -21,7 +21,7 @@
   5. The zip.
 
 .PARAMETER Package
-  pelly (default): the air-gap zip from src/PellyCoder.Cli. field-kit: the field kit from eval/PellyCoder.Eval.
+  pelly (default): the air-gap zip from src/PellyCode.Cli. field-kit: the field kit from eval/PellyCode.Eval.
   The license gate, the exception file and the provisional-approval refusal at 1.0 apply to both alike.
 
 .PARAMETER PublishDir
@@ -53,9 +53,9 @@ Set-StrictMode -Version Latest
 
 $Repo = Split-Path -Parent $PSScriptRoot
 $Kind = switch ($Package) {
-    'pelly' { @{ Project = 'src/PellyCoder.Cli/PellyCoder.Cli.csproj'; List = 'package-files.txt'; Prefix = 'pelly'; SbomName = 'pelly'
+    'pelly' { @{ Project = 'src/PellyCode.Cli/PellyCode.Cli.csproj'; List = 'package-files.txt'; Prefix = 'pelly'; SbomName = 'pelly'
             Title = 'pelly {0} ({1}) 반입본'; VersionRecord = $true } }
-    'field-kit' { @{ Project = 'eval/PellyCoder.Eval/PellyCoder.Eval.csproj'; List = 'field-kit-files.txt'; Prefix = 'pelly-field-kit'; SbomName = 'pelly-eval'
+    'field-kit' { @{ Project = 'eval/PellyCode.Eval/PellyCode.Eval.csproj'; List = 'field-kit-files.txt'; Prefix = 'pelly-field-kit'; SbomName = 'pelly-eval'
             Title = 'pelly 현장 키트 {0} ({1}, pelly-eval.exe)'; VersionRecord = $false } }
 }
 $Project = Join-Path $Repo $Kind.Project
@@ -347,9 +347,9 @@ foreach ($a in $approved) {
 
 if ($Kind.VersionRecord) {
     $record = Get-Content -Raw (Join-Path $PSScriptRoot 'version-record.json') -ErrorAction SilentlyContinue
-    if (-not $record) { throw 'deploy/version-record.json is missing — run dotnet run --project eval/PellyCoder.Eval -- record --out deploy/version-record.json on the development PC and commit it (R8)' }
+    if (-not $record) { throw 'deploy/version-record.json is missing — run dotnet run --project eval/PellyCode.Eval -- record --out deploy/version-record.json on the development PC and commit it (R8)' }
     $recordVersion = ($record | ConvertFrom-Json).pellyVersion
-    if ($recordVersion -ne $Version) { throw "version-record.json pellyVersion '$recordVersion' differs from $Version — run the record command again (dotnet run --project eval/PellyCoder.Eval -- record --out deploy/version-record.json)" }
+    if ($recordVersion -ne $Version) { throw "version-record.json pellyVersion '$recordVersion' differs from $Version — run the record command again (dotnet run --project eval/PellyCode.Eval -- record --out deploy/version-record.json)" }
 }
 
 foreach ($e in $entries) {

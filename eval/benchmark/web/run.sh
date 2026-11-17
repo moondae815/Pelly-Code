@@ -29,7 +29,7 @@ while [ $# -gt 0 ]; do
     *) echo "unknown option: $1" >&2; exit 4;;
   esac
 done
-pelly="$repo/src/PellyCoder.Cli/bin/Debug/net10.0/pelly.dll"
+pelly="$repo/src/PellyCode.Cli/bin/Debug/net10.0/pelly.dll"
 command -v python3 >/dev/null 2>&1 || { echo "python3 is required" >&2; exit 4; }
 sha() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi; }
 # Prints one yaml field: a scalar (quotes removed) or, for a [..] list, one item per line.
@@ -72,7 +72,7 @@ for yaml in "$here"/js-*.yaml "$here"/css-*.yaml "$here"/page-*.yaml; do
 done
 if [ "$check_only" -eq 1 ]; then [ "$bad_cases" -eq 0 ]; exit $?; fi
 # Build first so the run never measures a stale pelly (an up-to-date build takes a few seconds).
-build_log="$(dotnet build "$repo/src/PellyCoder.Cli" -nologo -v q 2>&1)" || { printf '%s\n' "$build_log" >&2; echo "pelly build failed" >&2; exit 4; }
+build_log="$(dotnet build "$repo/src/PellyCode.Cli" -nologo -v q 2>&1)" || { printf '%s\n' "$build_log" >&2; echo "pelly build failed" >&2; exit 4; }
 [ -f "$pelly" ] || { echo "pelly.dll missing after build: $pelly" >&2; exit 4; }
 mkdir -p "$out"
 results="$out/results.tsv"

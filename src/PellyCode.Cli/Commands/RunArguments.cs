@@ -1,0 +1,182 @@
+using System.IO.Abstractions;
+using PellyCode.Core.CharTests;
+using PellyCode.Core.Config;
+using PellyCode.Core.Fsm;
+using PellyCode.Core.Models;
+using PellyCode.Core.Testing;
+
+namespace PellyCode.Cli.Commands;
+
+/// <summary>A target file that exists plus the resolved configuration.</summary>
+public sealed record PreparedRun(string File, PellyOptions Options);
+
+/// <summary>Argument validation and request building shared by <c>pelly cs|sql</c> and <c>pelly ui cs|sql</c>.</summary>
+public static class RunArguments
+{
+    /// <summary>Option-combination errors in the order they are checked; empty when valid.</summary>
+    public static IReadOnlyList<string> ValidateCs(CsSettings s)
+    {
+        var errors = new List<string>();
+        if (s.Line is not null && (s.Class is not null || s.Method is not null))
+            errors.Add("--line은 --class/--method와 함께 쓸 수 없습니다");
+        if (s.Line is <= 0)
+            errors.Add("--line은 1 이상이어야 합니다");
+        if (s.MaxRetries is < 0)
+            errors.Add("--max-retries는 0 이상이어야 합니다");
+
+        var verifyTests = Distinct(s.VerifyTest);
+        var expectBreaks = Distinct(s.ExpectBreak);
+        foreach (var name in verifyTests.Concat(expectBreaks))
+            if (!TestNames.IsValid(name))
+                errors.Add($"테스트 이름 형식이 아닙니다: {name}");
+        if (expectBreaks.Count > 0 && verifyTests.Count == 0)
+            errors.Add("--expect-break는 --verify-test와 함께 써야 합니다");
+        if (verifyTests.Intersect(expectBreaks, StringComparer.Ordinal).FirstOrDefault() is { } both)
+            errors.Add($"같은 테스트를 --verify-test와 --expect-break에 함께 줄 수 없습니다: {both}");
+        return errors;
+    }
+
+    public static IReadOnlyList<string> ValidateTest(TestSettings s)
+    {
+        var errors = new List<string>();
+        if (s.Line is not null && (s.Class is not null || s.Method is not null))
+            errors.Add("--line은 --class/--method와 함께 쓸 수 없습니다");
+        else if (s.Line is null && s.Method is null)
+            errors.Add("--method나 --line이 필요합니다");
+        if (s.Line is <= 0)
+            errors.Add("--line은 1 이상이어야 합니다");
+        if (s.Count is { } count && (count < CharTestLimits.MinCount || count > CharTestLimits.MaxCount))
+            errors.Add($"--count는 {CharTestLimits.MinCount}~{CharTestLimits.MaxCount}입니다");
+        if (s.MaxRetries is < 0)
+            errors.Add("--max-retries는 0 이상이어야 합니다");
+        return errors;
+    }
+
+    public static IReadOnlyList<string> ValidateSql(SqlSettings s)
+    {
+        var errors = new List<string>();
+        if (s.Line is not null && s.Object is not null)
+            errors.Add("--line은 --object와 함께 쓸 수 없습니다");
+        if (s.Line is <= 0)
+            errors.Add("--line은 1 이상이어야 합니다");
+        if (s.MaxRetries is < 0)
+            errors.Add("--max-retries는 0 이상이어야 합니다");
+        return errors;
+    }
+
+    public static IReadOnlyList<string> ValidateAsp(AspSettings s)
+    {
+        var errors = new List<string>();
+        if ((s.Proc is not null ? 1 : 0) + (s.Line is not null ? 1 : 0) + (s.Lines is not null ? 1 : 0) > 1)
+            errors.Add("--proc, --line, --lines 중 하나만 쓸 수 있습니다");
+        if (s.Lines is not null && ParseLines(s.Lines) is null)
+            errors.Add("--lines는 A-B 형식입니다 (1 ≤ A ≤ B)");
+        if (s.Line is <= 0)
+            errors.Add("--line은 1 이상이어야 합니다");
+        if (s.MaxRetries is < 0)
+            errors.Add("--max-retries는 0 이상이어야 합니다");
+        return errors;
+    }
+
+    public static IReadOnlyList<string> ValidateJs(JsSettings s)
+    {
+        var errors = new List<string>();
+        if ((s.Function is not null ? 1 : 0) + (s.Line is not null ? 1 : 0) + (s.Lines is not null ? 1 : 0) > 1)
+            errors.Add("--function, --line, --lines 중 하나만 쓸 수 있습니다");
+        if (s.Lines is not null && ParseLines(s.Lines) is null)
+            errors.Add("--lines는 A-B 형식입니다 (1 ≤ A ≤ B)");
+        if (s.Line is <= 0)
+            errors.Add("--line은 1 이상이어야 합니다");
+        if (s.MaxRetries is < 0)
+            errors.Add("--max-retries는 0 이상이어야 합니다");
+        return errors;
+    }
+
+    public static IReadOnlyList<string> ValidateCss(CssSettings s)
+    {
+        var errors = new List<string>();
+        if ((s.Selector is not null ? 1 : 0) + (s.Line is not null ? 1 : 0) + (s.Lines is not null ? 1 : 0) > 1)
+            errors.Add("--selector, --line, --lines 중 하나만 쓸 수 있습니다");
+        if (s.Selector is not null && string.IsNullOrWhiteSpace(s.Selector))
+            errors.Add("--selector가 비어 있습니다");
+        if (s.Lines is not null && ParseLines(s.Lines) is null)
+            errors.Add("--lines는 A-B 형식입니다 (1 ≤ A ≤ B)");
+        if (s.Line is <= 0)
+            errors.Add("--line은 1 이상이어야 합니다");
+        if (s.MaxRetries is < 0)
+            errors.Add("--max-retries는 0 이상이어야 합니다");
+        return errors;
+    }
+
+    /// <summary>"A-B" with 1 ≤ A ≤ B, else null.</summary>
+    private static TextSpanInfo? ParseLines(string text)
+    {
+        var parts = text.Split('-');
+        if (parts.Length != 2
+            || !int.TryParse(parts[0], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var a)
+            || !int.TryParse(parts[1], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var b)
+            || a < 1 || a > b)
+            return null;
+        return new TextSpanInfo(a, b);
+    }
+
+    public static (PreparedRun? Run, IReadOnlyList<string> Errors) PrepareAsp(AspSettings s, IFileSystem fs, OptionsResolver resolver) =>
+        Prepare(s.File, fs, file => resolver.Resolve(file, s.Config, s.Think, s.Model, s.Endpoint));
+
+    public static RunRequest AspRequest(AspSettings s, string file, string requestText) =>
+        new(file, null, s.Proc, s.Line, requestText, s.Yes, s.DryRun, s.MaxRetries,
+            Kind: EditKind.Asp, Verbose: s.Verbose, Lines: s.Lines is null ? null : ParseLines(s.Lines));
+
+    /// <summary>Same preparation for <c>pelly js</c> and <c>pelly css</c>: the file must exist, then the configuration is resolved.</summary>
+    public static (PreparedRun? Run, IReadOnlyList<string> Errors) PrepareWeb(RunSettings s, string file, IFileSystem fs, OptionsResolver resolver) =>
+        Prepare(file, fs, f => resolver.Resolve(f, s.Config, s.Think, s.Model, s.Endpoint));
+
+    public static RunRequest JsRequest(JsSettings s, string file, string requestText) =>
+        new(file, null, s.Function, s.Line, requestText, s.Yes, s.DryRun, s.MaxRetries,
+            Kind: EditKind.Js, Verbose: s.Verbose, Lines: s.Lines is null ? null : ParseLines(s.Lines), AllowSignatureChange: s.Signature);
+
+    public static RunRequest CssRequest(CssSettings s, string file, string requestText) =>
+        new(file, null, null, s.Line, requestText, s.Yes, s.DryRun, s.MaxRetries,
+            Kind: EditKind.Css, Verbose: s.Verbose, Lines: s.Lines is null ? null : ParseLines(s.Lines), Selector: s.Selector);
+
+    public static (PreparedRun? Run, IReadOnlyList<string> Errors) PrepareCs(CsSettings s, IFileSystem fs, OptionsResolver resolver) =>
+        Prepare(s.File, fs, file => resolver.Resolve(
+            file, s.Config, s.Think, s.Model, s.Endpoint, s.StrictBaseline, s.WarnAsError));
+
+    public static (PreparedRun? Run, IReadOnlyList<string> Errors) PrepareTest(TestSettings s, IFileSystem fs, OptionsResolver resolver) =>
+        Prepare(s.File, fs, file => resolver.Resolve(file, s.Config, s.Think, s.Model, s.Endpoint));
+
+    public static CharTestRequest TestRequest(TestSettings s, string file) =>
+        new(file, s.Class, s.Method, s.Line, string.IsNullOrWhiteSpace(s.Hint) ? null : s.Hint, s.Count ?? CharTestLimits.DefaultCount,
+            s.TestProject, s.Yes, s.DryRun, s.MaxRetries, s.Verbose);
+
+    public static (PreparedRun? Run, IReadOnlyList<string> Errors) PrepareSql(SqlSettings s, IFileSystem fs, OptionsResolver resolver) =>
+        Prepare(s.File, fs, file => resolver.Resolve(file, s.Config, s.Think, s.Model, s.Endpoint));
+
+    public static RunRequest CsRequest(CsSettings s, string file, string requestText)
+    {
+        var verifyTests = Distinct(s.VerifyTest);
+        var expectBreaks = Distinct(s.ExpectBreak);
+        return new RunRequest(
+            file, s.Class, s.Method, s.Line, requestText, s.Yes, s.DryRun, s.MaxRetries,
+            Verbose: s.Verbose, RunTests: s.Test,
+            VerifyTests: verifyTests.Count > 0 ? verifyTests : null, ExpectBreaks: expectBreaks.Count > 0 ? expectBreaks : null);
+    }
+
+    public static RunRequest SqlRequest(SqlSettings s, string file, string requestText) =>
+        new(file, null, null, s.Line, requestText, s.Yes, s.DryRun, s.MaxRetries,
+            ObjectName: s.Object, Kind: EditKind.Sql, Verbose: s.Verbose);
+
+    private static (PreparedRun? Run, IReadOnlyList<string> Errors) Prepare(
+        string path, IFileSystem fs, Func<string, OptionsLoadResult> resolve)
+    {
+        var file = fs.Path.GetFullPath(path);
+        if (!fs.File.Exists(file))
+            return (null, [$"파일을 찾을 수 없습니다: {file}"]);
+        var loaded = resolve(file);
+        return loaded.Options is null ? (null, loaded.Errors) : (new PreparedRun(file, loaded.Options), []);
+    }
+
+    // Distinct, in the order given; an empty list means the option was absent.
+    private static List<string> Distinct(string[]? values) => values?.Distinct(StringComparer.Ordinal).ToList() ?? [];
+}

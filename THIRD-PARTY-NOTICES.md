@@ -2,7 +2,7 @@
 
 ## Qwen tokenizer files
 
-* Files: `src/PellyCoder.Core/Llm/Resources/vocab.json`, `merges.txt`, and `tokenizer-meta.json` (special tokens and pre-tokenizer regex extracted from `tokenizer.json`).
+* Files: `src/PellyCode.Core/Llm/Resources/vocab.json`, `merges.txt`, and `tokenizer-meta.json` (special tokens and pre-tokenizer regex extracted from `tokenizer.json`).
 * Source: Hugging Face repository `Qwen/Qwen3.6-35B-A3B`.
 * License: Apache License 2.0 (https://www.apache.org/licenses/LICENSE-2.0).
 * SHA-256 of the source files:

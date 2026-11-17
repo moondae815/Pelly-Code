@@ -1,6 +1,6 @@
 using System.Xml.Linq;
 using Microsoft.CodeAnalysis;
-using PellyCoder.Core.Files;
+using PellyCode.Core.Files;
 
 /// <summary>
 /// The Legacy corpus as an in-memory solution: sources and project references read from the csproj files,

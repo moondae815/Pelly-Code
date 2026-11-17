@@ -1,0 +1,85 @@
+using System.ComponentModel;
+using System.IO.Abstractions;
+using PellyCode.Core.Abstractions;
+using PellyCode.Core.Fsm;
+using PellyCode.Core.Models;
+using Spectre.Console;
+using Spectre.Console.Cli;
+
+namespace PellyCode.Cli.Commands;
+
+public sealed class JsSettings : RunSettings
+{
+    [CommandArgument(0, "<FILE>")]
+    [Description("수정할 JavaScript 파일 (.js) 또는 페이지(.asp·.inc·.htm·.html)의 <script> 블록")]
+    public string File { get; init; } = "";
+
+    [CommandArgument(1, "[REQUEST]")]
+    [Description("수정 요청문 (생략하면 대화형으로 입력)")]
+    public string? Request { get; init; }
+
+    [CommandOption("--function <NAME>")]
+    [Description("대상 함수 이름, 예: fnSearch, Order.save (--line, --lines와 함께 쓸 수 없음)")]
+    public string? Function { get; init; }
+
+    [CommandOption("--line <N>")]
+    [Description("대상 줄 번호, IDE 커서 위치 (--function, --lines와 함께 쓸 수 없음)")]
+    public int? Line { get; init; }
+
+    [CommandOption("--lines <A-B>")]
+    [Description("대상 줄 범위, 예: 10-25 (--function, --line과 함께 쓸 수 없음)")]
+    public string? Lines { get; init; }
+
+    [CommandOption("--signature")]
+    [Description("대상 함수의 이름·매개변수 변경을 허용 (부르는 곳은 직접 고쳐야 함)")]
+    public bool Signature { get; init; }
+}
+
+/// <summary><c>pelly js</c>: validates arguments, merges configuration, then hands the run to <see cref="IRunner"/>.</summary>
+public sealed class JsCommand(
+    IFileSystem fs, OptionsResolver resolver, IRunner runner, IAnsiConsole console, IUserInteraction ui, CancellationToken cancellation)
+    : AsyncCommand<JsSettings>
+{
+    public override async Task<int> ExecuteAsync(CommandContext context, JsSettings settings, CancellationToken _)
+    {
+        if (RunArguments.ValidateJs(settings) is [var invalid, ..])
+            return Fail(invalid);
+
+        var requestText = settings.Request;
+        if (requestText is null)
+        {
+            if (!ui.IsInteractive)
+                return Fail("요청문(REQUEST)이 필요합니다 (비대화형 실행)");
+            requestText = console.Prompt(new TextPrompt<string>("수정 요청을 입력하세요:").AllowEmpty());
+        }
+        if (string.IsNullOrWhiteSpace(requestText))
+            return Fail("요청문(REQUEST)이 비어 있습니다");
+
+        var (prepared, errors) = RunArguments.PrepareWeb(settings, settings.File, fs, resolver);
+        if (prepared is null)
+            return Report(errors);
+
+        var request = RunArguments.JsRequest(settings, prepared.File, requestText);
+        try
+        {
+            return await runner.RunAsync(request, prepared.Options, cancellation);
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            console.MarkupLine("[yellow]사용자가 실행을 중단했습니다.[/]");
+            return ExitCodes.UserCancelled;
+        }
+    }
+
+    private int Report(IReadOnlyList<string> errors)
+    {
+        foreach (var error in errors) console.MarkupLine($"[red]{Markup.Escape(error)}[/]");
+        return ExitCodes.EnvError;
+    }
+
+    private int Fail(string message)
+    {
+        console.MarkupLine($"[red]{Markup.Escape(message)}[/]");
+        return ExitCodes.EnvError;
+    }
+}

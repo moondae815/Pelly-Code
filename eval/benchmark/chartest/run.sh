@@ -18,9 +18,9 @@ while [ $# -gt 0 ]; do
     *) echo "unknown option: $1" >&2; exit 4;;
   esac
 done
-pelly="$repo/src/PellyCoder.Cli/bin/Debug/net10.0/pelly.dll"
+pelly="$repo/src/PellyCode.Cli/bin/Debug/net10.0/pelly.dll"
 # Build first so the run never measures a stale pelly (an up-to-date build takes a few seconds).
-build_log="$(dotnet build "$repo/src/PellyCoder.Cli" -nologo -v q 2>&1)" || { printf '%s\n' "$build_log" >&2; echo "pelly build failed" >&2; exit 4; }
+build_log="$(dotnet build "$repo/src/PellyCode.Cli" -nologo -v q 2>&1)" || { printf '%s\n' "$build_log" >&2; echo "pelly build failed" >&2; exit 4; }
 [ -f "$pelly" ] || { echo "pelly.dll missing after build: $pelly" >&2; exit 4; }
 mkdir -p "$out"
 field() { sed -n "s/^$2: *//p" "$1" | head -1; }

@@ -35,6 +35,7 @@
 | v1.24 | 2026-11-05 | V2-7 `pelly js`·`pelly css` 구현(1단계 W1): 따로 있는 클라이언트 JavaScript(`.js`)·CSS(`.css`) 파일 하나에서 함수·규칙 하나 또는 줄 범위를 모델이 고치고, 코드가 브라우저 실행·외부 도구 없이 패치·인코딩·문법(JS는 `Acornima` 해석기, CSS는 손 토큰 해석기)·**문법 수준**(기본 원본 수준, `web.jsTarget`)·대상 모양·안전으로 막고, 이름·API(ES 판·jQuery 버전)·CSS 속성·덮어쓰기는 경고만 한 뒤 **사람이 승인해야** 씀. 모든 검사는 원본 기준선 대비 새로 생긴 것만 셈. 편집 영역 밖은 원본 바이트 그대로이고 사이트 루트·순수 ASCII 인코딩은 `asp.siteRoot`·`asp.encoding`을 그대로 읽음(사람 결정 2026-11-04). 「브라우저 실행 검증 없음」을 검토와 기록에 고정 문구로 남김. §1.4 범위 표에 JS·CSS 줄, §11.1 반입 구성에 `Acornima` 1.9.0 버전(BSD-3-Clause)과 `pelly.exe` 크기 변화, §12.2 로드맵에 V2-7 행, 새 §12.11. 설계 `docs/superpowers/specs/2026-11-04-pelly-js-css-design.md`, 예비 측정 `docs/web-premeasure.md`(Mac). Windows 실행과 현장 확인(`deploy/field-results.md` 17절)은 미확인 |
 | v1.25 | 2026-11-06 | V2-7 `pelly js`·`pelly css` 2단계(W2): 페이지(`asp.extensions` + `.htm`·`.html`) 안 클라이언트 `<script>`·`<style>` 블록 하나에서 함수·규칙·줄 범위를 W1과 같은 판정(패치·인코딩·문법·문법 수준·대상 모양·안전은 막고 이름·API·속성은 경고)으로 고침. 블록마다 원본 기준선을 따로 두어 새로 생긴 것만 세고, `<%= %>`는 자리 표시로 해석하며 `<% 문장 %>`이 섞인 블록은 괄호 짝 비교로 낮추고, 블록 경계·블록 안 서버 코드·블록 밖 바이트가 바뀌면 거절(`WebBlockChanged`·`WebServerCodeChanged`·`WebOutsideBlock`)하며 서버 값이 필요하면 `pelly asp --lines`를 안내. `pelly asp`는 범위가 걸친 블록에 `JsSyntax`·`JsLevel`·`JsSafety`·`CssSyntax`·`CssSafety`(막음)·`JsNames`·`JsApi`(경고) 행을 더하고(`asp-v2`, 규칙 검사는 여전히 페이지 안 JS를 보지 않음), `pelly edit`은 대상 위치로 js·css·asp를 고름. 이름 검사는 같은 페이지 다른 블록·include·`<script src>`의 선언을 알고 jQuery 기준은 설정 → 페이지 → 사이트 순. 프롬프트 `js-page-v1`·`css-page-v1`, `summary.json` `web`에 `container`·`block`·`jquerySource`, `pelly report`에 「페이지 안 K건」, §12.11 W2 단락. 설계 `docs/superpowers/specs/2026-11-06-pelly-web-w2-design.md`. Windows 실행과 현장 확인(`deploy/field-results.md` 17절)은 미확인 |
 | v1.26 | 2026-11-09 | V2-6 `pelly asp` 2단계(A2): 명세(`pelly spec`·`apply`)에 `asp` 작업(`<파일>#Proc`·`#Class.Proc`·`#L<시작>-<끝>`, 줄 범위는 asp만)을 더해 「SP 변경 + 그 SP를 부르는 ASP 수정」을 한 명세로 순서대로 실행. `spec check`는 `AspTargetRequired`·`LinesOutOfFile`·`LinesNotSupported`·`AspLinesAfterEdit`(같은 파일을 먼저 고치는 작업 뒤의 줄 범위)를 오류로 더하고 `KindMismatch`는 `asp.extensions`를 씀. 그룹(`[G1]`)에 cs·sql·asp를 섞을 수 있고(V2-1의 「그룹은 cs만」이 바뀜, `SqlInGroup` 없어짐) 하나라도 실패하면 그룹 전체를 되돌리며 C# 빌드·테스트 검증은 그룹의 cs 작업에만 하고 cs가 없는 그룹은 검증을 건너뜀. 그룹 없는 sql 적용 뒤 asp가 실패하면 다음 빈 그룹 번호를 안내하는 경고. SP → ASP 영향: 사이트의 SP 호출 색인(`asp.siteRoot`·`asp.extensions`·`asp.spCallFunctions`)으로 명세에 없는 호출을 `ImpactMissing`(SP당 최대 10개, include 표시)으로 경고하며, `spec check`는 `--impact`일 때, `apply`는 미완료 sql 작업이 있으면 `sql.production`과 상관없이 돌고 「계속할까요?」 확인에 합쳐짐(목록 `.pelly/impact/<id>-sql.json`·`impact-sql.json`의 `asp` 배열). asp 작업은 이번 apply에서 적용했거나 이미 완료한 sql 작업 SP의 **파일 기준 서명**을 모델 입력과 SP 검사에 쓰고(개발 DB 없이도, 해석 실패는 경고 후 DB 값), 적용 뒤 매개변수가 바뀐 SP의 고치지 않은 호출을 경고하고 `apply.json`의 `aspCallersNotUpdated`와 `pelly report`에 셈. `spec draft`는 asp 작업을 제안하지 않으며 경고만 보이고, 예비 측정에서 `SqlInGroup`으로 실행되지 않던 초안(`docs/spec-draft-premeasure.md`)이 이제 실행될 수 있음. 한계: 동적 SP 이름, `rs.Open "EXEC x @a=1"`, 결과 열 변경은 찾지 못함. §12.10 A2 단락, 설계 `docs/superpowers/specs/2026-11-09-pelly-asp-a2-design.md`. Windows 실행과 현장 확인(`deploy/field-results.md` 16절)은 미확인 |
+| v1.34 | 2026-11-17 | 솔루션·프로젝트 이름을 `PellyCoder.*`에서 `PellyCode.*`로 바꿈(`PellyCode.sln`, `src/PellyCode.Cli` 등, 네임스페이스·리소스 이름·.NET 도구 패키지 ID `PellyCode.Cli` 포함). 실행 파일 이름 `pelly.exe`·`pelly-eval.exe`와 `.pelly/` 폴더는 그대로. 지난 측정·설계 기록 문서의 옛 이름은 당시 기록이라 고치지 않음 |
 | v1.33 | 2026-11-13 | 반입 실행 파일에서 .NET 런타임을 뺌(framework-dependent): 현장 개발 PC에 .NET 10 SDK가 있으므로(질문지 3-2) `pelly.exe`·`pelly-eval.exe`가 PC의 .NET 10 런타임으로 실행됨. `pelly.exe` 약 138MB → 65MB, 반입 zip 64MB → 약 29MB, 현장 키트 52MB → 약 18MB. SBOM에서 런타임 팩을 빼고 실행 호스트 팩만 남김. CI가 실행 파일이 100MB를 넘으면 실패(런타임이 다시 들어간 경우). 설치 조건은 `deploy/install.md` |
 | v1.32 | 2026-11-13 | 현장 확인 안내 `deploy/field-checklist.md`: 흩어진 현장 확인(ASP·JS·CSS·`pelly test`·`ui`·자동완성·spec draft·운영 DB 계정·질문지·기준선 측정·반출)을 할 순서대로 모으고 항목마다 명령과 결과 칸 번호를 붙임. 결과는 그대로 `field-results.md`에 적음. 반입 zip과 현장 키트 zip에 둘 다 넣고(반입 zip에는 `field-results.md`도), 문서 안 `pelly` 명령의 옵션이 실제 명령에 있는지 테스트로 확인 |
 | v1.31 | 2026-11-11 | `pelly doctor`에 「사이트 색인」 행(색인한 페이지·`.js` 수, 크기 합계, 1MB가 넘어 뺀 파일 수, 한도에 걸려 잘리면 Warn). 현장 확인표 W14(사이트 규모) |
@@ -52,7 +53,7 @@
 * **실행 명령어:** `pelly`
 * **배포 형태:**
   * **폐쇄망 (운영):** `win-x64` 단일 실행 파일 zip 패키지. .NET 런타임은 넣지 않고 대상 PC의 .NET 10 런타임(.NET 10 SDK에 포함, 현장 개발 PC에 설치됨 — 질문지 3-2)으로 실행합니다(framework-dependent, v1.33부터. 그 전에는 self-contained)(§11).
-  * **외부 개발 환경:** .NET Global Tool (패키지 ID: `PellyCoder.Cli`)
+  * **외부 개발 환경:** .NET Global Tool (패키지 ID: `PellyCode.Cli`)
 * **대상 모델:** `Qwen3.6-35B-A3B` (GGUF `Q4_K_M`, 폐쇄망 원격 Ollama 서버로 서빙)
 * **실행 방식:** 일반 JIT 실행. Roslyn·`Spectre.Console.Cli`의 리플렉션 의존성 때문에 **Native AOT와 트리밍은 v1 범위에서 제외**합니다.
 
@@ -355,8 +356,8 @@ Ollama에는 공개된 토큰화 전용 엔드포인트가 없으므로 다음�
 
 ### 6.2 솔루션 폴더 구조
 ```text
-PellyCoder.sln
-├── src/PellyCoder.Cli/
+PellyCode.sln
+├── src/PellyCode.Cli/
 │   ├── Program.cs                      # CLI 엔트리포인트 및 DI 컨테이너 설정
 │   ├── Commands/
 │   │   ├── CsCommand.cs                # pelly cs
@@ -396,9 +397,9 @@ PellyCoder.sln
 │   └── Logging/
 │       ├── RunLogger.cs                # .pelly/runs/ JSONL 기록
 │       └── ReportSanitizer.cs          # 비식별 리포트 생성 (FR-09)
-├── tests/PellyCoder.Tests/             # 단위·스냅샷 테스트
+├── tests/PellyCode.Tests/             # 단위·스냅샷 테스트
 ├── eval/
-│   ├── PellyCoder.Eval/                # 벤치마크 실행기 및 KPI 집계 (폐쇄망에서도 동작)
+│   ├── PellyCode.Eval/                # 벤치마크 실행기 및 KPI 집계 (폐쇄망에서도 동작)
 │   ├── benchmark/                      # 작업 정의 (요청, 대상, 판정 기준)
 │   └── corpus/                         # 외부용 샘플 코퍼스 (SDK·레거시 솔루션, 샘플 DB 스키마)
 └── deploy/
@@ -578,10 +579,10 @@ pelly가 요청마다 지정하는 값: `options.num_ctx = 8192`, `keep_alive = 
 
 * **라이선스 게이트:** MIT·Apache-2.0·BSD 계열이 아닌 패키지가 나오면 패키지 스크립트가 실패합니다. 예외는 `deploy/license-exceptions.json`에 패키지 id·버전·라이선스 파일 SHA-256·승인자를 적은 것만 허용합니다. **현재 예외는 둘**이며 모두 **사람이 승인했습니다.** ① `Microsoft.Data.SqlClient.SNI.runtime` 7.1.0(네이티브 SNI의 Microsoft 재배포 라이선스, 2026-10-19). ② `Avalonia.Angle.Windows.Natives` 2.1.27548.20260419(`av_libglesv2.dll`, nuspec이 라이선스를 파일로만 적어 게이트에 걸리나 내용은 BSD-3-Clause, 2026-10-26 V2-0 반입 전 결정). 예외에 `"packages": [...]`를 적으면 그 패키지(zip) 만들 때만 적용되고 다른 zip에서는 일치도 미사용 보고도 하지 않습니다. ②는 `["pelly"]`라 현장 키트에는 적용되지 않습니다. `approvedBy`에 「잠정」이 든 예외로는 `1.0.0` 이상 패키지가 만들어지지 않으며, CI가 잠정으로 바꾼 사본으로 이 거부를 시험합니다.
 * **버전 기록 (R8 대체):** Ollama 버전과 모델 태그, 모델 digest·형식·양자화(`modelDigest`·`modelFormat`·`modelQuantization`)를 담습니다. 개발 PC 모델은 GGUF가 아닌 safetensors `nvfp4`라 GGUF SHA-256을 읽을 수 없고, 벤치마크하지 않은 20GB 모델을 따로 받아 해시하는 것은 의미가 없어서, **현장 모델의 GGUF SHA-256은 M4에서 기록합니다.** 지금은 패키지가 현장 모델 파일의 동일성을 증명하지 못합니다.
-**M4 준비 구성 (현장 키트, 버전 `0.9.1`):** 같은 `package` 잡이 둘째 zip `pelly-field-kit-0.9.1-win-x64.zip`을 만듭니다(`build-package.ps1 -Package field-kit`). 허용 목록은 `deploy/field-kit-files.txt`이며 `pelly-eval.exe`(단일 파일), 현장 절차 문서(`docs/field-guide.md`, `field-benchmark.md`, `field-results.md`), 스위트·작업·판정 프로젝트 템플릿(`templates/`), `sbom.cdx.json`, `THIRD-PARTY-NOTICES.md`, 예외 승인 라이선스 전문, `SHA256SUMS.txt`가 들어갑니다. `pelly.exe`, 그 옆 GUI DLL 셋과 설치 문서는 첫 zip에만 있습니다. `pelly-eval --offline-selftest`(숨은 옵션)는 `pelly doctor --offline-selftest`와 같은 여섯 행으로 단일 파일의 실행 경로를 확인하며, CI `publish-check`와 `package` 테스트가 실행합니다. `pelly-eval.exe`는 개발자 도구가 아니라 현장에서 기준선을 재는 반입 대상이며, 그래서 `NetworkPolicyTests`가 `eval/PellyCoder.Eval/`도 훑습니다.
+**M4 준비 구성 (현장 키트, 버전 `0.9.1`):** 같은 `package` 잡이 둘째 zip `pelly-field-kit-0.9.1-win-x64.zip`을 만듭니다(`build-package.ps1 -Package field-kit`). 허용 목록은 `deploy/field-kit-files.txt`이며 `pelly-eval.exe`(단일 파일), 현장 절차 문서(`docs/field-guide.md`, `field-benchmark.md`, `field-results.md`), 스위트·작업·판정 프로젝트 템플릿(`templates/`), `sbom.cdx.json`, `THIRD-PARTY-NOTICES.md`, 예외 승인 라이선스 전문, `SHA256SUMS.txt`가 들어갑니다. `pelly.exe`, 그 옆 GUI DLL 셋과 설치 문서는 첫 zip에만 있습니다. `pelly-eval --offline-selftest`(숨은 옵션)는 `pelly doctor --offline-selftest`와 같은 여섯 행으로 단일 파일의 실행 경로를 확인하며, CI `publish-check`와 `package` 테스트가 실행합니다. `pelly-eval.exe`는 개발자 도구가 아니라 현장에서 기준선을 재는 반입 대상이며, 그래서 `NetworkPolicyTests`가 `eval/PellyCode.Eval/`도 훑습니다.
 
 * **GUI 크기 (V2-0):** 네이티브 DLL 셋은 `av_libglesv2.dll` 5,394,096바이트, `libHarfBuzzSharp.dll` 1,816,088바이트, `libSkiaSharp.dll` 11,628,896바이트(합 18,839,080바이트)입니다. 관리 어셈블리가 들어가 `pelly.exe`는 127,059,367 → 136,359,551바이트(+9.3 MB)가 됐습니다. 이 수치는 macOS에서 한 교차 publish 측정이며 Windows 값은 CI `publish-check`가 출력합니다(Windows 미확인). 네이티브를 단일 파일에 묶지 않은 이유는 `pelly cs`만 쓰는 사람도 첫 실행에 수십 MB를 임시 폴더에 풀지 않게 하고 AppLocker·WDAC 노출을 줄이기 위해서입니다. DLL이 없으면 `pelly ui`만 종료 코드 4이고 다른 명령은 영향이 없습니다.
-* **JS 해석기 (V2-7):** `pelly js`가 쓰는 `Acornima` 1.9.0 버전(순수 .NET ECMAScript 해석기, `Directory.Packages.props`에 고정)이 단일 파일에 들어갑니다. 라이선스는 BSD-3-Clause이고 nuspec이 `license type="expression"`으로 적어 라이선스 게이트의 허용 목록(BSD 계열)에 그대로 맞으므로 **예외가 필요 없습니다**(`deploy/license-exceptions.json`은 바뀌지 않음). 게이트 통과는 CI `package` 잡이 확인합니다(`deploy/build-package.ps1`). NuGet 패키지의 고지는 SBOM에서 만들어지므로 저장소의 `THIRD-PARTY-NOTICES.md`(NuGet 밖 구성 요소만)도 바뀌지 않습니다. `pelly.exe`는 137,036,927 → 137,615,007바이트(+578,080바이트, 약 0.55 MB)입니다. Task 1 이전 커밋 `e2ab5e0` 빌드와 W1 구현 끝 커밋 `e01b233` 빌드를 같은 명령 `dotnet publish src/PellyCoder.Cli -c Release -r win-x64 --self-contained -p:PublishSingleFile=true`로 비교한 값이며, macOS 교차 publish 측정, Windows 값은 CI입니다. 반입 zip의 파일 목록(`deploy/package-files.txt`)은 바뀌지 않습니다.
+* **JS 해석기 (V2-7):** `pelly js`가 쓰는 `Acornima` 1.9.0 버전(순수 .NET ECMAScript 해석기, `Directory.Packages.props`에 고정)이 단일 파일에 들어갑니다. 라이선스는 BSD-3-Clause이고 nuspec이 `license type="expression"`으로 적어 라이선스 게이트의 허용 목록(BSD 계열)에 그대로 맞으므로 **예외가 필요 없습니다**(`deploy/license-exceptions.json`은 바뀌지 않음). 게이트 통과는 CI `package` 잡이 확인합니다(`deploy/build-package.ps1`). NuGet 패키지의 고지는 SBOM에서 만들어지므로 저장소의 `THIRD-PARTY-NOTICES.md`(NuGet 밖 구성 요소만)도 바뀌지 않습니다. `pelly.exe`는 137,036,927 → 137,615,007바이트(+578,080바이트, 약 0.55 MB)입니다. Task 1 이전 커밋 `e2ab5e0` 빌드와 W1 구현 끝 커밋 `e01b233` 빌드를 같은 명령 `dotnet publish src/PellyCode.Cli -c Release -r win-x64 --self-contained -p:PublishSingleFile=true`로 비교한 값이며, macOS 교차 publish 측정, Windows 값은 CI입니다. 반입 zip의 파일 목록(`deploy/package-files.txt`)은 바뀌지 않습니다.
 * **GUI 빌드 시점 수집:** Avalonia 빌드 도구의 익명 사용 정보 수집은 환경 변수 `AVALONIA_TELEMETRY_OPTOUT=1`로 끕니다(CI 전체, 개발자는 직접 설정). 실행 중에는 외부 통신이 없습니다(`deploy/no-network.md`).
 * **`LICENSE`:** pelly 자체의 라이선스는 **Payletter 사내 전용**(All rights reserved, 2026-10-19 사람 결정)입니다. 저장소 맨 위 `LICENSE`가 두 zip의 맨 위에 그대로 들어갑니다.
 * 개발자 PC의 설정 파일·경로·연결 문자열은 zip에 들어가면 안 되며 패키지 테스트가 검사합니다.
@@ -589,7 +590,7 @@ pelly가 요청마다 지정하는 값: `options.num_ctx = 8192`, `keep_alive = 
 ### 11.2 설치
 * zip을 원하는 폴더에 풀고 `PATH`에 추가합니다. 관리자 권한은 필요 없습니다. .NET 10 런타임이 있어야 합니다(C# 빌드 검증에 필요한 .NET 10 SDK에 함께 들어 있음).
 * `pelly doctor`로 Ollama 서버, 빌드 도구, SQL 접속을 확인합니다.
-* 대상 PC에 .NET 10 SDK가 있으면 대안으로 로컬 폴더 피드에서 `dotnet tool install -g PellyCoder.Cli --add-source <폴더>`로 설치할 수도 있습니다.
+* 대상 PC에 .NET 10 SDK가 있으면 대안으로 로컬 폴더 피드에서 `dotnet tool install -g PellyCode.Cli --add-source <폴더>`로 설치할 수도 있습니다.
 
 ### 11.3 업데이트 주기
 * 반입 절차에 시간이 걸리므로, 자주 바뀌는 값(샘플링, 예산, 프롬프트 일부)은 **설정 파일로 빼서** 재반입 없이 바꿀 수 있게 합니다.

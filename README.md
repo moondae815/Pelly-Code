@@ -16,7 +16,7 @@
 export AVALONIA_TELEMETRY_OPTOUT=1   # Avalonia 빌드 시점 사용 정보 수집 끄기 (PowerShell: $env:AVALONIA_TELEMETRY_OPTOUT = "1")
 dotnet build -warnaserror
 dotnet test
-dotnet run --project src/PellyCoder.Cli -- --version
+dotnet run --project src/PellyCode.Cli -- --version
 ```
 
 ## 사용법
@@ -543,26 +543,26 @@ pelly report [--since 2026-10-01] [--sanitize [--out <폴더>]]
 폐쇄망에 들고 갈 zip은 둘이고 CI의 `package` 잡이 만듭니다(Windows, PowerShell 7). `pelly-0.9.1-win-x64.zip`은 `pelly.exe`와 그 옆 BuildHost 폴더 둘(`BuildHost-net472/`, `BuildHost-netcore/`, 의미 분석 보조 프로세스)·GUI 네이티브 DLL 셋(`av_libglesv2.dll`, `libHarfBuzzSharp.dll`, `libSkiaSharp.dll`, `pelly ui`용)·설치 문서, `pelly-field-kit-0.9.1-win-x64.zip`(현장 키트)은 `pelly-eval.exe`와 같은 BuildHost 폴더 둘·현장 절차 문서·스위트 템플릿입니다. 로컬(Windows)에서 반입 zip을 만들려면 단일 파일 publish 뒤 스크립트를 실행합니다.
 
 ```powershell
-dotnet publish src/PellyCoder.Cli -c Release -r win-x64 --no-self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:PublishTrimmed=false -p:DebugType=none -o artifacts/publish/win-x64
+dotnet publish src/PellyCode.Cli -c Release -r win-x64 --no-self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:PublishTrimmed=false -p:DebugType=none -o artifacts/publish/win-x64
 dotnet tool restore   # CycloneDX 6.3.1 (SBOM)
 pwsh ./deploy/build-package.ps1 -PublishDir artifacts/publish/win-x64 -OutDir artifacts/package
 ```
 * 두 실행 파일에는 .NET 런타임을 넣지 않습니다(framework-dependent, 2026-11-13). 현장 PC의 .NET 10 런타임(.NET 10 SDK에 포함)으로 실행되며, 그래서 `pelly.exe`가 약 138MB에서 65MB로, 반입 zip이 64MB에서 약 29MB로 줄었습니다. 설치 조건은 `deploy/install.md` 「사전 조건」입니다.
 * zip에는 `deploy/package-files.txt` 허용 목록에 있는 것만 들어갑니다(실행 파일·`pelly.exe` 옆 Avalonia 네이티브 DLL 셋·publish 폴더의 BuildHost 폴더 둘 전체·`LICENSE`(Payletter 사내 전용)·설정 템플릿·문서·`SHA256SUMS.txt`·SBOM·서드파티 라이선스·버전 기록·벤치마크 요약). 허용되지 않은 라이선스가 있으면 스크립트가 실패하며, 예외는 `deploy/license-exceptions.json`에 승인자와 함께 적습니다(현재 둘: SNI와 Avalonia ANGLE 네이티브, 둘 다 사람이 승인. `"packages"`를 적은 예외는 그 zip에서만 적용됩니다).
-* 현장 키트 zip은 `eval/PellyCoder.Eval`을 같은 옵션으로 publish한 뒤(그 폴더에 `pelly-eval.exe`와 BuildHost 폴더 둘이 나옵니다) `pwsh ./deploy/build-package.ps1 -Package field-kit -PublishDir <폴더> -OutDir artifacts/package`로 만듭니다. 허용 목록은 `deploy/field-kit-files.txt`이고 사용 순서는 [deploy/field-guide.md](deploy/field-guide.md)입니다.
-* `deploy/version-record.json`은 개발 PC의 Ollama에서 `dotnet run --project eval/PellyCoder.Eval -- record --out deploy/version-record.json`으로 다시 만듭니다(현장 모델의 GGUF SHA-256은 `--gguf-sha256 <hex>`, 현장에서는 `pelly-eval record`). 반입 전에 사람이 다시 실행합니다. Apple 칩 Mac에서는 `ollama pull qwen3.6:35b`가 GGUF가 아닌 `nvfp4` 판을 받으므로, GGUF를 받는 방법은 [docs/m4-gguf-baseline.md](docs/m4-gguf-baseline.md) 1절을 따르십시오. 현장 모델은 `qwen3.6:35b-a3b-q4_K_M`입니다([docs/m4-field-model-baseline.md](docs/m4-field-model-baseline.md) 1절).
+* 현장 키트 zip은 `eval/PellyCode.Eval`을 같은 옵션으로 publish한 뒤(그 폴더에 `pelly-eval.exe`와 BuildHost 폴더 둘이 나옵니다) `pwsh ./deploy/build-package.ps1 -Package field-kit -PublishDir <폴더> -OutDir artifacts/package`로 만듭니다. 허용 목록은 `deploy/field-kit-files.txt`이고 사용 순서는 [deploy/field-guide.md](deploy/field-guide.md)입니다.
+* `deploy/version-record.json`은 개발 PC의 Ollama에서 `dotnet run --project eval/PellyCode.Eval -- record --out deploy/version-record.json`으로 다시 만듭니다(현장 모델의 GGUF SHA-256은 `--gguf-sha256 <hex>`, 현장에서는 `pelly-eval record`). 반입 전에 사람이 다시 실행합니다. Apple 칩 Mac에서는 `ollama pull qwen3.6:35b`가 GGUF가 아닌 `nvfp4` 판을 받으므로, GGUF를 받는 방법은 [docs/m4-gguf-baseline.md](docs/m4-gguf-baseline.md) 1절을 따르십시오. 현장 모델은 `qwen3.6:35b-a3b-q4_K_M`입니다([docs/m4-field-model-baseline.md](docs/m4-field-model-baseline.md) 1절).
 * 설치·사용·IDE·외부 통신 없음 문서는 [deploy/](deploy/)에 있고 zip의 `docs/`에도 들어갑니다. 현재 CI는 Windows에서만 이 zip을 검증하며, 실제 폐쇄망 PC는 **Windows 미확인**(M4)입니다.
 
 ## 벤치마크 실행
-작업 50건(C# 30 = Legacy 18 + Modern 12, SQL 20)을 실제 모델로 돌려 KPI 표를 만드는 실행기 `eval/PellyCoder.Eval`이 있습니다. 작업 정의와 판정 규칙은 [eval/benchmark/README.md](eval/benchmark/README.md), 첫 측정은 [docs/m2b-benchmark.md](docs/m2b-benchmark.md), M3a 회귀 측정(30/30)은 [docs/m3a-benchmark.md](docs/m3a-benchmark.md), M3b 50건 기준선(평균 47.67건, `nvfp4` 파일)은 [docs/m3b-baseline.md](docs/m3b-baseline.md), 현장과 같은 모델 파일(GGUF `Q4_K_M`)의 기준선(평균 46.00건)은 [docs/m4-gguf-baseline.md](docs/m4-gguf-baseline.md)입니다.
+작업 50건(C# 30 = Legacy 18 + Modern 12, SQL 20)을 실제 모델로 돌려 KPI 표를 만드는 실행기 `eval/PellyCode.Eval`이 있습니다. 작업 정의와 판정 규칙은 [eval/benchmark/README.md](eval/benchmark/README.md), 첫 측정은 [docs/m2b-benchmark.md](docs/m2b-benchmark.md), M3a 회귀 측정(30/30)은 [docs/m3a-benchmark.md](docs/m3a-benchmark.md), M3b 50건 기준선(평균 47.67건, `nvfp4` 파일)은 [docs/m3b-baseline.md](docs/m3b-baseline.md), 현장과 같은 모델 파일(GGUF `Q4_K_M`)의 기준선(평균 46.00건)은 [docs/m4-gguf-baseline.md](docs/m4-gguf-baseline.md)입니다.
 
 ```bash
 # SQL 작업에는 SQL Server와 코퍼스 배포가 필요합니다 (eval/corpus/Sql/deploy.sh). 비밀번호가 있는 연결은 환경 변수로만.
 export PELLY_SQL_CONNECTION="Server=localhost,14333;Database=PellyCorpus;User Id=sa;Password=<비밀번호>;TrustServerCertificate=True"
 # 허용 목록·모델은 --config 파일에 둡니다: {"llm":{"model":"<태그>"},"sql":{"allowedHosts":["localhost"],"allowedDatabases":["PellyCorpus"]}}
-dotnet run --project eval/PellyCoder.Eval -- --config <pelly.json>             # 50건 전체
-dotnet run --project eval/PellyCoder.Eval -- --tasks sql --config <pelly.json>  # 일부 (id 접두사·글롭, --kind cs|sql)
-dotnet run --project eval/PellyCoder.Eval -- --suite <스위트 폴더> --config <pelly.json> --keep-work failed  # 현장 스위트 (suite.json이 있는 폴더)
+dotnet run --project eval/PellyCode.Eval -- --config <pelly.json>             # 50건 전체
+dotnet run --project eval/PellyCode.Eval -- --tasks sql --config <pelly.json>  # 일부 (id 접두사·글롭, --kind cs|sql)
+dotnet run --project eval/PellyCode.Eval -- --suite <스위트 폴더> --config <pelly.json> --keep-work failed  # 현장 스위트 (suite.json이 있는 폴더)
 ```
 * **스위트:** `--suite`가 없으면 내장 스위트(`eval/benchmark/suite.json`)를 씁니다. 현장 코드베이스는 같은 모양의 폴더를 만들어 지정하고(작업의 `file`은 `<루트 이름>/<경로>`), 형식은 [eval/benchmark/README.md](eval/benchmark/README.md)에 있습니다. `--keep-work <all|failed|none>`은 작업 복사본 보존 범위입니다. 내장 스위트 회귀는 [docs/m4-suite-regression.md](docs/m4-suite-regression.md)(48/50, 위반 0)입니다.
 * 결과는 `eval/results/<yyyyMMdd-HHmmss>/`(`--out`으로 변경, git 추적 제외)에 `report.md`(KPI 표·실패 유형·작업별 결과), `results.json`, `work/<id>/`로 남습니다. 코퍼스(`eval/corpus`)는 읽기 전용이며 작업마다 임시 복사본에서 실행합니다.
@@ -573,9 +573,9 @@ dotnet run --project eval/PellyCoder.Eval -- --suite <스위트 폴더> --config
 
 ### 하위 명령 (`validate`, `record`, `export`)
 ```bash
-dotnet run --project eval/PellyCoder.Eval -- validate [--suite <폴더>] [--config <pelly.json>] [--deep]   # 실행 전 정의 점검 (LLM·SQL 접속 없음)
-dotnet run --project eval/PellyCoder.Eval -- record --out <파일> [--gguf-sha256 <hex>] [--config <pelly.json>]  # Ollama 버전·모델 digest 기록
-dotnet run --project eval/PellyCoder.Eval -- export <결과 폴더> --out <폴더>                               # 비식별 반출본
+dotnet run --project eval/PellyCode.Eval -- validate [--suite <폴더>] [--config <pelly.json>] [--deep]   # 실행 전 정의 점검 (LLM·SQL 접속 없음)
+dotnet run --project eval/PellyCode.Eval -- record --out <파일> [--gguf-sha256 <hex>] [--config <pelly.json>]  # Ollama 버전·모델 digest 기록
+dotnet run --project eval/PellyCode.Eval -- export <결과 폴더> --out <폴더>                               # 비식별 반출본
 ```
 * `validate`는 종료 0 오류 없음 · 4 오류 있음. `--deep`은 판정 시험을 원본에서 실제로 돌립니다(`tests`는 실패, `failingTests`는 통과해야 함. 복원·빌드가 필요해 느림).
 * `record`는 종료 0 기록함 · 3 모델이 서버에 없거나 버전·digest를 알리지 않음 · 4 접속 불가·인자 오류. 접속 주소는 쓰지 않습니다.
@@ -584,9 +584,9 @@ dotnet run --project eval/PellyCoder.Eval -- export <결과 폴더> --out <폴�
 ### 반복 실행과 비교 (`--repeat`, `compare`)
 프롬프트·샘플링을 바꾼 뒤에는 같은 조건으로 3회 반복하고 기준선과 비교합니다(PRD §8.2).
 ```bash
-dotnet run --project eval/PellyCoder.Eval -- --config <pelly.json> --repeat 3
+dotnet run --project eval/PellyCode.Eval -- --config <pelly.json> --repeat 3
 # 결과: <out>/run-1 … run-3, 상위 summary.md · summary.json
-dotnet run --project eval/PellyCoder.Eval -- compare docs/m4-field-model-baseline.summary.json <후보 summary.json>
+dotnet run --project eval/PellyCode.Eval -- compare docs/m4-field-model-baseline.summary.json <후보 summary.json>
 ```
 * `compare` 종료 코드: 0 채택 · 3 거절 · 4 판정 불가(중단된 반복, 실행 조건·작업 집합이 다른 요약, 모델 digest나 Ollama 버전이 다른 요약 등). 채택 규칙(R4): 평균 성공 +1.0건 이상, 어느 범주(cs-legacy·cs-modern·sql)도 −0.5건 넘게 줄지 않음, 3회 모두 불변 조건 위반 0건, 시간 중위값 1.5배 이하. M3b 후보 셋은 모두 거절됐습니다([docs/m3b-tuning.md](docs/m3b-tuning.md)). 기준선 `docs/m4-gguf-baseline.summary.json`은 현장과 같은 `qwen3.6:35b`(GGUF) 파일로 쟀습니다. 후보도 같은 파일·같은 Ollama 버전으로 재야 판정됩니다.
 * SQL은 반복 사이에 다시 배포하지 않으므로, 의심되면 실행 전후 DB 객체를 비교하십시오(기준선은 차이 없음).

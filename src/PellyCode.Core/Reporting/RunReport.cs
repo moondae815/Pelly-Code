@@ -1,0 +1,186 @@
+using System.Globalization;
+using PellyCode.Core.Fsm;
+using PellyCode.Core.Logging;
+using PellyCode.Core.Models;
+using PellyCode.Core.Testing;
+
+namespace PellyCode.Core.Reporting;
+
+public sealed record Spread(double Median, double P90);
+
+public sealed record ParseRate(int Ok, int Total)
+{
+    public double? Rate => Total == 0 ? null : (double)Ok / Total;
+}
+
+/// <summary>Aggregated KPIs. Spreads are null when no run has a value.</summary>
+public sealed record RunReportData(
+    int RunCount,
+    IReadOnlyDictionary<EditKind, int> RunsByKind,
+    int SuccessCount,
+    double SuccessRate,
+    IReadOnlyDictionary<int, int> ExitCodes,
+    Spread? Ttft,
+    int TtftSamples,
+    Spread? Queue,
+    Spread? TaskSeconds,
+    ParseRate Parse,
+    int ThinkMax,
+    int ThinkTruncatedCount,
+    IReadOnlyDictionary<string, int> FailureKinds,
+    IReadOnlyDictionary<RunPhase, double> MeanPhaseSeconds,
+    IReadOnlyDictionary<int, int> AttemptDistribution,
+    TestFirstCounts? TestFirst = null,
+    CharTestCounts? CharTest = null,
+    AspCounts? Asp = null,
+    WebCounts? Js = null,
+    WebCounts? Css = null);
+
+/// <summary>
+/// <c>pelly test</c> runs (kind <c>CSharpTest</c>): runs, runs that kept tests (CharTest.Kept > 0; a dry-run exits 0 but keeps nothing), mean attempts and failure kinds.
+/// These runs are not edits, so they stay out of every other figure in <see cref="RunReportData"/>.
+/// </summary>
+public sealed record CharTestCounts(int Runs, int Kept, double MeanAttempts, IReadOnlyDictionary<string, int> FailureKinds)
+{
+    public string Line()
+    {
+        var rate = (100.0 * Kept / Runs).ToString("F1", CultureInfo.InvariantCulture);
+        var kinds = FailureKinds.Count == 0 ? "없음" : string.Join(", ", FailureKinds.Select(f => $"{f.Key} {f.Value}"));
+        return $"특성 테스트: 실행 {Runs}건, 남김 {Kept}건(성공률 {rate}%), 평균 시도 {MeanAttempts.ToString("F1", CultureInfo.InvariantCulture)}, 실패 유형 {kinds}";
+    }
+}
+
+/// <summary>
+/// <c>pelly asp</c> runs (kind <c>Asp</c>, also counted in the edit figures): runs, succeeded (exit 0 and not a dry-run, i.e. the run
+/// reached REVIEW), runs whose compile check was skipped, and failure kinds. Counts and known kinds only — no procedure names.
+/// </summary>
+public sealed record AspCounts(int Runs, int Succeeded, int CompileSkipped, IReadOnlyDictionary<string, int> FailureKinds)
+{
+    public string Line()
+    {
+        var kinds = FailureKinds.Count == 0 ? "없음" : string.Join(", ", FailureKinds.Select(f => $"{f.Key} {f.Value}"));
+        return $"ASP: 실행 {Runs}건, 성공 {Succeeded}건, 컴파일 검사 건너뜀 {CompileSkipped}건, 실패 유형 {kinds}";
+    }
+}
+
+/// <summary>
+/// <c>pelly js</c> or <c>pelly css</c> runs (kind <c>Js</c>/<c>Css</c>, also counted in the edit figures): runs, succeeded (exit 0 and not
+/// a dry-run, as for ASP), runs with at least one language-level rejection (JS only) and failure kinds. Counts and known kinds only.
+/// </summary>
+public sealed record WebCounts(int Runs, int Succeeded, int LevelRejected, IReadOnlyDictionary<string, int> FailureKinds, int PageRuns = 0)
+{
+    /// <summary>「JS: 실행 N건, 성공 K건, 문법 수준 거절 M건, 실패 유형 …」, 페이지 안 실행이 있으면 「, 페이지 안 P건」을 덧붙인다.</summary>
+    public string JsLine() => $"JS: 실행 {Runs}건, 성공 {Succeeded}건, 문법 수준 거절 {LevelRejected}건, 실패 유형 {Kinds()}{Pages()}";
+
+    /// <summary>「CSS: 실행 N건, 성공 K건, 실패 유형 …」, 페이지 안 실행이 있으면 「, 페이지 안 P건」을 덧붙인다.</summary>
+    public string CssLine() => $"CSS: 실행 {Runs}건, 성공 {Succeeded}건, 실패 유형 {Kinds()}{Pages()}";
+
+    private string Pages() => PageRuns > 0 ? $", 페이지 안 {PageRuns}건" : "";
+
+    private string Kinds() => FailureKinds.Count == 0 ? "없음" : string.Join(", ", FailureKinds.Select(f => $"{f.Key} {f.Value}"));
+}
+
+/// <summary>Test-first KPIs per run: Met of Judged (acceptance criteria met), RedWarned of RedChecked (baseline already green).</summary>
+public sealed record TestFirstCounts(int Met, int Judged, int RedWarned, int RedChecked, int BreaksExcluded = 0);
+
+public static class RunReport
+{
+    public static RunReportData Build(IReadOnlyList<RunRecord> runs)
+    {
+        // Characterization-test runs write tests rather than edit code: counted on their own, not in the edit KPIs below.
+        var s = runs.Select(r => r.Summary).Where(x => x.Kind != EditKind.CSharpTest).ToList();
+        var charTests = runs.Select(r => r.Summary).Where(x => x.Kind == EditKind.CSharpTest).ToList();
+        var success = s.Count(x => x.ExitCode == ExitCodes.Success);
+        var withTtft = s.Where(x => x.TtftSeconds > 0).ToList();
+        var (ok, total) = KpiMath.ParseSuccess(s.Select(x => (x.Attempts, x.FormatErrors)));
+
+        var failures = s.Where(x => x.FailureKind is not null)
+            .GroupBy(x => FailureKinds.IsKnown(x.FailureKind) ? x.FailureKind! : "Other")
+            .OrderByDescending(g => g.Count()).ThenBy(g => g.Key, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.Count());
+
+        var phases = s.SelectMany(x => x.PhaseSeconds)
+            .GroupBy(p => p.Key)
+            .OrderBy(g => g.Key)
+            .ToDictionary(g => g.Key, g => g.Average(p => p.Value));
+
+        return new RunReportData(
+            s.Count,
+            s.GroupBy(x => x.Kind).OrderBy(g => g.Key).ToDictionary(g => g.Key, g => g.Count()),
+            success,
+            s.Count == 0 ? 0 : (double)success / s.Count,
+            s.GroupBy(x => x.ExitCode).OrderBy(g => g.Key).ToDictionary(g => g.Key, g => g.Count()),
+            SpreadOf(withTtft.Select(x => x.TtftSeconds)),
+            withTtft.Count,
+            SpreadOf(withTtft.Select(x => x.QueueSeconds)),
+            SpreadOf(s.Select(x => x.PhaseSeconds.Values.Sum())),
+            new ParseRate(ok, total),
+            s.Count == 0 ? 0 : s.Max(x => x.ThinkTokens),
+            s.Count(x => x.ThinkTruncated),
+            failures,
+            phases,
+            s.GroupBy(x => x.Attempts).OrderBy(g => g.Key).ToDictionary(g => g.Key, g => g.Count()),
+            CountTestFirst(s),
+            CountCharTests(charTests),
+            CountAsp(s),
+            CountWeb(s, EditKind.Js),
+            CountWeb(s, EditKind.Css));
+    }
+
+    private static WebCounts? CountWeb(List<RunSummary> edits, EditKind kind)
+    {
+        var s = edits.Where(x => x.Kind == kind).ToList();
+        if (s.Count == 0) return null;
+        // A dry-run exits 0 at APPLY; a run that kept its change was approved in REVIEW.
+        var succeeded = s.Count(x => x.ExitCode == ExitCodes.Success && x.PhaseSeconds.ContainsKey(RunPhase.Review));
+        var levelRejected = s.Count(x => x.Web is { LevelRejections: > 0 });
+        var pageRuns = s.Count(x => x.Web is { Container: "page" });
+        return new WebCounts(s.Count, succeeded, levelRejected, CountFailures(s), pageRuns);
+    }
+
+    private static AspCounts? CountAsp(List<RunSummary> edits)
+    {
+        var s = edits.Where(x => x.Kind == EditKind.Asp).ToList();
+        if (s.Count == 0) return null;
+        // A dry-run exits 0 at APPLY; a run that kept its change was approved in REVIEW.
+        var succeeded = s.Count(x => x.ExitCode == ExitCodes.Success && x.PhaseSeconds.ContainsKey(RunPhase.Review));
+        var skipped = s.Count(x => x.Asp?.Checks.GetValueOrDefault("AspCompile") == "skipped");
+        return new AspCounts(s.Count, succeeded, skipped, CountFailures(s));
+    }
+
+    private static Dictionary<string, int> CountFailures(List<RunSummary> s) =>
+        s.Where(x => x.FailureKind is not null)
+            .GroupBy(x => FailureKinds.IsKnown(x.FailureKind) ? x.FailureKind! : "Other")
+            .OrderByDescending(g => g.Count()).ThenBy(g => g.Key, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.Count());
+
+    private static CharTestCounts? CountCharTests(List<RunSummary> s)
+    {
+        if (s.Count == 0) return null;
+        var failures = s.Where(x => x.FailureKind is not null)
+            .GroupBy(x => FailureKinds.IsKnown(x.FailureKind) ? x.FailureKind! : "Other")
+            .OrderByDescending(g => g.Count()).ThenBy(g => g.Key, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.Count());
+        return new CharTestCounts(s.Count, s.Count(x => x.CharTest is { Kept: > 0 }), s.Average(x => x.Attempts), failures);
+    }
+
+    private static TestFirstCounts? CountTestFirst(List<RunSummary> s)
+    {
+        // A run inside pelly apply is one task of an acceptance criterion; apply's own record counts those.
+        var tf = s.Where(x => x.TestFirst is { InApply: false }).ToList();
+        if (tf.Count == 0) return null;
+        // Judged: passed RED and not declined by the human, so a run that never reached GREEN still counts in the denominator.
+        var judged = tf.Where(x => x.TestFirst!.Red == RedState.Red && x.ExitCode != ExitCodes.UserCancelled).ToList();
+        // ExitCode 0 also excludes a run whose test file changed mid-run (exit 4) even though Green/Regressions look fine.
+        var met = judged.Count(x => x.TestFirst!.Green == GreenState.Passed && x.TestFirst.Regressions == 0 && x.ExitCode == ExitCodes.Success);
+        return new TestFirstCounts(met, judged.Count,
+            tf.Count(x => x.TestFirst!.Red == RedState.AlreadyPassed), tf.Count(x => x.TestFirst!.Red != RedState.NotChecked),
+            tf.Sum(x => x.TestFirst!.BreaksExcluded));
+    }
+
+    private static Spread? SpreadOf(IEnumerable<double> values)
+    {
+        var list = values.ToList();
+        return KpiMath.Percentile(list, 0.5) is { } median ? new Spread(median, KpiMath.Percentile(list, 0.9)!.Value) : null;
+    }
+}

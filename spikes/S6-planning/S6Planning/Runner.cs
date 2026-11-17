@@ -2,8 +2,8 @@ using System.Diagnostics;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using PellyCoder.Core.Abstractions;
-using PellyCoder.Core.Llm;
+using PellyCode.Core.Abstractions;
+using PellyCode.Core.Llm;
 
 namespace S6Planning;
 

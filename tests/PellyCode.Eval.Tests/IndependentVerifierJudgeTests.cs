@@ -1,0 +1,283 @@
+using System.IO.Abstractions;
+using System.Net;
+using System.Text;
+using PellyCode.Core.Abstractions;
+using PellyCode.Core.Config;
+using PellyCode.Eval;
+
+namespace PellyCode.Eval.Tests;
+
+/// <summary>
+/// The behaviour judge of <see cref="IndependentVerifier"/> on a throwaway eval root and work copy, with a scripted
+/// process runner: builds and restores succeed, each <c>dotnet run … -result-trx</c> writes a TRX with the given outcomes.
+/// </summary>
+public sealed class IndependentVerifierJudgeTests : IDisposable
+{
+    private const string JudgeTest = "Shop.Api.JudgeTests.OrderServiceJudgeTests.CancelAsync_WhenShipped_Throws";
+    private const string PinnedTest = "Shop.Api.Tests.OrderServiceTests.CancelAsync_WhenShipped_CurrentlyCancels";
+    private const string XunitV3 = """<Project Sdk="Microsoft.NET.Sdk"><ItemGroup><PackageReference Include="xunit.v3.mtp-v2" Version="4.0.2" /></ItemGroup></Project>""";
+
+    private readonly string _root = Path.Combine(Path.GetTempPath(), "pelly-eval-judge-" + Guid.NewGuid().ToString("N")[..8]);
+    private readonly string _evalRoot;
+    private readonly BenchmarkSuite _suite;
+    private readonly string _workRoot;
+    private readonly string _corpusRoot;
+    private readonly string _file;
+    private readonly FakeProcesses _procs = new();
+
+    public IndependentVerifierJudgeTests()
+    {
+        _evalRoot = Path.Combine(_root, "eval");
+        Write(Path.Combine(_evalRoot, "benchmark", "judges", "Modern", "Shop.Api.JudgeTests", "Shop.Api.JudgeTests.csproj"), XunitV3);
+        Write(Path.Combine(_evalRoot, "benchmark", "judges", "Modern", "Shop.Api.JudgeTests", "JudgeFakes.cs"), "// fakes");
+        Directory.CreateDirectory(Path.Combine(_evalRoot, "corpus", "Modern"));
+        Write(Path.Combine(_evalRoot, "benchmark", BenchmarkSuite.FileName),
+            """{ "formatVersion": 1, "name": "t", "roots": [ { "name": "Modern", "path": "../corpus/Modern" } ] }""");
+        _suite = BenchmarkSuite.Load(Path.Combine(_evalRoot, "benchmark")).Suite!;
+
+        _workRoot = Path.Combine(_root, "out", "work", "cs-modern-901");
+        _corpusRoot = Path.Combine(_workRoot, "Modern");
+        Write(Path.Combine(_corpusRoot, "Shop.Api", "Shop.Api.csproj"), """<Project Sdk="Microsoft.NET.Sdk" />""");
+        _file = Path.Combine(_corpusRoot, "Shop.Api", "Services", "OrderService.cs");
+        Write(_file, "namespace Shop.Api.Services { class OrderService { } }");
+        Write(Path.Combine(_corpusRoot, "Shop.Api.Tests", "Shop.Api.Tests.csproj"), XunitV3);
+    }
+
+    public void Dispose()
+    {
+        try { Directory.Delete(_root, recursive: true); }
+        catch (IOException) { /* temp folder, best effort */ }
+    }
+
+    private static void Write(string path, string text)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, text);
+    }
+
+    private static BenchmarkTask Task(List<string>? tests, List<string>? failing) => new()
+    {
+        Id = "cs-modern-901", Kind = "cs", File = "Modern/Shop.Api/Services/OrderService.cs", Method = "CancelAsync", Request = "r",
+        Judge = new BenchmarkJudge { Build = true, Tests = tests, FailingTests = failing },
+    };
+
+    private Task<VerificationResult> VerifyAsync(BenchmarkTask task) =>
+        new IndependentVerifier(new FileSystem(), _procs, new PellyOptions(), null, () => false, _suite)
+            .VerifyCsAsync(task, _file, _corpusRoot, TestContext.Current.CancellationToken);
+
+    [Fact]
+    public async Task Judge_TestsPassAndFailingTestsFail_Passed()
+    {
+        _procs.Outcomes["Shop.Api.JudgeTests"] = [(JudgeTest, "Passed")];
+        _procs.Outcomes["Shop.Api.Tests"] = [(PinnedTest, "Failed"), ("Shop.Api.Tests.OrderServiceTests.Other", "Passed")];
+
+        var result = await VerifyAsync(Task([JudgeTest], [PinnedTest]));
+
+        Assert.Equal(VerificationResult.Passed, result.Status);
+        Assert.Contains("판정 테스트 통과 1건", result.Detail);
+        Assert.Contains("수정 전 동작 테스트 실패 확인 1건", result.Detail);
+    }
+
+    [Fact]
+    public async Task Judge_ListedTestMissingFromTrx_Failed()
+    {
+        _procs.Outcomes["Shop.Api.JudgeTests"] = [("Shop.Api.JudgeTests.OrderServiceJudgeTests.Something_Else", "Passed")];
+        _procs.Outcomes["Shop.Api.Tests"] = [("Shop.Api.Tests.OrderServiceTests.Other", "Passed")];
+
+        var tests = await VerifyAsync(Task([JudgeTest], null));
+        var failing = await VerifyAsync(Task(null, [PinnedTest]));
+
+        Assert.Equal(VerificationResult.Failed, tests.Status);
+        Assert.Contains("결과에 없음", tests.Detail);
+        Assert.Contains(JudgeTest, tests.Detail);
+        Assert.Equal(VerificationResult.Failed, failing.Status);
+        Assert.Contains("결과에 없음", failing.Detail);
+        Assert.Contains(PinnedTest, failing.Detail);
+    }
+
+    [Fact]
+    public async Task Judge_FailingTestStillPasses_Failed()
+    {
+        _procs.Outcomes["Shop.Api.JudgeTests"] = [(JudgeTest, "Passed")];
+        _procs.Outcomes["Shop.Api.Tests"] = [(PinnedTest, "Passed")];
+
+        var result = await VerifyAsync(Task([JudgeTest], [PinnedTest]));
+
+        Assert.Equal(VerificationResult.Failed, result.Status);
+        Assert.Contains("수정 전 동작 테스트가 여전히 통과", result.Detail);
+        Assert.Contains(PinnedTest, result.Detail);
+    }
+
+    [Fact]
+    public async Task Judge_JudgeTestFails_FailedWithMessage()
+    {
+        _procs.Outcomes["Shop.Api.JudgeTests"] = [(JudgeTest, "Failed")];
+
+        var result = await VerifyAsync(Task([JudgeTest], null));
+
+        Assert.Equal(VerificationResult.Failed, result.Status);
+        Assert.Contains("판정 테스트 실패", result.Detail);
+        Assert.Contains("boom", result.Detail);
+        // The edited project itself built: the invariant's build verdict stays Passed.
+        Assert.Equal(VerificationResult.Passed, result.Build);
+    }
+
+    [Fact]
+    public async Task Copy_JudgeProjectNextToWork_TargetRootPassed()
+    {
+        _procs.Outcomes["Shop.Api.JudgeTests"] = [(JudgeTest, "Passed")];
+
+        var result = await VerifyAsync(Task([JudgeTest], null));
+
+        Assert.Equal(VerificationResult.Passed, result.Status);
+        var copied = Path.Combine(_workRoot, "judges", "Modern", "Shop.Api.JudgeTests", "Shop.Api.JudgeTests.csproj");
+        Assert.True(File.Exists(copied));
+        Assert.True(File.Exists(Path.Combine(_workRoot, "judges", "Modern", "Shop.Api.JudgeTests", "JudgeFakes.cs")));
+        var property = "-p:JudgeTargetRoot=" + _corpusRoot;
+        var judgeCalls = _procs.Calls.Where(c => c.Arguments.Contains(copied)).ToList();
+        Assert.Contains(judgeCalls, c => c.Arguments[0] == "restore" && c.Arguments.Contains(property));
+        Assert.Contains(judgeCalls, c => c.Arguments[0] == "build" && c.Arguments.Contains(property));
+        Assert.Contains(_procs.Calls, c => c.Arguments.Take(3).SequenceEqual(["run", "--project", copied]));
+        // The original judge project is never built in place.
+        Assert.DoesNotContain(_procs.Calls, c => c.Arguments.Any(a => a.StartsWith(Path.Combine(_evalRoot, "benchmark"), StringComparison.Ordinal)));
+    }
+
+    // A test-first run leaves the judge projects it used inside the workspace (<root>/JudgeTests/): they are never corpus
+    // projects, whatever their names or order. The independent judge uses its own fresh copy in <work>/judges/.
+    [Fact]
+    public async Task TestFirst_IndependentVerifierIgnoresWorkspaceJudgeCopy()
+    {
+        var inWorkspace = Path.Combine(_corpusRoot, "JudgeTests", "Shop.Api.JudgeTests", "Shop.Api.JudgeTests.csproj");
+        Write(inWorkspace, XunitV3);
+        Write(Path.Combine(_corpusRoot, "JudgeTests", "Other.JudgeTests", "Other.JudgeTests.csproj"), XunitV3);
+        _procs.Outcomes["Shop.Api.JudgeTests"] = [(JudgeTest, "Passed")];
+        _procs.Outcomes["Other.JudgeTests"] = [("Other.JudgeTests.T.X", "Passed")];
+
+        var passed = await VerifyAsync(Task([JudgeTest], null));
+        // A project found only inside the workspace copy is not a candidate.
+        var extra = await VerifyAsync(Task(["Other.JudgeTests.T.X"], null));
+        // failingTests are looked up in the corpus only: the workspace copy is not part of it (the name falls back to Shop.Api).
+        await VerifyAsync(Task(null, ["Shop.Api.JudgeTests.OrderServiceJudgeTests.Old"]));
+
+        Assert.Equal(VerificationResult.Passed, passed.Status);
+        Assert.Equal(VerificationResult.Skipped, extra.Status);
+        Assert.Contains("테스트 프로젝트를 찾지 못함", extra.Detail);
+        var workspaceJudges = Path.Combine(_corpusRoot, "JudgeTests") + Path.DirectorySeparatorChar;
+        Assert.DoesNotContain(_procs.Calls, c => c.Arguments.Any(a => a.StartsWith(workspaceJudges, StringComparison.Ordinal)));
+        Assert.Contains(_procs.Calls, c => c.Arguments.Contains(Path.Combine(_workRoot, "judges", "Modern", "Shop.Api.JudgeTests", "Shop.Api.JudgeTests.csproj")));
+    }
+
+    [Fact]
+    public async Task Judge_NoTestsListed_DoesNotCopyOrRun()
+    {
+        var result = await VerifyAsync(Task(null, null));
+
+        Assert.Equal(VerificationResult.Passed, result.Status);
+        Assert.False(Directory.Exists(Path.Combine(_workRoot, "judges")));
+        Assert.DoesNotContain(_procs.Calls, c => c.Arguments[0] is "run" or "restore");
+    }
+
+    // Judge tooling failures (not the edited code's fault) are Skipped, so a transient NuGet problem is never an invariant violation.
+    [Fact]
+    public async Task Judge_RestoreFails_Skipped()
+    {
+        _procs.RestoreExitCode = 1;
+
+        var result = await VerifyAsync(Task([JudgeTest], null));
+
+        Assert.Equal(VerificationResult.Skipped, result.Status);
+        Assert.Contains("복원 실패", result.Detail);
+        Assert.Equal(VerificationResult.Passed, result.Build);
+    }
+
+    [Fact]
+    public async Task Judge_TestProjectNotFound_Skipped()
+    {
+        var result = await VerifyAsync(Task(["Shop.Nowhere.JudgeTests.X.Y"], null));
+
+        Assert.Equal(VerificationResult.Skipped, result.Status);
+        Assert.Contains("테스트 프로젝트를 찾지 못함", result.Detail);
+    }
+
+    [Fact]
+    public async Task Judge_TestHostCannotStart_Skipped()
+    {
+        _procs.StartFailsFor.Add("Shop.Api.JudgeTests");
+
+        var result = await VerifyAsync(Task([JudgeTest], null));
+
+        Assert.Equal(VerificationResult.Skipped, result.Status);
+        Assert.Contains("Shop.Api.JudgeTests", result.Detail);
+    }
+
+    // The edited code is what the judge project compiles: its build errors stay a failure.
+    [Fact]
+    public async Task Judge_JudgeProjectBuildError_Failed()
+    {
+        _procs.BuildErrorFor.Add("Shop.Api.JudgeTests");
+
+        var result = await VerifyAsync(Task([JudgeTest], null));
+
+        Assert.Equal(VerificationResult.Failed, result.Status);
+        Assert.Contains("빌드 오류", result.Detail);
+        Assert.Contains("CS0103", result.Detail);
+        Assert.Equal(VerificationResult.Passed, result.Build);
+    }
+
+    // A test host that wrote no TRX (killed or crashed by the edited code) never passes the judge.
+    [Theory]
+    [InlineData(1)]
+    [InlineData(0)]
+    public async Task Judge_RunWithoutTrx_Failed(int exitCode)
+    {
+        _procs.NoTrxExitCode["Shop.Api.JudgeTests"] = exitCode;
+
+        var result = await VerifyAsync(Task([JudgeTest], null));
+
+        Assert.Equal(VerificationResult.Failed, result.Status);
+        Assert.Contains("TRX", result.Detail);
+    }
+
+    /// <summary>Every process succeeds; a <c>dotnet run --project P … -result-trx T</c> writes T from <see cref="Outcomes"/>[name of P].</summary>
+    private sealed class FakeProcesses : IProcessRunner
+    {
+        public Dictionary<string, List<(string Name, string Outcome)>> Outcomes { get; } = [];
+        public List<ProcessSpec> Calls { get; } = [];
+        public int RestoreExitCode { get; set; }
+        /// <summary>Projects whose <c>dotnet build</c> reports a compiler error.</summary>
+        public HashSet<string> BuildErrorFor { get; } = [];
+        /// <summary>Projects whose test run cannot be started at all.</summary>
+        public HashSet<string> StartFailsFor { get; } = [];
+        /// <summary>Projects whose test run exits with this code and writes no TRX.</summary>
+        public Dictionary<string, int> NoTrxExitCode { get; } = [];
+
+        public Task<ProcessResult> RunAsync(ProcessSpec spec, CancellationToken ct)
+        {
+            Calls.Add(spec);
+            var args = spec.Arguments;
+            if (args.Count > 0 && args[0] == "restore")
+                return System.Threading.Tasks.Task.FromResult(new ProcessResult(RestoreExitCode, "", "restore failed", [], TimeSpan.FromMilliseconds(1), false));
+            if (args.Count > 1 && args[0] == "build" && BuildErrorFor.Contains(Path.GetFileNameWithoutExtension(args[1])))
+            {
+                var source = Path.Combine(Path.GetDirectoryName(args[1])!, "JudgeFakes.cs");
+                return System.Threading.Tasks.Task.FromResult(new ProcessResult(1,
+                    $"{source}(3,4): error CS0103: The name 'x' does not exist in the current context [{args[1]}]", "", [], TimeSpan.FromMilliseconds(1), false));
+            }
+            if (args.Count > 2 && args[0] == "run" && StartFailsFor.Contains(Path.GetFileNameWithoutExtension(args[2])))
+                throw new ProcessStartException("dotnet", new InvalidOperationException("cannot start"));
+            if (args.Count > 2 && args[0] == "run" && NoTrxExitCode.TryGetValue(Path.GetFileNameWithoutExtension(args[2]), out var code))
+                return System.Threading.Tasks.Task.FromResult(new ProcessResult(code, "", "", [], TimeSpan.FromMilliseconds(1), false));
+            if (args.Count > 0 && args[0] == "run" && args.ToList().IndexOf("-result-trx") is var i and >= 0)
+            {
+                var project = Path.GetFileNameWithoutExtension(args[2]);
+                var sb = new StringBuilder("<TestRun xmlns=\"http://microsoft.com/schemas/VisualStudio/TeamTest/2010\"><Results>");
+                foreach (var (name, outcome) in Outcomes.GetValueOrDefault(project) ?? [])
+                    sb.Append($"<UnitTestResult testName=\"{WebUtility.HtmlEncode(name)}\" outcome=\"{outcome}\">"
+                        + (outcome == "Passed" ? "" : "<Output><ErrorInfo><Message>boom</Message></ErrorInfo></Output>") + "</UnitTestResult>");
+                sb.Append("</Results></TestRun>");
+                File.WriteAllText(args[i + 1], sb.ToString());
+            }
+            return System.Threading.Tasks.Task.FromResult(new ProcessResult(0, "", "", [], TimeSpan.FromMilliseconds(1), false));
+        }
+    }
+}

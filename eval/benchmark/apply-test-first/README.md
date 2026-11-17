@@ -31,8 +31,8 @@
 * t6은 범위에 `Sql`이 있어 SQL 연결이 없으면 건너뜁니다. t8은 Windows가 아니면 건너뜁니다. t8의 명령은 `vstest.console.exe`를 이름만 씁니다. `PATH`에 없으면(개발자 명령 창이 아닐 때, CI 포함) 실행기가 vswhere로 최신 Visual Studio의 `TestPlatform\vstest.console.exe`를 찾아 바꿔 넣습니다. 또 `Legacy/packages`(`eval/corpus/Legacy/build.ps1`)가 준비되어 있어야 합니다.
 
 ## 정의 검사
-* `tests/PellyCoder.Eval.Tests/ApplyTestFirstCasesTests`: 사례 8건과 `expected.json`, `spec check`(코퍼스 사본 + `files/`) 오류 0·경고는 `Unverified` 기대 수만큼의 `TestUnverified`뿐, `files/`의 Modern 테스트 프로젝트가 `Modern.sln`에 있음.
-* `tests/PellyCoder.Integration.Tests/Benchmark/ApplyTestFirstCaseDefinitionTests`(실제 dotnet): t1·t2·t5·t6·t7의 `test:`는 원본 + `files/`에서 실패, t4는 통과, t3은 테스트 프로젝트가 그 테스트 파일 안의 CS 오류로만 빌드되지 않음, `breaks:`는 원본에서 통과. t8은 Windows에서만 돕니다.
+* `tests/PellyCode.Eval.Tests/ApplyTestFirstCasesTests`: 사례 8건과 `expected.json`, `spec check`(코퍼스 사본 + `files/`) 오류 0·경고는 `Unverified` 기대 수만큼의 `TestUnverified`뿐, `files/`의 Modern 테스트 프로젝트가 `Modern.sln`에 있음.
+* `tests/PellyCode.Integration.Tests/Benchmark/ApplyTestFirstCaseDefinitionTests`(실제 dotnet): t1·t2·t5·t6·t7의 `test:`는 원본 + `files/`에서 실패, t4는 통과, t3은 테스트 프로젝트가 그 테스트 파일 안의 CS 오류로만 빌드되지 않음, `breaks:`는 원본에서 통과. t8은 Windows에서만 돕니다.
 
 ## 승인
 * 사람이 사례를 검토한 뒤 `APPROVED.json`을 이 폴더에 만듭니다. 구현자는 만들지 않습니다.

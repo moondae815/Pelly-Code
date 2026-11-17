@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Llm/Resources/**" WithCulture="false" LogicalName="PellyCode.Core.Llm.Resources.%(Filename)%(Extension)" />
+    <EmbeddedResource Include="Asp/Resources/**" WithCulture="false" LogicalName="PellyCode.Core.Asp.Resources.%(Filename)%(Extension)" />
+    <EmbeddedResource Include="Web/Resources/**" WithCulture="false" LogicalName="PellyCode.Core.Web.Resources.%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="PellyCode.Integration.Tests" />
+    <InternalsVisibleTo Include="PellyCode.Core.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Acornima" />
+    <PackageReference Include="Dapper" />
+    <PackageReference Include="DiffPlex" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" />
+    <PackageReference Include="Microsoft.CodeAnalysis.Workspaces.MSBuild" />
+    <PackageReference Include="Microsoft.Extensions.Configuration" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" />
+    <PackageReference Include="Microsoft.Data.SqlClient" />
+    <PackageReference Include="Microsoft.ML.Tokenizers" />
+    <PackageReference Include="Microsoft.SqlServer.TransactSql.ScriptDom" />
+    <PackageReference Include="System.IO.Abstractions" />
+  </ItemGroup>
+
+</Project>

@@ -1,4 +1,4 @@
-using PellyCoder.Core.Llm;
+using PellyCode.Core.Llm;
 
 namespace S6Planning;
 

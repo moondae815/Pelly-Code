@@ -47,16 +47,16 @@ pelly는 프록시를 직접 설정하지 않습니다. `HttpClient`는 .NET 기
 
 ## 3. 이 정책 테스트가 막는 것
 
-`tests/PellyCoder.Core.Tests/Policy/NetworkPolicyTests.cs`가 `src/`와 `eval/PellyCoder.Eval/` 아래 모든 `*.cs`를 훑습니다.
-`eval/PellyCoder.Eval/`은 현장 키트의 `pelly-eval.exe`로 반입되므로 훑습니다. 나머지 `eval/`(시험 코퍼스, 판정 프로젝트)은 시험 재료라 훑지 않습니다. `bin/`, `obj/`도 제외합니다.
+`tests/PellyCode.Core.Tests/Policy/NetworkPolicyTests.cs`가 `src/`와 `eval/PellyCode.Eval/` 아래 모든 `*.cs`를 훑습니다.
+`eval/PellyCode.Eval/`은 현장 키트의 `pelly-eval.exe`로 반입되므로 훑습니다. 나머지 `eval/`(시험 코퍼스, 판정 프로젝트)은 시험 재료라 훑지 않습니다. `bin/`, `obj/`도 제외합니다.
 주석과 문자열 안의 언급은 지우고 검사합니다. 위반하면 파일과 줄 번호를 출력하며 실패합니다.
 
 | 생성 지점 | 허용 파일 |
 | :--- | :--- |
-| `new HttpClient(`, `SocketsHttpHandler` | `src/PellyCoder.Cli/Composition.cs`, `eval/PellyCoder.Eval/Program.cs` |
-| `new SqlConnection(` | `src/PellyCoder.Core/Sql/SqlServerExecutor.cs` |
+| `new HttpClient(`, `SocketsHttpHandler` | `src/PellyCode.Cli/Composition.cs`, `eval/PellyCode.Eval/Program.cs` |
+| `new SqlConnection(` | `src/PellyCode.Core/Sql/SqlServerExecutor.cs` |
 | `TcpClient`, `UdpClient`, `new Socket(`, `WebRequest`, `WebClient`, `Dns.` | 어디에도 없어야 함 |
-| `new Process`, `Process.Start(`, `new ProcessStartInfo` | `src/PellyCoder.Core/Processes/SystemProcessRunner.cs` |
+| `new Process`, `Process.Start(`, `new ProcessStartInfo` | `src/PellyCode.Core/Processes/SystemProcessRunner.cs` |
 
 * 이미 만들어진 `HttpClient`를 받아 쓰는 것은 생성이 아니므로 검사하지 않습니다.
 * 같은 테스트 파일이 `Directory.Packages.props`에 `ApplicationInsights`, `OpenTelemetry`, `Sentry`가 없음을 확인합니다.

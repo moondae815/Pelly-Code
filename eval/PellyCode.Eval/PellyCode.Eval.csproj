@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>pelly-eval</AssemblyName>
+    <RootNamespace>PellyCode.Eval</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <!-- Field-kit build (M4 Task 9): `dotnet publish -r win-x64` alone yields the single-file pelly-eval.exe, the same way as
+       pelly.exe (src/PellyCode.Cli/PellyCode.Cli.csproj), framework-dependent like it. No trimming (Roslyn/ScriptDom/SqlClient use reflection). -->
+  <PropertyGroup Condition="'$(RuntimeIdentifier)'=='win-x64'">
+    <SelfContained>false</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <PublishTrimmed>false</PublishTrimmed>
+    <DebugType>none</DebugType>
+    <!-- DebugType does not reach the referenced Core project, whose PellyCode.Core.pdb would land beside the exe. -->
+    <AllowedReferenceRelatedFileExtensions>.none</AllowedReferenceRelatedFileExtensions>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\PellyCode.Core\PellyCode.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.IO.Abstractions" />
+    <PackageReference Include="YamlDotNet" />
+  </ItemGroup>
+
+  <!-- Roslyn build hosts beside the single-file exe (V2-1c Task 5). -->
+  <Import Project="$(MSBuildThisFileDirectory)../../build/BuildHostOutside.targets" />
+
+</Project>

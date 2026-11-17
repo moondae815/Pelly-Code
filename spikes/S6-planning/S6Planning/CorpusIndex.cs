@@ -2,7 +2,7 @@ using System.Text;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.SqlServer.TransactSql.ScriptDom;
-using PellyCoder.Core.Files;
+using PellyCode.Core.Files;
 
 namespace S6Planning;
 

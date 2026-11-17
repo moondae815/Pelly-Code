@@ -1,0 +1,151 @@
+using PellyCode.Core.Fsm;
+using PellyCode.Core.Models;
+using PellyCode.Core.Specs;
+using PellyCode.Core.Testing;
+using PellyCode.Core.Workspaces;
+
+namespace PellyCode.Core.Tests.Specs;
+
+public sealed class FsmTaskExecutorTests
+{
+    private static readonly Workspace Ws = new(Path.GetFullPath("/ws"), Path.GetFullPath("/ws/.pelly"));
+    private static readonly TaskRunOptions Opts = new(true, false, 2, true);
+
+    private static SpecTask Task(TaskKind kind, string path, string? symbol) =>
+        new("T1", kind, path, symbol, "요청", [], null, false, null, null, 1);
+
+    private static async Task<RunRequest> Run(SpecTask task, TaskRunOptions? options = null)
+    {
+        RunRequest? seen = null;
+        var exec = new FsmTaskExecutor((r, _) =>
+        {
+            seen = r;
+            return System.Threading.Tasks.Task.FromResult(new RunResult(0, "R", r.FilePath, null, null, null));
+        });
+        await exec.ExecuteAsync(task, Ws, options ?? Opts, CancellationToken.None);
+        return seen!;
+    }
+
+    [Fact]
+    public async Task Cs_task_maps_type_and_member()
+    {
+        var r = await Run(Task(TaskKind.CSharp, "src/A.cs", "OrderService.Cancel"));
+        Assert.Equal("OrderService", r.ClassName);
+        Assert.Equal("Cancel", r.MethodName);
+        Assert.Equal(EditKind.CSharp, r.Kind);
+        Assert.Equal("요청", r.Request);
+        Assert.True(r.Yes);
+        Assert.Equal(2, r.MaxRetries);
+        Assert.True(r.Verbose);
+        Assert.Null(r.Group);
+    }
+
+    [Fact]
+    public async Task Group_and_member_override_reach_the_request()
+    {
+        var feedback = new Feedback("BUILD FAILED (1 new error)", 5);
+        var r = await Run(Task(TaskKind.CSharp, "src/A.cs", "OrderService.GetOrder"),
+            Opts with { Group = new GroupRun(feedback), MemberOverride = "FindOrder" });
+        Assert.Equal("OrderService", r.ClassName);
+        Assert.Equal("FindOrder", r.MethodName);
+        Assert.Same(feedback, r.Group!.InitialFeedback);
+    }
+
+    [Fact]
+    public async Task Sql_task_maps_object_name_and_kind()
+    {
+        var r = await Run(Task(TaskKind.Sql, "db/a.sql", "dbo.usp_X"));
+        Assert.Equal(EditKind.Sql, r.Kind);
+        Assert.Equal("dbo.usp_X", r.ObjectName);
+        Assert.Null(r.ClassName);
+        Assert.Null(r.MethodName);
+    }
+
+    [Fact]
+    public async Task Backslash_path_is_normalized_and_host_is_set()
+    {
+        var r = await Run(Task(TaskKind.CSharp, @"src\Sub\A.cs", null));
+        Assert.Equal(Path.Combine(Ws.Root, "src", "Sub", "A.cs"), r.FilePath);
+        Assert.Equal(Ws, r.Host!.Workspace);
+        Assert.Null(r.MethodName);
+    }
+
+    [Fact]
+    public async Task Executor_PutsTestsOnRequest()
+    {
+        var tests = new TaskTests(new Dictionary<string, TestCheck> { ["T.A"] = TestCheck.Red, ["T.B"] = TestCheck.Green }, ["T.Old"]);
+
+        var cs = await Run(Task(TaskKind.CSharp, "src/A.cs", "OrderService.Cancel"), Opts with { Tests = tests });
+        Assert.Equal(["T.A", "T.B"], cs.VerifyTests!.Order());
+        Assert.Same(tests.Checks, cs.TestChecks);
+        Assert.Equal(["T.Old"], cs.ExpectBreaks);
+        Assert.Null(cs.ExpectedTestHashes);
+
+        var hashes = new Dictionary<string, string> { ["T.B"] = "abc" };
+        var guarded = await Run(Task(TaskKind.CSharp, "src/A.cs", "OrderService.Cancel"), Opts with { Tests = tests with { ExpectedHashes = hashes } });
+        Assert.Same(hashes, guarded.ExpectedTestHashes);
+
+        var sql = await Run(Task(TaskKind.Sql, "db/a.sql", "dbo.usp_X"), Opts with { Tests = tests });
+        Assert.Null(sql.VerifyTests);
+        Assert.Null(sql.TestChecks);
+        Assert.Null(sql.ExpectBreaks);
+    }
+
+    [Fact]
+    public async Task Executor_NoTests_NoBreaks_LeavesRequestPlain()
+    {
+        var plain = await Run(Task(TaskKind.CSharp, "src/A.cs", "OrderService.Cancel"));
+        Assert.Null(plain.VerifyTests);
+        Assert.Null(plain.TestChecks);
+        Assert.Null(plain.ExpectBreaks);
+
+        var noBreaks = await Run(Task(TaskKind.CSharp, "src/A.cs", "OrderService.Cancel"),
+            Opts with { Tests = new TaskTests(new Dictionary<string, TestCheck> { ["T.A"] = TestCheck.Red | TestCheck.Green }, []) });
+        Assert.Equal(["T.A"], noBreaks.VerifyTests);
+        Assert.Null(noBreaks.ExpectBreaks);
+    }
+
+    private static SpecTask LinesTask(TaskKind kind, string path) =>
+        Task(kind, path, null) with { Lines = new TextSpanInfo(10, 20) };
+
+    [Fact]
+    public async Task Js_FunctionTarget_BuildsJsRequest()
+    {
+        var r = await Run(Task(TaskKind.Js, "web/js/order.js", "fnSearch"));
+        Assert.Equal(EditKind.Js, r.Kind);
+        Assert.Equal("fnSearch", r.MethodName);
+        Assert.Null(r.ClassName);
+        Assert.Null(r.Lines);
+        Assert.Null(r.Selector);
+        Assert.NotNull(r.Host);
+        Assert.True(r.Yes);
+    }
+
+    [Fact]
+    public async Task Js_LinesTarget()
+    {
+        var r = await Run(LinesTask(TaskKind.Js, "web/a.asp"));
+        Assert.Equal(EditKind.Js, r.Kind);
+        Assert.Null(r.MethodName);
+        Assert.Equal(new TextSpanInfo(10, 20), r.Lines);
+    }
+
+    [Fact]
+    public async Task Css_SelectorTarget_BuildsCssRequest()
+    {
+        var r = await Run(Task(TaskKind.Css, "web/css/admin.css", ".search-box"));
+        Assert.Equal(EditKind.Css, r.Kind);
+        Assert.Equal(".search-box", r.Selector);
+        Assert.Null(r.MethodName);
+        Assert.Null(r.Lines);
+    }
+
+    [Fact]
+    public async Task Css_LinesTarget()
+    {
+        var r = await Run(LinesTask(TaskKind.Css, "web/css/admin.css"));
+        Assert.Equal(EditKind.Css, r.Kind);
+        Assert.Null(r.Selector);
+        Assert.Equal(new TextSpanInfo(10, 20), r.Lines);
+    }
+}

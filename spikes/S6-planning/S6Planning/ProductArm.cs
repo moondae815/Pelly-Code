@@ -4,12 +4,12 @@ using System.IO.Abstractions;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using PellyCoder.Core.Config;
-using PellyCoder.Core.Impact;
-using PellyCoder.Core.Llm;
-using PellyCoder.Core.Specs;
-using PellyCoder.Core.Specs.Drafting;
-using PellyCoder.Core.Workspaces;
+using PellyCode.Core.Config;
+using PellyCode.Core.Impact;
+using PellyCode.Core.Llm;
+using PellyCode.Core.Specs;
+using PellyCode.Core.Specs.Drafting;
+using PellyCode.Core.Workspaces;
 
 namespace S6Planning;
 

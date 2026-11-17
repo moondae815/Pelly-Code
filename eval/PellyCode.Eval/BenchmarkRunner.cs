@@ -1,0 +1,164 @@
+using System.Diagnostics;
+using System.IO.Abstractions;
+using PellyCode.Core.Abstractions;
+using PellyCode.Core.Config;
+using PellyCode.Core.Files;
+using PellyCode.Core.Fsm;
+using PellyCode.Core.Models;
+using PellyCode.Core.Workspaces;
+
+namespace PellyCode.Eval;
+
+/// <summary>What a runner needs besides the task: the real (or canned) model, options and the SQL connection, if any.</summary>
+/// <param name="SqlSkipReason">Non-null when SQL tasks cannot run (no connection, or the target is not allow-listed).</param>
+/// <param name="TestFirst"><c>run --test-first</c>: only tasks with judge tests run, verified by them through <c>--verify-test</c>.</param>
+/// <param name="Orchestrate">Runs the request instead of the FSM orchestrator (tests); returns the exit code.</param>
+public sealed record RunnerSetup(
+    IFileSystem Fs, IProcessRunner Processes, ILlmBackend Backend, PellyOptions Options, TimeProvider Time, BenchmarkSuite Suite,
+    ISqlExecutor? Sql, string? SqlSkipReason, Action<string> Log, Func<bool>? IsWindows = null,
+    IIndependentVerifier? Verifier = null, KeepWork KeepWork = KeepWork.All, bool RemoveRules = false,
+    bool TestFirst = false, Func<RunRequest, CancellationToken, Task<int>>? Orchestrate = null);
+
+/// <summary>Which task work copies (<c>work/&lt;id&gt;</c>) survive the run.</summary>
+public enum KeepWork { All, Failed, None }
+
+/// <summary>
+/// Runs one benchmark task end to end (design §10.6): copy the task's suite root into <c>&lt;out&gt;/work/&lt;id&gt;/</c>, restore
+/// (SDK-style roots: the solution <see cref="SolutionRestore.Pick"/> chooses, and with <c>--test-first</c> the judge projects
+/// copied into the workspace; not timed), run the orchestrator with <c>--yes</c> (timed), read the run's logs, re-verify independently, judge.
+/// </summary>
+public sealed class BenchmarkRunner(RunnerSetup setup)
+{
+    public async Task<TaskResult> RunAsync(SuiteTask suiteTask, string outDir, CancellationToken ct)
+    {
+        var workRoot = Path.Combine(outDir, "work", suiteTask.Task.Id);
+        var existedBefore = Directory.Exists(workRoot);
+        var result = await RunCoreAsync(suiteTask, outDir, ct); // a cancelled run throws: its folder is never removed
+        if (!existedBefore) RemoveWorkCopy(workRoot, result);
+        return result;
+    }
+
+    /// <summary>Applies the keep-work policy once the result is final; a locked file only warns and never changes the result.</summary>
+    private void RemoveWorkCopy(string workRoot, TaskResult result)
+    {
+        var remove = setup.KeepWork switch
+        {
+            KeepWork.None => true,
+            KeepWork.Failed => result.Status == VerificationResult.Passed,
+            _ => false,
+        };
+        if (!remove || !Directory.Exists(workRoot)) return;
+        try
+        {
+            Directory.Delete(workRoot, recursive: true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            setup.Log($"[{result.Id}] 경고: 작업 복사본을 지우지 못했습니다 ({workRoot}): {ex.Message}");
+        }
+    }
+
+    private async Task<TaskResult> RunCoreAsync(SuiteTask suiteTask, string outDir, CancellationToken ct)
+    {
+        var task = suiteTask.Task;
+        var isLegacy = suiteTask.IsLegacy;
+        var isSql = task.Kind == "sql";
+        var judgeTests = task.Judge?.Tests ?? [];
+        if (setup.TestFirst && judgeTests.Count == 0)
+            return TaskResult.Skipped(task, isLegacy, "테스트 우선 대상 아님");
+        if (isSql && setup.SqlSkipReason is not null)
+            return TaskResult.Skipped(task, isLegacy, setup.SqlSkipReason);
+
+        var workRoot = Path.Combine(outDir, "work", task.Id);
+        if (Directory.Exists(workRoot))
+            return TaskResult.Skipped(task, isLegacy, $"작업 폴더가 이미 있습니다: {workRoot}");
+        var file = WorkCopy.Prepare(setup.Suite, suiteTask, workRoot, setup.RemoveRules);
+        var corpusRoot = Path.Combine(workRoot, suiteTask.Root.Name);
+        // Test-first: pelly finds the judge tests through its test index, which sees the workspace only.
+        var judgeProjects = setup.TestFirst ? WorkCopy.CopyJudgesIntoWorkspace(setup.Suite, suiteTask.Root, workRoot) : [];
+
+        var originalText = TextFileCodec.Read(setup.Fs, file).Text;
+        var display = !isSql && task.Method is null && task.Line is { } line ? TargetText.DisplayAtLine(originalText, line) : null;
+        var originalTarget = Target(task, originalText, display);
+        if (originalTarget is null)
+            return TaskResult.Failed(task, isLegacy, "원본에서 대상을 찾지 못함 (작업 정의 오류)", "Definition");
+
+        if (!isLegacy && SolutionRestore.Pick(setup.Fs, corpusRoot) is { } sln)
+        {
+            var restore = await setup.Processes.RunAsync(SolutionRestore.Spec(sln, corpusRoot), ct);
+            if (restore.ExitCode != 0 || restore.TimedOut)
+                return TaskResult.EnvironmentSkipped(task, isLegacy, "복원 실패", SolutionRestore.WithTail($"dotnet restore {SolutionRestore.Head(restore)}", restore));
+        }
+        foreach (var project in judgeProjects.SelectMany(dir => Directory.GetFiles(dir, "*.csproj")).Order(StringComparer.Ordinal))
+        {
+            var restore = await setup.Processes.RunAsync(IndependentVerifier.JudgeRestoreSpec(project, Path.GetFullPath(corpusRoot)), ct);
+            if (restore.ExitCode != 0 || restore.TimedOut)
+                return TaskResult.EnvironmentSkipped(task, isLegacy, "복원 실패",
+                    SolutionRestore.WithTail($"dotnet restore {Path.GetFileName(project)} {SolutionRestore.Head(restore)}", restore));
+        }
+
+        var ui = new EvalUserInteraction(task.Id, setup.Log);
+        var request = new RunRequest(file, null, task.Method, task.Line, task.Request, Yes: true, DryRun: false, MaxRetries: null,
+            ObjectName: task.Object, Kind: isSql ? EditKind.Sql : EditKind.CSharp);
+        if (setup.TestFirst)
+        {
+            var breaks = task.Judge?.FailingTests ?? [];
+            request = request with { VerifyTests = judgeTests, ExpectBreaks = breaks.Count > 0 ? breaks : null };
+        }
+        var run = setup.Orchestrate ?? (isSql
+            ? FsmOrchestratorFactory.CreateSql(setup.Fs, setup.Backend, ui, setup.Options, setup.Time, setup.Sql!).RunAsync
+            : FsmOrchestratorFactory.Create(setup.Fs, setup.Backend, ui, setup.Options, setup.Time, setup.Processes, setup.IsWindows).RunAsync);
+
+        setup.Log($"[{task.Id}] 실행: {task.Request}");
+        var watch = Stopwatch.StartNew();
+        var exit = await run(request, ct);
+        var wall = watch.Elapsed.TotalSeconds;
+
+        var artifacts = RunArtifacts.Read(WorkspaceLocator.Resolve(setup.Fs, file).PellyDir);
+        var finalTarget = Target(task, TextFileCodec.Read(setup.Fs, file).Text, display);
+
+        var independent = exit != 0
+            ? VerificationResult.Skip("실행 실패로 독립 검증 생략")
+            : await VerifyAsync(task, file, corpusRoot, isSql, ct);
+
+        var outcome = TaskJudge.Judge(task, originalTarget, finalTarget ?? "", exit, independent);
+        var reasons = outcome.Reasons.ToList();
+        if (finalTarget is null) reasons.Add("수정 후 대상을 찾지 못함");
+        var passed = outcome.Passed && finalTarget is not null;
+
+        string? failureType = exit != 0 ? artifacts.FailureKind ?? $"Exit{exit}"
+            : outcome.InvariantViolated ? "InvariantViolated"
+            : passed ? null
+            : outcome.JudgeToolingSkipped ? "JudgeTooling"
+            : "Judge";
+
+        var result = new TaskResult(task.Id, task.Kind, passed ? VerificationResult.Passed : VerificationResult.Failed, exit,
+            artifacts.Attempts, reasons, independent, outcome.BuildCheck, outcome.InvariantViolated, failureType,
+            wall, artifacts.TtftSeconds, artifacts.ThinkTokens, artifacts.ThinkTruncated, artifacts.EditOutcomes, null, isLegacy, artifacts.FormatErrors,
+            setup.TestFirst ? artifacts.TestFirst : null);
+        setup.Log($"[{task.Id}] {result.Status} (종료 {exit}, 시도 {result.Attempts}, {wall:0.0}초, 독립 검증 {independent.Status})"
+            + (reasons.Count > 0 ? " — " + string.Join("; ", reasons) : ""));
+        return result;
+    }
+
+    private string? Target(BenchmarkTask task, string textLf, string? display) => task.Kind == "sql"
+        ? TargetText.ForSql(textLf, task.Object, setup.Options.Sql.CompatLevel)
+        : TargetText.ForCs(textLf, task.Method, task.Line, display);
+
+    /// <summary>
+    /// The run is over and its exit code stands: an error of the check itself (not of the edit) is recorded as a skipped
+    /// check, so it neither fakes an invariant violation nor loses the row.
+    /// </summary>
+    private async Task<VerificationResult> VerifyAsync(BenchmarkTask task, string file, string corpusRoot, bool isSql, CancellationToken ct)
+    {
+        var verifier = setup.Verifier ?? new IndependentVerifier(setup.Fs, setup.Processes, setup.Options, setup.Sql, setup.IsWindows, setup.Suite);
+        try
+        {
+            return isSql ? await verifier.VerifySqlAsync(task, file, ct) : await verifier.VerifyCsAsync(task, file, corpusRoot, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return VerificationResult.Skip($"독립 검증 오류: {ex.Message}");
+        }
+    }
+}

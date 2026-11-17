@@ -1,0 +1,244 @@
+using Dapper;
+using Microsoft.Data.SqlClient;
+using PellyCode.Core.Abstractions;
+
+namespace PellyCode.Core.Sql;
+
+/// <summary>The only place that touches SqlClient/Dapper. Opens a pooled connection per call.</summary>
+public sealed class SqlServerExecutor(string? connectionString) : ISqlExecutor
+{
+    public const int CommandTimeoutSeconds = 30;
+    private const int TimeoutErrorNumber = SqlCalls.TimeoutErrorNumber;
+
+    /// <summary>
+    /// Local named pipe that never exists: opening it loads the native SNI layer without touching the network. No pooling: with
+    /// pooling, a second self-test in the same process waits on the pool while the first is still failing, and under load that wait
+    /// outlasts Connect Timeout=1 with an InvalidOperationException instead of a SqlException (reproduced on windows-latest).
+    /// </summary>
+    public const string SelfTestConnectionString = @"Data Source=np:\\.\pipe\pelly-selftest-none\sql\query;Connect Timeout=1;Pooling=false;";
+
+    /// <summary>
+    /// Offline self-test row (<c>pelly doctor --offline-selftest</c>). On Windows it opens a local named pipe that does
+    /// not exist: a <see cref="SqlException"/> means the native SNI library loaded; <see cref="DllNotFoundException"/> or
+    /// <see cref="TypeInitializationException"/> propagate and the caller reports Fail. Elsewhere SqlClient uses its
+    /// managed SNI, so constructing a connection is enough.
+    /// </summary>
+    public static string SelfTestNativeLayer()
+    {
+        using var conn = new SqlConnection(SelfTestConnectionString);
+        if (!OperatingSystem.IsWindows())
+            return "관리 코드 SNI";
+
+        try
+        {
+            conn.Open();
+        }
+        catch (SqlException ex)
+        {
+            return $"네이티브 SNI 로드 성공 (예상된 연결 실패 {ex.Number})";
+        }
+        throw new InvalidOperationException("존재하지 않는 파이프에 연결되었습니다.");
+    }
+
+    public Task<SqlServerProbe> ProbeAsync(CancellationToken ct)
+        => RunAsync(conn => SqlCalls.ProbeAsync(conn, ct), ct);
+
+    public async Task<IReadOnlyList<SqlObjectName>> FindMissingAsync(IReadOnlyList<SqlObjectName> names, CancellationToken ct)
+        => await RunAsync<IReadOnlyList<SqlObjectName>>(async conn =>
+        {
+            var missing = new List<SqlObjectName>();
+            foreach (var name in names)
+            {
+                var id = await conn.ExecuteScalarAsync<int?>(Cmd("SELECT OBJECT_ID(@name)", new { name = Quote(name) }, ct));
+                if (id is null)
+                    missing.Add(name);
+            }
+            return missing;
+        }, ct);
+
+    public async Task<IReadOnlyList<SqlTableSchema>> GetSchemasAsync(IReadOnlyList<SqlObjectName> names, CancellationToken ct)
+        => await RunAsync<IReadOnlyList<SqlTableSchema>>(async conn =>
+        {
+            var result = new List<SqlTableSchema>();
+            foreach (var name in names)
+            {
+                var obj = await conn.QuerySingleOrDefaultAsync<(int ObjectId, string Schema, string Name, string Type)?>(Cmd(
+                    "SELECT o.object_id, SCHEMA_NAME(o.schema_id), o.name, RTRIM(o.type) FROM sys.objects o " +
+                    "WHERE o.object_id = OBJECT_ID(@name) AND o.type IN ('U', 'V')", new { name = Quote(name) }, ct));
+                if (obj is not { } o)
+                    continue;
+
+                var columns = (await conn.QueryAsync<ColumnRow>(Cmd(
+                    "SELECT c.name AS Name, t.name AS TypeName, c.max_length AS MaxLength, c.precision AS [Precision], c.scale AS Scale, " +
+                    "c.is_nullable AS IsNullable, " +
+                    "CAST(CASE WHEN EXISTS (SELECT 1 FROM sys.indexes i JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id " +
+                    "WHERE i.object_id = c.object_id AND i.is_primary_key = 1 AND ic.column_id = c.column_id) THEN 1 ELSE 0 END AS bit) AS IsPk " +
+                    "FROM sys.columns c JOIN sys.types t ON t.user_type_id = c.user_type_id " +
+                    "WHERE c.object_id = @id ORDER BY c.column_id", new { id = o.ObjectId }, ct)))
+                    .Select(c => new SqlColumnInfo(c.Name, TypeDisplay(c), c.IsNullable, c.IsPk))
+                    .ToList();
+
+                var indexRows = await conn.QueryAsync<IndexRow>(Cmd(
+                    "SELECT i.name AS Name, i.is_unique AS IsUnique, ic.key_ordinal AS Ordinal, c.name AS [Column] " +
+                    "FROM sys.indexes i JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id " +
+                    "JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id " +
+                    "WHERE i.object_id = @id AND i.is_primary_key = 0 AND i.type > 0 AND ic.key_ordinal > 0 " +
+                    "ORDER BY i.index_id, ic.key_ordinal", new { id = o.ObjectId }, ct));
+                var indexes = indexRows
+                    .GroupBy(r => r.Name)
+                    .Select(g => new SqlIndexInfo(g.Key, g.Select(r => r.Column).ToList(), g.First().IsUnique))
+                    .ToList();
+
+                result.Add(new SqlTableSchema(new SqlObjectName(o.Schema, o.Name), o.Type == "V" ? "VIEW" : "TABLE", columns, indexes));
+            }
+            return result;
+        }, ct);
+
+    public async Task<IReadOnlyList<SqlObjectName>> GetReferencedEntitiesAsync(SqlObjectName obj, CancellationToken ct)
+        => await RunAsync<IReadOnlyList<SqlObjectName>>(async conn =>
+        {
+            var name = Quote(obj);
+            if (await conn.ExecuteScalarAsync<int?>(Cmd("SELECT OBJECT_ID(@name)", new { name }, ct)) is null)
+                return [];
+            try
+            {
+                var rows = await conn.QueryAsync<(string? Schema, string Name)>(Cmd(
+                    "SELECT DISTINCT referenced_schema_name, referenced_entity_name FROM sys.dm_sql_referenced_entities(@name, 'OBJECT') " +
+                    "WHERE referenced_minor_id = 0 AND referenced_server_name IS NULL AND referenced_database_name IS NULL " +
+                    "AND referenced_entity_name IS NOT NULL", new { name }, ct));
+                return rows.Select(r => new SqlObjectName(r.Schema, r.Name)).ToList();
+            }
+            catch (SqlException ex) when (!SqlCalls.IsConnectionLevel(ex, conn) && !ct.IsCancellationRequested)
+            {
+                // A deployed object that no longer compiles (dropped column, Msg 207) makes the DMF fail with the connection intact.
+                // The caller still has the references the collector found in the batch text.
+                return [];
+            }
+        }, ct);
+
+    public async Task<IReadOnlyList<SqlCompileError>> CompileWithNoExecAsync(string batch, SqlSessionSettings settings, CancellationToken ct)
+        => await RunAsync<IReadOnlyList<SqlCompileError>>(async conn =>
+        {
+            var errors = new List<SqlCompileError>();
+            await ExecAsync(conn, $"SET ANSI_NULLS {OnOff(settings.AnsiNulls)}; SET QUOTED_IDENTIFIER {OnOff(settings.QuotedIdentifier)};", ct);
+            await ExecAsync(conn, "BEGIN TRAN;", ct);
+            try
+            {
+                await ExecAsync(conn, "SET NOEXEC ON;", ct);
+                try
+                {
+                    await ExecAsync(conn, batch, ct);
+                }
+                catch (SqlException ex) when (ex.Number != TimeoutErrorNumber && conn.State == System.Data.ConnectionState.Open && !ct.IsCancellationRequested)
+                {
+                    foreach (SqlError e in ex.Errors)
+                    {
+                        if (e.Class >= 11)
+                            errors.Add(new SqlCompileError(e.Number, e.LineNumber, e.Message));
+                    }
+                }
+            }
+            finally
+            {
+                // Must run even when the target batch failed; CancellationToken.None so a cancelled call still cleans up.
+                await TryExecAsync(conn, "SET NOEXEC OFF;");
+                await TryExecAsync(conn, "IF @@TRANCOUNT > 0 ROLLBACK;");
+            }
+            return errors;
+        }, ct);
+
+    public async Task<IReadOnlyList<SqlProcedureSignature>> GetProcedureSignaturesAsync(IReadOnlyList<SqlObjectName> names, CancellationToken ct)
+        => await RunAsync<IReadOnlyList<SqlProcedureSignature>>(async conn =>
+        {
+            var result = new List<SqlProcedureSignature>();
+            foreach (var name in names)
+            {
+                var obj = await conn.QuerySingleOrDefaultAsync<(int ObjectId, string Schema, string Name)?>(Cmd(
+                    "SELECT o.object_id, SCHEMA_NAME(o.schema_id), o.name FROM sys.objects o " +
+                    "WHERE o.object_id = OBJECT_ID(@name) AND o.type IN ('P', 'PC')", new { name = Quote(name) }, ct));
+                if (obj is not { } o)
+                    continue;
+
+                var parameters = (await conn.QueryAsync<ParameterRow>(Cmd(
+                    "SELECT p.name AS Name, TYPE_NAME(p.user_type_id) AS TypeName, p.max_length AS MaxLength, p.precision AS [Precision], " +
+                    "p.scale AS Scale, p.is_output AS IsOutput FROM sys.parameters p " +
+                    "WHERE p.object_id = @id AND p.parameter_id > 0 ORDER BY p.parameter_id", new { id = o.ObjectId }, ct)))
+                    .Select(p => new SqlParameterInfo(p.Name, TypeDisplay(p.TypeName, p.MaxLength, p.Precision, p.Scale), p.IsOutput))
+                    .ToList();
+
+                result.Add(new SqlProcedureSignature(new SqlObjectName(o.Schema, o.Name), parameters, await FirstResultSetAsync(conn, o.ObjectId, ct)));
+            }
+            return result;
+        }, ct);
+
+    /// <summary>Null when the server cannot describe the first result set (temp tables, dynamic SQL, a broken object) or there is none.</summary>
+    private static async Task<IReadOnlyList<SqlColumnInfo>?> FirstResultSetAsync(SqlConnection conn, int objectId, CancellationToken ct)
+    {
+        try
+        {
+            var rows = (await conn.QueryAsync<ResultColumnRow>(Cmd(
+                "SELECT name AS Name, system_type_name AS TypeName, CAST(ISNULL(is_nullable, 1) AS bit) AS IsNullable, error_number AS ErrorNumber " +
+                "FROM sys.dm_exec_describe_first_result_set_for_object(@id, 0) WHERE ISNULL(is_hidden, 0) = 0 ORDER BY column_ordinal",
+                new { id = objectId }, ct))).ToList();
+            if (rows.Count == 0 || rows.Any(r => r.ErrorNumber is not null))
+                return null;
+            return rows.Select(r => new SqlColumnInfo(r.Name ?? "", r.TypeName ?? "", r.IsNullable, false)).ToList();
+        }
+        catch (SqlException ex) when (!SqlCalls.IsConnectionLevel(ex, conn) && !ct.IsCancellationRequested)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Shared execution path; internal so integration tests can run a slow command through the same cancellation mapping.</summary>
+    internal Task<T> RunAsync<T>(Func<SqlConnection, Task<T>> body, CancellationToken ct)
+        => SqlCalls.RunAsync(connectionString, body, ct);
+
+    private static CommandDefinition Cmd(string sql, object? parameters = null, CancellationToken ct = default)
+        => SqlCalls.Cmd(sql, parameters, ct);
+
+    private static Task ExecAsync(SqlConnection conn, string sql, CancellationToken ct)
+        => conn.ExecuteAsync(Cmd(sql, ct: ct));
+
+    private static async Task TryExecAsync(SqlConnection conn, string sql)
+    {
+        try { await conn.ExecuteAsync(Cmd(sql)); }
+        catch (SqlException) { /* connection is gone; the server rolls back on disconnect */ }
+        catch (InvalidOperationException) { }
+    }
+
+    private static string OnOff(bool on) => on ? "ON" : "OFF";
+
+    private static string Quote(SqlObjectName name)
+    {
+        static string Part(string p) => "[" + p.Replace("]", "]]") + "]";
+        return name.Schema is null ? Part(name.Name) : $"{Part(name.Schema)}.{Part(name.Name)}";
+    }
+
+    private static string TypeDisplay(ColumnRow c) => TypeDisplay(c.TypeName, c.MaxLength, c.Precision, c.Scale);
+
+    private static string TypeDisplay(string t, short maxLength, byte precision, byte scale)
+    {
+        switch (t)
+        {
+            case "char" or "varchar" or "binary" or "varbinary":
+                return maxLength == -1 ? $"{t}(max)" : $"{t}({maxLength})";
+            case "nchar" or "nvarchar":
+                return maxLength == -1 ? $"{t}(max)" : $"{t}({maxLength / 2})";
+            case "decimal" or "numeric":
+                return $"{t}({precision},{scale})";
+            case "datetime2" or "time" or "datetimeoffset":
+                return $"{t}({scale})";
+            default:
+                return t;
+        }
+    }
+
+    private sealed record ColumnRow(string Name, string TypeName, short MaxLength, byte Precision, byte Scale, bool IsNullable, bool IsPk);
+
+    private sealed record ParameterRow(string Name, string TypeName, short MaxLength, byte Precision, byte Scale, bool IsOutput);
+
+    private sealed record ResultColumnRow(string? Name, string? TypeName, bool IsNullable, int? ErrorNumber);
+
+    private sealed record IndexRow(string Name, bool IsUnique, byte Ordinal, string Column);
+}

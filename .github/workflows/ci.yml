@@ -47,7 +47,7 @@ jobs:
         run: ./eval/corpus/Legacy/build.ps1
       - name: Windows tests
         # 환경이 빠져 Skip되거나 필터 오타로 0개가 되면 실패해야 한다. 패키지 테스트는 zip이 있는 package 잡에서 돈다
-        run: dotnet test tests/PellyCoder.Integration.Tests --no-build -- --filter-trait "Env=Windows" --filter-not-class "PellyCoder.Integration.Tests.Package.PackageTests" --fail-skips on --minimum-expected-tests 1
+        run: dotnet test tests/PellyCode.Integration.Tests --no-build -- --filter-trait "Env=Windows" --filter-not-class "PellyCode.Integration.Tests.Package.PackageTests" --fail-skips on --minimum-expected-tests 1
 
   publish-check:
     # 반입본(PRD §11.1)이 SQL·Ollama 없이 자기 점검을 통과하는지 확인한다 (spike S6)
@@ -59,7 +59,7 @@ jobs:
           global-json-file: global.json
       - name: Publish win-x64 single file
         # 런타임을 넣지 않는다(framework-dependent): 현장 PC에 .NET 10 런타임이 있다(질문지 3-2)
-        run: dotnet publish src/PellyCoder.Cli -c Release -r win-x64 --no-self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:PublishTrimmed=false -p:DebugType=none -o artifacts/publish/win-x64
+        run: dotnet publish src/PellyCode.Cli -c Release -r win-x64 --no-self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:PublishTrimmed=false -p:DebugType=none -o artifacts/publish/win-x64
       - name: Check published exe
         shell: pwsh
         run: |
@@ -223,7 +223,7 @@ jobs:
           retention-days: 1
       - name: Publish pelly-eval win-x64 single file
         # 현장 키트(M4 Task 9). csproj의 win-x64 조건부 속성만으로 단일 파일이 나와야 한다
-        run: dotnet publish eval/PellyCoder.Eval -c Release -r win-x64 -o artifacts/publish-eval/win-x64
+        run: dotnet publish eval/PellyCode.Eval -c Release -r win-x64 -o artifacts/publish-eval/win-x64
       - name: Check published pelly-eval.exe
         shell: pwsh
         run: |
@@ -387,10 +387,10 @@ jobs:
             if (@($result).Count -ne $count) { throw "expected $count checked files in $($case.zip), got $(@($result).Count)" }
           }
       - name: Build tests
-        run: dotnet build tests/PellyCoder.Integration.Tests -warnaserror
+        run: dotnet build tests/PellyCode.Integration.Tests -warnaserror
       - name: Package tests
         # zip이 없거나 Skip되거나 필터 오타로 수가 모자라면 실패해야 한다
-        run: dotnet test tests/PellyCoder.Integration.Tests --no-build -- --filter-class "PellyCoder.Integration.Tests.Package.PackageTests" --fail-skips on --minimum-expected-tests 15 --report-xunit-trx --results-directory artifacts/package-tests
+        run: dotnet test tests/PellyCode.Integration.Tests --no-build -- --filter-class "PellyCode.Integration.Tests.Package.PackageTests" --fail-skips on --minimum-expected-tests 15 --report-xunit-trx --results-directory artifacts/package-tests
       - name: List package test results
         if: always()
         shell: pwsh
@@ -454,4 +454,4 @@ jobs:
         run: ./eval/corpus/Sql/deploy.sh "${{ job.services.mssql.id }}" 'Pelly_Test_2026!' PellyCorpusProd
       - name: SQL Server tests
         # 환경이 빠져 Skip되거나 필터 오타로 0개가 되면 실패해야 한다
-        run: dotnet test tests/PellyCoder.Integration.Tests --no-build -- --filter-trait "Env=SqlServer" --fail-skips on --minimum-expected-tests 1
+        run: dotnet test tests/PellyCode.Integration.Tests --no-build -- --filter-trait "Env=SqlServer" --fail-skips on --minimum-expected-tests 1

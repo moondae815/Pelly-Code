@@ -1,4 +1,4 @@
-using PellyCoder.Core.Llm;
+using PellyCode.Core.Llm;
 using S6Planning;
 
 public class RunnerTests

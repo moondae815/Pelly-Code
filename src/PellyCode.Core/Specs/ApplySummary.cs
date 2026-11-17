@@ -1,0 +1,119 @@
+using System.Text.Json.Serialization;
+using PellyCode.Core.Testing;
+
+namespace PellyCode.Core.Specs;
+
+/// <summary>Options of one <c>pelly apply</c> run.</summary>
+public sealed record ApplyOptions(bool Continue, bool Resume, bool ReviewAtEnd, bool Yes, bool DryRun, int? MaxRetries, bool Verbose);
+
+/// <summary>
+/// One task's outcome inside an apply (<paramref name="RunId"/> is null when the executor threw). <paramref name="Group"/> is the
+/// task's group ID (group tasks only); when the group fails as a whole, <paramref name="FailureKind"/> carries the group's kind.
+/// </summary>
+/// <param name="Kind"><c>cs</c>, <c>sql</c>, <c>asp</c>, <c>js</c> or <c>css</c> (A2 design §4.1, W3 design §4.1); null in an older file.</param>
+/// <param name="Proc">An asp task's procedure target (<c>#이름</c>); null otherwise.</param>
+/// <param name="Lines">An asp, js or css task's line range (<c>#L120-148</c>) as <c>120-148</c>; null otherwise.</param>
+/// <param name="Function">A js task's function target; null otherwise.</param>
+/// <param name="Selector">A css task's selector target; null otherwise.</param>
+/// <param name="Note">What the apply did about the task's target: 「T5의 대상 fnSearch는 T1이 바꾼 fnFind로 찾음」 (W3 design §4.2); null otherwise.</param>
+public sealed record ApplyTaskResult(string TaskId, string? RunId, int ExitCode, string? FailureKind, double Seconds, string? Group = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Kind = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Proc = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Lines = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Function = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Selector = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Note = null)
+{
+    /// <summary>A result for <paramref name="task"/>, carrying its kind and its asp, js or css target.</summary>
+    public static ApplyTaskResult For(SpecTask task, string? runId, int exitCode, string? failureKind, double seconds, string? group) =>
+        new(task.Id, runId, exitCode, failureKind, seconds, group,
+            ChangeSpecParser.KindKeyword(task.Kind),
+            task.Kind == TaskKind.Asp && task.Lines is null ? task.Symbol : null,
+            task.Kind is TaskKind.Asp or TaskKind.Js or TaskKind.Css && task.Lines is { } l ? $"{l.StartLine}-{l.EndLine}" : null,
+            task.Kind == TaskKind.Js && task.Lines is null ? task.Symbol : null,
+            task.Kind == TaskKind.Css && task.Lines is null ? task.Symbol : null);
+}
+
+/// <summary>How an acceptance criterion with a <c>test:</c> ended in an apply.</summary>
+public enum AcOutcome { Met, NotMet, NotRun, Unverified }
+
+/// <summary>
+/// One acceptance criterion's result: <paramref name="Red"/> from its first linked task's run, the outcome, and the run ID and
+/// expected breaks left out of the regressions of its last linked task's run (null / 0 when that task did not run).
+/// </summary>
+public sealed record AcResult(string AcId, RedState Red, AcOutcome Outcome, string? GreenRunId, int BreaksExcluded);
+
+/// <summary>Written to <c>.pelly/runs/&lt;apply-id&gt;/apply.json</c> (never <c>summary.json</c>, so run history skips it).</summary>
+/// <param name="Impact">How the start-of-apply impact search found its targets: <c>semantic</c>, <c>name</c>, or null when none ran.</param>
+/// <param name="ImpactFallback">The <c>SemanticFailureKind</c> name that made the search name-based; null otherwise.</param>
+/// <param name="TaskCount">All tasks of the spec (done ones included); 0 in an older file.</param>
+/// <param name="Resumed">Whether the apply ran with <c>--resume</c>.</param>
+/// <param name="Criteria">Per-criterion results when any criterion has a <c>test:</c>; null (and absent from the file) otherwise.</param>
+/// <param name="SqlImpact">The start-of-apply SQL impact search; null (and absent from the file) when none ran.</param>
+/// <param name="AspCallersNotUpdated">
+/// ASP calls left as they were after an applied sql task changed the procedure's parameters (A2 design §4.5); null (and absent
+/// from the file) when there are none.
+/// </param>
+public sealed record ApplySummary(
+    string ApplyId,
+    string SpecId,
+    IReadOnlyList<ApplyTaskResult> Tasks,
+    int ExitCode,
+    IReadOnlyList<SpecIssue> Warnings,
+    bool Archived,
+    string? Impact = null,
+    string? ImpactFallback = null,
+    int TaskCount = 0,
+    bool Resumed = false,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<AcResult>? Criteria = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SqlImpactSummary? SqlImpact = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<AspCallerNotUpdated>? AspCallersNotUpdated = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<JsCallerNotUpdated>? JsCallersNotUpdated = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<FormFieldMismatchRecord>? FormFieldMismatches = null);
+
+/// <summary>
+/// A form field mismatch left after the apply (W3 design §5.3). <paramref name="Kind"/> is <c>notSent</c> (an edited sender no
+/// longer sends a key the page reads) or <c>nobodySends</c> (an edited page reads a key no sender sends); paths are site-relative.
+/// </summary>
+public sealed record FormFieldMismatchRecord(string Kind, string Target, string Key, string? Sender, string Message);
+
+/// <summary>
+/// A JS call or reference left behind after an applied task changed the function's signature (W3 design §4.5): a call of the
+/// old name, or one whose argument count differs from the new parameters. <paramref name="Path"/> is site-relative with '/'.
+/// </summary>
+/// <param name="Change">The change as in the warning: <c>fnSearch(f) → fnFind(f)</c>.</param>
+public sealed record JsCallerNotUpdated(string Function, string Path, int Line, string Change);
+
+/// <summary>One ASP call of a procedure whose parameters changed that no applied asp task edited (A2 design §4.5).</summary>
+/// <param name="Object">The procedure, as its SQL file names it.</param>
+/// <param name="Path">Relative to the site root, with '/'.</param>
+/// <param name="Summary">What changed, as in the warning: <c>@status 추가</c>.</param>
+public sealed record AspCallerNotUpdated(string Object, string Path, int Line, string Summary);
+
+/// <summary>What the SQL impact search did (design §8).</summary>
+/// <param name="Basis">
+/// <c>prod</c> or <c>dev</c>: the database whose dependencies were read; null when none could be read, the search failed, or
+/// only the SP → ASP search ran (A2 design §4.3: then the list holds only the ASP calls).
+/// </param>
+/// <param name="Seeds">The sql tasks the search started from.</param>
+/// <param name="Warnings">The warnings it added.</param>
+/// <param name="ListPath">Workspace-relative path (with '/') of the full list; null when none was written.</param>
+public sealed record SqlImpactSummary(string? Basis, int Seeds, int Warnings, string? ListPath);
+
+/// <summary>The failure kinds a task result carries when its whole group failed (see <c>SpecRunner</c>, <c>ApplyReport</c>).</summary>
+public static class GroupFailureKinds
+{
+    // The one literal lives in GroupVerifier: the KPI (ApplyReport) silently miscounts if the two drift.
+    public const string Unverifiable = GroupVerifier.UnverifiableKind;
+    public const string BuildFailed = "GroupBuildFailed";
+    public const string MissingTarget = "GroupMissingTarget";
+    public const string Rejected = "GroupRejected";
+    public const string TestGreenFailed = Reporting.FailureKinds.GroupTestGreenFailed;
+    public const string TestRegression = Reporting.FailureKinds.GroupTestRegression;
+    public const string TestUnverifiable = Reporting.FailureKinds.GroupTestUnverifiable;
+    public const string TestFileChanged = Reporting.FailureKinds.GroupTestFileChanged;
+
+    public static bool IsGroupKind(string? kind) =>
+        kind is Unverifiable or BuildFailed or MissingTarget or Rejected or TestGreenFailed or TestRegression or TestUnverifiable
+            or TestFileChanged;
+}

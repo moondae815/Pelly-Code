@@ -1,0 +1,53 @@
+using System.IO.Abstractions.TestingHelpers;
+using PellyCode.Core.Config;
+
+namespace PellyCode.Core.Tests.Config;
+
+public class PellyOptionsValidationTests
+{
+    private static OptionsLoadResult Load(string key, string value) =>
+        PellyOptionsLoader.Load(new MockFileSystem(), null, null, new Dictionary<string, string?>(),
+            new Dictionary<string, string?> { [key] = value });
+
+    [Theory]
+    [InlineData("llm:numCtx", "0")]
+    [InlineData("llm:connectTimeoutSeconds", "0")]
+    [InlineData("llm:firstTokenTimeoutSeconds", "0")]
+    [InlineData("llm:streamIdleTimeoutSeconds", "-5")]
+    [InlineData("log:retentionDays", "0")]
+    [InlineData("retry:max", "-1")]
+    [InlineData("build:timeoutSeconds", "0")]
+    [InlineData("budget:think", "0")]
+    [InlineData("budget:inputTotal", "0")]
+    [InlineData("budget:codeOutput", "-1")]
+    [InlineData("sampling:code:topK", "0")]
+    [InlineData("sampling:think:topK", "0")]
+    public void InvalidValue_IsError_NamingKey(string key, string value)
+    {
+        var r = Load(key, value);
+
+        Assert.Null(r.Options);
+        Assert.Contains(r.Errors, e => e.Contains(key, StringComparison.OrdinalIgnoreCase) && e.Contains(value));
+    }
+
+    [Fact]
+    public void RetryMaxZero_IsValid()
+    {
+        var r = Load("retry:max", "0");
+
+        Assert.Empty(r.Errors);
+        Assert.Equal(0, r.Options!.Retry.Max);
+    }
+
+    [Theory]
+    [InlineData("80", false)]
+    [InlineData("160", true)]
+    [InlineData("175", false)]
+    public void CompatLevel_Validation(string value, bool ok)
+    {
+        var r = Load("sql:compatLevel", value);
+        if (ok) { Assert.NotNull(r.Options); return; }
+        Assert.Null(r.Options);
+        Assert.Contains($"sql:compatLevel 값은 90, 100, …, 170 중 하나여야 합니다: {value}", r.Errors);
+    }
+}

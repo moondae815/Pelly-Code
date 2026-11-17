@@ -60,7 +60,9 @@ public sealed class BaseMirror(IFileSystem fs, GitRepo git)
                 var di = fs.FileInfo.New(dest);
                 if (di.Exists && di.Length == si.Length && di.LastWriteTimeUtc == si.LastWriteTimeUtc) continue;
                 fs.Directory.CreateDirectory(fs.Path.GetDirectoryName(dest)!);
+                MakeWritable(dest);
                 fs.File.Copy(full, dest, overwrite: true);
+                MakeWritable(dest); // the copy carries the source's read-only state
                 fs.File.SetLastWriteTimeUtc(dest, si.LastWriteTimeUtc);
                 copied++;
             }
@@ -72,11 +74,12 @@ public sealed class BaseMirror(IFileSystem fs, GitRepo git)
                 var bytes = await git.ShowHeadAsync(rel, ct);
                 if (bytes is null)
                 {
-                    if (fs.File.Exists(dest)) { fs.File.Delete(dest); deleted++; }
+                    if (fs.File.Exists(dest)) { MakeWritable(dest); fs.File.Delete(dest); deleted++; }
                     continue;
                 }
                 if (fs.File.Exists(dest) && fs.File.ReadAllBytes(dest).AsSpan().SequenceEqual(bytes)) continue;
                 fs.Directory.CreateDirectory(fs.Path.GetDirectoryName(dest)!);
+                MakeWritable(dest);
                 fs.File.WriteAllBytes(dest, bytes);
                 copied++;
             }
@@ -87,6 +90,14 @@ public sealed class BaseMirror(IFileSystem fs, GitRepo git)
         {
             return new MirrorResult(false, $"HEAD 기준 사본을 만들지 못했습니다: {e.Message}", copied, deleted);
         }
+    }
+
+    /// <summary>Clears the read-only state of a mirror file so the mirror can always overwrite or delete it (no-op when absent).</summary>
+    private void MakeWritable(string path)
+    {
+        if (!fs.File.Exists(path)) return;
+        var a = fs.File.GetAttributes(path);
+        if (a.HasFlag(FileAttributes.ReadOnly)) fs.File.SetAttributes(path, a & ~FileAttributes.ReadOnly);
     }
 
     private string MirrorFile(string mirrorDir, string rel) =>
@@ -124,6 +135,7 @@ public sealed class BaseMirror(IFileSystem fs, GitRepo git)
         {
             var rel = fs.Path.GetRelativePath(mirrorRoot, f.FullName).Replace(fs.Path.DirectorySeparatorChar, '/');
             if (keep.Contains(rel)) continue;
+            MakeWritable(f.FullName);
             f.Delete();
             n++;
         }

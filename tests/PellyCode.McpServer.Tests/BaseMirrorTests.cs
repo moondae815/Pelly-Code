@@ -214,18 +214,80 @@ public sealed class BaseMirrorTests : IDisposable
     {
         Write("a.cs", "a");
         Commit();
-        Assert.True((await SyncAsync()).Ok);
-        Write("a.cs", "a changed and committed");
+        var git = new GitRepo(new SystemProcessRunner(TimeProvider.System), _dir);
+        var changes = await git.ChangesAsync(Ct);
+
+        var r = await new BaseMirror(new FailingCopyFileSystem("a.cs"), git).SyncAsync(_dir, _mirror, changes, Ct);
+
+        Assert.False(r.Ok);
+        Assert.False(string.IsNullOrWhiteSpace(r.FailureReason));
+        Assert.Contains("locked", r.FailureReason);
+    }
+
+    [Fact]
+    public async Task Sync_ReadOnlySourceLaterEdited_StillSyncs()
+    {
+        Write("ro.cs", "v1");
         Commit();
-        File.SetAttributes(Mirror("a.cs"), FileAttributes.ReadOnly); // an unwritable file in the mirror
+        File.SetAttributes(Path.Combine(_dir, "ro.cs"), FileAttributes.ReadOnly);
         try
         {
+            Assert.True((await SyncAsync()).Ok);
+            File.SetAttributes(Path.Combine(_dir, "ro.cs"), FileAttributes.Normal);
+            Write("ro.cs", "version two");
+            Commit();
+            File.SetAttributes(Path.Combine(_dir, "ro.cs"), FileAttributes.ReadOnly);
+
             var r = await SyncAsync();
 
-            Assert.False(r.Ok);
-            Assert.False(string.IsNullOrWhiteSpace(r.FailureReason));
+            Assert.True(r.Ok, r.FailureReason);
+            Assert.Equal("version two", ReadMirror("ro.cs"));
         }
-        finally { File.SetAttributes(Mirror("a.cs"), FileAttributes.Normal); }
+        finally { File.SetAttributes(Path.Combine(_dir, "ro.cs"), FileAttributes.Normal); }
+    }
+
+    [Fact]
+    public async Task Sync_ReadOnlyMirrorFileToPrune_StillSyncs()
+    {
+        Write("a.cs", "a"); Write("gone.cs", "g");
+        Commit();
+        Assert.True((await SyncAsync()).Ok);
+        Git("rm", "-q", "-f", "gone.cs");
+        Git("commit", "-q", "-m", "rm");
+        File.SetAttributes(Mirror("gone.cs"), FileAttributes.ReadOnly);
+        File.SetAttributes(Mirror("a.cs"), FileAttributes.ReadOnly);
+        Write("a.cs", "a changed"); Git("add", "a.cs"); Git("commit", "-q", "-m", "a");
+
+        var r = await SyncAsync();
+
+        Assert.True(r.Ok, r.FailureReason);
+        Assert.False(File.Exists(Mirror("gone.cs")));
+        Assert.Equal("a changed", ReadMirror("a.cs"));
+    }
+
+    /// <summary>A real file system whose File.Copy throws an IOException for one file name.</summary>
+    private sealed class FailingCopyFileSystem(string failName) : IFileSystem
+    {
+        private readonly FileSystem _inner = new();
+        public IFile File => new FailingFile(this, failName);
+        public IDirectory Directory => _inner.Directory;
+        public IFileInfoFactory FileInfo => _inner.FileInfo;
+        public IFileVersionInfoFactory FileVersionInfo => _inner.FileVersionInfo;
+        public IPath Path => _inner.Path;
+        public IDirectoryInfoFactory DirectoryInfo => _inner.DirectoryInfo;
+        public IDriveInfoFactory DriveInfo => _inner.DriveInfo;
+        public IFileSystemWatcherFactory FileSystemWatcher => _inner.FileSystemWatcher;
+        public IFileStreamFactory FileStream => _inner.FileStream;
+        public IRandomAccess RandomAccess => _inner.RandomAccess;
+    }
+
+    private sealed class FailingFile(IFileSystem fs, string failName) : FileWrapper(fs)
+    {
+        public override void Copy(string sourceFileName, string destFileName, bool overwrite)
+        {
+            if (Path.GetFileName(sourceFileName) == failName) throw new IOException("locked by another process");
+            base.Copy(sourceFileName, destFileName, overwrite);
+        }
     }
 
     [Fact]

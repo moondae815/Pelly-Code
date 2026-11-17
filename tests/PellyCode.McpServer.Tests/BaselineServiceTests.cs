@@ -215,6 +215,98 @@ public sealed class BaselineServiceTests : IDisposable
     private static GroupBuild RestoreFailed() =>
         new(false, "그룹 빌드 검증 불가 (App/App.csproj): NU1101 복원 실패", GroupVerifier.UnverifiableKind, []);
 
+    /// <summary>App and Lib in the root solution, no test projects.</summary>
+    private void TwoProjectRepo()
+    {
+        PlainRepo();
+        Write("Lib/Lib.csproj", Csproj);
+        Write("Shop.slnx", "<Solution><Project Path=\"App/App.csproj\" /><Project Path=\"Lib/Lib.csproj\" /></Solution>");
+        Commit();
+    }
+
+    private static bool Has(IReadOnlyList<string> projects, string name) => projects.Any(p => p.Contains(name, StringComparison.Ordinal));
+
+    [Fact]
+    public async Task Failure_OfOneProject_DoesNotPoisonOthers()
+    {
+        PlainRepo();
+        Write("Other/Other.csproj", Csproj);
+        Write("Shop.slnx", "<Solution><Project Path=\"App/App.csproj\" /></Solution>");
+        Commit();
+        var e1 = new Diagnostic(Path.Combine(_mirror, "App", "A.cs"), 1, 1, "error", "CS1", "a");
+        _verifier.Handler = (p, _) => Task.FromResult(Has(p, "Other") ? RestoreFailed() : new GroupBuild(true, null, null, [e1]));
+        var s = NewService();
+        await s.StartAsync(Ct);
+        await WaitUntil(() => Settled(s));
+
+        var other = await s.GetAsync(["Other/Other.csproj"], LongWait, null, Ct);
+        other = await s.GetAsync(["Other/Other.csproj"], LongWait, null, Ct); // its one retry, spent
+        var app = await s.GetAsync(["App/App.csproj"], LongWait, null, Ct);
+
+        Assert.Equal(BaselineStatus.Failed, other.Status);
+        Assert.Equal(BaselineStatus.Ready, app.Status);
+        Assert.Null(app.FailureReason);
+        Assert.True(app.Build!.Verifiable);
+        Assert.Equal([e1], app.Build.Errors);
+    }
+
+    [Fact]
+    public async Task Failed_ThenOtherProjectRequested_ReturnsReady()
+    {
+        TwoProjectRepo();
+        // The prebuild builds App and Lib together and fails because of Lib.
+        _verifier.Handler = (p, _) => Task.FromResult(Has(p, "Lib") ? RestoreFailed() : new GroupBuild(true, null, null, []));
+        var s = NewService();
+        await s.StartAsync(Ct);
+        await WaitUntil(() => Settled(s));
+        Assert.Equal(BaselineStatus.Failed, s.Last!.Status);
+        Assert.Equal(BaselineStatus.Failed, (await s.GetAsync(["Lib/Lib.csproj"], LongWait, null, Ct)).Status);
+
+        var app = await s.GetAsync(["App/App.csproj"], LongWait, null, Ct);
+
+        Assert.Equal(BaselineStatus.Ready, app.Status);
+        Assert.Equal(3, _verifier.Calls);
+        Assert.Equal([Path.Combine(_mirror, "App", "App.csproj")], _verifier.Requests[2]);
+    }
+
+    [Fact]
+    public async Task RetryIsPerProject()
+    {
+        TwoProjectRepo();
+        _verifier.Handler = (_, _) => Task.FromResult(RestoreFailed());
+        var s = NewService();
+        await s.StartAsync(Ct);
+        await WaitUntil(() => Settled(s));
+        Assert.Equal(1, _verifier.Calls);
+
+        Assert.Equal(BaselineStatus.Failed, (await s.GetAsync(["App/App.csproj"], LongWait, null, Ct)).Status);
+        Assert.Equal(2, _verifier.Calls);
+        Assert.Equal(BaselineStatus.Failed, (await s.GetAsync(["Lib/Lib.csproj"], LongWait, null, Ct)).Status);
+        Assert.Equal(3, _verifier.Calls);
+        Assert.Equal(BaselineStatus.Failed, (await s.GetAsync(["App/App.csproj"], LongWait, null, Ct)).Status);
+        Assert.Equal(BaselineStatus.Failed, (await s.GetAsync(["Lib/Lib.csproj"], LongWait, null, Ct)).Status);
+        Assert.Equal(3, _verifier.Calls);
+    }
+
+    [Fact]
+    public async Task NewProjectNotAtHead_EmptyBaseline_Ready()
+    {
+        SolutionRepo(withTests: false);
+        var s = NewService();
+        await s.StartAsync(Ct);
+        await WaitUntil(() => Settled(s));
+        Write("New/New.csproj", Csproj);
+        Write("New/N.cs", "class N {}");
+        _verifier.Handler = (p, _) => Task.FromResult(Has(p, "New") ? RestoreFailed() : new GroupBuild(true, null, null, []));
+
+        var b = await s.GetAsync(["New/New.csproj", "App/App.csproj"], LongWait, null, Ct);
+
+        Assert.Equal(BaselineStatus.Ready, b.Status);
+        Assert.True(b.Build!.Verifiable);
+        Assert.Empty(b.Build.Errors);
+        Assert.Equal(1, _verifier.Calls);
+    }
+
     [Fact]
     public async Task EnvironmentFailure_Failed_NoBackgroundRetry()
     {

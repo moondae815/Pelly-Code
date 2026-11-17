@@ -63,20 +63,21 @@ public sealed class BaselineService(IFileSystem fs, string root, string mirrorDi
     /// <summary>Completed background HEAD checks (tests advance a fake clock until it moves instead of sleeping).</summary>
     internal int PollCount => Volatile.Read(ref _polls);
 
-    /// <summary>The state of the last baseline work, for <c>--check</c>; null before any.</summary>
+    /// <summary>The state of the last baseline work over every project, for <c>--check</c>; null before any.</summary>
     public Baseline? Last
     {
         get
         {
             lock (_gate)
-                return _state is null ? null : Snapshot(_state, _inflight.IsCompleted ? null : BaselineStatus.Building);
+                return _state is null ? null : Snapshot(_state, null, _inflight.IsCompleted ? null : BaselineStatus.Building);
         }
     }
 
     /// <summary>
-    /// A baseline covering <paramref name="projectsRelative"/> (root-relative .csproj paths) at the current HEAD. Waits for work in
-    /// flight up to <paramref name="wait"/>, then returns <see cref="BaselineStatus.Building"/> while the work goes on.
-    /// <paramref name="ct"/> cancels only this wait, never the shared work.
+    /// A baseline of exactly <paramref name="projectsRelative"/> (root-relative .csproj paths) at the current HEAD: Ready when all of
+    /// them are built (a project HEAD does not have counts as an empty baseline), Failed only when one of them (or one of its test
+    /// projects) could not be built or run after its one retry. Waits for work in flight up to <paramref name="wait"/>, then returns
+    /// <see cref="BaselineStatus.Building"/> while the work goes on. <paramref name="ct"/> cancels only this wait, never the shared work.
     /// </summary>
     public async Task<Baseline> GetAsync(IReadOnlyList<string> projectsRelative, TimeSpan wait, IProgress<string>? progress, CancellationToken ct)
     {
@@ -96,23 +97,30 @@ public sealed class BaselineService(IFileSystem fs, string root, string mirrorDi
                 {
                     job = _inflight;
                 }
-                else if (s?.Failure is not null && (waited || s.RequestRetryUsed))
+                else if (s is not null && wanted.All(s.Covers))
                 {
-                    // It failed while this request waited, or the one retry a request gets for this HEAD is spent.
-                    return Snapshot(s, null);
+                    return Snapshot(s, wanted, null);
                 }
-                else if (s is { Failure: null, Done: true } && wanted.All(s.Built.Contains))
+                else if (s is not null && s.FailedKeys(wanted) is { Count: > 0 } failed && (waited || failed.Any(s.RetryUsed.Contains)))
                 {
-                    return Snapshot(s, null);
+                    // One of its projects failed while this request waited, or that project's one retry is spent.
+                    return Snapshot(s, wanted, null);
                 }
                 else if (_stop.IsCancellationRequested)
                 {
                     // Shutting down: no new work would ever finish.
-                    return s is null ? new Baseline(head, BaselineStatus.None, null, Empty, [], null, time.GetUtcNow()) : Snapshot(s, null);
+                    return new Baseline(head, BaselineStatus.None, null, Empty, [], null, time.GetUtcNow());
                 }
                 else
                 {
-                    if (s?.Failure is not null) s.RequestRetryUsed = true;
+                    if (s is not null)
+                        foreach (var key in s.FailedKeys(wanted))
+                        {
+                            // The one retry a request gets for this project at this HEAD.
+                            s.RetryUsed.Add(key);
+                            s.Failures.Remove(key);
+                            s.FailedBuilds.Remove(key);
+                        }
                     job = _inflight = Schedule(head, wanted, prebuild: false);
                 }
             }
@@ -202,6 +210,7 @@ public sealed class BaselineService(IFileSystem fs, string root, string mirrorDi
         return head;
     }
 
+
     /// <summary>Queues one job behind the ones before it (one at a time). The task never faults.</summary>
     private Task Schedule(string head, IReadOnlyList<string> projects, bool prebuild) => Task.Run(async () =>
     {
@@ -226,7 +235,12 @@ public sealed class BaselineService(IFileSystem fs, string root, string mirrorDi
         {
             logger.LogError(e, "HEAD 기준 작업이 실패했습니다");
             lock (_gate)
-                if (_state?.Head == head) _state.Failure ??= $"HEAD 기준 작업이 실패했습니다: {e.Message}";
+                if (_state?.Head == head)
+                {
+                    var reason = $"HEAD 기준 작업이 실패했습니다: {e.Message}";
+                    if (prebuild) _state.GeneralFailure ??= reason;
+                    foreach (var p in projects.Where(p => !_state.Covers(p))) _state.Failures.TryAdd(p, reason);
+                }
         }
         finally
         {
@@ -241,12 +255,27 @@ public sealed class BaselineService(IFileSystem fs, string root, string mirrorDi
         {
             if (_state is null || _state.Head != head) _state = LoadCache(head) ?? new State(head);
             s = _state;
-            if (s is { Failure: null, Done: true } && (prebuild ? s.SolutionBuilt : requested.All(s.Built.Contains))) return;
-            s.Failure = null;
-            s.FailedBuild = null;
-            s.Done = false;
+            if (prebuild ? s.SolutionBuilt : requested.All(p => s.Covers(p) || s.Failures.ContainsKey(p))) return;
+            if (prebuild) s.GeneralFailure = null;
+        }
+        var failed = false;
+
+        // Records the failure on each key (a project or a test project); null records it for the prebuild as a whole.
+        void FailAll(IReadOnlyList<string>? projects, string reason)
+        {
+            failed = true;
+            lock (_gate)
+            {
+                if (projects is null) s.GeneralFailure = reason;
+                else foreach (var p in projects) s.Failures.TryAdd(p, reason);
+                s.At = time.GetUtcNow();
+            }
+            logger.LogWarning("HEAD {Head} 기준을 만들지 못했습니다: {Reason}", Short(head), reason);
         }
 
+        // A git or mirror failure concerns every requested project that still needs work.
+        List<string>? pending;
+        lock (_gate) pending = prebuild ? null : requested.Where(p => !s.Covers(p)).ToList();
         IReadOnlyList<GitChange> changes;
         try
         {
@@ -254,13 +283,13 @@ public sealed class BaselineService(IFileSystem fs, string root, string mirrorDi
         }
         catch (InvalidOperationException e)
         {
-            Fail(s, e.Message);
+            FailAll(pending, e.Message);
             return;
         }
         var synced = await _mirror.SyncAsync(root, mirrorDir, changes, ct);
         if (!synced.Ok)
         {
-            Fail(s, synced.FailureReason!);
+            FailAll(pending, synced.FailureReason!);
             return;
         }
         logger.LogInformation("HEAD 기준 사본을 맞췄습니다 (복사 {Copied}, 삭제 {Deleted})", synced.CopiedFiles, synced.DeletedFiles);
@@ -277,53 +306,72 @@ public sealed class BaselineService(IFileSystem fs, string root, string mirrorDi
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Xml.XmlException)
         {
-            Fail(s, $"솔루션을 읽지 못했습니다: {e.Message}");
+            FailAll(null, $"솔루션을 읽지 못했습니다: {e.Message}");
             return;
         }
 
+        // A project HEAD does not have (new in the working tree) has an empty baseline: nothing to build.
         List<string> missing;
-        lock (_gate) missing = projects.Where(p => !s.Built.Contains(p)).ToList();
+        lock (_gate)
+        {
+            foreach (var p in projects.Where(p => !s.Built.Contains(p) && !fs.File.Exists(Full(p)))) s.Absent.Add(p);
+            missing = projects.Where(p => !s.Built.Contains(p) && !s.Absent.Contains(p) && !s.Failures.ContainsKey(p)).ToList();
+        }
         if (missing.Count > 0)
         {
             logger.LogInformation("HEAD 기준 빌드: 프로젝트 {Count}개", missing.Count);
             var build = await verifier.BuildAsync(mirrorWs, missing.Select(Full).ToList(), ct);
             if (!build.Verifiable)
             {
-                // Restore failure, missing MSBuild, timeout…: the environment, not HEAD's code.
-                lock (_gate) s.FailedBuild = build;
-                Fail(s, build.Reason ?? "HEAD 기준 빌드를 할 수 없습니다");
-                return;
+                // Restore failure, missing MSBuild, timeout…: the environment, not HEAD's code. Each project of the group keeps it
+                // until its own retry (a retry builds that project alone).
+                FailAll(missing, build.Reason ?? "HEAD 기준 빌드를 할 수 없습니다");
+                lock (_gate)
+                    foreach (var p in missing) s.FailedBuilds[p] = build;
             }
-            lock (_gate)
+            else
             {
-                foreach (var e in build.Errors)
-                    if (!s.Errors.Contains(e)) s.Errors.Add(e);
-                foreach (var p in missing) s.Built.Add(p);
+                lock (_gate)
+                {
+                    foreach (var e in build.Errors)
+                        if (!s.Errors.Contains(e)) s.Errors.Add(e);
+                    foreach (var p in missing) s.Built.Add(p);
+                }
             }
         }
 
-        List<string> testProjects;
-        try
+        // The test projects of every built project of this job; each is run once and fails on its own.
+        List<string> built;
+        lock (_gate) built = projects.Where(p => s.Built.Contains(p) && !s.Failures.ContainsKey(p)).ToList();
+        foreach (var p in built)
         {
-            testProjects = TestProjects(projects);
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-        {
-            Fail(s, e.Message);
-            return;
+            bool known;
+            lock (_gate) known = s.TestsOf.ContainsKey(p);
+            if (known) continue;
+            try
+            {
+                var found = TestProjectLocator.Find(fs, mirrorDir, Full(p), testOptions).Select(Relative).Distinct(PathComparers.ForOs).ToList();
+                lock (_gate) s.TestsOf[p] = found;
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                FailAll([p], e.Message);
+            }
         }
 
-        foreach (var rel in testProjects)
+        List<string> toRun;
+        lock (_gate)
+            toRun = built.Where(s.TestsOf.ContainsKey).SelectMany(p => s.TestsOf[p]).Distinct(PathComparers.ForOs)
+                .Where(t => !s.TestProjectsRun.Contains(t, StringComparer.Ordinal) && !s.Failures.ContainsKey(t)).ToList();
+        foreach (var rel in toRun)
         {
-            lock (_gate)
-                if (s.TestProjectsRun.Contains(rel, StringComparer.Ordinal)) continue;
             logger.LogInformation("HEAD 기준 테스트: {Project}", rel);
             var trx = fs.Path.Combine(mirrorWs.PellyDir, "baseline", $"test-{Interlocked.Increment(ref _trx)}.trx");
             var run = await tests.RunAsync(Full(rel), mirrorDir, trx, ct);
             if (TestFailure(run) is { } reason)
             {
-                Fail(s, $"HEAD 기준 테스트를 실행하지 못했습니다 ({rel}): {reason}");
-                return;
+                FailAll([rel], $"HEAD 기준 테스트를 실행하지 못했습니다 ({rel}): {reason}");
+                continue;
             }
             lock (_gate)
             {
@@ -339,9 +387,10 @@ public sealed class BaselineService(IFileSystem fs, string root, string mirrorDi
             s.Done = true;
             s.At = time.GetUtcNow();
         }
-        WriteCache(s);
-        logger.LogInformation("HEAD {Head} 기준 준비됨: 빌드 오류 {Errors}건, 테스트 프로젝트 {Tests}개",
-            Short(head), s.Errors.Count, s.TestProjectsRun.Count);
+        // Only a job that ended without a failure is written: a failure is retried, never cached.
+        if (!failed) WriteCache(s);
+        logger.LogInformation("HEAD {Head} 기준 작업 끝: 빌드 오류 {Errors}건, 테스트 프로젝트 {Tests}개, 실패 {Failures}건",
+            Short(head), s.Errors.Count, s.TestProjectsRun.Count, s.Failures.Count);
     }
 
     /// <summary>
@@ -356,21 +405,6 @@ public sealed class BaselineService(IFileSystem fs, string root, string mirrorDi
         if (run.BuildErrors.FirstOrDefault(e => !BuildMessages.IsCompilerError(e)) is { } blocker)
             return BuildMessages.Unverifiable(blocker, "테스트 프로젝트를 복원하고 빌드되는지 먼저 확인하세요");
         return null;
-    }
-
-    /// <summary>Test projects of <paramref name="projects"/>, root-relative: <c>test.projects</c> when set, else those referencing them.</summary>
-    private List<string> TestProjects(IReadOnlyList<string> projects) =>
-        projects.SelectMany(p => TestProjectLocator.Find(fs, mirrorDir, Full(p), testOptions))
-            .Select(Relative).Distinct(PathComparers.ForOs).ToList();
-
-    private void Fail(State s, string reason)
-    {
-        lock (_gate)
-        {
-            s.Failure = reason;
-            s.At = time.GetUtcNow();
-        }
-        logger.LogWarning("HEAD {Head} 기준을 만들지 못했습니다: {Reason}", Short(s.Head), reason);
     }
 
     private List<string> Solutions(string dir)
@@ -388,12 +422,29 @@ public sealed class BaselineService(IFileSystem fs, string root, string mirrorDi
         }
     }
 
-    private static Baseline Snapshot(State s, BaselineStatus? status)
+    /// <summary>
+    /// The baseline of <paramref name="wanted"/> (every project when null). Build errors are the merged errors of every project
+    /// built so far: they cannot be told apart by project, and an error the current build does not repeat is never reported anyway.
+    /// </summary>
+    private static Baseline Snapshot(State s, IReadOnlyList<string>? wanted, BaselineStatus? status)
     {
-        var build = s.FailedBuild ?? (s.Built.Count > 0 || s.Failure is null ? new GroupBuild(true, null, null, s.Errors.ToList()) : null);
-        var settled = s.Failure is not null ? BaselineStatus.Failed : s.Done ? BaselineStatus.Ready : BaselineStatus.None;
-        return new Baseline(s.Head, status ?? settled, build, new Dictionary<string, TestRun>(s.Tests, StringComparer.Ordinal),
-            s.TestProjectsRun.ToList(), s.Failure, s.At);
+        var failed = wanted is null ? s.Failures.Keys.ToList() : s.FailedKeys(wanted);
+        var reasons = failed.Select(k => s.Failures[k]).Prepend(wanted is null ? s.GeneralFailure : null).OfType<string>()
+            .Distinct(StringComparer.Ordinal).ToList();
+        var failedBuild = failed.Select(k => s.FailedBuilds.GetValueOrDefault(k)).OfType<GroupBuild>().FirstOrDefault();
+        var anyBuilt = wanted is null ? s.Built.Count > 0 || s.Absent.Count > 0 : wanted.Any(p => s.Built.Contains(p) || s.Absent.Contains(p));
+        var build = failedBuild ?? (anyBuilt || reasons.Count == 0 ? new GroupBuild(true, null, null, s.Errors.ToList()) : null);
+
+        var testProjects = (wanted is null
+                ? s.TestProjectsRun
+                : wanted.Where(s.TestsOf.ContainsKey).SelectMany(p => s.TestsOf[p]).Where(s.Tests.ContainsKey))
+            .Distinct(StringComparer.Ordinal).ToList();
+        var settled = reasons.Count > 0 ? BaselineStatus.Failed
+            : wanted is not null || s.Done ? BaselineStatus.Ready
+            : BaselineStatus.None;
+        return new Baseline(s.Head, status ?? settled, build,
+            testProjects.ToDictionary(t => t, t => s.Tests[t], StringComparer.Ordinal), testProjects,
+            reasons.Count == 0 ? null : string.Join("; ", reasons), s.At);
     }
 
     private static string Normalize(string rel) => rel.Replace('\\', '/').TrimStart('/');
@@ -401,7 +452,7 @@ public sealed class BaselineService(IFileSystem fs, string root, string mirrorDi
     private string Relative(string full) => fs.Path.GetRelativePath(mirrorDir, full).Replace('\\', '/');
     private static string Short(string head) => head.Length > 12 ? head[..12] : head;
 
-    // ---- disk cache: one complete baseline per HEAD, written to a temp file and renamed into place ----
+    // ---- disk cache: the baseline of one HEAD, written to a temp file and renamed into place after a job without failures ----
 
     private static string CacheFileFor(IFileSystem fs, string mirrorDir)
     {
@@ -409,16 +460,18 @@ public sealed class BaselineService(IFileSystem fs, string root, string mirrorDi
         return fs.Path.Combine(fs.Path.GetDirectoryName(dir)!, fs.Path.GetFileName(dir) + ".baseline.json");
     }
 
-    private sealed record CacheFile(int Version, string Head, bool SolutionBuilt, List<string> Built, List<Diagnostic> Errors,
-        Dictionary<string, TestRun> Tests, List<string> TestProjectsRun, DateTimeOffset At);
+    private sealed record CacheFile(int Version, string Head, bool SolutionBuilt, List<string> Built, List<string> Absent,
+        List<Diagnostic> Errors, Dictionary<string, List<string>> TestsOf, Dictionary<string, TestRun> Tests,
+        List<string> TestProjectsRun, DateTimeOffset At);
 
-    private const int CacheVersion = 1;
+    private const int CacheVersion = 2;
 
     private void WriteCache(State s)
     {
         CacheFile data;
         lock (_gate)
-            data = new CacheFile(CacheVersion, s.Head, s.SolutionBuilt, s.Built.ToList(), s.Errors.ToList(),
+            data = new CacheFile(CacheVersion, s.Head, s.SolutionBuilt, s.Built.ToList(), s.Absent.ToList(), s.Errors.ToList(),
+                s.TestsOf.ToDictionary(kv => kv.Key, kv => kv.Value.ToList(), StringComparer.Ordinal),
                 new Dictionary<string, TestRun>(s.Tests, StringComparer.Ordinal), s.TestProjectsRun.ToList(), s.At);
         var temp = CachePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
@@ -449,7 +502,9 @@ public sealed class BaselineService(IFileSystem fs, string root, string mirrorDi
             if (data is null || data.Version != CacheVersion || data.Head != head) return null;
             var s = new State(head) { SolutionBuilt = data.SolutionBuilt, Done = true, At = data.At };
             foreach (var p in data.Built) s.Built.Add(p);
+            foreach (var p in data.Absent) s.Absent.Add(p);
             s.Errors.AddRange(data.Errors);
+            foreach (var (k, v) in data.TestsOf) s.TestsOf[k] = v;
             foreach (var (k, v) in data.Tests) s.Tests[k] = v;
             s.TestProjectsRun.AddRange(data.TestProjectsRun);
             logger.LogInformation("HEAD {Head} 기준을 캐시에서 읽었습니다", Short(head));
@@ -462,19 +517,38 @@ public sealed class BaselineService(IFileSystem fs, string root, string mirrorDi
         }
     }
 
-    /// <summary>Baseline work for one HEAD; guarded by <see cref="_gate"/>.</summary>
+    /// <summary>
+    /// Baseline work for one HEAD; guarded by <see cref="_gate"/>. Failures are kept per key — a project, or a test project — with
+    /// their one request retry, so a failure stays with what failed.
+    /// </summary>
     private sealed class State(string head)
     {
         public string Head { get; } = head;
         public HashSet<string> Built { get; } = new(PathComparers.ForOs);
+        /// <summary>Requested projects HEAD does not have: an empty baseline.</summary>
+        public HashSet<string> Absent { get; } = new(PathComparers.ForOs);
         public List<Diagnostic> Errors { get; } = [];
+        /// <summary>Built project → its test projects (all root-relative).</summary>
+        public Dictionary<string, List<string>> TestsOf { get; } = new(PathComparers.ForOs);
         public Dictionary<string, TestRun> Tests { get; } = new(StringComparer.Ordinal);
         public List<string> TestProjectsRun { get; } = [];
+        public Dictionary<string, string> Failures { get; } = new(PathComparers.ForOs);
+        public Dictionary<string, GroupBuild> FailedBuilds { get; } = new(PathComparers.ForOs);
+        public HashSet<string> RetryUsed { get; } = new(PathComparers.ForOs);
+        /// <summary>A prebuild failure before any project was known (mirror sync, solution read); shown by <c>Last</c> only.</summary>
+        public string? GeneralFailure { get; set; }
         public bool SolutionBuilt { get; set; }
         public bool Done { get; set; }
-        public string? Failure { get; set; }
-        public GroupBuild? FailedBuild { get; set; }
-        public bool RequestRetryUsed { get; set; }
         public DateTimeOffset At { get; set; }
+
+        /// <summary>Absent at HEAD, or built with every test project run.</summary>
+        public bool Covers(string p) =>
+            Absent.Contains(p) || (Built.Contains(p) && !Failures.ContainsKey(p) && TestsOf.TryGetValue(p, out var t)
+                && t.All(x => TestProjectsRun.Contains(x, StringComparer.Ordinal)));
+
+        /// <summary>The failed keys that block <paramref name="wanted"/>: the projects themselves and their test projects.</summary>
+        public List<string> FailedKeys(IReadOnlyList<string> wanted) =>
+            wanted.SelectMany(p => TestsOf.TryGetValue(p, out var t) ? t.Prepend(p) : [p])
+                .Where(Failures.ContainsKey).Distinct(PathComparers.ForOs).ToList();
     }
 }

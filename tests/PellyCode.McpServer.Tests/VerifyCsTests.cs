@@ -253,6 +253,67 @@ public sealed class VerifyCsTests : IDisposable
         Assert.Contains("[빌드] App — 통과", Lines(text));
     }
 
+    private const string Sln = "Project(\"{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}\") = \"App\", \"App\\App.csproj\", \"{11111111-1111-1111-1111-111111111111}\"\nEndProject\n";
+
+    [Fact]
+    public async Task RootDirectoryBuildProps_BuildsSolutionProjects()
+    {
+        Write("App.sln", Sln);
+        AppRepo(withTests: false);
+        Write("Directory.Build.props", "<Project><PropertyGroup><Nullable>enable</Nullable></PropertyGroup></Project>");
+
+        var lines = Lines(await NewService().VerifyAsync(null, Ct));
+
+        Assert.Equal("결과: 새 문제 없음", lines[0]);
+        Assert.Contains(_verifier.Requests, r => r.Root == _dir && r.Projects.SequenceEqual([Live("App/App.csproj")]));
+        Assert.Contains("[빌드] App — 통과", lines);
+        Assert.DoesNotContain(lines, l => l.StartsWith("[건너뜀] 검사하지 않은", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("App/Strings.resx")]
+    [InlineData("App/packages.config")]
+    [InlineData("App/Views/Home.cshtml")]
+    [InlineData("App/Build.targets")]
+    public async Task BuildRelevantFileInProject_BuildsOwningProject(string rel)
+    {
+        AppRepo(withTests: false);
+        Write(rel, "<root />");
+
+        var lines = Lines(await NewService().VerifyAsync(null, Ct));
+
+        Assert.Equal("결과: 새 문제 없음", lines[0]);
+        Assert.Contains(_verifier.Requests, r => r.Root == _dir && r.Projects.SequenceEqual([Live("App/App.csproj")]));
+        Assert.Contains("[빌드] App — 통과", lines);
+    }
+
+    [Fact]
+    public async Task UncheckedFile_SkipLine_NotAProblem()
+    {
+        AppRepo(withTests: false);
+        Write("App/A.cs", "class A { void M() {} }");
+        Write("notes.txt", "x");
+
+        var lines = Lines(await NewService().VerifyAsync(null, Ct));
+
+        Assert.Equal("결과: 새 문제 없음", lines[0]);
+        Assert.Contains("[건너뜀] 검사하지 않은 바뀐 파일 1개 — notes.txt", lines);
+    }
+
+    [Fact]
+    public async Task OnlyUncheckedFiles_SaysNothingChecked()
+    {
+        AppRepo(withTests: false);
+        for (var i = 1; i <= 12; i++) Write($"n{i:00}.txt", "x");
+
+        var lines = Lines(await NewService().VerifyAsync(null, Ct));
+
+        Assert.Equal("결과: 검사한 파일이 없습니다", lines[0]);
+        Assert.Equal("[건너뜀] 검사하지 않은 바뀐 파일 12개 — " + string.Join(", ", Enumerable.Range(1, 10).Select(i => $"n{i:00}.txt")) + " 외 2개",
+            lines[1]);
+        Assert.Equal(0, _verifier.Calls);
+    }
+
     [Fact]
     public async Task Cancel_StopsLiveBuild_NotBaseline()
     {

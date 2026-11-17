@@ -50,8 +50,11 @@ public sealed class WebVerifier(IFileSystem fs, ServerContext ctx, IProcessRunne
         public bool IsPage => Kind is FileKind.Asp or FileKind.Html;
     }
 
-    public bool IsWeb(string path) =>
-        WebPages.IsPage(path, Asp.Extensions) || path.EndsWith(".js", StringComparison.OrdinalIgnoreCase)
+    public bool IsWeb(string path) => IsWeb(Asp.Extensions, path);
+
+    /// <summary>A page (ASP or HTML), a <c>.js</c> or a <c>.css</c> file: what the web check looks at.</summary>
+    public static bool IsWeb(IReadOnlyList<string> aspExtensions, string path) =>
+        WebPages.IsPage(path, aspExtensions) || path.EndsWith(".js", StringComparison.OrdinalIgnoreCase)
         || path.EndsWith(".css", StringComparison.OrdinalIgnoreCase);
 
     /// <param name="head">The HEAD bytes of a repository-relative path; null when HEAD has no such file.</param>

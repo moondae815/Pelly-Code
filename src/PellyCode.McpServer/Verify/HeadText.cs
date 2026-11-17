@@ -36,5 +36,5 @@ internal static class HeadText
     }
 
     /// <summary>CRLF as LF, without a leading BOM character.</summary>
-    public static string Lf(string text) => text.Replace("\r\n", "\n", StringComparison.Ordinal).TrimStart('﻿');
+    public static string Lf(string text) => text.Replace("\r\n", "\n", StringComparison.Ordinal).TrimStart('\uFEFF');
 }

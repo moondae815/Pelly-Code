@@ -16,6 +16,9 @@ public sealed class BaseMirror(IFileSystem fs, GitRepo git)
         "bin", "obj", ".git", ".pelly", ".vs", ".svn", ".hg", "$tf", "node_modules", "TestResults",
     };
 
+    /// <summary>How many times a sync asks git again for paths changed while it copied the tree.</summary>
+    private const int MaxRecheckRounds = 3;
+
     public async Task<MirrorResult> SyncAsync(string root, string mirrorDir, IReadOnlyList<GitChange> changes, CancellationToken ct)
     {
         var copied = 0;
@@ -67,21 +70,37 @@ public sealed class BaseMirror(IFileSystem fs, GitRepo git)
                 copied++;
             }
 
-            foreach (var rel in head.Keys)
+            var restored = await RestoreAsync(mirrorDir, head.Keys, [], ct);
+            copied += restored.Copied;
+            deleted += restored.Deleted;
+
+            // The tree was copied after the status above: a file the agent changed in between was copied with its new content.
+            // Ask git again and put every path it now names (and the first status did not) back to HEAD, or drop it; repeat
+            // a few times while new paths keep showing up.
+            var seen = new HashSet<string>(changes.SelectMany(c => new[] { c.Path, c.OldPath }).OfType<string>(), StringComparer.Ordinal);
+            for (var round = 0; round < MaxRecheckRounds; round++)
             {
-                ct.ThrowIfCancellationRequested();
-                var dest = MirrorFile(mirrorDir, rel);
-                var bytes = await git.ShowHeadAsync(rel, ct);
-                if (bytes is null)
+                var later = (await git.ChangesAsync(ct)).Where(c => !seen.Contains(c.Path) || (c.OldPath is { } o && !seen.Contains(o))).ToList();
+                if (later.Count == 0) break;
+                var laterHead = new List<string>();
+                var laterDrop = new List<string>();
+                foreach (var c in later)
                 {
-                    if (fs.File.Exists(dest)) { MakeWritable(dest); fs.File.Delete(dest); deleted++; }
-                    continue;
+                    foreach (var p in new[] { c.Path, c.OldPath }.OfType<string>()) seen.Add(p);
+                    if (IsExcluded(c.Path)) continue;
+                    switch (c.Kind)
+                    {
+                        case GitChangeKind.Added: laterDrop.Add(c.Path); break;
+                        case GitChangeKind.Renamed:
+                            laterDrop.Add(c.Path);
+                            if (c.OldPath is not null && !IsExcluded(c.OldPath)) laterHead.Add(c.OldPath);
+                            break;
+                        default: laterHead.Add(c.Path); break;
+                    }
                 }
-                if (fs.File.Exists(dest) && fs.File.ReadAllBytes(dest).AsSpan().SequenceEqual(bytes)) continue;
-                fs.Directory.CreateDirectory(fs.Path.GetDirectoryName(dest)!);
-                MakeWritable(dest);
-                fs.File.WriteAllBytes(dest, bytes);
-                copied++;
+                var again = await RestoreAsync(mirrorDir, laterHead, laterDrop.Where(p => !laterHead.Contains(p)), ct);
+                copied += again.Copied;
+                deleted += again.Deleted;
             }
 
             return new MirrorResult(true, null, copied, deleted);
@@ -90,6 +109,44 @@ public sealed class BaseMirror(IFileSystem fs, GitRepo git)
         {
             return new MirrorResult(false, $"HEAD 기준 사본을 만들지 못했습니다: {e.Message}", copied, deleted);
         }
+        catch (InvalidOperationException e) // git status failed on the re-check
+        {
+            return new MirrorResult(false, e.Message, copied, deleted);
+        }
+    }
+
+    /// <summary>
+    /// Puts each of <paramref name="headPaths"/> back to its HEAD bytes in the mirror (deleted when HEAD has no such file) and
+    /// deletes each of <paramref name="dropPaths"/> from it.
+    /// </summary>
+    private async Task<(int Copied, int Deleted)> RestoreAsync(string mirrorDir, IEnumerable<string> headPaths, IEnumerable<string> dropPaths,
+        CancellationToken ct)
+    {
+        int copied = 0, deleted = 0;
+        foreach (var rel in dropPaths)
+        {
+            var dest = MirrorFile(mirrorDir, rel);
+            if (fs.File.Exists(dest)) { MakeWritable(dest); fs.File.Delete(dest); deleted++; }
+        }
+        foreach (var rel in headPaths)
+        {
+            ct.ThrowIfCancellationRequested();
+            var dest = MirrorFile(mirrorDir, rel);
+            var bytes = await git.ShowHeadAsync(rel, ct);
+            if (bytes is null)
+            {
+                if (fs.File.Exists(dest)) { MakeWritable(dest); fs.File.Delete(dest); deleted++; }
+                continue;
+            }
+            if (fs.File.Exists(dest) && fs.File.ReadAllBytes(dest).AsSpan().SequenceEqual(bytes)) continue;
+            // A folder where HEAD has the file (the tree turned it into a folder after the walk): HEAD wins.
+            if (fs.Directory.Exists(dest)) fs.Directory.Delete(dest, recursive: true);
+            fs.Directory.CreateDirectory(fs.Path.GetDirectoryName(dest)!);
+            MakeWritable(dest);
+            fs.File.WriteAllBytes(dest, bytes);
+            copied++;
+        }
+        return (copied, deleted);
     }
 
     /// <summary>Clears the read-only state of a mirror file so the mirror can always overwrite or delete it (no-op when absent).</summary>

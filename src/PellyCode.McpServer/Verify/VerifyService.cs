@@ -33,7 +33,8 @@ public sealed class VerifyService(IFileSystem fs, ServerContext ctx, GitRepo git
     public const string NoChanges = "HEAD 이후 바뀐 파일이 없습니다";
     public const string StillBuilding = "기준 빌드가 아직 진행 중입니다. 잠시 뒤 다시 pelly_verify를 부르세요";
 
-    private readonly CsVerifier _cs = new(fs, ctx, baseline.MirrorDir, verifier, tests);
+    private readonly CsVerifier _cs = new(fs, ctx, baseline.MirrorDir, verifier, tests,
+        p => SqlVerifier.IsSql(p) || WebVerifier.IsWeb(ctx.Options.Asp.Extensions, p));
     private readonly SqlVerifier _sql = new(fs, ctx, sqlExecutors);
     private readonly WebVerifier _web = new(fs, ctx, processes, isWindows);
 
@@ -54,6 +55,10 @@ public sealed class VerifyService(IFileSystem fs, ServerContext ctx, GitRepo git
         // Build outputs of the live tree are not changes (a repository without a .gitignore for bin/obj).
         changes = changes.Where(c => !BaseMirror.IsExcluded(c.Path) || (c.OldPath is { } old && !BaseMirror.IsExcluded(old))).ToList();
         if (changes.Count == 0) return NoChanges;
+
+        // A changed file no check looks at is named on a skip line; when that is every file, nothing was checked at all.
+        var notChecked = changes.Where(c => !Checked(c)).Select(c => c.Path).ToList();
+        if (notChecked.Count == changes.Count) return VerifyReport.RenderNothingChecked(notChecked);
 
         var report = new VerifyReport();
         var scope = _cs.Scope(changes, report);
@@ -77,6 +82,15 @@ public sealed class VerifyService(IFileSystem fs, ServerContext ctx, GitRepo git
         {
             ctx.ToolLock.Release();
         }
+        report.Unchecked(notChecked);
         return report.Render();
     }
+
+    /// <summary>
+    /// True when a check looks at the change: the C# build (a file of a project, or a build file of the solution) by its path or
+    /// old path, or the SQL or web check (not for a deleted file).
+    /// </summary>
+    private bool Checked(GitChange c) =>
+        new[] { c.Path, c.OldPath }.OfType<string>().Any(p => _cs.OwningProjects(p).Count > 0)
+        || (c.Kind != GitChangeKind.Deleted && (SqlVerifier.IsSql(c.Path) || _web.IsWeb(c.Path)));
 }

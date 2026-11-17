@@ -13,6 +13,12 @@ public sealed class VerifyReport
 
     public const string NoProblems = "결과: 새 문제 없음";
 
+    /// <summary>The first line when no changed file could be checked (then 「새 문제 없음」 would claim too much).</summary>
+    public const string NothingChecked = "결과: 검사한 파일이 없습니다";
+
+    /// <summary>Changed files listed on the 「검사하지 않은 바뀐 파일」 line; the rest becomes 「외 N개」.</summary>
+    public const int MaxUncheckedNames = 10;
+
     private readonly List<object> _entries = []; // Section or a ready line (pass, skip)
     private readonly Dictionary<string, Section> _sections = new(StringComparer.Ordinal);
     private readonly List<string> _notes = [];
@@ -40,6 +46,25 @@ public sealed class VerifyReport
     public void Note(string firstLineNote)
     {
         if (!_notes.Contains(firstLineNote, StringComparer.Ordinal)) _notes.Add(firstLineNote);
+    }
+
+    /// <summary>
+    /// The line 「[건너뜀] 검사하지 않은 바뀐 파일 N개 — a, b, …」 for changed files no check looked at (a skip: not a problem).
+    /// </summary>
+    public void Unchecked(IReadOnlyList<string> paths)
+    {
+        if (paths.Count == 0) return;
+        var names = string.Join(", ", paths.Take(MaxUncheckedNames));
+        if (paths.Count > MaxUncheckedNames) names += $" 외 {paths.Count - MaxUncheckedNames}개";
+        Skip($"[건너뜀] 검사하지 않은 바뀐 파일 {paths.Count}개", names);
+    }
+
+    /// <summary>The whole text when none of the changed files could be checked: 「결과: 검사한 파일이 없습니다」 and the skip line.</summary>
+    public static string RenderNothingChecked(IReadOnlyList<string> paths)
+    {
+        var report = new VerifyReport();
+        report.Unchecked(paths);
+        return string.Join('\n', new[] { NothingChecked }.Concat(report._entries.Cast<string>()));
     }
 
     public string Render()

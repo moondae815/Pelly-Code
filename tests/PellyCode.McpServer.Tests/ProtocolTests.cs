@@ -100,4 +100,49 @@ public sealed class ProtocolTests : IDisposable
         var text = string.Concat(result.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>().Select(c => c.Text));
         Assert.Equal("HEAD 이후 바뀐 파일이 없습니다", text);
     }
+
+    [Fact]
+    public async Task MalformedAppSettingsInWorkingFolder_ServerStillStarts()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        // The user's project folder (the client's working folder) is not the server's content root.
+        File.WriteAllText(Path.Combine(_repo, "appsettings.json"), "{ not json");
+        var transport = new StdioClientTransport(new StdioClientTransportOptions
+        {
+            Name = "pellycode-mcp-server",
+            Command = "dotnet",
+            Arguments = [ServerDll(), "--root", _repo],
+            WorkingDirectory = _repo,
+        });
+        await using var client = await McpClient.CreateAsync(transport, cancellationToken: ct);
+
+        var tools = await client.ListToolsAsync(cancellationToken: ct);
+
+        Assert.Equal(2, tools.Count);
+    }
+
+    [Fact]
+    public async Task LogFile_McpMode_KeepsStartupFailureAndHostLines()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        File.WriteAllText(Path.Combine(_repo, "pelly.json"), "{ not json");
+        var log = Path.Combine(_repo, "logs", "server.log");
+        var transport = new StdioClientTransport(new StdioClientTransportOptions
+        {
+            Name = "pellycode-mcp-server",
+            Command = "dotnet",
+            Arguments = [ServerDll(), "--root", _repo, "--log-file", log],
+        });
+        await using (var client = await McpClient.CreateAsync(transport, cancellationToken: ct))
+        {
+            await client.ListToolsAsync(cancellationToken: ct);
+        }
+
+        string text;
+        using (var stream = new FileStream(log, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+        using (var reader = new StreamReader(stream))
+            text = await reader.ReadToEndAsync(ct);
+        Assert.Contains("시작하지 못했습니다", text);
+        Assert.Contains("Application started", text);
+    }
 }

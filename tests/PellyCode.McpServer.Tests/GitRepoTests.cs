@@ -16,6 +16,7 @@ public sealed class GitRepoTests : IDisposable
         Git("config", "user.name", "t");
         Git("config", "user.email", "t@example.com");
         Git("config", "commit.gpgsign", "false");
+        Git("config", "core.autocrlf", "false"); // Windows runners default to true: git show would hand back LF
     }
 
     public void Dispose()

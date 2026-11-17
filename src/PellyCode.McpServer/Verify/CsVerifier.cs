@@ -22,7 +22,9 @@ public sealed record CsScope(IReadOnlyList<string> Changed, IReadOnlyList<string
 /// Builds the affected C# projects and runs their test projects in the live tree, then reports what the HEAD baseline did not
 /// have (design §7): build errors by file, code and message (lines ignored), tests by <see cref="TestRegressions.Find(TestRun, TestRun, IReadOnlyList{string})"/>.
 /// </summary>
-public sealed class CsVerifier(IFileSystem fs, ServerContext ctx, string mirrorDir, IGroupVerifier verifier, IBaselineTestRunner tests)
+/// <param name="checkedElsewhere">A root-relative path the SQL or web check looks at (not mapped to its project's build).</param>
+public sealed class CsVerifier(IFileSystem fs, ServerContext ctx, string mirrorDir, IGroupVerifier verifier, IBaselineTestRunner tests,
+    Func<string, bool> checkedElsewhere)
 {
     public const string NoTestProjects = "{0}를 참조하는 테스트 프로젝트 없음. 동작 변경은 확인되지 않았습니다";
     public const string AllErrorsNote = "HEAD 기준을 만들지 못해 모든 오류를 보입니다: {0}";
@@ -33,15 +35,17 @@ public sealed class CsVerifier(IFileSystem fs, ServerContext ctx, string mirrorD
     private int _trx;
 
     /// <summary>
-    /// The projects of the changed <c>.cs</c> and <c>.csproj</c> files (a deleted or renamed file's project is found from its old
-    /// path); null when no C# file changed. A reference walk that cannot be trusted falls back to the changed projects, with a note.
+    /// The projects of the changed files (see <see cref="OwningProjects"/>; a deleted or renamed file's project is found from its
+    /// old path); null when no changed file belongs to a project. A reference walk that cannot be trusted falls back to the changed
+    /// projects, with a note.
     /// </summary>
     public CsScope? Scope(IReadOnlyList<GitChange> changes, VerifyReport report)
     {
         var changed = new List<string>();
         foreach (var c in changes)
             foreach (var rel in new[] { c.Path, c.OldPath }.OfType<string>())
-                if (OwningProject(rel) is { } project && !changed.Contains(project, PathComparers.ForOs)) changed.Add(project);
+                foreach (var project in OwningProjects(rel))
+                    if (!changed.Contains(project, PathComparers.ForOs)) changed.Add(project);
         if (changed.Count == 0) return null;
 
         IReadOnlyList<string> affected;
@@ -169,14 +173,54 @@ public sealed class CsVerifier(IFileSystem fs, ServerContext ctx, string mirrorD
         return exitOnly ? [new TestCaseResult(Name(rel), false, $"종료 코드 {run.ExitCode}로 실패했습니다")] : found;
     }
 
-    /// <summary>The full path of the project owning a changed root-relative path; null for other files or a .cs outside any project.</summary>
-    private string? OwningProject(string rel)
+    /// <summary>
+    /// The full paths of the projects a changed root-relative path concerns: a <c>.csproj</c> itself; any other file under a project
+    /// folder (nearest <c>.csproj</c> walking up: <c>.cs</c>, <c>.resx</c>, <c>.cshtml</c>, <c>packages.config</c>, a project's
+    /// <c>.props</c>…) that project; a build file outside every project folder (<c>Directory.Build.props</c>, <c>*.targets</c>,
+    /// <c>NuGet.config</c>…) the projects of the root solution under its folder. Empty for files the SQL or web check looks at
+    /// and for files no project builds from.
+    /// </summary>
+    public IReadOnlyList<string> OwningProjects(string rel)
     {
+        if (checkedElsewhere(rel)) return [];
         var full = Full(rel);
-        if (rel.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase)) return fs.File.Exists(full) ? full : null;
-        if (!rel.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)) return null;
+        if (rel.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase)) return fs.File.Exists(full) ? [full] : [];
         var project = ProjectFileLocator.FindNearestCsproj(fs, full);
-        return project is not null && IsUnderRoot(project) ? fs.Path.GetFullPath(project) : null;
+        if (project is not null && IsUnderRoot(project)) return [fs.Path.GetFullPath(project)];
+        return IsBuildFile(rel) ? SolutionProjectsUnder(fs.Path.GetDirectoryName(full)!) : [];
+    }
+
+    private static bool IsBuildFile(string rel)
+    {
+        var name = rel[(rel.LastIndexOf('/') + 1)..];
+        return name.EndsWith(".props", StringComparison.OrdinalIgnoreCase) || name.EndsWith(".targets", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("packages.config", StringComparison.OrdinalIgnoreCase) || name.Equals("NuGet.config", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("global.json", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>The existing projects of the root's <c>.sln</c>/<c>.slnx</c> files that sit under <paramref name="dir"/>.</summary>
+    private List<string> SolutionProjectsUnder(string dir)
+    {
+        try
+        {
+            var solutions = fs.Directory.EnumerateFiles(ctx.Root)
+                .Where(f => f.EndsWith(".sln", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".slnx", StringComparison.OrdinalIgnoreCase))
+                .Order(StringComparer.Ordinal);
+            var under = fs.Path.GetFullPath(dir);
+            return solutions.SelectMany(sln => SolutionProjects.Read(fs, sln))
+                .Where(p => fs.File.Exists(p) && IsUnderRoot(p) && IsUnder(under, p))
+                .Distinct(PathComparers.ForOs).ToList();
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Xml.XmlException)
+        {
+            return [];
+        }
+    }
+
+    private bool IsUnder(string dir, string full)
+    {
+        var rel = fs.Path.GetRelativePath(dir, full);
+        return !fs.Path.IsPathRooted(rel) && !rel.StartsWith("..", StringComparison.Ordinal);
     }
 
     private bool IsTestProject(string full)

@@ -553,6 +553,7 @@ pelly report [--since 2026-10-01] [--sanitize [--out <폴더>]]
 
 ```powershell
 dotnet publish src/PellyCode.Cli -c Release -r win-x64 --no-self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:PublishTrimmed=false -p:DebugType=none -o artifacts/publish/win-x64
+dotnet publish src/PellyCode.McpServer -c Release -r win-x64 --no-self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:PublishTrimmed=false -p:DebugType=none -o artifacts/publish/win-x64
 dotnet tool restore   # CycloneDX 6.3.1 (SBOM)
 pwsh ./deploy/build-package.ps1 -PublishDir artifacts/publish/win-x64 -OutDir artifacts/package
 ```

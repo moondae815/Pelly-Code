@@ -38,6 +38,7 @@ public sealed class DocsTests
         Assert.Contains("\"type\": \"local\"", text, StringComparison.Ordinal);
         Assert.Contains("mcp-base", text, StringComparison.Ordinal);
         Assert.Contains("pelly test", text, StringComparison.Ordinal);
+        Assert.Contains(PellyCode.McpServer.Verify.VerifyReport.NothingChecked, text, StringComparison.Ordinal);
         foreach (var bad in new[] { "/Users/", @"C:\Users\", @"C:\\Users\\", "/private/tmp" })
             Assert.DoesNotContain(bad, text, StringComparison.OrdinalIgnoreCase);
     }

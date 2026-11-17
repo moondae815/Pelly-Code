@@ -5,6 +5,7 @@ pelly의 오케스트레이터 대신 다른 코딩 에이전트(OpenCode)가 �
 ## 연결
 
 * 환경 변수 `PELLY_EVAL_AGENT`가 스크립트 경로면 `PellyCode.Eval`이 FSM 대신 `ExternalAgent`로 그 스크립트를 부른다(`eval/PellyCode.Eval/ExternalAgent.cs`).
+* `PELLY_EVAL_AGENT`는 **개발용**이다. 현장 키트의 `pelly-eval.exe`도 이 변수를 읽으므로, 현장 PC에서는 설정하지 않는다(설정돼 있으면 pelly 대신 그 스크립트가 채점된다).
 * 인자 순서: 작업 폴더, 대상 파일(작업 폴더 기준), 종류(`cs`|`sql`), 메서드, 줄, 객체, 요청문. 출력은 작업 폴더의 `agent.log`에 남고, 15분을 넘기면 종료 코드 124다.
 * `opencode-agent.sh`: 한국어 프롬프트를 만들어 `opencode run --pure --auto -m "$OC_MODEL"`를 `OPENCODE_CONFIG="$OC_CONFIG"`로 돌린다. 표준 입력은 `/dev/null`이다(터미널이 아니면 `opencode run`이 멈춘다). 작업 사본은 `.git` 없이 복사되므로(`pelly_verify`는 HEAD 기준이 필요) 폴더가 저장소가 아니면 시작 전에 `git init`과 첫 커밋을 한다.
 

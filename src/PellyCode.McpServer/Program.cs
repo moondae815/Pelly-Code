@@ -21,7 +21,9 @@ var root = CommandLine.Value(args, CommandLine.Root) ?? Directory.GetCurrentDire
 var logFile = CommandLine.Value(args, CommandLine.LogFile);
 
 var check = args.Contains(CommandLine.Check);
-var builder = Host.CreateApplicationBuilder(args);
+// The content root is the server's own folder, not the current folder (the user's project): an appsettings.json there must
+// neither be loaded (a malformed one would stop the server) nor watched.
+var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { Args = args, ContentRootPath = AppContext.BaseDirectory });
 
 // stdout is for MCP messages only: console logs go to stderr, default providers are removed.
 builder.Logging.ClearProviders();

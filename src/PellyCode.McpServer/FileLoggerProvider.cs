@@ -2,7 +2,10 @@ using Microsoft.Extensions.Logging;
 
 namespace PellyCode.McpServer;
 
-/// <summary>Appends log lines to a file (--log-file). Never touches stdout.</summary>
+/// <summary>
+/// Appends log lines to a file (--log-file). Never touches stdout. Each line is written at the file's current end, so several
+/// handles on one file (the startup-failure logger and the host's, or several servers sharing a log) never overwrite each other.
+/// </summary>
 internal sealed class FileLoggerProvider : ILoggerProvider
 {
     private readonly StreamWriter _writer;
@@ -12,7 +15,7 @@ internal sealed class FileLoggerProvider : ILoggerProvider
     {
         var full = Path.GetFullPath(path);
         Directory.CreateDirectory(Path.GetDirectoryName(full)!);
-        _writer = new StreamWriter(new FileStream(full, FileMode.Append, FileAccess.Write, FileShare.ReadWrite)) { AutoFlush = true };
+        _writer = new StreamWriter(new FileStream(full, FileMode.Append, FileAccess.Write, FileShare.ReadWrite));
     }
 
     public ILogger CreateLogger(string categoryName) => new FileLogger(this, categoryName);
@@ -21,7 +24,13 @@ internal sealed class FileLoggerProvider : ILoggerProvider
 
     private void Write(string line)
     {
-        lock (_gate) _writer.WriteLine(line);
+        lock (_gate)
+        {
+            // FileMode.Append positions once at open: another handle may have written past that point since.
+            _writer.BaseStream.Seek(0, SeekOrigin.End);
+            _writer.WriteLine(line);
+            _writer.Flush();
+        }
     }
 
     private sealed class FileLogger(FileLoggerProvider owner, string category) : ILogger

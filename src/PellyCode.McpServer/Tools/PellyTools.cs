@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.IO.Abstractions;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
@@ -11,7 +12,7 @@ using PellyCode.McpServer.Verify;
 namespace PellyCode.McpServer.Tools;
 
 [McpServerToolType]
-public sealed class PellyTools(ServerState state, IFileSystem fs, ISemanticLoader loader, IServiceProvider services)
+public sealed class PellyTools(ServerState state, IFileSystem fs, ISemanticLoader loader, IServiceProvider services, ILogger<PellyTools> logger)
 {
     private const string NotImplemented = "아직 구현되지 않았습니다";
 
@@ -27,7 +28,7 @@ public sealed class PellyTools(ServerState state, IFileSystem fs, ISemanticLoade
         await ctx.ToolLock.WaitAsync(ct);
         try
         {
-            return await new ImpactService(fs, ctx, loader).FindAsync(path, line, name, ct);
+            return await Guarded(() => new ImpactService(fs, ctx, loader).FindAsync(path, line, name, ct));
         }
         finally
         {
@@ -36,16 +37,33 @@ public sealed class PellyTools(ServerState state, IFileSystem fs, ISemanticLoade
     }
 
     [McpServerTool(Name = "pelly_verify"),
-     Description("Call this after editing code and before you finish. No arguments. Checks every file changed since the last commit (HEAD) and lists only NEW problems: C# build errors and failing tests of the changed projects, SQL compile errors (.sql), and ASP, JS and CSS checks (.asp/.inc, .js, .css, pages that include a changed file). Errors must be fixed; warnings are hints to check. Fix what it lists, then call it again. If it says the baseline is still building, call it again.")]
+     Description("Call this after editing code and before you finish. No arguments. Checks the files changed since the last commit (HEAD) and lists only NEW problems: C# build errors and failing tests of the changed projects (any file of a project, and build files such as Directory.Build.props), SQL compile errors (.sql), and ASP, JS and CSS checks (.asp/.inc, .js, .css, pages that include a changed file). Changed files no check covers are listed as skipped. Errors must be fixed; warnings are hints to check. Fix what it lists, then call it again. If it says the baseline is still building, call it again.")]
     public async Task<string> Verify(RequestContext<CallToolRequestParams> request, IProgress<ProgressNotificationValue> progress,
         CancellationToken ct = default)
     {
         if (state.Context is null) return state.Error ?? NotImplemented;
         if (services.GetService<VerifyService>() is not { } verify) return NotImplemented;
         // No progress token from the client: nothing keeps the call alive, so the shorter wait applies.
-        if (request.Params?.ProgressToken is null) return await verify.VerifyAsync(null, ct);
+        if (request.Params?.ProgressToken is null) return await Guarded(() => verify.VerifyAsync(null, ct));
         await using var beat = new ProgressHeartbeat(progress, TimeProvider.System, VerifyService.ProgressInterval);
         beat.Report("변경 사항을 확인하는 중입니다");
-        return await verify.VerifyAsync(beat, ct);
+        return await Guarded(() => verify.VerifyAsync(beat, ct));
+    }
+
+    /// <summary>
+    /// Runs a tool body; an unexpected exception (not a cancellation) is logged and comes back as 「검사 중 오류가 났습니다: …」
+    /// instead of the SDK's generic tool error.
+    /// </summary>
+    internal async Task<string> Guarded(Func<Task<string>> run)
+    {
+        try
+        {
+            return await run();
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            logger.LogError(e, "도구 실행 중 예상하지 못한 오류");
+            return $"검사 중 오류가 났습니다: {e.Message}";
+        }
     }
 }

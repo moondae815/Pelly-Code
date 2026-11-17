@@ -178,6 +178,37 @@ public sealed class ImpactCsTests(RestoredModernFixture fx) : IClassFixture<Rest
     }
 
     [Fact]
+    public async Task Cs_PathWithLineSuffix_TakenAsLine()
+    {
+        var root = TempRepo.Create();
+        try
+        {
+            File.WriteAllText(Path.Combine(root, "A.cs"), "class Target {\n  public void Go() { }\n}\nclass C { void M(Target t) { t.Go(); } }\n");
+
+            var text = await Service(root, new FailingLoader()).FindAsync("A.cs:2", null, null, Ct);
+
+            Assert.StartsWith("대상: Target.Go (A.cs:2)", text);
+        }
+        finally { TempRepo.Delete(root); }
+    }
+
+    [Fact]
+    public async Task Cs_SubfolderRoot_PathRelativeToGivenRoot()
+    {
+        var root = TempRepo.Create();
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(root, "sub"));
+            File.WriteAllText(Path.Combine(root, "sub", "A.cs"), "class Target {\n  public void Go() { }\n}\nclass C { void M(Target t) { t.Go(); } }\n");
+
+            var text = await Service(Path.Combine(root, "sub"), new FailingLoader()).FindAsync("A.cs", 2, null, Ct);
+
+            Assert.StartsWith("대상: Target.Go (sub/A.cs:2)", text);
+        }
+        finally { TempRepo.Delete(root); }
+    }
+
+    [Fact]
     public async Task Cs_Over50_Truncated()
     {
         var root = TempRepo.Create();

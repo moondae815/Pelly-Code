@@ -12,6 +12,9 @@ public sealed class ServerContext(string root, PellyOptions options, Workspace w
     public Workspace Workspace { get; } = ws;
     public SemaphoreSlim ToolLock { get; } = new(1, 1);
 
+    /// <summary>The folder given as --root (a subfolder of <see cref="Root"/> or the root itself): relative tool paths are tried against it too.</summary>
+    public string GivenRoot { get; init; } = root;
+
     /// <summary>Walks up from <paramref name="start"/> to the nearest folder holding .git (a directory, or a file in a worktree).</summary>
     private static string? FindRepoRoot(IFileSystem fs, string start)
     {
@@ -50,7 +53,7 @@ public sealed class ServerContext(string root, PellyOptions options, Workspace w
         var ws = new Workspace(root, fs.Path.Combine(root, ".pelly"));
         WorkspaceLocator.EnsurePellyDir(fs, ws);
         error = null;
-        return new ServerContext(root, loaded.Options, ws);
+        return new ServerContext(root, loaded.Options, ws) { GivenRoot = given };
     }
 }
 

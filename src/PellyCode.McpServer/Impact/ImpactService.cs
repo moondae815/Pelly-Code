@@ -19,13 +19,35 @@ namespace PellyCode.McpServer.Impact;
 /// in the site index. Returns the tool's Korean text.
 /// </summary>
 /// <param name="maxSiteFiles">The site index's limit on pages and on <c>.js</c> files (each); past it the text notes the cut.</param>
-public sealed class ImpactService(IFileSystem fs, ServerContext ctx, ISemanticLoader loader, int maxSiteFiles = 2000)
+public sealed partial class ImpactService(IFileSystem fs, ServerContext ctx, ISemanticLoader loader, int maxSiteFiles = 2000)
 {
+    [GeneratedRegex(@"^(?<path>.*\.[^.:\\/]+):(?<line>[0-9]{1,9})$")]
+    private static partial Regex LineSuffix();
+
+    /// <summary>
+    /// An absolute path as given; a relative one against the repository root, else (when only that exists) against the --root
+    /// folder the user gave (a subfolder of the repository).
+    /// </summary>
+    private string FullPath(string path)
+    {
+        if (fs.Path.IsPathRooted(path)) return fs.Path.GetFullPath(path);
+        var full = fs.Path.GetFullPath(fs.Path.Combine(ctx.Root, path));
+        if (fs.File.Exists(full) || ctx.GivenRoot == ctx.Root) return full;
+        var given = fs.Path.GetFullPath(fs.Path.Combine(ctx.GivenRoot, path));
+        return fs.File.Exists(given) ? given : full;
+    }
+
     private const string SeedId = "impact";
 
     public async Task<string> FindAsync(string path, int? line, string? name, CancellationToken ct)
     {
-        var full = fs.Path.GetFullPath(fs.Path.IsPathRooted(path) ? path : fs.Path.Combine(ctx.Root, path));
+        // 「File.cs:42」 (the way paths are often quoted) is the file and its line.
+        if (line is null && LineSuffix().Match(path) is { Success: true } m)
+        {
+            path = m.Groups["path"].Value;
+            line = int.Parse(m.Groups["line"].Value, CultureInfo.InvariantCulture);
+        }
+        var full = FullPath(path);
         var rel = Relative(full);
         if (rel is null) return $"작업 공간 밖의 파일입니다: {path}";
 

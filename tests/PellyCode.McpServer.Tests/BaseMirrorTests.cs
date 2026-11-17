@@ -343,6 +343,56 @@ public sealed class BaseMirrorTests : IDisposable
     }
 
     [Fact]
+    public async Task Sync_FileEditedDuringCopy_MirrorHoldsHead()
+    {
+        Write("a.cs", "class A { }");
+        Write("b.cs", "class B { }");
+        Commit();
+        var git = new GitRepo(new SystemProcessRunner(TimeProvider.System), _dir);
+        var changes = await git.ChangesAsync(Ct); // clean at status time
+        Assert.Empty(changes);
+        // The agent edits b.cs while the first sync copies the tree: the status above does not list it.
+        var fs = new EditOnFirstCopyFileSystem(() => Write("b.cs", "class B { int x = ; }"));
+
+        var r = await new BaseMirror(fs, git).SyncAsync(_dir, _mirror, changes, Ct);
+
+        Assert.True(r.Ok, r.FailureReason);
+        Assert.True(fs.Edited);
+        Assert.Equal("class A { }", ReadMirror("a.cs"));
+        Assert.Equal("class B { }", ReadMirror("b.cs"));
+    }
+
+    /// <summary>Real file system that runs <c>edit</c> once, right after the first file copy.</summary>
+    private sealed class EditOnFirstCopyFileSystem : FileSystem, IFileSystem
+    {
+        private readonly IFile _file;
+        private readonly Action _edit;
+
+        public EditOnFirstCopyFileSystem(Action edit)
+        {
+            _edit = edit;
+            _file = new EditingFile(this);
+        }
+
+        public bool Edited { get; private set; }
+
+        IFile IFileSystem.File => _file;
+
+        private sealed class EditingFile(EditOnFirstCopyFileSystem owner) : FileWrapper(owner)
+        {
+            public override void Copy(string sourceFileName, string destFileName, bool overwrite)
+            {
+                if (!owner.Edited)
+                {
+                    owner.Edited = true;
+                    owner._edit();
+                }
+                base.Copy(sourceFileName, destFileName, overwrite);
+            }
+        }
+    }
+
+    [Fact]
     public void MirrorPaths_OutsideRoot_StableHash()
     {
         var root = Path.Combine(_base, "Some", "Root");

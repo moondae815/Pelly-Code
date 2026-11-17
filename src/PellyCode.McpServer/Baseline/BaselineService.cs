@@ -56,6 +56,7 @@ public sealed class BaselineService(IFileSystem fs, string root, string mirrorDi
     private Task _inflight = Task.CompletedTask;
     private int _polls;
     private int _trx;
+    private long _failures; // generation of the last recorded failure; guarded by _gate
 
     /// <summary>The cache file beside the mirror folder: <c>&lt;mirror parent&gt;/&lt;hash&gt;.baseline.json</c>.</summary>
     internal string CachePath { get; } = CacheFileFor(fs, mirrorDir);
@@ -86,7 +87,8 @@ public sealed class BaselineService(IFileSystem fs, string root, string mirrorDi
 
         var wanted = projectsRelative.Select(Normalize).Distinct(PathComparers.ForOs).ToList();
         var deadline = time.GetUtcNow() + wait;
-        var waited = false;
+        long since;
+        lock (_gate) since = _failures; // a failure recorded after this is one this request saw happen
         while (true)
         {
             Task job;
@@ -101,9 +103,10 @@ public sealed class BaselineService(IFileSystem fs, string root, string mirrorDi
                 {
                     return Snapshot(s, wanted, null);
                 }
-                else if (s is not null && s.FailedKeys(wanted) is { Count: > 0 } failed && (waited || failed.Any(s.RetryUsed.Contains)))
+                else if (s is not null && s.FailedKeys(wanted) is { Count: > 0 } failed
+                         && failed.Any(k => s.FailedGeneration[k] > since || s.RetryUsed.Contains(k)))
                 {
-                    // One of its projects failed while this request waited, or that project's one retry is spent.
+                    // One of its projects failed after this request started (a fresh attempt), or that project's one retry is spent.
                     return Snapshot(s, wanted, null);
                 }
                 else if (_stop.IsCancellationRequested)
@@ -119,13 +122,13 @@ public sealed class BaselineService(IFileSystem fs, string root, string mirrorDi
                             // The one retry a request gets for this project at this HEAD.
                             s.RetryUsed.Add(key);
                             s.Failures.Remove(key);
+                            s.FailedGeneration.Remove(key);
                             s.FailedBuilds.Remove(key);
                         }
                     job = _inflight = Schedule(head, wanted, prebuild: false);
                 }
             }
 
-            waited = true;
             progress?.Report("HEAD 기준을 만드는 중입니다");
             var left = deadline - time.GetUtcNow();
             try
@@ -239,7 +242,7 @@ public sealed class BaselineService(IFileSystem fs, string root, string mirrorDi
                 {
                     var reason = $"HEAD 기준 작업이 실패했습니다: {e.Message}";
                     if (prebuild) _state.GeneralFailure ??= reason;
-                    foreach (var p in projects.Where(p => !_state.Covers(p))) _state.Failures.TryAdd(p, reason);
+                    foreach (var p in projects.Where(p => !_state.Covers(p))) Record(_state, p, reason);
                 }
         }
         finally
@@ -267,7 +270,7 @@ public sealed class BaselineService(IFileSystem fs, string root, string mirrorDi
             lock (_gate)
             {
                 if (projects is null) s.GeneralFailure = reason;
-                else foreach (var p in projects) s.Failures.TryAdd(p, reason);
+                else foreach (var p in projects) Record(s, p, reason);
                 s.At = time.GetUtcNow();
             }
             logger.LogWarning("HEAD {Head} 기준을 만들지 못했습니다: {Reason}", Short(head), reason);
@@ -383,7 +386,7 @@ public sealed class BaselineService(IFileSystem fs, string root, string mirrorDi
         ct.ThrowIfCancellationRequested();
         lock (_gate)
         {
-            if (prebuild) s.SolutionBuilt = true;
+            if (prebuild && !failed) s.SolutionBuilt = true;
             s.Done = true;
             s.At = time.GetUtcNow();
         }
@@ -391,6 +394,13 @@ public sealed class BaselineService(IFileSystem fs, string root, string mirrorDi
         if (!failed) WriteCache(s);
         logger.LogInformation("HEAD {Head} 기준 작업 끝: 빌드 오류 {Errors}건, 테스트 프로젝트 {Tests}개, 실패 {Failures}건",
             Short(head), s.Errors.Count, s.TestProjectsRun.Count, s.Failures.Count);
+    }
+
+    /// <summary>Records a failure on a key with a new generation (caller holds <see cref="_gate"/>).</summary>
+    private void Record(State s, string key, string reason)
+    {
+        if (!s.Failures.TryAdd(key, reason)) return;
+        s.FailedGeneration[key] = ++_failures;
     }
 
     /// <summary>
@@ -534,6 +544,8 @@ public sealed class BaselineService(IFileSystem fs, string root, string mirrorDi
         public List<string> TestProjectsRun { get; } = [];
         public Dictionary<string, string> Failures { get; } = new(PathComparers.ForOs);
         public Dictionary<string, GroupBuild> FailedBuilds { get; } = new(PathComparers.ForOs);
+        /// <summary>When each failure was recorded (the service's failure generation).</summary>
+        public Dictionary<string, long> FailedGeneration { get; } = new(PathComparers.ForOs);
         public HashSet<string> RetryUsed { get; } = new(PathComparers.ForOs);
         /// <summary>A prebuild failure before any project was known (mirror sync, solution read); shown by <c>Last</c> only.</summary>
         public string? GeneralFailure { get; set; }

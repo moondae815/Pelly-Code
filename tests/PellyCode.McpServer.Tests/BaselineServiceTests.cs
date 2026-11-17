@@ -289,6 +289,35 @@ public sealed class BaselineServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task StaleFailure_AfterWaitingOnUnrelatedJob_UsesRetry()
+    {
+        TwoProjectRepo();
+        Write("Other/Other.csproj", Csproj);
+        Commit();
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _verifier.Handler = async (p, _) =>
+        {
+            if (Has(p, "Other")) await gate.Task;
+            return Has(p, "Lib") ? RestoreFailed() : new GroupBuild(true, null, null, []);
+        };
+        var s = NewService();
+        await s.StartAsync(Ct);
+        await WaitUntil(() => Settled(s));
+        Assert.Equal(1, _verifier.Calls); // the prebuild failed because of Lib
+
+        var other = s.GetAsync(["Other/Other.csproj"], LongWait, null, Ct);
+        await WaitUntil(() => _verifier.Calls == 2);
+        var lib = s.GetAsync(["Lib/Lib.csproj"], LongWait, null, Ct); // waits on Other's job first
+        await Task.Delay(50, Ct);
+        gate.SetResult();
+
+        Assert.Equal(BaselineStatus.Ready, (await other).Status);
+        Assert.Equal(BaselineStatus.Failed, (await lib).Status);
+        Assert.Equal(3, _verifier.Calls); // Lib's own retry ran
+        Assert.Equal([Path.Combine(_mirror, "Lib", "Lib.csproj")], _verifier.Requests[2]);
+    }
+
+    [Fact]
     public async Task NewProjectNotAtHead_EmptyBaseline_Ready()
     {
         SolutionRepo(withTests: false);

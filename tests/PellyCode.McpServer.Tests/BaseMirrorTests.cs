@@ -214,12 +214,70 @@ public sealed class BaseMirrorTests : IDisposable
     {
         Write("a.cs", "a");
         Commit();
-        Directory.CreateDirectory(Mirror("a.cs")); // a folder where a file must go
+        Assert.True((await SyncAsync()).Ok);
+        Write("a.cs", "a changed and committed");
+        Commit();
+        File.SetAttributes(Mirror("a.cs"), FileAttributes.ReadOnly); // an unwritable file in the mirror
+        try
+        {
+            var r = await SyncAsync();
+
+            Assert.False(r.Ok);
+            Assert.False(string.IsNullOrWhiteSpace(r.FailureReason));
+        }
+        finally { File.SetAttributes(Mirror("a.cs"), FileAttributes.Normal); }
+    }
+
+    [Fact]
+    public async Task Sync_FileBecomesFolder_Recovers()
+    {
+        Write("x", "plain file");
+        Write("keep.cs", "k");
+        Commit();
+        Assert.True((await SyncAsync()).Ok);
+        File.Delete(Path.Combine(_dir, "x"));
+        Write("x/y.cs", "inside");
+        Commit();
 
         var r = await SyncAsync();
 
-        Assert.False(r.Ok);
-        Assert.False(string.IsNullOrWhiteSpace(r.FailureReason));
+        Assert.True(r.Ok, r.FailureReason);
+        Assert.Equal("inside", ReadMirror("x/y.cs"));
+        Assert.True((await SyncAsync()).Ok);
+    }
+
+    [Fact]
+    public async Task Sync_FolderBecomesFile_Recovers()
+    {
+        Write("x/y.cs", "inside");
+        Write("keep.cs", "k");
+        Commit();
+        Assert.True((await SyncAsync()).Ok);
+        Directory.Delete(Path.Combine(_dir, "x"), recursive: true);
+        Write("x", "now a file");
+        Commit();
+
+        var r = await SyncAsync();
+
+        Assert.True(r.Ok, r.FailureReason);
+        Assert.Equal("now a file", ReadMirror("x"));
+        Assert.False(File.Exists(Mirror("x/y.cs")));
+    }
+
+    [Fact]
+    public async Task Sync_UncommittedFileBecomesFolder_RestoresHeadFile()
+    {
+        Write("x", "head file");
+        Commit();
+        Assert.True((await SyncAsync()).Ok);
+        File.Delete(Path.Combine(_dir, "x"));
+        Write("x/y.cs", "new");
+
+        var r = await SyncAsync();
+
+        Assert.True(r.Ok, r.FailureReason);
+        Assert.Equal("head file", ReadMirror("x"));
+        Assert.False(Directory.Exists(Mirror("x")) && File.Exists(Mirror("x/y.cs")));
     }
 
     [Fact]

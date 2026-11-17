@@ -45,11 +45,16 @@ public sealed class BaseMirror(IFileSystem fs, GitRepo git)
             }
             foreach (var p in head.Keys) drop.Remove(p);
 
+            // Prune first: a stale entry of the other kind (file where a folder now goes, or the reverse) must be gone before anything is written.
             var keep = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var rel in source.Keys)
+                if (!drop.Contains(rel) && !head.ContainsKey(rel)) keep.Add(rel);
+            foreach (var rel in head.Keys) keep.Add(rel);
+            deleted += Prune(mirrorDir, mirrorDir, keep, ct);
+
             foreach (var (rel, full) in source)
             {
-                if (drop.Contains(rel) || head.ContainsKey(rel)) continue;
-                keep.Add(rel);
+                if (!keep.Contains(rel) || head.ContainsKey(rel)) continue;
                 var dest = MirrorFile(mirrorDir, rel);
                 var si = fs.FileInfo.New(full);
                 var di = fs.FileInfo.New(dest);
@@ -70,14 +75,12 @@ public sealed class BaseMirror(IFileSystem fs, GitRepo git)
                     if (fs.File.Exists(dest)) { fs.File.Delete(dest); deleted++; }
                     continue;
                 }
-                keep.Add(rel);
                 if (fs.File.Exists(dest) && fs.File.ReadAllBytes(dest).AsSpan().SequenceEqual(bytes)) continue;
                 fs.Directory.CreateDirectory(fs.Path.GetDirectoryName(dest)!);
                 fs.File.WriteAllBytes(dest, bytes);
                 copied++;
             }
 
-            deleted += Prune(mirrorDir, mirrorDir, keep, ct);
             return new MirrorResult(true, null, copied, deleted);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)

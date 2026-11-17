@@ -3,8 +3,14 @@ using System.Reflection;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using PellyCode.Core.Builds;
 using PellyCode.Core.Impact;
+using PellyCode.Core.Processes;
+using PellyCode.Core.Specs;
+using PellyCode.Core.Testing;
 using PellyCode.McpServer;
+using PellyCode.McpServer.Baseline;
+using PellyCode.McpServer.Git;
 using PellyCode.McpServer.Impact;
 using PellyCode.McpServer.Tools;
 
@@ -25,6 +31,20 @@ builder.Services.AddSingleton(new ServerState(context, error));
 var fs = new FileSystem();
 builder.Services.AddSingleton<IFileSystem>(fs);
 builder.Services.AddSingleton<ISemanticLoader>(new CachingSemanticLoader(new MsBuildSemanticLoader(fs), fs));
+
+// The HEAD baseline (design §11): prebuilt in the background in the mirror outside the workspace, outside the tool lock.
+if (context is not null)
+{
+    var processes = new SystemProcessRunner(TimeProvider.System);
+    var options = context.Options;
+    var tools = new BuildToolResolver(fs, processes, options.Build);
+    var verifier = new GroupVerifier(fs, new BuildVerifier(processes, options.Build), tools, OperatingSystem.IsWindows);
+    var tests = new BaselineTestRunner(fs, new TestRunner(processes, options.Build, options.Test), tools, OperatingSystem.IsWindows);
+    builder.Services.AddSingleton(sp => new BaselineService(fs, context.Root, MirrorPaths.For(context.Root),
+        new GitRepo(processes, context.Root), verifier, tests, options.Test, TimeProvider.System,
+        sp.GetRequiredService<ILogger<BaselineService>>()));
+    builder.Services.AddHostedService(sp => sp.GetRequiredService<BaselineService>());
+}
 
 var version = typeof(ServerContext).Assembly
     .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion.Split('+')[0] ?? "0.0.0";

@@ -47,15 +47,18 @@ builder.Services.AddSingleton<ISemanticLoader>(new CachingSemanticLoader(new MsB
 
 // The HEAD baseline (design §11): prebuilt in the background in the mirror outside the workspace, outside the tool lock.
 var processes = new SystemProcessRunner(TimeProvider.System);
-BaselineService? MakeBaseline(ILogger<BaselineService> log)
+// One verifier and test runner for the whole server: the baseline and the live tree report paths the same way.
+GroupVerifier? verifier = null;
+BaselineTestRunner? tests = null;
+BaselineService? MakeBaseline(ILogger<BaselineService> log) => context is null ? null
+    : new BaselineService(fs, context.Root, MirrorPaths.For(context.Root), new GitRepo(processes, context.Root),
+        verifier!, tests!, context.Options.Test, TimeProvider.System, log, new DotnetRestorer(fs, processes, context.Options.Build));
+if (context is not null)
 {
-    if (context is null) return null;
     var options = context.Options;
     var tools = new BuildToolResolver(fs, processes, options.Build);
-    var verifier = new GroupVerifier(fs, new BuildVerifier(processes, options.Build), tools, OperatingSystem.IsWindows);
-    var tests = new BaselineTestRunner(fs, new TestRunner(processes, options.Build, options.Test), tools, OperatingSystem.IsWindows);
-    return new BaselineService(fs, context.Root, MirrorPaths.For(context.Root), new GitRepo(processes, context.Root),
-        verifier, tests, options.Test, TimeProvider.System, log, new DotnetRestorer(fs, processes, options.Build));
+    verifier = new GroupVerifier(fs, new BuildVerifier(processes, options.Build), tools, OperatingSystem.IsWindows);
+    tests = new BaselineTestRunner(fs, new TestRunner(processes, options.Build, options.Test), tools, OperatingSystem.IsWindows);
 }
 
 // --check: a self-test on stdout; no MCP, no baseline build (only the cache on disk is read).
@@ -69,15 +72,10 @@ if (check)
 // The HEAD baseline (design §11): prebuilt in the background in the mirror outside the workspace, outside the tool lock.
 if (context is not null)
 {
-    var options = context.Options;
-    var tools = new BuildToolResolver(fs, processes, options.Build);
-    var verifier = new GroupVerifier(fs, new BuildVerifier(processes, options.Build), tools, OperatingSystem.IsWindows);
-    var tests = new BaselineTestRunner(fs, new TestRunner(processes, options.Build, options.Test), tools, OperatingSystem.IsWindows);
     builder.Services.AddSingleton(sp => MakeBaseline(sp.GetRequiredService<ILogger<BaselineService>>())!);
     builder.Services.AddHostedService(sp => sp.GetRequiredService<BaselineService>());
-    // The live tree is built and tested with the same verifier and test runner, so both sides report paths the same way.
     builder.Services.AddSingleton(sp => new VerifyService(fs, context, new GitRepo(processes, context.Root),
-        sp.GetRequiredService<BaselineService>(), verifier, tests, VerifyService.DefaultWaitLimit,
+        sp.GetRequiredService<BaselineService>(), verifier!, tests!, VerifyService.DefaultWaitLimit,
         cs => new SqlServerExecutor(cs), processes, OperatingSystem.IsWindows));
 }
 

@@ -41,20 +41,20 @@ public class ExitCodeMappingTests
             throw new TaskCanceledException("http timeout");
     }
 
-    private static CommandAppTester Build(CancellationToken ct, IRunner? runner = null)
+    private static CommandAppTester Build(CancellationToken ct, IRunner? runner = null, string pellyJson = "{}")
     {
-        var app = new CommandAppTester(new DiTypeRegistrar(Services(ct, runner)));
+        var app = new CommandAppTester(new DiTypeRegistrar(Services(ct, runner, pellyJson)));
         app.Configure(CliApp.Configure);
         return app;
     }
 
-    private static ServiceCollection Services(CancellationToken ct, IRunner? runner)
+    private static ServiceCollection Services(CancellationToken ct, IRunner? runner, string pellyJson = "{}")
     {
         var fs = new MockFileSystem();
         fs.AddFile(File, new MockFileData("class A { void M() {} }"));
         fs.AddFile("/w/src/A.sql", new MockFileData("CREATE PROCEDURE dbo.P AS SELECT 1;"));
         fs.AddFile("/w/src/A.csproj", new MockFileData("<Project Sdk=\"Microsoft.NET.Sdk\" />"));
-        fs.AddFile("/w/pelly.json", new MockFileData("{}"));
+        fs.AddFile("/w/pelly.json", new MockFileData(pellyJson));
         fs.AddDirectory("/w/.git");
         fs.Directory.SetCurrentDirectory("/w");
 
@@ -80,6 +80,15 @@ public class ExitCodeMappingTests
 
         Assert.Equal(4, result.ExitCode);
         Assert.Contains("FILE", result.Output);
+    }
+
+    [Fact]
+    public void MalformedPellyJson_Exit4WithPath()
+    {
+        var result = Build(CancellationToken.None, pellyJson: "{ not json").Run("cs", File, "do it", "--method", "M");
+
+        Assert.Equal(4, result.ExitCode);
+        Assert.Contains("pelly.json", result.Output);
     }
 
     [Fact]

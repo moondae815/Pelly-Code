@@ -91,14 +91,47 @@ public sealed class HealthCheckTests : IDisposable
         var service = new BaselineService(new FileSystem(), repo, Path.Combine(_base, "mcp-base", "abc"),
             new GitRepo(new SystemProcessRunner(TimeProvider.System), repo), new FailingVerifier(), new NoTests(), new TestOptions(),
             TimeProvider.System, NullLogger<BaselineService>.Instance, new NoRestore());
-        await service.GetAsync(["App/App.csproj"], TimeSpan.FromSeconds(20), null, Ct);
         var output = new StringWriter();
-
-        await HealthCheck.RunAsync(ctx, null, service, Tools, output, Ct, HostDir(true));
-        await service.StopAsync(CancellationToken.None);
+        try
+        {
+            await service.GetAsync(["App/App.csproj"], TimeSpan.FromSeconds(20), null, Ct);
+            await HealthCheck.RunAsync(ctx, null, service, Tools, output, Ct, HostDir(true));
+        }
+        finally
+        {
+            await service.StopAsync(CancellationToken.None);
+        }
 
         Assert.Contains("HEAD", output.ToString());
         Assert.Contains("boom-reason", output.ToString());
+    }
+
+    [Fact]
+    public async Task ShowsBaselineFromDiskCache()
+    {
+        var repo = Path.Combine(_base, "repo");
+        Directory.CreateDirectory(repo);
+        Run(repo, "init", "-q");
+        Run(repo, "-c", "user.name=t", "-c", "user.email=t@e.com", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "c");
+        var head = new StringWriter();
+        var psi = new ProcessStartInfo("git", "rev-parse HEAD") { WorkingDirectory = repo, RedirectStandardOutput = true };
+        using (var p = Process.Start(psi)!) { head.Write(p.StandardOutput.ReadToEnd().Trim()); p.WaitForExit(); }
+        var mirror = Path.Combine(_base, "mcp-base", "abc");
+        Directory.CreateDirectory(Path.GetDirectoryName(mirror)!);
+        File.WriteAllText(mirror + ".baseline.json", System.Text.Json.JsonSerializer.Serialize(new
+        {
+            Version = 2, Head = head.ToString(), SolutionBuilt = true, Built = new[] { "App/App.csproj" }, Absent = Array.Empty<string>(),
+            Errors = Array.Empty<object>(), TestsOf = new Dictionary<string, string[]>(), Tests = new Dictionary<string, object>(),
+            TestProjectsRun = Array.Empty<string>(), At = DateTimeOffset.UtcNow,
+        }));
+        var service = new BaselineService(new FileSystem(), repo, mirror, new GitRepo(new SystemProcessRunner(TimeProvider.System), repo),
+            new FailingVerifier(), new NoTests(), new TestOptions(), TimeProvider.System, NullLogger<BaselineService>.Instance, new NoRestore());
+        var output = new StringWriter();
+
+        await HealthCheck.RunAsync(Context(), null, service, Tools, output, Ct, HostDir(true));
+
+        Assert.Contains($"HEAD {head.ToString()[..12]}", output.ToString());
+        Assert.Contains("Ready", output.ToString());
     }
 
     [Fact]

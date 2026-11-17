@@ -17,6 +17,19 @@ public class PellyOptionsLoaderTests
         PellyOptionsLoader.Load(fs, user, ws, env ?? None, cli ?? None);
 
     [Fact]
+    public void MalformedJson_IsAnErrorNamingTheFile()
+    {
+        var path = P(@"C:\w\pelly.json");
+        var fs = new MockFileSystem();
+        fs.AddFile(path, new MockFileData("{ not json"));
+
+        var r = Load(fs, ws: path);
+
+        Assert.Null(r.Options);
+        Assert.Contains(r.Errors, e => e.Contains(path));
+    }
+
+    [Fact]
     public void Defaults_MatchDesign()
     {
         var r = Load(new MockFileSystem());

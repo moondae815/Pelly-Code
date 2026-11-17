@@ -78,4 +78,26 @@ public sealed class ProtocolTests : IDisposable
             try { proc.Kill(entireProcessTree: true); } catch (InvalidOperationException) { }
         }
     }
+
+    [Fact]
+    public async Task Verify_TakesNoArguments_ReportsNoChanges()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var transport = new StdioClientTransport(new StdioClientTransportOptions
+        {
+            Name = "pellycode-mcp-server",
+            Command = "dotnet",
+            Arguments = [ServerDll(), "--root", _repo],
+        });
+        await using var client = await McpClient.CreateAsync(transport, cancellationToken: ct);
+
+        var verify = (await client.ListToolsAsync(cancellationToken: ct)).Single(t => t.Name == "pelly_verify");
+        var schema = verify.JsonSchema;
+        Assert.False(schema.TryGetProperty("properties", out var props) && props.EnumerateObject().Any(), schema.ToString());
+
+        var result = await client.CallToolAsync("pelly_verify", new Dictionary<string, object?>(),
+            new Progress<ModelContextProtocol.ProgressNotificationValue>(), cancellationToken: ct);
+        var text = string.Concat(result.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>().Select(c => c.Text));
+        Assert.Equal("HEAD 이후 바뀐 파일이 없습니다", text);
+    }
 }

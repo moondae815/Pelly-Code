@@ -13,6 +13,7 @@ using PellyCode.McpServer.Baseline;
 using PellyCode.McpServer.Git;
 using PellyCode.McpServer.Impact;
 using PellyCode.McpServer.Tools;
+using PellyCode.McpServer.Verify;
 
 // --root <folder> (default: current folder) and --log-file <path> are ours; the rest goes to the host.
 var root = ArgValue(args, "--root") ?? Directory.GetCurrentDirectory();
@@ -44,6 +45,9 @@ if (context is not null)
         new GitRepo(processes, context.Root), verifier, tests, options.Test, TimeProvider.System,
         sp.GetRequiredService<ILogger<BaselineService>>()));
     builder.Services.AddHostedService(sp => sp.GetRequiredService<BaselineService>());
+    // The live tree is built and tested with the same verifier and test runner, so both sides report paths the same way.
+    builder.Services.AddSingleton(sp => new VerifyService(fs, context, new GitRepo(processes, context.Root),
+        sp.GetRequiredService<BaselineService>(), verifier, tests, VerifyService.DefaultWaitLimit));
 }
 
 var version = typeof(ServerContext).Assembly

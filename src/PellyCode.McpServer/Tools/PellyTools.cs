@@ -1,13 +1,17 @@
 using System.ComponentModel;
 using System.IO.Abstractions;
+using Microsoft.Extensions.DependencyInjection;
+using ModelContextProtocol;
+using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using PellyCode.Core.Impact;
 using PellyCode.McpServer.Impact;
+using PellyCode.McpServer.Verify;
 
 namespace PellyCode.McpServer.Tools;
 
 [McpServerToolType]
-public sealed class PellyTools(ServerState state, IFileSystem fs, ISemanticLoader loader)
+public sealed class PellyTools(ServerState state, IFileSystem fs, ISemanticLoader loader, IServiceProvider services)
 {
     private const string NotImplemented = "아직 구현되지 않았습니다";
 
@@ -31,7 +35,17 @@ public sealed class PellyTools(ServerState state, IFileSystem fs, ISemanticLoade
         }
     }
 
-    [McpServerTool(Name = "pelly_verify"), Description("Checks the uncommitted changes against HEAD and reports new problems.")]
-    public Task<string> Verify() =>
-        Task.FromResult(state.Context is null ? state.Error ?? NotImplemented : NotImplemented);
+    [McpServerTool(Name = "pelly_verify"),
+     Description("Call this after editing code and before you finish. No arguments. Builds the changed C# projects, runs their tests and lists only NEW build errors and NEW failing tests compared with the last commit (HEAD). Fix what it lists, then call it again. If it says the baseline is still building, call it again.")]
+    public async Task<string> Verify(RequestContext<CallToolRequestParams> request, IProgress<ProgressNotificationValue> progress,
+        CancellationToken ct = default)
+    {
+        if (state.Context is null) return state.Error ?? NotImplemented;
+        if (services.GetService<VerifyService>() is not { } verify) return NotImplemented;
+        // No progress token from the client: nothing keeps the call alive, so the shorter wait applies.
+        if (request.Params?.ProgressToken is null) return await verify.VerifyAsync(null, ct);
+        await using var beat = new ProgressHeartbeat(progress, TimeProvider.System, VerifyService.ProgressInterval);
+        beat.Report("변경 사항을 확인하는 중입니다");
+        return await verify.VerifyAsync(beat, ct);
+    }
 }

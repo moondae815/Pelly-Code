@@ -58,6 +58,9 @@ public sealed class BaselineService(IFileSystem fs, string root, string mirrorDi
     private int _trx;
     private long _failures; // generation of the last recorded failure; guarded by _gate
 
+    /// <summary>The HEAD mirror folder: baseline build errors carry paths inside it.</summary>
+    public string MirrorDir => mirrorDir;
+
     /// <summary>The cache file beside the mirror folder: <c>&lt;mirror parent&gt;/&lt;hash&gt;.baseline.json</c>.</summary>
     internal string CachePath { get; } = CacheFileFor(fs, mirrorDir);
 

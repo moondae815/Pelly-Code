@@ -103,7 +103,8 @@ public sealed class BaseMirror(IFileSystem fs, GitRepo git)
     private string MirrorFile(string mirrorDir, string rel) =>
         fs.Path.Combine(mirrorDir, rel.Replace('/', fs.Path.DirectorySeparatorChar));
 
-    private static bool IsExcluded(string rel) =>
+    /// <summary>True when a segment of the root-relative path ('/') is a build or VCS folder the mirror leaves out.</summary>
+    internal static bool IsExcluded(string rel) =>
         rel.Split('/').Any(s => Excluded.Contains(s));
 
     private bool IsLink(IFileSystemInfo info) =>

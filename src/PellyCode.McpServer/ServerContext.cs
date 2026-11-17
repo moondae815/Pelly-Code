@@ -12,16 +12,28 @@ public sealed class ServerContext(string root, PellyOptions options, Workspace w
     public Workspace Workspace { get; } = ws;
     public SemaphoreSlim ToolLock { get; } = new(1, 1);
 
+    /// <summary>Walks up from <paramref name="start"/> to the nearest folder holding .git (a directory, or a file in a worktree).</summary>
+    private static string? FindRepoRoot(IFileSystem fs, string start)
+    {
+        for (var dir = start; dir is not null; dir = fs.Path.GetDirectoryName(dir))
+        {
+            var git = fs.Path.Combine(dir, ".git");
+            if (fs.Directory.Exists(git) || fs.File.Exists(git)) return dir;
+        }
+        return null;
+    }
+
     /// <summary>Same source order as the Cli OptionsResolver: user config, &lt;root&gt;/pelly.json, environment.</summary>
     public static ServerContext? TryCreate(IFileSystem fs, string root, out string? error)
     {
-        root = fs.Path.GetFullPath(root);
-        var git = fs.Path.Combine(root, ".git");
-        if (!fs.Directory.Exists(git) && !fs.File.Exists(git))
+        var given = fs.Path.GetFullPath(root);
+        var found = FindRepoRoot(fs, given);
+        if (found is null)
         {
-            error = $"git 저장소가 아닙니다: {root}";
+            error = $"git 저장소가 아닙니다: {given}";
             return null;
         }
+        root = found;
 
         var env = new Dictionary<string, string?>(StringComparer.Ordinal);
         foreach (System.Collections.DictionaryEntry e in Environment.GetEnvironmentVariables())

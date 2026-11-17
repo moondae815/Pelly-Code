@@ -47,8 +47,10 @@ public sealed class ServerContext(string root, PellyOptions options, Workspace w
             return null;
         }
 
+        var ws = new Workspace(root, fs.Path.Combine(root, ".pelly"));
+        WorkspaceLocator.EnsurePellyDir(fs, ws);
         error = null;
-        return new ServerContext(root, loaded.Options, new Workspace(root, fs.Path.Combine(root, ".pelly")));
+        return new ServerContext(root, loaded.Options, ws);
     }
 }
 

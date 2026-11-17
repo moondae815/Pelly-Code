@@ -136,4 +136,17 @@ public sealed class GitRepoTests : IDisposable
         Assert.NotNull(head);
         Assert.Equal(40, head.Length);
     }
+
+    [Fact]
+    public async Task Changes_IgnoresPellyFolder()
+    {
+        Write("a.cs", "a");
+        Commit();
+        Write(".pelly/cache/site-index.json", "{}");
+        Write("b.cs", "b");
+
+        var changes = await Repo().ChangesAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(["b.cs"], changes.Select(c => c.Path));
+    }
 }

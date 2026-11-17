@@ -44,8 +44,10 @@ public sealed class GitRepo(IProcessRunner processes, string root)
                 : GitChangeKind.Modified;
             list.Add(new GitChange(path, k, null));
         }
-        return list;
+        return list.Where(c => !UnderPelly(c.Path) && (c.OldPath is null || !UnderPelly(c.OldPath))).ToList();
     }
+
+    private static bool UnderPelly(string p) => p == ".pelly" || p.StartsWith(".pelly/", StringComparison.Ordinal);
 
     /// <summary>The raw bytes of <c>HEAD:path</c>, or null when HEAD has no such file.</summary>
     public async Task<byte[]?> ShowHeadAsync(string path, CancellationToken ct)

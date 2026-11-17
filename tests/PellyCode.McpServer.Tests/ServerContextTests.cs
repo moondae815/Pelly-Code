@@ -56,4 +56,16 @@ public sealed class ServerContextTests
         Assert.Equal(P("repo"), ctx.Root);
         Assert.Equal(P("repo"), ctx.Workspace.Root);
     }
+
+    [Fact]
+    public void TryCreate_EnsuresPellyGitignore()
+    {
+        var fs = new MockFileSystem();
+        fs.AddDirectory(P("proj/.git"));
+
+        var ctx = ServerContext.TryCreate(fs, P("proj"), out _);
+
+        Assert.NotNull(ctx);
+        Assert.Equal("*\n", fs.File.ReadAllText(P("proj/.pelly/.gitignore")));
+    }
 }

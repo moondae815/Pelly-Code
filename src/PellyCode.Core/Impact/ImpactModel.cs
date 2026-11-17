@@ -40,8 +40,18 @@ public enum ImpactTargetKind { CSharpMember, SqlObject }
 /// </summary>
 /// <param name="SqlObject">A SQL object target's name as the server gave it (compared directly, never re-parsed from <paramref name="Member"/>).</param>
 /// <param name="SqlTypeCode">A SQL object target's <c>sys.objects.type</c> (<c>P</c>, <c>V</c>, <c>TR</c>…); null when unknown.</param>
+/// <param name="Line">1-based line of the reference (<c>호출</c>, <c>멤버 밖</c>) or of the declaration (<c>구현</c>, <c>재정의</c>, <c>기반 멤버</c>); null when unknown. Not part of equality.</param>
 public sealed record ImpactTarget(string SeedTaskId, string Path, string Member, string Reason, ImpactTargetKind TargetKind = ImpactTargetKind.CSharpMember,
-    SqlObjectName? SqlObject = null, string? SqlTypeCode = null);
+    SqlObjectName? SqlObject = null, string? SqlTypeCode = null, int? Line = null)
+{
+    // Line is a detail of where the place was found, not part of its identity: two targets that differ only in it are
+    // the same target, so callers and tests that compare targets by value keep working.
+    public bool Equals(ImpactTarget? other) =>
+        other is not null && SeedTaskId == other.SeedTaskId && Path == other.Path && Member == other.Member && Reason == other.Reason
+        && TargetKind == other.TargetKind && Equals(SqlObject, other.SqlObject) && SqlTypeCode == other.SqlTypeCode;
+
+    public override int GetHashCode() => HashCode.Combine(SeedTaskId, Path, Member, Reason, TargetKind, SqlObject, SqlTypeCode);
+}
 
 /// <param name="Fallback">Why the semantic analysis was replaced by the name-based one; null for a semantic result.</param>
 /// <param name="Incomplete">True when the file walk was cut short or a folder or file could not be read, so targets may be missing.</param>

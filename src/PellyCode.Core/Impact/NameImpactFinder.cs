@@ -77,6 +77,13 @@ public static class NameImpactFinder
         _ => [],
     };
 
+    private static SyntaxToken DeclaredToken(MemberDeclarationSyntax m) => m switch
+    {
+        MethodDeclarationSyntax method => method.Identifier,
+        PropertyDeclarationSyntax property => property.Identifier,
+        _ => m.GetFirstToken(),
+    };
+
     private static bool IsSeedKind(MemberDeclarationSyntax m, string name) =>
         (m is MethodDeclarationSyntax method && method.Identifier.Text == name)
         || (m is PropertyDeclarationSyntax property && property.Identifier.Text == name);
@@ -84,13 +91,13 @@ public static class NameImpactFinder
     private static IEnumerable<ImpactTarget> FindFor(List<Parsed> files, ImpactSeed seed, string seedPath, List<TypeDeclarationSyntax> seedTypes, bool globalUsings)
     {
         var name = seed.Member;
-        var found = new List<(string Path, int Position, string Member, string Reason)>();
+        var found = new List<(string Path, int Position, string Member, string Reason, int Line)>();
         var seen = new HashSet<(string, string)>(new KeyComparer());
         seen.Add((seedPath, name));
 
-        void Add(string path, int position, string member, string reason)
+        void Add(string path, int position, string member, string reason, SyntaxToken at)
         {
-            if (seen.Add((path, member))) found.Add((path, position, member, reason));
+            if (seen.Add((path, member))) found.Add((path, position, member, reason, at.GetLocation().GetLineSpan().StartLinePosition.Line + 1));
         }
 
         var seedTypeNames = seedTypes.Select(t => t.Identifier.Text).ToHashSet(StringComparer.Ordinal);
@@ -122,13 +129,13 @@ public static class NameImpactFinder
                 var member = type.Members.FirstOrDefault(m => IsSeedKind(m, name));
                 if (member is null) continue;
                 if (baseNames.Contains(type.Identifier.Text))
-                    Add(file.Path, member.SpanStart, name, "기반 멤버");
+                    Add(file.Path, member.SpanStart, name, "기반 멤버", DeclaredToken(member));
                 else if (BaseNames(type).Any(related.Contains) && (globalUsings || !OnlyUnseenSeedName(type, related, seedTypeNames, baseNames, seedNamespaces)))
-                    Add(file.Path, member.SpanStart, name, member.Modifiers.Any(SyntaxKind.OverrideKeyword) ? "재정의" : "구현");
+                    Add(file.Path, member.SpanStart, name, member.Modifiers.Any(SyntaxKind.OverrideKeyword) ? "재정의" : "구현", DeclaredToken(member));
                 else if (seedTypeNames.Contains(type.Identifier.Text) && (globalUsings || seedNamespaces.Contains(Namespace(type))))
                     // Another part of a partial seed type (or a same-named type): its base list may sit on the
                     // seed's part only, so the name of the type is the one link left.
-                    Add(file.Path, member.SpanStart, name, "구현");
+                    Add(file.Path, member.SpanStart, name, "구현", DeclaredToken(member));
             }
 
         foreach (var file in files)
@@ -136,12 +143,12 @@ public static class NameImpactFinder
             foreach (var reference in file.Root.DescendantNodes().OfType<SimpleNameSyntax>().Where(i => i.Identifier.Text == name))
             {
                 var (member, reason) = Enclosing(reference);
-                Add(file.Path, reference.SpanStart, member, reason);
+                Add(file.Path, reference.SpanStart, member, reason, reference.Identifier);
             }
 
         return found
             .OrderBy(f => f.Path, StringComparer.Ordinal).ThenBy(f => f.Position)
-            .Select(f => new ImpactTarget(seed.TaskId, f.Path, f.Member, f.Reason));
+            .Select(f => new ImpactTarget(seed.TaskId, f.Path, f.Member, f.Reason, Line: f.Line));
     }
 
     /// <summary>

@@ -63,13 +63,13 @@ public sealed class SemanticImpactFinder(IFileSystem fs, ISemanticLoader loader)
     private async Task<IEnumerable<ImpactTarget>> FindForAsync(Solution solution, Workspace ws, ImpactSeed seed, IReadOnlyList<ISymbol> seedSymbols, CancellationToken ct)
     {
         var seedPath = Normalize(seed.Path);
-        var found = new List<(string Path, int Position, string Member, string Reason)>();
+        var found = new List<(string Path, int Position, string Member, string Reason, int Line)>();
         var seen = new HashSet<(string, string)>(new KeyComparer()) { (seedPath, seed.Member) };
 
         void Add(Location location, string member, string reason)
         {
             if (TargetPath(solution, ws, location) is { } path && seen.Add((path, member)))
-                found.Add((path, location.SourceSpan.Start, member, reason));
+                found.Add((path, location.SourceSpan.Start, member, reason, location.GetLineSpan().StartLinePosition.Line + 1));
         }
 
         void AddDeclarations(ISymbol symbol, string reason)
@@ -127,7 +127,7 @@ public sealed class SemanticImpactFinder(IFileSystem fs, ISemanticLoader loader)
 
         return found
             .OrderBy(f => f.Path, StringComparer.Ordinal).ThenBy(f => f.Position)
-            .Select(f => new ImpactTarget(seed.TaskId, f.Path, f.Member, f.Reason));
+            .Select(f => new ImpactTarget(seed.TaskId, f.Path, f.Member, f.Reason, Line: f.Line));
     }
 
     /// <summary>
@@ -152,7 +152,14 @@ public sealed class SemanticImpactFinder(IFileSystem fs, ISemanticLoader loader)
         foreach (var reference in parts.SelectMany(p => p.DeclaringSyntaxReferences))
         {
             var node = reference.GetSyntax();
-            yield return (Location.Create(reference.SyntaxTree, reference.Span), DeclaredName(node) ?? symbol.Name);
+            // The identifier's place, so the line is the declaration's name line, not that of its attributes.
+            var span = node switch
+            {
+                MethodDeclarationSyntax m => m.Identifier.Span,
+                PropertyDeclarationSyntax p => p.Identifier.Span,
+                _ => reference.Span,
+            };
+            yield return (Location.Create(reference.SyntaxTree, span), DeclaredName(node) ?? symbol.Name);
         }
     }
 

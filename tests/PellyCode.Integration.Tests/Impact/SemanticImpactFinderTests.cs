@@ -18,6 +18,23 @@ public sealed class SemanticImpactFinderTests(RestoredSameNameFixture fx) : ICla
     }
 
     [Fact]
+    public async Task Semantic_Target_HasCallLine()
+    {
+        var result = await FindAsync(new ImpactSeed("T1", 5, "Data/IOrderDao.cs", "IOrderDao", "GetOrder"));
+
+        Assert.Equal(ImpactMode.Semantic, result.Mode);
+        Assert.All(result.Targets, t =>
+        {
+            Assert.NotNull(t.Line);
+            var lines = File.ReadAllLines(Path.Combine(fx.Root, t.Path));
+            // The line holds the member name, whether it is a declaration or a call.
+            Assert.Contains(t.Reason is "호출" ? "GetOrder" : t.Member, lines[t.Line!.Value - 1]);
+        });
+        Assert.Contains(result.Targets, t => t.Reason == "호출" && t.Line > 0);
+        Assert.Contains(result.Targets, t => t.Reason == "구현" && t.Line > 0);
+    }
+
+    [Fact]
     public async Task Interface_seed_finds_implementations_and_callers_but_not_the_same_named_interface()
     {
         var result = await FindAsync(new ImpactSeed("T1", 5, "Data/IOrderDao.cs", "IOrderDao", "GetOrder"));

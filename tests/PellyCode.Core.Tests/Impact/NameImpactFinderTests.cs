@@ -13,6 +13,24 @@ public class NameImpactFinderTests
     private static string P(string rel) => Path.Combine(Root, rel.Replace('/', Path.DirectorySeparatorChar));
 
     [Fact]
+    public void Name_Target_HasCallLine()
+    {
+        var fs = new MockFileSystem();
+        fs.AddFile(P("Base.cs"), new MockFileData("class Base\n{\n    public virtual int Run() => 1;\n}"));
+        fs.AddFile(P("Derived.cs"), new MockFileData("class Derived : Base\n{\n    [Obsolete]\n    public override int Run() => 2;\n}"));
+        fs.AddFile(P("Use.cs"), new MockFileData("class Use\n{\n    void Go()\n    {\n        var x = 1;\n        new Base().Run();\n    }\n}"));
+        var seed = new ImpactSeed("T1", 3, "Base.cs", "Base", "Run");
+
+        var result = NameImpactFinder.Find(fs, new Workspace(Root, P(".pelly")), [seed], [], Fallback);
+
+        Assert.Equal(
+        [
+            ("Derived.cs", "재정의", 4),
+            ("Use.cs", "호출", 6),
+        ], result.Targets.Select(t => (t.Path, t.Reason, t.Line!.Value)));
+    }
+
+    [Fact]
     public void Same_name_interface_is_a_known_false_hit()
     {
         var root = ImpactFixture.SameName();

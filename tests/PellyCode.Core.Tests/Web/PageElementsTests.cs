@@ -182,4 +182,29 @@ public sealed class PageElementsTests
         Assert.Equal(new ElementDef(ElementKind.Name, "n7999", null, 8000), defs[^1]);
         Assert.True(watch.ElapsedMilliseconds < 1000, $"took {watch.ElapsedMilliseconds} ms");
     }
+
+    [Fact]
+    public void NewBroken_RelatedPerSide_IncludeLostTheId_WithHints()
+    {
+        // The page is the same; its include had id="memo" before and only name="memo" after.
+        var page = "<!-- #include file=\"inc/memo.inc\" -->\n<script>\nvar v = document.getElementById(\"memo\").value;\n</script>\n";
+        var parsed = AspPage.Parse(page);
+        RelatedText[] before = [new RelatedText("inc/memo.inc", "<input id=\"memo\">\n")];
+        RelatedText[] after = [new RelatedText("inc/memo.inc", "<input name=\"memo\">\n")];
+
+        Assert.Equal(["#memo(줄 3) — id 없음, name=\"memo\"는 있음(inc/memo.inc:1)"],
+            PageElements.NewBroken(parsed, page, before, parsed, page, after));
+        Assert.Empty(PageElements.NewBroken(parsed, page, after, parsed, page, before));
+    }
+
+    [Fact]
+    public void NewBroken_OneRelatedList_SameAsBothSides()
+    {
+        var original = "<input id=\"a\">\n<script>\n$('#a').hide();\n</script>\n";
+        var patched = "<input id=\"b\">\n<script>\n$('#a').hide();\n</script>\n";
+        RelatedText[] related = [new RelatedText("inc/x.inc", "<input name=\"a\">\n")];
+
+        Assert.Equal(Check(original, patched, related),
+            PageElements.NewBroken(AspPage.Parse(original), original, related, AspPage.Parse(patched), patched, related));
+    }
 }

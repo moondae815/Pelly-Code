@@ -167,4 +167,50 @@ public class AspNameCheckTests
         Assert.True(result.Downgraded);
         Assert.Equal("Execute·Eval이 있어 이름 검사를 경고로 낮췄습니다.", result.DowngradeReason);
     }
+
+    [Fact]
+    public void Names_IncludesPerSide_RemovedFromInclude_Error()
+    {
+        // The page is the same; only its include changed: a function the page calls is gone after.
+        var page = AspPage.Parse("<!-- #include file=\"inc/func.inc\" -->\n<%\nx = FormatOrderNo(1)\n%>");
+        var before = Includes(("/site/inc/func.inc", "<%\nFunction FormatOrderNo(n)\n  FormatOrderNo = n\nEnd Function\n%>"));
+        var after = Includes(("/site/inc/func.inc", "<%\nFunction FormatOrderText(n)\n  FormatOrderText = n\nEnd Function\n%>"));
+
+        var result = AspNameCheck.NewUnknown(page, before, page, after, AspBuiltins.Default);
+
+        Assert.Equal([new AspUnknownName("FormatOrderNo", 3)], result.Unknown);
+        Assert.False(result.Downgraded);
+        Assert.Empty(AspNameCheck.NewUnknown(page, after, page, before, AspBuiltins.Default).Unknown);
+    }
+
+    [Fact]
+    public void Names_IncludesPerSide_AdoFromOriginalSide()
+    {
+        // The original side's own includes decide whether undeclared ADO constants count as known (as with one set).
+        var original = AspPage.Parse("<%\nx = adOpenStatic\n%>");
+        var patched = AspPage.Parse("<%\nx = adOpenStatic\ny = adLockReadOnly\n%>");
+
+        Assert.Empty(AspNameCheck.NewUnknown(original, NoIncludes, patched, NoIncludes, AspBuiltins.Default).Unknown);
+        Assert.Equal(AspNameCheck.NewUnknown(original, patched, NoIncludes, AspBuiltins.Default),
+            AspNameCheck.NewUnknown(original, NoIncludes, patched, NoIncludes, AspBuiltins.Default), new ResultComparer());
+    }
+
+    [Fact]
+    public void Names_IncludesPerSide_DowngradeFromPatchedSide()
+    {
+        var page = AspPage.Parse("<%\nx = Foo()\n%>");
+        var missing = new AspIncludeSet([], ["inc/missing.inc"], false);
+
+        Assert.True(AspNameCheck.NewUnknown(page, NoIncludes, page, missing, AspBuiltins.Default).Downgraded);
+        Assert.False(AspNameCheck.NewUnknown(page, missing, page, NoIncludes, AspBuiltins.Default).Downgraded);
+    }
+
+    private sealed class ResultComparer : IEqualityComparer<AspNameResult>
+    {
+        public bool Equals(AspNameResult? x, AspNameResult? y) =>
+            x is not null && y is not null && x.Unknown.SequenceEqual(y.Unknown) && x.Downgraded == y.Downgraded
+            && x.DowngradeReason == y.DowngradeReason;
+
+        public int GetHashCode(AspNameResult obj) => obj.Unknown.Count;
+    }
 }

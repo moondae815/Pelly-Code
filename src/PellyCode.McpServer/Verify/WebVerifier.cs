@@ -193,6 +193,12 @@ public sealed class WebVerifier(IFileSystem fs, ServerContext ctx, IProcessRunne
                     _sections.NoPass(section);
                     _report.Skip(section, $"검사 중 파일을 읽지 못했습니다: {e.Message}");
                 }
+                catch (Exception e) when (e is ParseErrorException or InsufficientExecutionStackException)
+                {
+                    // The JS parsers give up on some texts (nesting too deep): the checks did not run, so no 「통과」.
+                    _sections.NoPass(section);
+                    _report.Skip(section, $"검사할 수 없습니다: {e.Message}");
+                }
             }
             try
             {
@@ -289,7 +295,7 @@ public sealed class WebVerifier(IFileSystem fs, ServerContext ctx, IProcessRunne
             beforeIncludes = AtHead(beforeIncludes);
             if (ReferenceEquals(before, after) && ReferenceEquals(beforeIncludes, afterIncludes)) return;
 
-            var result = NewNames(before, beforeIncludes, after, afterIncludes);
+            var result = AspNameCheck.NewUnknown(before, beforeIncludes, after, afterIncludes, AspBuiltins.Default, AdoKnown);
             foreach (var u in result.Unknown)
             {
                 var line = $"{rel}:{u.Line} 정의되지 않은 이름: {u.Name}";
@@ -312,32 +318,6 @@ public sealed class WebVerifier(IFileSystem fs, ServerContext ctx, IProcessRunne
                 return f with { Page = AspPage.Parse(text) };
             }).ToList();
             return swapped ? set with { Files = files } : set;
-        }
-
-        /// <summary>
-        /// <see cref="AspNameCheck.NewUnknown"/> when both sides see the same includes; otherwise the same count comparison over
-        /// each side's own include set (each side's unknown uses taken against an empty original).
-        /// </summary>
-        private AspNameResult NewNames(AspPage before, AspIncludeSet beforeIncludes, AspPage after, AspIncludeSet afterIncludes)
-        {
-            var builtins = AspBuiltins.Default;
-            if (ReferenceEquals(beforeIncludes, afterIncludes))
-                return AspNameCheck.NewUnknown(before, after, afterIncludes, builtins, AdoKnown);
-
-            var empty = AspPage.Parse("");
-            var baseline = AspNameCheck.NewUnknown(empty, before, beforeIncludes, builtins, AdoKnown);
-            var ado = AdoKnown || baseline.Unknown.Any(u => builtins.IsAdoConstant(u.Name));
-            if (ado && !AdoKnown) baseline = AspNameCheck.NewUnknown(empty, before, beforeIncludes, builtins, true);
-            var now = AspNameCheck.NewUnknown(empty, after, afterIncludes, builtins, ado);
-            var counts = baseline.Unknown.GroupBy(u => u.Name, StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
-            var fresh = new List<AspUnknownName>();
-            foreach (var g in now.Unknown.GroupBy(u => u.Name, StringComparer.OrdinalIgnoreCase))
-            {
-                var extra = g.Count() - counts.GetValueOrDefault(g.Key);
-                if (extra > 0) fresh.AddRange(g.OrderBy(u => u.Line).TakeLast(extra));
-            }
-            return new AspNameResult(fresh.OrderBy(u => u.Line).ToList(), now.Downgraded, now.DowngradeReason);
         }
 
         /// <summary><c>asp.adoConstants</c>, or a typelib METADATA in <c>&lt;siteRoot&gt;/global.asa</c>.</summary>
@@ -365,7 +345,7 @@ public sealed class WebVerifier(IFileSystem fs, ServerContext ctx, IProcessRunne
             var beforeRelated = AtHead(SameIncludes(before, after) && SameScripts(before, after)
                 ? afterRelated
                 : PageScripts.RelatedTexts(_fs, _siteRoot, full, before, _codec, Index));
-            foreach (var w in NewBroken(before, beforeText, beforeRelated, after, afterText, afterRelated))
+            foreach (var w in PageElements.NewBroken(before, beforeText, beforeRelated, after, afterText, afterRelated))
                 _sections.Warning(section, w);
         }
 
@@ -378,36 +358,6 @@ public sealed class WebVerifier(IFileSystem fs, ServerContext ctx, IProcessRunne
             related.Any(r => _headBySite.ContainsKey(r.File))
                 ? related.Select(r => _headBySite.TryGetValue(r.File, out var text) ? r with { TextLf = text } : r).ToList()
                 : related;
-
-        /// <summary>
-        /// <see cref="PageElements.NewBroken"/> when both sides see the same related files; otherwise the same count comparison with
-        /// each side's own related files (the warning without its hints).
-        /// </summary>
-        private static IReadOnlyList<string> NewBroken(AspPage before, string beforeText, IReadOnlyList<RelatedText> beforeRelated,
-            AspPage after, string afterText, IReadOnlyList<RelatedText> afterRelated)
-        {
-            if (ReferenceEquals(beforeRelated, afterRelated))
-                return PageElements.NewBroken(before, beforeText, after, afterText, afterRelated);
-
-            static List<ElementDef> Defs(string text, IReadOnlyList<RelatedText> related) =>
-                PageElements.Definitions(text, null).Concat(related.SelectMany(r => PageElements.Definitions(r.TextLf, r.File))).ToList();
-            var beforeDefs = Defs(beforeText, beforeRelated);
-            var afterDefs = Defs(afterText, afterRelated);
-            var counts = PageElements.References(before, beforeText).Where(r => Broken(r, beforeDefs))
-                .GroupBy(r => (r.Kind, r.Value)).ToDictionary(g => g.Key, g => g.Count());
-            return PageElements.References(after, afterText).Where(r => Broken(r, afterDefs))
-                .GroupBy(r => (r.Kind, r.Value))
-                .Where(g => g.Count() > counts.GetValueOrDefault(g.Key))
-                .Select(g => g.MinBy(r => r.Line)!)
-                .OrderBy(r => r.Line).ThenBy(r => r.Value, StringComparer.Ordinal)
-                .Select(r => r.Kind == ElementKind.Id ? $"#{r.Value}(줄 {r.Line}) — id 없음" : $"[name={r.Value}](줄 {r.Line}) — name 없음")
-                .ToList();
-        }
-
-        /// <summary>The same rule as <see cref="PageElements"/>: no definition of that kind and value (a <c>*</c> value is a prefix).</summary>
-        private static bool Broken(ElementRef r, IReadOnlyList<ElementDef> defs) =>
-            !defs.Any(d => d.Kind == r.Kind && (d.Value == r.Value
-                || (d.Value.EndsWith('*') && r.Value.StartsWith(d.Value[..^1], StringComparison.Ordinal))));
 
         /// <summary>Each inline JavaScript block whose text changed, paired by position when both sides have the same blocks.</summary>
         private void CheckPageScripts(string section, Item item, AspPage before, AspPage after)
@@ -477,15 +427,7 @@ public sealed class WebVerifier(IFileSystem fs, ServerContext ctx, IProcessRunne
         private void CheckSignatures(string section, Item item)
         {
             if (item.Before.Length == 0) return;
-            IReadOnlyList<JsSignatureChange> changes;
-            try
-            {
-                changes = JsSignatureChanges.InLines(item.Before, item.After, item.IsPage, new TextSpanInfo(1, item.Before.Split('\n').Length));
-            }
-            catch (Exception e) when (e is not OperationCanceledException)
-            {
-                return; // a warning check: a text it cannot read is no finding
-            }
+            var changes = JsSignatureChanges.InLines(item.Before, item.After, item.IsPage, new TextSpanInfo(1, item.Before.Split('\n').Length));
             foreach (var change in changes)
             {
                 if (change.Renamed)
@@ -566,7 +508,7 @@ public sealed class WebVerifier(IFileSystem fs, ServerContext ctx, IProcessRunne
             var related = PageScripts.RelatedTexts(_fs, _siteRoot, full, page, _codec, Index);
             var atHead = AtHead(related);
             if (ReferenceEquals(atHead, related)) return;
-            foreach (var w in NewBroken(page, text, atHead, page, text, related)) _sections.Warning(section, w);
+            foreach (var w in PageElements.NewBroken(page, text, atHead, page, text, related)) _sections.Warning(section, w);
         }
 
         // ---- the site ----

@@ -134,7 +134,8 @@ public sealed class VerifyWebTests : IDisposable
 
         Assert.Equal("결과: 새 오류 0건, 새 경고 1건", lines[0]);
         Assert.Contains("[ASP] Asp/admin/order/memo2.asp — 새 경고 1건", lines);
-        Assert.Contains(lines, l => l.StartsWith("- #memoText(줄 5) — id 없음", StringComparison.Ordinal));
+        // Core's own warning, hints included: the include still has the name.
+        Assert.Contains("- #memoText(줄 5) — id 없음, name=\"memoText\"는 있음(inc/memo_form.inc:1)", lines);
     }
 
     [Fact]
@@ -166,6 +167,22 @@ public sealed class VerifyWebTests : IDisposable
 
         Assert.Equal("결과: 새 문제 없음", lines[0]);
         Assert.Contains("Asp/inc/many.inc: include하는 페이지가 55개라 50개만 검사함 — 외 5개 페이지는 검사하지 않음", lines);
+    }
+
+    [Fact]
+    public async Task Js_CheckCannotRun_SkippedNotPassed()
+    {
+        // Nesting this deep runs the parsers out of stack: the checks cannot run, so the file must not read 「통과」.
+        // One bracket per line: long lines would make it a minified file, which is skipped for another reason.
+        const string Deep = "Asp/js/deep.js";
+        _repo.Write(Deep, "function fnDeep(a) {\n    var x = " + string.Concat(Enumerable.Repeat("[\n", 50000)) + ";\n}\n");
+        _repo.Commit();
+        _repo.Edit(Deep, t => t.Replace("fnDeep(a)", "fnDeep(a, b)", StringComparison.Ordinal));
+
+        var lines = Lines(await VerifyAsync());
+
+        Assert.DoesNotContain($"[JS] {Deep} — 통과", lines);
+        Assert.Contains(lines, l => l.StartsWith($"[JS] {Deep} 건너뜀 — 검사할 수 없습니다: ", StringComparison.Ordinal));
     }
 
     /// <summary>Records the processes it was asked to start; <see cref="Output"/> gives the n-th run's stdout (<c>{0}</c> = script path).</summary>

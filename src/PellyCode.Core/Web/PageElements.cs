@@ -102,11 +102,18 @@ public static class PageElements
 
     /// <summary>One warning per (kind, value) whose broken references the edit added, in the patched page's line order.</summary>
     public static IReadOnlyList<string> NewBroken(AspPage original, string originalTextLf, AspPage patched, string patchedTextLf,
-        IReadOnlyList<RelatedText> related)
+        IReadOnlyList<RelatedText> related) =>
+        NewBroken(original, originalTextLf, related, patched, patchedTextLf, related);
+
+    /// <summary>
+    /// <see cref="NewBroken(AspPage, string, AspPage, string, IReadOnlyList{RelatedText})"/> with each side's own related files
+    /// (an include that changed while the page did not); the hints come from the patched side.
+    /// </summary>
+    public static IReadOnlyList<string> NewBroken(AspPage original, string originalTextLf, IReadOnlyList<RelatedText> originalRelated,
+        AspPage patched, string patchedTextLf, IReadOnlyList<RelatedText> patchedRelated)
     {
-        var relatedDefs = related.SelectMany(r => Definitions(r.TextLf, r.File)).ToList();
-        var originalDefs = Definitions(originalTextLf, null).Concat(relatedDefs).ToList();
-        var patchedDefs = Definitions(patchedTextLf, null).Concat(relatedDefs).ToList();
+        var originalDefs = Definitions(originalTextLf, null).Concat(originalRelated.SelectMany(r => Definitions(r.TextLf, r.File))).ToList();
+        var patchedDefs = Definitions(patchedTextLf, null).Concat(patchedRelated.SelectMany(r => Definitions(r.TextLf, r.File))).ToList();
 
         var before = References(original, originalTextLf).Where(r => Broken(r, originalDefs))
             .GroupBy(r => (r.Kind, r.Value)).ToDictionary(g => g.Key, g => g.Count());

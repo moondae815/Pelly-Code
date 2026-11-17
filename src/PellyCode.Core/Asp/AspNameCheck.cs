@@ -21,22 +21,32 @@ public static class AspNameCheck
     /// the original already uses an undeclared ADO constant name (the site gets them from somewhere).
     /// </summary>
     public static AspNameResult NewUnknown(
-        AspPage original, AspPage patched, AspIncludeSet includes, AspBuiltins builtins, bool adoConstantsKnown = false)
+        AspPage original, AspPage patched, AspIncludeSet includes, AspBuiltins builtins, bool adoConstantsKnown = false) =>
+        NewUnknown(original, includes, patched, includes, builtins, adoConstantsKnown);
+
+    /// <summary>
+    /// <see cref="NewUnknown(AspPage, AspPage, AspIncludeSet, AspBuiltins, bool)"/> with each side's own includes: the original
+    /// is judged with <paramref name="originalIncludes"/> (also for the ADO rule), the patched page with
+    /// <paramref name="patchedIncludes"/> (also for the downgrade). Used when an include changed while the page did not.
+    /// </summary>
+    public static AspNameResult NewUnknown(
+        AspPage original, AspIncludeSet originalIncludes, AspPage patched, AspIncludeSet patchedIncludes, AspBuiltins builtins,
+        bool adoConstantsKnown = false)
     {
         var ado = adoConstantsKnown
-            || UnknownUses(original, includes, builtins, adoKnown: false).Any(u => builtins.IsAdoConstant(u.Name));
-        var baseline = UnknownUses(original, includes, builtins, ado)
+            || UnknownUses(original, originalIncludes, builtins, adoKnown: false).Any(u => builtins.IsAdoConstant(u.Name));
+        var baseline = UnknownUses(original, originalIncludes, builtins, ado)
             .GroupBy(u => u.Name, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
         var result = new List<AspUnknownName>();
-        foreach (var group in UnknownUses(patched, includes, builtins, ado).GroupBy(u => u.Name, StringComparer.OrdinalIgnoreCase))
+        foreach (var group in UnknownUses(patched, patchedIncludes, builtins, ado).GroupBy(u => u.Name, StringComparer.OrdinalIgnoreCase))
         {
             var extra = group.Count() - baseline.GetValueOrDefault(group.Key);
             if (extra > 0)
                 result.AddRange(group.OrderBy(u => u.Line).TakeLast(extra).Select(u => new AspUnknownName(u.Name, u.Line)));
         }
 
-        var missingIncludes = includes.Unresolved.Count > 0 || includes.Truncated;
+        var missingIncludes = patchedIncludes.Unresolved.Count > 0 || patchedIncludes.Truncated;
         var reason = (missingIncludes, patched.UsesDynamicCode) switch
         {
             (true, true) => "include를 다 찾지 못했고 Execute·Eval이 있어 이름 검사를 경고로 낮췄습니다.",

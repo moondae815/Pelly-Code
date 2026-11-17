@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>PellyCodeMcpServer</AssemblyName>
+    <RootNamespace>PellyCode.McpServer</RootNamespace>
+  </PropertyGroup>
+
+  <!-- Same single-file settings as PellyCode.Cli: framework-dependent win-x64, no trimming, no pdb. -->
+  <PropertyGroup Condition="'$(RuntimeIdentifier)'=='win-x64'">
+    <SelfContained>false</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <PublishTrimmed>false</PublishTrimmed>
+    <DebugType>none</DebugType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PellyCode.Core\PellyCode.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="PellyCode.McpServer.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="ModelContextProtocol" />
+  </ItemGroup>
+
+  <!-- Roslyn build hosts beside the single-file exe. -->
+  <Import Project="$(MSBuildThisFileDirectory)../../build/BuildHostOutside.targets" />
+
+</Project>

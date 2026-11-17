@@ -1,0 +1,38 @@
+using System.IO.Abstractions;
+using System.Reflection;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using PellyCode.McpServer;
+using PellyCode.McpServer.Tools;
+
+// --root <folder> (default: current folder) and --log-file <path> are ours; the rest goes to the host.
+var root = ArgValue(args, "--root") ?? Directory.GetCurrentDirectory();
+var logFile = ArgValue(args, "--log-file");
+
+var builder = Host.CreateApplicationBuilder(args);
+
+// stdout is for MCP messages only: console logs go to stderr, default providers are removed.
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace);
+if (logFile is not null) builder.Logging.AddProvider(new FileLoggerProvider(logFile));
+
+var context = ServerContext.TryCreate(new FileSystem(), root, out var error);
+builder.Services.AddSingleton(new ServerState(context, error));
+
+var version = typeof(ServerContext).Assembly
+    .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion.Split('+')[0] ?? "0.0.0";
+
+builder.Services
+    .AddMcpServer(o => o.ServerInfo = new() { Name = "pellycode-mcp-server", Version = version })
+    .WithStdioServerTransport()
+    .WithTools<PellyTools>();
+
+await builder.Build().RunAsync();
+return 0;
+
+static string? ArgValue(string[] args, string name)
+{
+    var i = Array.IndexOf(args, name);
+    return i >= 0 && i + 1 < args.Length ? args[i + 1] : null;
+}

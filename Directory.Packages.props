@@ -17,10 +17,12 @@
     <PackageVersion Include="Microsoft.CodeAnalysis.Workspaces.MSBuild" Version="5.9.0" />
     <PackageVersion Include="Microsoft.Data.SqlClient" Version="7.1.1" />
     <PackageVersion Include="Microsoft.SqlServer.TransactSql.ScriptDom" Version="170.191.0" />
-    <PackageVersion Include="Microsoft.Extensions.Configuration" Version="10.0.13" />
-    <PackageVersion Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.13" />
-    <PackageVersion Include="Microsoft.Extensions.Configuration.Json" Version="10.0.13" />
-    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.13" />
+    <PackageVersion Include="Microsoft.Extensions.Configuration" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.Extensions.Configuration.Json" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.14" />
+    <PackageVersion Include="ModelContextProtocol" Version="2.4.0" />
     <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.11.0" />
     <PackageVersion Include="Microsoft.ML.Tokenizers" Version="2.0.1" />
     <PackageVersion Include="Spectre.Console.Cli" Version="0.57.2" />

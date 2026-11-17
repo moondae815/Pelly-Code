@@ -3,6 +3,8 @@ using System.IO.Abstractions;
 using System.Text;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
+using PellyCode.Core.Abstractions;
+using PellyCode.Core.Builds;
 using PellyCode.Core.Config;
 using PellyCode.Core.Models;
 using PellyCode.Core.Processes;
@@ -24,6 +26,7 @@ public sealed class BaselineServiceTests : IDisposable
     private readonly FakeTimeProvider _time = new(DateTimeOffset.Parse("2026-11-17T09:00:00Z"));
     private readonly FakeVerifier _verifier = new();
     private readonly FakeTests _tests = new();
+    private readonly FakeRestorer _restorer = new();
     private readonly List<BaselineService> _services = [];
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
@@ -99,7 +102,7 @@ public sealed class BaselineServiceTests : IDisposable
     {
         var fs = new FileSystem();
         var git = new GitRepo(new SystemProcessRunner(TimeProvider.System), _dir);
-        var s = new BaselineService(fs, _dir, _mirror, git, _verifier, _tests, new TestOptions(), _time, NullLogger<BaselineService>.Instance);
+        var s = new BaselineService(fs, _dir, _mirror, git, _verifier, _tests, new TestOptions(), _time, NullLogger<BaselineService>.Instance, _restorer);
         _services.Add(s);
         return s;
     }
@@ -521,6 +524,116 @@ public sealed class BaselineServiceTests : IDisposable
             lock (Requests) { Requests.Add(projects); Roots.Add(ws.Root); }
             Interlocked.Increment(ref _calls);
             return Handler(projects, ct);
+        }
+    }
+
+    [Fact]
+    public async Task RestoreFailure_IsThatProjectsFailure()
+    {
+        TwoProjectRepo();
+        _restorer.Handler = p => p.Contains("Lib", StringComparison.Ordinal) ? "error NU1301: Unable to load the service index" : null;
+        var s = NewService();
+        await s.StartAsync(Ct);
+        await WaitUntil(() => Settled(s));
+
+        var lib = await s.GetAsync(["Lib/Lib.csproj"], LongWait, null, Ct);
+        var app = await s.GetAsync(["App/App.csproj"], LongWait, null, Ct);
+
+        Assert.Equal(BaselineStatus.Failed, lib.Status);
+        Assert.Contains("NU1301", lib.FailureReason);
+        Assert.False(lib.Build!.Verifiable);
+        Assert.Equal(BaselineStatus.Ready, app.Status);
+        Assert.All(_verifier.Requests, r => Assert.DoesNotContain(r, x => x.Contains("Lib", StringComparison.Ordinal)));
+        Assert.Contains(Path.Combine(_mirror, "Lib", "Lib.csproj"), _restorer.Projects);
+        Assert.Contains(Path.Combine(_mirror, "App", "App.csproj"), _restorer.Projects);
+    }
+
+    [Fact]
+    public async Task TestProject_RestoredBeforeRun()
+    {
+        SolutionRepo();
+        var s = NewService();
+        await s.StartAsync(Ct);
+        await WaitUntil(() => Settled(s));
+
+        Assert.Equal(BaselineStatus.Ready, s.Last!.Status);
+        Assert.Contains(Path.Combine(_mirror, "App.Tests", "App.Tests.csproj"), _restorer.Projects);
+    }
+
+    [Fact]
+    public async Task DotnetRestorer_Failure_ReasonIsOutputTail()
+    {
+        Write("App/App.csproj", Csproj);
+        var runner = new ScriptedRunner(new ProcessResult(1, "  Determining projects to restore...\n/x/App.csproj : error NU1101: Unable to find package Foo.\n",
+            "", [], TimeSpan.Zero, false));
+        var restorer = new DotnetRestorer(new FileSystem(), runner, new BuildOptions());
+
+        var reason = await restorer.RestoreAsync(Path.Combine(_dir, "App", "App.csproj"), Ct);
+
+        Assert.NotNull(reason);
+        Assert.Contains("NU1101", reason);
+        Assert.Contains("종료 코드 1", reason);
+        var spec = Assert.Single(runner.Specs);
+        Assert.Equal("dotnet", spec.FileName);
+        Assert.Equal("restore", spec.Arguments[0]);
+    }
+
+    [Fact]
+    public async Task DotnetRestorer_LegacyProject_NoRestore()
+    {
+        Write("Old/Old.csproj", "<Project ToolsVersion=\"15.0\" xmlns=\"http://schemas.microsoft.com/developer/msbuild/2003\"></Project>");
+        var runner = new ScriptedRunner(new ProcessResult(1, "", "", [], TimeSpan.Zero, false));
+        var restorer = new DotnetRestorer(new FileSystem(), runner, new BuildOptions());
+
+        Assert.Null(await restorer.RestoreAsync(Path.Combine(_dir, "Old", "Old.csproj"), Ct));
+        Assert.Empty(runner.Specs);
+    }
+
+    /// <summary>Real git and dotnet: the mirror has no obj/, so the baseline must restore before its --no-restore build.</summary>
+    [Fact]
+    public async Task RealDotnet_SdkProject_BaselineReady()
+    {
+        Write("App/App.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>");
+        Write("App/A.cs", "namespace App; public class A { public int X() => 1; }");
+        Write("Shop.slnx", "<Solution><Project Path=\"App/App.csproj\" /></Solution>");
+        Commit();
+        var fs = new FileSystem();
+        var processes = new SystemProcessRunner(TimeProvider.System);
+        var options = new PellyOptions();
+        var tools = new BuildToolResolver(fs, processes, options.Build);
+        var verifier = new GroupVerifier(fs, new BuildVerifier(processes, options.Build), tools, OperatingSystem.IsWindows);
+        var tests = new BaselineTestRunner(fs, new TestRunner(processes, options.Build, options.Test), tools, OperatingSystem.IsWindows);
+        var s = new BaselineService(fs, _dir, _mirror, new GitRepo(processes, _dir), verifier, tests, options.Test, TimeProvider.System,
+            NullLogger<BaselineService>.Instance, new DotnetRestorer(fs, processes, options.Build));
+        _services.Add(s);
+
+        var b = await s.GetAsync(["App/App.csproj"], TimeSpan.FromMinutes(5), null, Ct);
+
+        Assert.True(b.Status == BaselineStatus.Ready, b.FailureReason);
+        Assert.True(b.Build!.Verifiable);
+        Assert.Empty(b.Build.Errors);
+    }
+
+    private sealed class FakeRestorer : IBaselineRestorer
+    {
+        public List<string> Projects { get; } = [];
+        public Func<string, string?> Handler { get; set; } = _ => null;
+
+        public Task<string?> RestoreAsync(string project, CancellationToken ct)
+        {
+            lock (Projects) Projects.Add(project);
+            return Task.FromResult(Handler(project));
+        }
+    }
+
+    private sealed class ScriptedRunner(ProcessResult result) : IProcessRunner
+    {
+        public List<ProcessSpec> Specs { get; } = [];
+
+        public Task<ProcessResult> RunAsync(ProcessSpec spec, CancellationToken ct)
+        {
+            Specs.Add(spec);
+            return Task.FromResult(result);
         }
     }
 

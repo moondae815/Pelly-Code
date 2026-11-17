@@ -44,7 +44,7 @@ public sealed class VerifyCsIntegrationTests : IDisposable
         var tests = new BaselineTestRunner(fs, new TestRunner(processes, options.Build, options.Test), tools, OperatingSystem.IsWindows);
         var git = new GitRepo(processes, _dir);
         _baseline = new BaselineService(fs, _dir, Path.Combine(_mirrorParent, "0123456789abcdef"), git, verifier, tests, options.Test,
-            TimeProvider.System, NullLogger<BaselineService>.Instance);
+            TimeProvider.System, NullLogger<BaselineService>.Instance, new DotnetRestorer(fs, processes, options.Build));
         var ctx = new ServerContext(_dir, options, new Workspace(_dir, Path.Combine(_dir, ".pelly")));
         var service = new VerifyService(fs, ctx, git, _baseline, verifier, tests, VerifyService.DefaultWaitLimit);
 

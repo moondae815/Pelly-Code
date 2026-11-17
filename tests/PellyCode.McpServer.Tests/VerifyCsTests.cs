@@ -67,7 +67,7 @@ public sealed class VerifyCsTests : IDisposable
         var fs = new FileSystem();
         var git = new GitRepo(new SystemProcessRunner(TimeProvider.System), _dir);
         var baseline = new BaselineService(fs, _dir, _mirror, git, _verifier, _tests, new TestOptions(), TimeProvider.System,
-            NullLogger<BaselineService>.Instance);
+            NullLogger<BaselineService>.Instance, new NoRestore());
         _services.Add(baseline);
         var ctx = new ServerContext(_dir, new PellyOptions(), new Workspace(_dir, Path.Combine(_dir, ".pelly")));
         return new VerifyService(fs, ctx, git, baseline, _verifier, _tests, wait ?? TimeSpan.FromMinutes(5));
@@ -324,5 +324,10 @@ public sealed class VerifyCsTests : IDisposable
             Interlocked.Increment(ref _calls);
             return Handler(testProject, workDir, ct);
         }
+    }
+
+    private sealed class NoRestore : IBaselineRestorer
+    {
+        public Task<string?> RestoreAsync(string project, CancellationToken ct) => Task.FromResult<string?>(null);
     }
 }

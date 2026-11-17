@@ -38,7 +38,8 @@ public interface IBaselineTestRunner
 /// An environment failure is not retried in the background, only once per HEAD on a request. Never takes the tool lock.
 /// </summary>
 public sealed class BaselineService(IFileSystem fs, string root, string mirrorDir, GitRepo git, IGroupVerifier verifier,
-    IBaselineTestRunner tests, TestOptions testOptions, TimeProvider time, ILogger<BaselineService> logger) : BackgroundService
+    IBaselineTestRunner tests, TestOptions testOptions, TimeProvider time, ILogger<BaselineService> logger,
+    IBaselineRestorer restorer) : BackgroundService
 {
     public static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(30);
 
@@ -323,6 +324,22 @@ public sealed class BaselineService(IFileSystem fs, string root, string mirrorDi
             foreach (var p in projects.Where(p => !s.Built.Contains(p) && !fs.File.Exists(Full(p)))) s.Absent.Add(p);
             missing = projects.Where(p => !s.Built.Contains(p) && !s.Absent.Contains(p) && !s.Failures.ContainsKey(p)).ToList();
         }
+        // The mirror never has obj/ (and the build runs with --no-restore): restore each project first. A restore failure is that
+        // project's environment failure.
+        var restored = new HashSet<string>(PathComparers.ForOs);
+        async Task<string?> RestoreAsync(string rel)
+        {
+            if (!restored.Add(rel)) return null;
+            logger.LogInformation("HEAD 기준 복원: {Project}", rel);
+            return await restorer.RestoreAsync(Full(rel), ct) is { } why ? $"HEAD 기준 복원 실패 ({rel}): {why}" : null;
+        }
+        foreach (var p in missing.ToList())
+        {
+            if (await RestoreAsync(p) is not { } why) continue;
+            missing.Remove(p);
+            FailAll([p], why);
+            lock (_gate) s.FailedBuilds[p] = new GroupBuild(false, why, GroupVerifier.UnverifiableKind, []);
+        }
         if (missing.Count > 0)
         {
             logger.LogInformation("HEAD 기준 빌드: 프로젝트 {Count}개", missing.Count);
@@ -371,6 +388,11 @@ public sealed class BaselineService(IFileSystem fs, string root, string mirrorDi
                 .Where(t => !s.TestProjectsRun.Contains(t, StringComparer.Ordinal) && !s.Failures.ContainsKey(t)).ToList();
         foreach (var rel in toRun)
         {
+            if (await RestoreAsync(rel) is { } restoreFailure)
+            {
+                FailAll([rel], restoreFailure);
+                continue;
+            }
             logger.LogInformation("HEAD 기준 테스트: {Project}", rel);
             var trx = fs.Path.Combine(mirrorWs.PellyDir, "baseline", $"test-{Interlocked.Increment(ref _trx)}.trx");
             var run = await tests.RunAsync(Full(rel), mirrorDir, trx, ct);

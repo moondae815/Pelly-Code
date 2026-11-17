@@ -43,7 +43,7 @@ if (context is not null)
     var tests = new BaselineTestRunner(fs, new TestRunner(processes, options.Build, options.Test), tools, OperatingSystem.IsWindows);
     builder.Services.AddSingleton(sp => new BaselineService(fs, context.Root, MirrorPaths.For(context.Root),
         new GitRepo(processes, context.Root), verifier, tests, options.Test, TimeProvider.System,
-        sp.GetRequiredService<ILogger<BaselineService>>()));
+        sp.GetRequiredService<ILogger<BaselineService>>(), new DotnetRestorer(fs, processes, options.Build)));
     builder.Services.AddHostedService(sp => sp.GetRequiredService<BaselineService>());
     // The live tree is built and tested with the same verifier and test runner, so both sides report paths the same way.
     builder.Services.AddSingleton(sp => new VerifyService(fs, context, new GitRepo(processes, context.Root),

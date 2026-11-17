@@ -28,7 +28,7 @@ internal static class TempRepo
     public static string CreateModern(bool restore)
     {
         var dir = Create();
-        Copy(new DirectoryInfo(ModernSource()), new DirectoryInfo(Path.Combine(dir, "Modern")));
+        CopyCorpus(dir, "Modern");
         Commit(dir);
         if (restore)
             Run(dir, "dotnet", "restore", Path.Combine(dir, "Modern", "Shop.Api.Tests", "Shop.Api.Tests.csproj"), "--nologo");
@@ -46,14 +46,18 @@ internal static class TempRepo
         try { Directory.Delete(dir, recursive: true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
     }
 
-    private static string ModernSource()
+    /// <summary>Copies eval/corpus/&lt;name&gt; into &lt;dir&gt;/&lt;name&gt; (bin, obj and TestResults left out).</summary>
+    public static void CopyCorpus(string dir, string name) =>
+        Copy(new DirectoryInfo(CorpusSource(name)), new DirectoryInfo(Path.Combine(dir, name)));
+
+    private static string CorpusSource(string name)
     {
         for (var d = new DirectoryInfo(AppContext.BaseDirectory); d is not null; d = d.Parent)
         {
-            var p = Path.Combine(d.FullName, "eval", "corpus", "Modern");
+            var p = Path.Combine(d.FullName, "eval", "corpus", name);
             if (Directory.Exists(p)) return p;
         }
-        throw new DirectoryNotFoundException("eval/corpus/Modern");
+        throw new DirectoryNotFoundException($"eval/corpus/{name}");
     }
 
     private static void Copy(DirectoryInfo from, DirectoryInfo to)

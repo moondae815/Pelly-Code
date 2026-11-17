@@ -31,18 +31,19 @@ public static class SqlNameStringFinder
         foreach (var (seed, forms) in matchers)
         {
             var seen = new HashSet<(string, string)>();
-            var found = new List<(string Path, int Position, string Member, string Reason)>();
+            var found = new List<(string Path, int Position, int Line, string Member, string Reason)>();
             foreach (var file in files)
                 foreach (var token in file.Root.DescendantTokens().Where(IsStringText))
                 {
                     if (!forms.IsMatch(token.ValueText)) continue;
                     var (member, reason) = NameImpactFinder.Enclosing(token.Parent!);
                     if (seen.Add((file.Path, member)))
-                        found.Add((file.Path, token.SpanStart, member, reason == "호출" ? Reason : OutsideMember));
+                        found.Add((file.Path, token.SpanStart, token.GetLocation().GetLineSpan().StartLinePosition.Line + 1, member,
+                            reason == "호출" ? Reason : OutsideMember));
                 }
             targets.AddRange(found
                 .OrderBy(f => f.Path, StringComparer.Ordinal).ThenBy(f => f.Position)
-                .Select(f => new ImpactTarget(seed.TaskId, f.Path, f.Member, f.Reason)));
+                .Select(f => new ImpactTarget(seed.TaskId, f.Path, f.Member, f.Reason, Line: f.Line)));
         }
 
         return (targets, incomplete);

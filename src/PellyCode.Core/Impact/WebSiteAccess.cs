@@ -46,8 +46,9 @@ public sealed class WebSiteAccess(IFileSystem fs, AspOptions asp, WebOptions web
     }
 
     /// <summary>The site index, reusing <c>.pelly/cache/web-site-index.json</c> for files whose bytes did not change.</summary>
-    public WebSiteIndexResult Index() =>
+    /// <param name="maxFiles">Pages and <c>.js</c> files indexed, each kind on its own; past it the result is <c>Truncated</c>.</param>
+    public WebSiteIndexResult Index(int maxFiles = 2000) =>
         WebSiteIndex.Load(fs, SiteRoot, new WebFileFilter(SiteRoot, web.VendorPaths), _codec,
-            fs.Path.Combine(workspaceRoot, ".pelly", "cache", "web-site-index.json"),
+            fs.Path.Combine(workspaceRoot, ".pelly", "cache", "web-site-index.json"), maxFiles,
             aspExtensions: asp.Extensions, spCallFunctions: asp.SpCallFunctions);
 }

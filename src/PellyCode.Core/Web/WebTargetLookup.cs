@@ -34,6 +34,13 @@ public static class WebTargetLookup
         return kind == EditKind.Css ? IsStyle(first.Value.Block) : PageBlockView.IsJavaScriptBlock(first.Value.Block);
     }
 
+    /// <summary>
+    /// Every function of a <c>.js</c> file, or of each editable script block of a page, with file (page) line numbers —
+    /// the functions <see cref="Function"/> looks among.
+    /// </summary>
+    public static IReadOnlyList<JsFunction> FunctionsIn(string textLf, bool isPage) =>
+        JsPieces(textLf, isPage).SelectMany(Functions).ToList();
+
     /// <summary>The page's editable JS block views, or the whole file for a <c>.js</c>.</summary>
     internal static IEnumerable<string> JsPieces(string textLf, bool isPage)
     {

@@ -3,7 +3,9 @@ using System.Reflection;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using PellyCode.Core.Impact;
 using PellyCode.McpServer;
+using PellyCode.McpServer.Impact;
 using PellyCode.McpServer.Tools;
 
 // --root <folder> (default: current folder) and --log-file <path> are ours; the rest goes to the host.
@@ -19,6 +21,10 @@ if (logFile is not null) builder.Logging.AddProvider(new FileLoggerProvider(logF
 
 var context = ServerContext.TryCreate(new FileSystem(), root, out var error);
 builder.Services.AddSingleton(new ServerState(context, error));
+// One loader for the server's life: it keeps each project bundle's Roslyn solution between pelly_impact calls.
+var fs = new FileSystem();
+builder.Services.AddSingleton<IFileSystem>(fs);
+builder.Services.AddSingleton<ISemanticLoader>(new CachingSemanticLoader(new MsBuildSemanticLoader(fs), fs));
 
 var version = typeof(ServerContext).Assembly
     .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion.Split('+')[0] ?? "0.0.0";

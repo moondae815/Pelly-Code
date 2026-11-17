@@ -1,4 +1,5 @@
 using System.IO.Abstractions;
+using PellyCode.Core.Abstractions;
 using PellyCode.Core.Specs;
 using PellyCode.McpServer.Baseline;
 using PellyCode.McpServer.Git;
@@ -6,12 +7,16 @@ using PellyCode.McpServer.Git;
 namespace PellyCode.McpServer.Verify;
 
 /// <summary>
-/// <c>pelly_verify</c> (design §7): the changed files, then the C# check (Task 10 adds SQL and web), then <see cref="VerifyReport.Render"/>.
-/// Waits for the HEAD baseline without the tool lock and takes the lock only for the live build and tests. A cancelled call
+/// <c>pelly_verify</c> (design §7): the changed files, then the C#, SQL and ASP·JS·CSS checks, then <see cref="VerifyReport.Render"/>.
+/// Waits for the HEAD baseline without the tool lock and takes the lock for the live build, the tests and the SQL and web checks
+/// (they compare each changed file with its own HEAD text and need no baseline). A cancelled call
 /// cancels the live build or test (the process runner kills the process tree); the baseline work goes on.
 /// </summary>
+/// <param name="sqlExecutors">Opens the SQL executor for the (allow-listed, non-production) <c>sql.connectionString</c>.</param>
+/// <param name="processes">Runs cscript for the VBScript syntax check.</param>
+/// <param name="isWindows">cscript exists only on Windows.</param>
 public sealed class VerifyService(IFileSystem fs, ServerContext ctx, GitRepo git, BaselineService baseline, IGroupVerifier verifier,
-    IBaselineTestRunner tests, TimeSpan waitLimit)
+    IBaselineTestRunner tests, TimeSpan waitLimit, Func<string, ISqlExecutor> sqlExecutors, IProcessRunner processes, Func<bool> isWindows)
 {
     /// <summary>
     /// How long a call waits for the baseline when progress notifications go out (measured with OpenCode 2026-11-17: notifications
@@ -29,6 +34,8 @@ public sealed class VerifyService(IFileSystem fs, ServerContext ctx, GitRepo git
     public const string StillBuilding = "기준 빌드가 아직 진행 중입니다. 잠시 뒤 다시 pelly_verify를 부르세요";
 
     private readonly CsVerifier _cs = new(fs, ctx, baseline.MirrorDir, verifier, tests);
+    private readonly SqlVerifier _sql = new(fs, ctx, sqlExecutors);
+    private readonly WebVerifier _web = new(fs, ctx, processes, isWindows);
 
     internal bool ToolLockFree => ctx.ToolLock.CurrentCount == 1;
 
@@ -49,21 +56,26 @@ public sealed class VerifyService(IFileSystem fs, ServerContext ctx, GitRepo git
         if (changes.Count == 0) return NoChanges;
 
         var report = new VerifyReport();
-        if (_cs.Scope(changes, report) is { } scope)
+        var scope = _cs.Scope(changes, report);
+        Baseline.Baseline? head = null;
+        if (scope is not null)
         {
             var wait = progress is null ? FallbackWaitLimit : waitLimit;
-            var head = await baseline.GetAsync(scope.BaselineProjects, wait, progress, ct);
+            head = await baseline.GetAsync(scope.BaselineProjects, wait, progress, ct);
             if (head.Status == BaselineStatus.Building) return StillBuilding;
+        }
 
-            await ctx.ToolLock.WaitAsync(ct);
-            try
-            {
-                await _cs.CheckAsync(scope, head, report, progress, ct);
-            }
-            finally
-            {
-                ctx.ToolLock.Release();
-            }
+        await ctx.ToolLock.WaitAsync(ct);
+        try
+        {
+            if (scope is not null) await _cs.CheckAsync(scope, head!, report, progress, ct);
+            // SQL and web compare each changed file with its own HEAD text: no baseline build needed.
+            await _sql.CheckAsync(changes, git.ShowHeadAsync, report, progress, ct);
+            await _web.CheckAsync(changes, git.ShowHeadAsync, report, progress, ct);
+        }
+        finally
+        {
+            ctx.ToolLock.Release();
         }
         return report.Render();
     }

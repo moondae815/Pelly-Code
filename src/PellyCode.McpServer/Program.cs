@@ -7,6 +7,7 @@ using PellyCode.Core.Builds;
 using PellyCode.Core.Impact;
 using PellyCode.Core.Processes;
 using PellyCode.Core.Specs;
+using PellyCode.Core.Sql;
 using PellyCode.Core.Testing;
 using PellyCode.McpServer;
 using PellyCode.McpServer.Baseline;
@@ -47,7 +48,8 @@ if (context is not null)
     builder.Services.AddHostedService(sp => sp.GetRequiredService<BaselineService>());
     // The live tree is built and tested with the same verifier and test runner, so both sides report paths the same way.
     builder.Services.AddSingleton(sp => new VerifyService(fs, context, new GitRepo(processes, context.Root),
-        sp.GetRequiredService<BaselineService>(), verifier, tests, VerifyService.DefaultWaitLimit));
+        sp.GetRequiredService<BaselineService>(), verifier, tests, VerifyService.DefaultWaitLimit,
+        cs => new SqlServerExecutor(cs), processes, OperatingSystem.IsWindows));
 }
 
 var version = typeof(ServerContext).Assembly

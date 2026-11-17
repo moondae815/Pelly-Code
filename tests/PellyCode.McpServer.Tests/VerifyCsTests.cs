@@ -70,7 +70,8 @@ public sealed class VerifyCsTests : IDisposable
             NullLogger<BaselineService>.Instance, new NoRestore());
         _services.Add(baseline);
         var ctx = new ServerContext(_dir, new PellyOptions(), new Workspace(_dir, Path.Combine(_dir, ".pelly")));
-        return new VerifyService(fs, ctx, git, baseline, _verifier, _tests, wait ?? TimeSpan.FromMinutes(5));
+        return new VerifyService(fs, ctx, git, baseline, _verifier, _tests, wait ?? TimeSpan.FromMinutes(5),
+            _ => throw new InvalidOperationException("no SQL expected"), new SystemProcessRunner(TimeProvider.System), () => false);
     }
 
     private static Diagnostic Error(string root, string rel, int line, string code, string message) =>

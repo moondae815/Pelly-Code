@@ -36,7 +36,7 @@ public sealed class PellyTools(ServerState state, IFileSystem fs, ISemanticLoade
     }
 
     [McpServerTool(Name = "pelly_verify"),
-     Description("Call this after editing code and before you finish. No arguments. Builds the changed C# projects, runs their tests and lists only NEW build errors and NEW failing tests compared with the last commit (HEAD). Fix what it lists, then call it again. If it says the baseline is still building, call it again.")]
+     Description("Call this after editing code and before you finish. No arguments. Checks every file changed since the last commit (HEAD) and lists only NEW problems: C# build errors and failing tests of the changed projects, SQL compile errors (.sql), and ASP, JS and CSS checks (.asp/.inc, .js, .css, pages that include a changed file). Errors must be fixed; warnings are hints to check. Fix what it lists, then call it again. If it says the baseline is still building, call it again.")]
     public async Task<string> Verify(RequestContext<CallToolRequestParams> request, IProgress<ProgressNotificationValue> progress,
         CancellationToken ct = default)
     {

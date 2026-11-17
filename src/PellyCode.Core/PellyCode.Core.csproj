@@ -13,6 +13,8 @@
   <ItemGroup>
     <InternalsVisibleTo Include="PellyCode.Integration.Tests" />
     <InternalsVisibleTo Include="PellyCode.Core.Tests" />
+    <!-- pelly_verify (MCP server, assembly PellyCodeMcpServer) reuses JsImpactFinder.DeclaresOwn. -->
+    <InternalsVisibleTo Include="PellyCodeMcpServer" />
   </ItemGroup>
 
   <ItemGroup>

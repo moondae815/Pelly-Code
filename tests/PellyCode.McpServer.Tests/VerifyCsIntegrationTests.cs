@@ -44,7 +44,8 @@ public sealed class VerifyCsIntegrationTests : IDisposable
         _baseline = new BaselineService(fs, _dir, Path.Combine(_mirrorParent, "0123456789abcdef"), git, verifier, tests, options.Test,
             TimeProvider.System, NullLogger<BaselineService>.Instance, new DotnetRestorer(fs, processes, options.Build));
         var ctx = new ServerContext(_dir, options, new Workspace(_dir, Path.Combine(_dir, ".pelly")));
-        return new VerifyService(fs, ctx, git, _baseline, verifier, tests, VerifyService.DefaultWaitLimit);
+        return new VerifyService(fs, ctx, git, _baseline, verifier, tests, VerifyService.DefaultWaitLimit,
+            _ => throw new InvalidOperationException("no SQL expected"), processes, () => false);
     }
 
     [Fact]

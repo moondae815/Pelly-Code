@@ -65,6 +65,16 @@ public sealed class VerifyWebTests : IDisposable
     }
 
     [Fact]
+    public async Task OnlyMinifiedJs_SaysNothingChecked()
+    {
+        _repo.Write("Asp/js/vendor.min.js", "var a=1;" + string.Concat(Enumerable.Repeat("function f(){return 1;}", 400)) + "\n");
+
+        var lines = Lines(await VerifyAsync());
+
+        Assert.Equal("결과: 검사한 파일이 없습니다", lines[0]);
+    }
+
+    [Fact]
     public async Task NonWindows_AspSyntaxSkipped()
     {
         _repo.Edit(List, t => t.Replace("pageSize = 20", "pageSize = 30", StringComparison.Ordinal));

@@ -85,7 +85,8 @@ public sealed class VerifyService(IFileSystem fs, ServerContext ctx, GitRepo git
             ctx.ToolLock.Release();
         }
         report.Unchecked(notChecked);
-        return report.Render(nothingChecked: changes.All(c => skipped.Contains(c.Path)));
+        // A C# scope means a build ran (a renamed .cs file can also be a skipped .sql or web file under its new path).
+        return report.Render(nothingChecked: scope is null && changes.All(c => skipped.Contains(c.Path)));
     }
 
     /// <summary>

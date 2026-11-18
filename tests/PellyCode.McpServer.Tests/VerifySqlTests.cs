@@ -65,6 +65,17 @@ public sealed class VerifySqlTests : IDisposable
     }
 
     [Fact]
+    public async Task Sql_NoObjects_SaysNothingChecked()
+    {
+        _repo.Write("Sql/adhoc.sql", "SELECT 1;\n");
+
+        var lines = Lines(await VerifyAsync(Allowed()));
+
+        Assert.Equal("결과: 검사한 파일이 없습니다", lines[0]);
+        Assert.Contains("[SQL] Sql/adhoc.sql 건너뜀 — SQL 객체(프로시저·함수·뷰)가 없습니다", lines);
+    }
+
+    [Fact]
     public async Task Sql_NoConnection_Skipped()
     {
         _repo.Edit(Cancel, Break);

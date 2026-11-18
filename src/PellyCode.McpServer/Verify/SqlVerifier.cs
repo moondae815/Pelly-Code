@@ -25,7 +25,7 @@ public sealed class SqlVerifier(IFileSystem fs, ServerContext ctx, Func<string, 
 
     /// <param name="head">The HEAD bytes of a repository-relative path; null when HEAD has no such file.</param>
     /// <returns>The changed SQL files that were not compiled (no usable connection, the server became unavailable, or the file
-    /// could not be checked); the caller must not count them as checked.</returns>
+    /// could not be checked, or it holds no SQL object); the caller must not count them as checked.</returns>
     public async Task<IReadOnlyList<string>> CheckAsync(IReadOnlyList<GitChange> changes, Func<string, CancellationToken, Task<byte[]?>> head, VerifyReport report,
         IProgress<string>? progress, CancellationToken ct)
     {
@@ -61,7 +61,7 @@ public sealed class SqlVerifier(IFileSystem fs, ServerContext ctx, Func<string, 
             var section = "[SQL] " + change.Path;
             try
             {
-                await CheckFileAsync(sql, change, section, head, report, ct);
+                if (!await CheckFileAsync(sql, change, section, head, report, ct)) notChecked.Add(change.Path);
             }
             catch (SqlUnavailableException e)
             {
@@ -83,7 +83,8 @@ public sealed class SqlVerifier(IFileSystem fs, ServerContext ctx, Func<string, 
         return notChecked;
     }
 
-    private async Task CheckFileAsync(ISqlExecutor sql, GitChange change, string section,
+    /// <returns>False when the file had no SQL object to compile (skipped).</returns>
+    private async Task<bool> CheckFileAsync(ISqlExecutor sql, GitChange change, string section,
         Func<string, CancellationToken, Task<byte[]?>> head, VerifyReport report, CancellationToken ct)
     {
         var full = fs.Path.Combine(ctx.Root, change.Path.Replace('/', fs.Path.DirectorySeparatorChar));
@@ -98,7 +99,7 @@ public sealed class SqlVerifier(IFileSystem fs, ServerContext ctx, Func<string, 
         if (objects.Count == 0)
         {
             report.Skip(section, NoObjects);
-            return;
+            return false;
         }
         var before = headText is null ? null : SqlBatchSplitter.Split(headText, compat);
         var unpaired = before?.ObjectBatches.Where(b => b.ObjectName is not null).ToList() ?? [];
@@ -122,6 +123,7 @@ public sealed class SqlVerifier(IFileSystem fs, ServerContext ctx, Func<string, 
             }
         }
         if (found == 0) report.Pass(section);
+        return true;
     }
 
     /// <summary>The batch's errors with file lines; the file is the current path on both sides so a renamed file's old errors match.</summary>

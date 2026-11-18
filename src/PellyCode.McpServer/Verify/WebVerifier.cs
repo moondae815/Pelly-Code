@@ -58,7 +58,7 @@ public sealed class WebVerifier(IFileSystem fs, ServerContext ctx, IProcessRunne
         || path.EndsWith(".css", StringComparison.OrdinalIgnoreCase);
 
     /// <param name="head">The HEAD bytes of a repository-relative path; null when HEAD has no such file.</param>
-    /// <returns>The changed web files that were not checked because the check was skipped as a whole (no asp·web settings).</returns>
+    /// <returns>The changed web files that were not checked: all of them without asp·web settings, else the skipped ones.</returns>
     public async Task<IReadOnlyList<string>> CheckAsync(IReadOnlyList<GitChange> changes, Func<string, CancellationToken, Task<byte[]?>> head,
         VerifyReport report, IProgress<string>? progress, CancellationToken ct)
     {
@@ -73,11 +73,15 @@ public sealed class WebVerifier(IFileSystem fs, ServerContext ctx, IProcessRunne
 
         var run = new Run(this, report);
         var items = new List<Item>();
+        var notChecked = new List<string>();
         foreach (var change in changed)
+        {
+            // A file LoadAsync skips (minified, a library, unreadable) is named on its own skip line and not checked.
             if (await run.LoadAsync(change, head, ct) is { } item) items.Add(item);
-        if (items.Count == 0) return [];
-        await run.CheckAsync(items, ct);
-        return [];
+            else notChecked.Add(change.Path);
+        }
+        if (items.Count > 0) await run.CheckAsync(items, ct);
+        return notChecked;
     }
 
     /// <summary>One verify call's shared state: the site, its index, the HEAD texts of the changed files and the sections found.</summary>

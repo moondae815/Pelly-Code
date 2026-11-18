@@ -70,20 +70,22 @@ public sealed class VerifyService(IFileSystem fs, ServerContext ctx, GitRepo git
             if (head.Status == BaselineStatus.Building) return StillBuilding;
         }
 
+        // Files a check skipped as a whole (no SQL connection, no asp·web settings) were not checked either.
+        var skipped = new HashSet<string>(notChecked, StringComparer.Ordinal);
         await ctx.ToolLock.WaitAsync(ct);
         try
         {
             if (scope is not null) await _cs.CheckAsync(scope, head!, report, progress, ct);
             // SQL and web compare each changed file with its own HEAD text: no baseline build needed.
-            await _sql.CheckAsync(changes, git.ShowHeadAsync, report, progress, ct);
-            await _web.CheckAsync(changes, git.ShowHeadAsync, report, progress, ct);
+            skipped.UnionWith(await _sql.CheckAsync(changes, git.ShowHeadAsync, report, progress, ct));
+            skipped.UnionWith(await _web.CheckAsync(changes, git.ShowHeadAsync, report, progress, ct));
         }
         finally
         {
             ctx.ToolLock.Release();
         }
         report.Unchecked(notChecked);
-        return report.Render();
+        return report.Render(nothingChecked: changes.All(c => skipped.Contains(c.Path)));
     }
 
     /// <summary>

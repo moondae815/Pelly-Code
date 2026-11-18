@@ -72,7 +72,7 @@ public sealed class VerifySqlTests : IDisposable
         var text = await VerifyAsync(_repo.Options());
 
         var lines = Lines(text);
-        Assert.Equal("결과: 새 문제 없음", lines[0]);
+        Assert.Equal("결과: 검사한 파일이 없습니다", lines[0]);
         Assert.Contains("[건너뜀] SQL 컴파일 검사 — SQL 연결이 없습니다", lines);
         Assert.Empty(_sql.ConnectionStrings);
     }
@@ -85,7 +85,7 @@ public sealed class VerifySqlTests : IDisposable
         var text = await VerifyAsync(_repo.Options(o => o.Sql.ConnectionString = Connection));
 
         var lines = Lines(text);
-        Assert.Equal("결과: 새 문제 없음", lines[0]);
+        Assert.Equal("결과: 검사한 파일이 없습니다", lines[0]);
         Assert.Contains("[건너뜀] SQL 컴파일 검사 — SQL 서버 'devsql'이(가) sql.allowedHosts에 없습니다 — 접속을 허용하려면 sql.allowedHosts에 추가하세요", lines);
         Assert.Empty(_sql.ConnectionStrings);
     }

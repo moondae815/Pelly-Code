@@ -67,11 +67,14 @@ public sealed class VerifyReport
         return string.Join('\n', new[] { NothingChecked }.Concat(report._entries.Cast<string>()));
     }
 
-    public string Render()
+    /// <param name="nothingChecked">No changed file was actually checked (every check skipped them); with no problems the first line
+    /// is then <see cref="NothingChecked"/>, never <see cref="NoProblems"/>.</param>
+    public string Render(bool nothingChecked = false)
     {
         var errors = ErrorCount;
         var warnings = WarningCount;
-        var lines = new List<string> { errors == 0 && warnings == 0 ? NoProblems : $"결과: 새 오류 {errors}건, 새 경고 {warnings}건" };
+        var first = errors > 0 || warnings > 0 ? $"결과: 새 오류 {errors}건, 새 경고 {warnings}건" : nothingChecked ? NothingChecked : NoProblems;
+        var lines = new List<string> { first };
         lines.AddRange(_notes);
         foreach (var entry in _entries)
         {

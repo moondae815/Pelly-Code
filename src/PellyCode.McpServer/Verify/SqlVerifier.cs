@@ -24,35 +24,40 @@ public sealed class SqlVerifier(IFileSystem fs, ServerContext ctx, Func<string, 
     public static bool IsSql(string path) => path.EndsWith(".sql", StringComparison.OrdinalIgnoreCase);
 
     /// <param name="head">The HEAD bytes of a repository-relative path; null when HEAD has no such file.</param>
-    public async Task CheckAsync(IReadOnlyList<GitChange> changes, Func<string, CancellationToken, Task<byte[]?>> head, VerifyReport report,
+    /// <returns>The changed SQL files that were not compiled (no usable connection, the server became unavailable, or the file
+    /// could not be checked); the caller must not count them as checked.</returns>
+    public async Task<IReadOnlyList<string>> CheckAsync(IReadOnlyList<GitChange> changes, Func<string, CancellationToken, Task<byte[]?>> head, VerifyReport report,
         IProgress<string>? progress, CancellationToken ct)
     {
         var files = changes.Where(c => c.Kind != GitChangeKind.Deleted && IsSql(c.Path)).ToList();
-        if (files.Count == 0) return;
+        if (files.Count == 0) return [];
+        var all = files.Select(c => c.Path).ToList();
 
         var options = ctx.Options.Sql;
         if (string.IsNullOrWhiteSpace(options.ConnectionString))
         {
             report.Skip(SkipHeading, NoConnection);
-            return;
+            return all;
         }
         var endpoint = SqlConnectionText.Endpoint(options.ConnectionString);
         if (endpoint.Database is null)
         {
             report.Skip(SkipHeading, NoDatabase);
-            return;
+            return all;
         }
         var allowed = SqlTargetPolicy.Check(endpoint, options);
         if (!allowed.Allowed)
         {
             report.Skip(SkipHeading, allowed.Message ?? "SQL 접속 대상이 허용되지 않습니다");
-            return;
+            return all;
         }
 
         progress?.Report("바뀐 SQL 파일을 컴파일하는 중입니다");
         var sql = executors(options.ConnectionString);
-        foreach (var change in files)
+        var notChecked = new List<string>();
+        for (var i = 0; i < files.Count; i++)
         {
+            var change = files[i];
             var section = "[SQL] " + change.Path;
             try
             {
@@ -61,17 +66,21 @@ public sealed class SqlVerifier(IFileSystem fs, ServerContext ctx, Func<string, 
             catch (SqlUnavailableException e)
             {
                 report.Skip(SkipHeading, $"SQL 서버를 사용할 수 없습니다: {SqlConnectionText.MaskInText(e.Message, options.ConnectionString)}");
-                return;
+                notChecked.AddRange(files.Skip(i).Select(c => c.Path));
+                return notChecked;
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException)
             {
                 report.Skip(section, $"파일을 읽지 못했습니다: {e.Message}");
+                notChecked.Add(change.Path);
             }
             catch (Exception e) when (e is not OperationCanceledException)
             {
                 report.Skip(section, $"SQL 컴파일 검사를 할 수 없습니다: {SqlConnectionText.MaskInText(e.Message, options.ConnectionString)}");
+                notChecked.Add(change.Path);
             }
         }
+        return notChecked;
     }
 
     private async Task CheckFileAsync(ISqlExecutor sql, GitChange change, string section,

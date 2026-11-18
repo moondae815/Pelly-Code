@@ -58,15 +58,16 @@ public sealed class WebVerifier(IFileSystem fs, ServerContext ctx, IProcessRunne
         || path.EndsWith(".css", StringComparison.OrdinalIgnoreCase);
 
     /// <param name="head">The HEAD bytes of a repository-relative path; null when HEAD has no such file.</param>
-    public async Task CheckAsync(IReadOnlyList<GitChange> changes, Func<string, CancellationToken, Task<byte[]?>> head, VerifyReport report,
-        IProgress<string>? progress, CancellationToken ct)
+    /// <returns>The changed web files that were not checked because the check was skipped as a whole (no asp·web settings).</returns>
+    public async Task<IReadOnlyList<string>> CheckAsync(IReadOnlyList<GitChange> changes, Func<string, CancellationToken, Task<byte[]?>> head,
+        VerifyReport report, IProgress<string>? progress, CancellationToken ct)
     {
         var changed = changes.Where(c => c.Kind != GitChangeKind.Deleted && IsWeb(c.Path)).ToList();
-        if (changed.Count == 0) return;
+        if (changed.Count == 0) return [];
         if (!Asp.Configured && !Web.Configured)
         {
             report.Skip(SkipHeading, NoSettings);
-            return;
+            return changed.Select(c => c.Path).ToList();
         }
         progress?.Report("바뀐 ASP·JS·CSS 파일을 검사하는 중입니다");
 
@@ -74,8 +75,9 @@ public sealed class WebVerifier(IFileSystem fs, ServerContext ctx, IProcessRunne
         var items = new List<Item>();
         foreach (var change in changed)
             if (await run.LoadAsync(change, head, ct) is { } item) items.Add(item);
-        if (items.Count == 0) return;
+        if (items.Count == 0) return [];
         await run.CheckAsync(items, ct);
+        return [];
     }
 
     /// <summary>One verify call's shared state: the site, its index, the HEAD texts of the changed files and the sections found.</summary>

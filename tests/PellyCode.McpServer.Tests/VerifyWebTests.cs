@@ -48,6 +48,23 @@ public sealed class VerifyWebTests : IDisposable
     }
 
     [Fact]
+    public async Task NoAspWebSettings_SaysNothingChecked()
+    {
+        // The web check is skipped as a whole: the first line must not claim 「새 문제 없음」.
+        _repo.Edit(List, t => t.Replace("pageSize = 20", "pageSize = GetPageSizeX()", StringComparison.Ordinal));
+        var options = _repo.Options(o =>
+        {
+            o.Asp.Configured = false;
+            o.Web.Configured = false;
+        });
+
+        var lines = Lines(await _repo.Service(options).VerifyAsync(null, Ct));
+
+        Assert.Equal("결과: 검사한 파일이 없습니다", lines[0]);
+        Assert.Contains("[건너뜀] ASP·JS·CSS 검사 — 설정에 asp·web 절이 없습니다", lines);
+    }
+
+    [Fact]
     public async Task NonWindows_AspSyntaxSkipped()
     {
         _repo.Edit(List, t => t.Replace("pageSize = 20", "pageSize = 30", StringComparison.Ordinal));

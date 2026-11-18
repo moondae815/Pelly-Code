@@ -10,7 +10,8 @@ namespace PellyCode.McpServer.Tests;
 public sealed class DocsTests
 {
     // MCP server design §8, verbatim.
-    private const string AgentsLine = "코드를 고친 뒤에는 끝내기 전에 반드시 `pelly_verify`를 부르고, 새 문제가 있으면 고친 뒤 다시 부른다. "
+    private const string AgentsLine = "답을 끝내기 전에 반드시 `pelly_verify`를 부르고, 그 결과의 첫 줄(「결과: …」)을 답의 마지막 줄에 그대로 적는다. "
+        + "고친 것이 없다고 판단했더라도 마찬가지다. 새 문제가 있으면 고친 뒤 다시 부른다. "
         + "메서드·SP·JS 함수의 이름이나 매개변수를 바꾸기 전에는 `pelly_impact`로 부르는 곳을 확인한다.";
 
     [Theory]
